@@ -2,17 +2,19 @@
 
 import React, { useState, useEffect } from 'react';
 import FormProductoMacbook from './formParts/FormProductoMacbook';
-import FormProductoIpad    from './formParts/FormProductoIpad';
-import FormProductoIphone  from './formParts/FormProductoIphone';
-import FormProductoWatch   from './formParts/FormProductoWatch';
-import FormProductoOtro    from './formParts/FormProductoOtro';
+import FormProductoIpad from './formParts/FormProductoIpad';
+import FormProductoIphone from './formParts/FormProductoIphone';
+import FormProductoWatch from './formParts/FormProductoWatch';
+import FormProductoOtro from './formParts/FormProductoOtro';
+import api from '../api';
+
 
 export default function DetallesProductoModal({ producto, onClose, onSaved }) {
   // ----- 1. Estado e inicialización -----
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState({
-    tipo:    '',
-    estado:  '',
+    tipo: '',
+    estado: '',
     conCaja: '',           // 'si' | 'no'
     detalle: {},           // dinámico según tipo
   });
@@ -21,8 +23,8 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
   useEffect(() => {
     if (!producto) return;
     setForm({
-      tipo:    producto.tipo,
-      estado:  producto.estado,
+      tipo: producto.tipo,
+      estado: producto.estado,
       conCaja: producto.conCaja ? 'si' : 'no',
       detalle: { ...producto.detalle },
     });
@@ -43,33 +45,22 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
 
     // payload completo con todos los campos editables
     const payload = {
-      tipo:    form.tipo,
-      estado:  form.estado,
+      tipo: form.tipo,
+      estado: form.estado,
       conCaja: conCajaBool,
       detalle: form.detalle,
     };
 
-     console.log('📝 payload:', payload);
-
+    console.log('📝 payload:', payload);
     try {
-      const res = await fetch(
-        `http://localhost:3000/productos/${producto.id}`,
-        {
-          method:  'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify(payload),
-        }
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const updated = await res.json();
-          console.log('✅ updated:', updated);
-
+      const updated = await api.patch(`/productos/${producto.id}`, payload);
       onSaved(updated);
       setIsEditing(false);
     } catch (e) {
       console.error('[DetallesProductoModal] Error al guardar:', e);
       alert('No se pudo actualizar el producto.');
     }
+
   };
 
   // ----- 5. Renderizado -----
@@ -105,7 +96,7 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
               </ul>
             </section>
 
-            
+
 
             <div className="flex justify-end space-x-2">
               <button
@@ -188,7 +179,7 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
                 )}
               </div>
 
-             
+
             </div>
 
             <div className="text-right mt-6 space-x-2">

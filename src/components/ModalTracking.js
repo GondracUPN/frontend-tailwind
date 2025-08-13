@@ -1,5 +1,6 @@
 // src/components/ModalTracking.js
 import React, { useState, useEffect } from 'react';
+import api from '../api';
 
 export default function ModalTracking({ producto, onClose, onSaved }) {
   const [loading, setLoading] = useState(true);
@@ -19,8 +20,8 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`http://localhost:3000/tracking/producto/${producto.id}`);
-        const data = res.ok ? await res.json() : null;
+        const data = await api.get(`/tracking/producto/${producto.id}`);
+
         if (data) {
           setTrackRec(data);
           setTrackingUsa(data.trackingUsa || '');
@@ -62,25 +63,20 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
   };
 
   const guardar = async (body) => {
+  try {
     const exists = !!trackRec?.id;
-    const url = exists
-      ? `http://localhost:3000/tracking/${trackRec.id}`
-      : `http://localhost:3000/tracking`;
-    const method = exists ? 'PATCH' : 'POST';
-    const payload = exists ? body : { productoId: producto.id, ...body };
+    const saved = exists
+      ? await api.patch(`/tracking/${trackRec.id}`, body)
+      : await api.post('/tracking', { productoId: producto.id, ...body });
 
-    const res = await fetch(url, {
-      method, headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      alert('No se pudo guardar el tracking');
-      return null;
-    }
-    const saved = await res.json();
     setTrackRec(saved);
     return saved;
-  };
+  } catch (e) {
+    alert('No se pudo guardar el tracking');
+    return null;
+  }
+};
+
 
   // 🔧 Refresca la tabla (vía onSaved) y cierra el modal
   const afterSave = async (saved) => {

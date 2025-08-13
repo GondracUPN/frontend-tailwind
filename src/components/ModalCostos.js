@@ -1,5 +1,6 @@
 // src/components/ModalCostos.js
 import React, { useState, useEffect } from 'react';
+import api from '../api';
 
 export default function ModalCostos({ producto, onClose, onSaved }) {
   const [form, setForm] = useState({
@@ -27,23 +28,23 @@ export default function ModalCostos({ producto, onClose, onSaved }) {
   const onChange = (f,v) => setForm(fm => ({ ...fm, [f]: v }));
 
   const handleSave = async () => {
-    try {
-      const res = await fetch(
-        `http://localhost:3000/productos/${producto.id}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ valor: form }),
-        }
-      );
-      if (!res.ok) throw new Error();
-      const updated = await res.json();
-      onSaved(updated);
-      onClose();
-    } catch {
-      alert('Error al guardar costos');
-    }
-  };
+  try {
+    const payload = {
+      valor: {
+        valorProducto: form.valorProducto,
+        valorDec:       form.valorDec,
+        peso:           form.peso,
+        fechaCompra:    form.fechaCompra,
+      }
+    };
+    const updated = await api.patch(`/productos/${producto.id}`, payload);
+    onSaved(updated);
+    onClose();
+  } catch {
+    alert('Error al guardar costos');
+  }
+};
+
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">

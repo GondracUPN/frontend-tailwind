@@ -5,6 +5,7 @@ import FormProductoIpad from './formParts/FormProductoIpad';
 import FormProductoIphone from './formParts/FormProductoIphone';
 import FormProductoWatch from './formParts/FormProductoWatch';
 import FormProductoOtro from './formParts/FormProductoOtro';
+import api from '../api';
 
 export default function ModalProducto({ producto, onClose, onSaved }) {
   const isEdit = Boolean(producto);
@@ -79,20 +80,17 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     console.log('📝 [ModalProducto] → PATCH payload:', payload);
 
     try {
-      console.log(payload)
-      const res = await fetch(`http://localhost:3000${url}`, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const saved = await res.json();
+      const saved = method === 'PATCH'
+        ? await api.patch(url, payload)
+        : await api.post(url, payload);
+
       onSaved(saved);
       onClose();
     } catch (err) {
       console.error('Error al guardar:', err);
       alert('No se pudo guardar el producto.');
     }
+
   };
 
   // ————— Renderizado —————
