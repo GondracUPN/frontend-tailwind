@@ -1,24 +1,21 @@
-import logo from './logo.svg';
-import './App.css';
+import React, { useState, useEffect } from 'react';
+import Home from './pages/Home';
+import Productos from './pages/Productos';
 
 function App() {
+  // Leer la última vista guardada; si no hay, usa 'home'
+  const [vista, setVista] = useState(() => localStorage.getItem('vista') || 'home');
+
+  // Guardar la vista cada vez que cambie
+  useEffect(() => {
+    localStorage.setItem('vista', vista);
+  }, [vista]);
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <>
+      {vista === 'home' && <Home setVista={setVista} />}
+      {vista === 'productos' && <Productos setVista={setVista} />}
+    </>
   );
 }
 
