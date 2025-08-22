@@ -1,68 +1,95 @@
+// src/components/CasillerosResumen.jsx
 import React, { useMemo } from 'react';
 
-// Ajusta este listado si agregas/renombras casilleros
+// Casilleros a mostrar (orden fijo)
 const CASILLEROS = ['Walter','Renato','Christian','Alex','MamaRen','Jorge','Kenny'];
 
-// Toma el último tracking del producto (por id)
-function lastTracking(p) {
-  const arr = p?.tracking || [];
-  if (!arr.length) return null;
-  return arr.reduce((a, b) => (a.id > b.id ? a : b));
-}
+/**
+ * Espera productos con p.tracking?.[0]?.casillero y p.tracking?.[0]?.estado
+ * Estados esperados: 'comprado_sin_tracking' | 'comprado_en_camino' | 'en_eshopex' | 'recogido'
+ */
+export default function CasillerosResumen({ productos = [], loading = false }) {
 
-export default function CasillerosStrip({ productos = [] }) {
   const stats = useMemo(() => {
-    const acc = {};
-    CASILLEROS.forEach(c => (acc[c] = { current: 0, total: 0 }));
+    const base = CASILLEROS.reduce((acc, c) => {
+      acc[c] = { total: 0, actuales: 0 }; // total histórico (en la lista) y activos (≠ 'recogido')
+      return acc;
+    }, {});
 
-    productos.forEach(p => {
-      const t = lastTracking(p);
-      if (!t || !t.casillero) return;
-      const c = t.casillero;
-      if (!acc[c]) acc[c] = { current: 0, total: 0 };
+    for (const p of productos || []) {
+      const t = p?.tracking?.[0];
+      const cas = t?.casillero;
+      if (!cas || !base[cas]) continue;
 
-      // total “histórico” por casillero (a nivel de producto)
-      acc[c].total += 1;
-
-      // actuales: todo lo que no sea 'recogido'
-      if (t.estado !== 'recogido') acc[c].current += 1;
-    });
-
-    return acc;
+      base[cas].total += 1;
+      if (t.estado !== 'recogido') base[cas].actuales += 1;
+    }
+    return base;
   }, [productos]);
 
+  if (loading) {
+    // Skeleton compacto con “barra que se mueve”
+    return (
+      <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {CASILLEROS.slice(0,4).map((k) => (
+          <div key={k} className="p-3 rounded-md border bg-white">
+            <div className="h-4 w-24 mb-2 bg-gray-200 rounded animate-pulse" />
+            <div className="h-3 w-full bg-gray-100 rounded overflow-hidden">
+              <div className="h-3 w-1/2 bg-gray-300 animate-pulse" />
+            </div>
+            <div className="mt-2 h-3 w-32 bg-gray-200 rounded animate-pulse" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className="mb-3">
-      <div className="flex flex-wrap gap-2">
-        {CASILLEROS.map(name => {
-          const s = stats[name] || { current: 0, total: 0 };
-          const habilitado = s.current <= 1;
+    <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+      {CASILLEROS.map((cas) => {
+        const { total, actuales } = stats[cas] || { total: 0, actuales: 0 };
+        const capacidadMax = 2;                     // regla: < 2 habilitado
+        const habilitado = actuales < capacidadMax; // 0 o 1 => OK; 2+ => NO
+        const pct = Math.min((actuales / capacidadMax) * 100, 100);
 
-          return (
-            <div
-              key={name}
-              className="px-3 py-2 border rounded-lg bg-white shadow-sm flex items-center gap-3 text-sm"
-            >
-              <span className="font-medium">{name}</span>
-
-              <div className="text-xs flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded bg-gray-100">Ahora: {s.current}</span>
-                <span className="px-2 py-0.5 rounded bg-gray-100">Total: {s.total}</span>
-              </div>
-
-              <button
-                className={
-                  'ml-1 text-xs px-2 py-1 rounded cursor-not-allowed ' +
-                  (habilitado ? 'bg-green-600 text-white' : 'bg-red-600 text-white')
-                }
-                disabled
+        return (
+          <div key={cas} className="p-3 rounded-md border bg-white">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold">{cas}</span>
+              <span
+                className={`text-[11px] px-2 py-[2px] rounded-full 
+                ${habilitado ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
+                title={habilitado ? 'Menos de 2 paquetes' : 'Tiene 2 o más paquetes'}
               >
                 {habilitado ? 'Habilitado' : 'No disponible'}
-              </button>
+              </span>
             </div>
-          );
-        })}
-      </div>
+
+            {/* Barra de ocupación */}
+            <div className="h-2 w-full bg-gray-100 rounded overflow-hidden">
+              <div
+                className={`h-2 ${habilitado ? 'bg-green-500' : 'bg-red-500'}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+
+            <div className="mt-2 flex justify-between text-[12px] text-gray-600">
+              <span>Ahora: <strong>{actuales}</strong></span>
+              <span>Total: <strong>{total}</strong></span>
+            </div>
+
+            {/* Botón no clickeable que cambia de color */}
+            <button
+              type="button"
+              disabled
+              className={`mt-2 w-full text-[11px] py-1 rounded cursor-not-allowed 
+                ${habilitado ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}
+            >
+              {habilitado ? 'Disponible' : 'Ocupado'}
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

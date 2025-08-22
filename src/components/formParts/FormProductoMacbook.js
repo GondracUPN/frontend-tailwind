@@ -61,9 +61,9 @@ export default function FormProductoMacbook({ detalle, onChange }) {
       <div>
         <label className="block font-medium">Tamaño</label>
         <select
-          value={detalle.tamanio}
+          value={detalle.tamaño}
           className="w-full border p-2 rounded"
-          onChange={e => onChange('tamanio', e.target.value)}
+          onChange={e => onChange('tamaño', e.target.value)}
         >
           <option value="">Seleccione</option>
           {getTamanos().map(t => (
