@@ -5,6 +5,7 @@ import DetallesProductoModal from '../components/DetallesProductoModal';
 import ModalCostos from '../components/ModalCostos';
 import ModalTracking from '../components/ModalTracking';
 import api from '../api';  // cliente fetch centralizado
+import ResumenCasilleros from '../components/ResumenCasilleros';
 
 export default function Productos({ setVista }) {
   const [productos, setProductos] = useState([]);
@@ -19,31 +20,31 @@ export default function Productos({ setVista }) {
   const labelFromEstado = (estado) => {
     switch (estado) {
       case 'comprado_sin_tracking': return 'Comprado (Sin Tracking)';
-      case 'comprado_en_camino':    return 'Comprado (En Camino US)';
-      case 'en_eshopex':            return 'En Eshopex (Camino Lima)';
-      case 'recogido':              return 'Recogido';
-      default:                      return '—';
+      case 'comprado_en_camino': return 'Comprado (En Camino US)';
+      case 'en_eshopex': return 'En Eshopex (Camino Lima)';
+      case 'recogido': return 'Recogido';
+      default: return '—';
     }
   };
 
   // Bases de URL por operador declarado por backend
   const URLS = {
-    usps:   (code) => `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(code)}`,
-    ups:    (code) => `https://www.ups.com/track?tracknum=${encodeURIComponent(code)}`,
-    fedex:  (code) => `https://www.fedex.com/fedextrack/?tracknumbers=${encodeURIComponent(code)}`,
-    dhl:    (code) => `https://www.dhl.com/en/express/tracking.html?AWB=${encodeURIComponent(code)}&brand=DHL`,
+    usps: (code) => `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(code)}`,
+    ups: (code) => `https://www.ups.com/track?tracknum=${encodeURIComponent(code)}`,
+    fedex: (code) => `https://www.fedex.com/fedextrack/?tracknumbers=${encodeURIComponent(code)}`,
+    dhl: (code) => `https://www.dhl.com/en/express/tracking.html?AWB=${encodeURIComponent(code)}&brand=DHL`,
     amazon: (code) => `https://www.amazon.com/progress-tracker/package?trackingId=${encodeURIComponent(code)}`,
-    eshopex:(code) => `https://usamybox.com/internacional/tracking_box.php?nrotrack=${encodeURIComponent(code)}`,
+    eshopex: (code) => `https://usamybox.com/internacional/tracking_box.php?nrotrack=${encodeURIComponent(code)}`,
   };
 
   // Construye el link según estado y datos
   const buildTrackingLink = (t) => {
     if (!t) return null;
 
-    const trackingUsa = typeof t.trackingUsa   === 'string' ? t.trackingUsa.trim()   : '';
+    const trackingUsa = typeof t.trackingUsa === 'string' ? t.trackingUsa.trim() : '';
     const trackingEsh = typeof t.trackingEshop === 'string' ? t.trackingEshop.trim() : '';
-    const operadorRaw = typeof t.transportista === 'string' ? t.transportista         : '';
-    const operador    = operadorRaw.toLowerCase();
+    const operadorRaw = typeof t.transportista === 'string' ? t.transportista : '';
+    const operador = operadorRaw.toLowerCase();
 
     switch (t.estado) {
       case 'comprado_sin_tracking':
@@ -84,11 +85,11 @@ export default function Productos({ setVista }) {
     return () => { alive = false; };
   }, []);
 
-  const abrirCrear   = () => { setProductoSeleccionado(null); setModalModo('crear');   };
-  const abrirDetalle = (p)   => { setProductoSeleccionado(p);  setModalModo('detalle'); };
-  const abrirCostos  = (p)   => { setProductoSeleccionado(p);  setModalModo('costos');  };
-  const abrirTrack   = (p)   => { setProductoSeleccionado(p);  setModalModo('track');   };
-  const cerrarModal  = ()    => setModalModo(null);
+  const abrirCrear = () => { setProductoSeleccionado(null); setModalModo('crear'); };
+  const abrirDetalle = (p) => { setProductoSeleccionado(p); setModalModo('detalle'); };
+  const abrirCostos = (p) => { setProductoSeleccionado(p); setModalModo('costos'); };
+  const abrirTrack = (p) => { setProductoSeleccionado(p); setModalModo('track'); };
+  const cerrarModal = () => setModalModo(null);
 
   const handleSaved = (updated) => {
     setProductos(list =>
@@ -119,7 +120,8 @@ export default function Productos({ setVista }) {
           ← Volver
         </button>
       </header>
-
+{/* Panel de casilleros */}
+      <ResumenCasilleros productos={productos} />
       {/* Botón Agregar */}
       <div className="flex justify-end mb-4">
         <button onClick={abrirCrear} className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700">
@@ -130,7 +132,7 @@ export default function Productos({ setVista }) {
       {/* Cargando / Error */}
       {cargando && <p>Cargando productos…</p>}
       {error && <p className="text-red-500">{error}</p>}
-
+      
       {/* Tabla */}
       {!cargando && !error && (
         productos.length > 0 ? (
@@ -155,7 +157,7 @@ export default function Productos({ setVista }) {
                 const v = p.valor || {};
                 const t = p.tracking?.[0]; // Primer tracking (si existe)
                 const label = labelFromEstado(t?.estado);
-                const link  = buildTrackingLink(t);
+                const link = buildTrackingLink(t);
 
                 return (
                   <tr key={p.id} className="border-t hover:bg-gray-50">
@@ -224,10 +226,10 @@ export default function Productos({ setVista }) {
       )}
 
       {/* Modales */}
-      {modalModo === 'crear'   && <ModalProducto         onClose={cerrarModal} onSaved={handleSaved} />}
+      {modalModo === 'crear' && <ModalProducto onClose={cerrarModal} onSaved={handleSaved} />}
       {modalModo === 'detalle' && <DetallesProductoModal producto={productoSeleccionado} onClose={cerrarModal} onSaved={handleSaved} />}
-      {modalModo === 'costos'  && <ModalCostos           producto={productoSeleccionado} onClose={cerrarModal} onSaved={handleSaved} />}
-      {modalModo === 'track'   && (
+      {modalModo === 'costos' && <ModalCostos producto={productoSeleccionado} onClose={cerrarModal} onSaved={handleSaved} />}
+      {modalModo === 'track' && (
         <ModalTracking
           producto={productoSeleccionado}
           onClose={cerrarModal}
@@ -235,7 +237,7 @@ export default function Productos({ setVista }) {
             try {
               const data = await api.get('/productos'); // ← refresca desde backend correcto
               setProductos(data);
-            } catch {}
+            } catch { }
             cerrarModal();
           }}
         />

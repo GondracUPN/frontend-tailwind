@@ -19,7 +19,7 @@ export default function FormProductoMacbook({ detalle, onChange }) {
   };
 
   const getAlmacenamiento = () => {
-    if (gama === 'Air')                   return ['256'];
+    if (gama === 'Air')                       return ['256', '512', '1TB'];
     if (['M1','M2'].includes(procesador)) return ['256','512','1TB'];
     return ['512','1TB','2TB'];
   };
