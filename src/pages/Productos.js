@@ -6,6 +6,7 @@ import ModalCostos from '../components/ModalCostos';
 import ModalTracking from '../components/ModalTracking';
 import api from '../api';  // cliente fetch centralizado
 import ResumenCasilleros from '../components/ResumenCasilleros';
+import ModalVenta from '../components/ModalVenta';
 
 export default function Productos({ setVista }) {
   const [productos, setProductos] = useState([]);
@@ -13,6 +14,17 @@ export default function Productos({ setVista }) {
   const [error, setError] = useState(null);
   const [modalModo, setModalModo] = useState(null); // 'crear'|'detalle'|'costos'|'track'
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
+  // Mapa: productoId -> última venta (o null)
+  const [ventasMap, setVentasMap] = useState({});
+
+  // Abre modal de venta (creación o lectura)
+  const abrirVenta = (p) => { setProductoSeleccionado(p); setModalModo('venta'); };
+
+  // Cuando se guarda una venta, refrescamos sólo ese producto en el mapa
+  const handleVentaSaved = (ventaGuardada) => {
+    setVentasMap(prev => ({ ...prev, [ventaGuardada.productoId]: ventaGuardada }));
+    cerrarModal();
+  };
 
   const fmtSoles = (v) => (v != null ? `S/ ${parseFloat(v).toFixed(2)}` : '—');
 
@@ -84,6 +96,37 @@ export default function Productos({ setVista }) {
     })();
     return () => { alive = false; };
   }, []);
+  // Cargar última venta por producto (si existe) cuando cambia la lista
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!productos || productos.length === 0) return;
+      try {
+        const entries = await Promise.all(
+          productos.map(async (p) => {
+            try {
+              const data = await api.get(`/ventas/producto/${p.id}`); // devuelve array desc
+              const ultima = Array.isArray(data) && data.length > 0 ? data[0] : null;
+              return [p.id, ultima];
+            } catch {
+              return [p.id, null];
+            }
+          })
+        );
+        if (!mounted) return;
+        const map = {};
+        entries.forEach(([id, v]) => { map[id] = v; });
+        setVentasMap(map);
+      } catch (e) {
+        console.error('Error cargando ventas:', e);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [productos]);
+
+
+
+
 
   const abrirCrear = () => { setProductoSeleccionado(null); setModalModo('crear'); };
   const abrirDetalle = (p) => { setProductoSeleccionado(p); setModalModo('detalle'); };
@@ -120,7 +163,7 @@ export default function Productos({ setVista }) {
           ← Volver
         </button>
       </header>
-{/* Panel de casilleros */}
+      {/* Panel de casilleros */}
       <ResumenCasilleros productos={productos} />
       {/* Botón Agregar */}
       <div className="flex justify-end mb-4">
@@ -132,7 +175,7 @@ export default function Productos({ setVista }) {
       {/* Cargando / Error */}
       {cargando && <p>Cargando productos…</p>}
       {error && <p className="text-red-500">{error}</p>}
-      
+
       {/* Tabla */}
       {!cargando && !error && (
         productos.length > 0 ? (
@@ -149,6 +192,7 @@ export default function Productos({ setVista }) {
                 <th className="p-2">Total S/</th>
                 <th className="p-2">F. Compra</th>
                 <th className="p-2">Tracking</th>
+                <th className="p-2">Venta</th>
                 <th className="p-2">Acciones</th>
               </tr>
             </thead>
@@ -201,6 +245,43 @@ export default function Productos({ setVista }) {
                         </div>
                       )}
                     </td>
+
+                    {/* Venta */}
+                    <td className="p-2">
+                      {(() => {
+                        const t = p.tracking?.[0];
+                        const venta = ventasMap[p.id] || null;
+                        const recogido = t?.estado === 'recogido';
+
+                        let text = 'En espera';
+                        let className = 'bg-gray-300 text-gray-600 cursor-not-allowed opacity-60';
+                        let disabled = true;
+
+                        if (recogido && !venta) {
+                          text = 'Disponible';
+                          className = 'bg-yellow-500 text-white hover:bg-yellow-600';
+                          disabled = false;
+                        }
+                        if (venta) {
+                          text = 'Vendido';
+                          className = 'bg-green-600 text-white hover:bg-green-700';
+                          disabled = false;
+                        }
+
+                        return (
+                          <button
+                            onClick={() => { if (!disabled) abrirVenta(p); }}
+                            className={`${className} px-3 py-1 rounded`}
+                            disabled={disabled}
+                            title={disabled ? 'Aún no está recogido' : ''}
+                          >
+                            {text}
+                          </button>
+                        );
+                      })()}
+                    </td>
+
+
                     <td className="p-2 space-x-1">
                       <button
                         onClick={() => abrirCostos(p)}
@@ -242,6 +323,16 @@ export default function Productos({ setVista }) {
           }}
         />
       )}
+      {modalModo === 'venta' && (
+        <ModalVenta
+          producto={productoSeleccionado}
+          venta={ventasMap[productoSeleccionado?.id] || null}
+          onClose={cerrarModal}
+          onSaved={handleVentaSaved}
+        />
+      )}
+
     </div>
   );
+
 }
