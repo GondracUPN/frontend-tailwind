@@ -1,6 +1,6 @@
 // src/components/formParts/FormProductoIpad.js
 export default function FormProductoIpad({ detalle, onChange }) {
-  const { gama, procesador, generacion, tamanio, almacenamiento } = detalle;
+  const { gama, procesador, generacion, tamanio, almacenamiento, conexion } = detalle;
 
   const generacionesNormales = ['8', '9', '10', '11'];
   const procesadoresAir = ['M1', 'M2', 'M3'];
@@ -49,6 +49,8 @@ export default function FormProductoIpad({ detalle, onChange }) {
             onChange('generacion', '');
             onChange('tamanio', '');
             onChange('almacenamiento', '');
+            // la conexión puede mantenerse; si prefieres resetearla, descomenta:
+            // onChange('conexion', '');
           }}
         >
           <option value="">Seleccione</option>
@@ -131,6 +133,22 @@ export default function FormProductoIpad({ detalle, onChange }) {
             </div>
           )}
         </>
+      )}
+
+      {/* Conexión (aplica a todas las gamas) */}
+      {gama && (
+        <div>
+          <label className="block font-medium">Conexión</label>
+          <select
+            className="w-full border p-2 rounded"
+            value={conexion || ''}
+            onChange={e => onChange('conexion', e.target.value)}
+          >
+            <option value="">Seleccione</option>
+            <option value="Wifi">Wifi</option>
+            <option value="Wifi + Cel">Wifi + Cel</option>
+          </select>
+        </div>
       )}
     </>
   );

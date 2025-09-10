@@ -63,19 +63,19 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
   };
 
   const guardar = async (body) => {
-  try {
-    const exists = !!trackRec?.id;
-    const saved = exists
-      ? await api.patch(`/tracking/${trackRec.id}`, body)
-      : await api.post('/tracking', { productoId: producto.id, ...body });
+    try {
+      const exists = !!trackRec?.id;
+      const saved = exists
+        ? await api.patch(`/tracking/${trackRec.id}`, body)
+        : await api.post('/tracking', { productoId: producto.id, ...body });
 
-    setTrackRec(saved);
-    return saved;
-  } catch (e) {
-    alert('No se pudo guardar el tracking');
-    return null;
-  }
-};
+      setTrackRec(saved);
+      return saved;
+    } catch (e) {
+      alert('No se pudo guardar el tracking');
+      return null;
+    }
+  };
 
 
   // 🔧 Refresca la tabla (vía onSaved) y cierra el modal
@@ -297,14 +297,26 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
         {/* === Vista 3: En Eshopex (Camino Lima) → pedir fecha recogido === */}
         {(estado === 'en_eshopex') && (
           <>
-            <div>
-              <label className="block text-sm font-medium">Fecha de Recogido</label>
-              <input type="date" className="w-full border p-2 rounded"
-                value={fechaRecogido}
-                onChange={e => setFechaRecogido(e.target.value)} />
+            {/* Fecha de recepción (solo lectura) */}
+            <div className="mb-4 p-3 rounded bg-amber-50 border border-amber-200">
+              <div className="text-sm text-amber-900">
+                <span className="font-semibold">Fecha de Recepción: </span>
+                {fechaRecepcion
+                  ? new Date(fechaRecepcion).toLocaleDateString()
+                  : '—'}
+              </div>
             </div>
 
-            {/* Links */}
+            <div>
+              <label className="block text-sm font-medium">Fecha de Recogido</label>
+              <input
+                type="date"
+                className="w-full border p-2 rounded"
+                value={fechaRecogido}
+                onChange={e => setFechaRecogido(e.target.value)}
+              />
+            </div>
+
             {buildCarrierLink() && (
               <div className="mt-3 text-sm">
                 <a href={buildCarrierLink()} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
@@ -330,6 +342,7 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
             </div>
           </>
         )}
+
 
         {/* === Vista 4: Recogido (solo lectura con todo) === */}
         {(estado === 'recogido') && (

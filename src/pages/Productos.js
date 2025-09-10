@@ -38,6 +38,21 @@ export default function Productos({ setVista }) {
       default: return '—';
     }
   };
+  // Colores Tailwind por estado
+  const badgeClasses = (estado) => {
+    switch (estado) {
+      case 'comprado_sin_tracking':
+        return 'bg-slate-100 text-slate-700 border border-slate-300';
+      case 'comprado_en_camino':
+        return 'bg-[#d6effe] text-[#009eff] border border-[#90b5fe]';
+      case 'en_eshopex':
+        return 'bg-amber-100 text-amber-800 border border-amber-300';
+      case 'recogido':
+        return 'bg-emerald-100 text-emerald-800 border border-emerald-300';
+      default:
+        return 'bg-gray-100 text-gray-700 border border-gray-300';
+    }
+  };
 
   // Bases de URL por operador declarado por backend
   const URLS = {
@@ -224,14 +239,22 @@ export default function Productos({ setVista }) {
                       {v.fechaCompra ? new Date(v.fechaCompra).toLocaleDateString() : '—'}
                     </td>
                     <td className="p-2">
+                      {/* Pill/ botón de estado: más grande, negrita y “clickable” */}
                       <button
                         onClick={() => abrirTrack(p)}
-                        className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600"
+                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${badgeClasses(t?.estado)}`}
+                        title="Abrir tracking"
                       >
+                        <span className="text-xs">📦</span>
                         {label}
                       </button>
 
-                      {/* Enlace dinámico debajo del botón */}
+                      {/* Casillero más visible (más grande + negrita) */}
+                      <div className="mt-1 text-sm font-semibold text-gray-800">
+                        {t?.casillero ? `Casillero: ${t.casillero}` : 'Casillero: —'}
+                      </div>
+
+                      {/* Enlace dinámico debajo */}
                       {link && (
                         <div className="mt-1 text-xs">
                           <a
@@ -245,6 +268,8 @@ export default function Productos({ setVista }) {
                         </div>
                       )}
                     </td>
+
+
 
                     {/* Venta */}
                     <td className="p-2">

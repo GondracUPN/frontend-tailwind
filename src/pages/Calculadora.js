@@ -28,12 +28,12 @@ const num = (v) =>
 const fmtSoles = (v) => (isNaN(v) ? "—" : `S/ ${v.toFixed(2)}`);
 
 // Redondeos
-const ceil10 = (v) => Math.ceil((Number(v) || 0) / 10) * 10;       // hacia arriba ×10
-const round10HalfUp = (v) => {                                     // ×10 con .5→arriba
+const ceil10 = (v) => Math.ceil((Number(v) || 0) / 10) * 10;
+const round10HalfUp = (v) => {
   const n = Number(v) || 0, down = Math.floor(n / 10) * 10, up = down + 10;
   return (n - down) >= 5 ? up : down;
 };
-const round5HalfUp = (v) => {                                      // ×5 con .5→arriba
+const round5HalfUp = (v) => {
   const n = Number(v) || 0, down = Math.floor(n / 5) * 5, up = down + 5;
   return (n - down) >= 2.5 ? up : down;
 };
@@ -43,7 +43,7 @@ const roundTenth05Down = (kg) => {
   if (v <= 0) return 0;
   const centi = Math.round(v * 100);
   const tens = Math.floor(centi / 10);
-  const rem  = centi - tens * 10;   // 0..9
+  const rem  = centi - tens * 10;
   return (rem <= 5 ? tens : tens + 1) / 10;
 };
 
@@ -62,7 +62,8 @@ const tarifaEshopexInterpolada = (pesoKg) => {
   const extraKg = pesoKg - 10;
   return P[P.length - 1].precio + (extraKg / 0.5) * ADICIONAL_05KG;
 };
-const tarifaHasta3Kg = (pesoKg) => tarifaEshopexInterpolada(Math.min(Math.max(pesoKg || 0, 0), 3));
+const tarifaHasta3Kg = (pesoKg) =>
+  tarifaEshopexInterpolada(Math.min(Math.max(pesoKg || 0, 0), 3));
 
 // Honorarios / Seguro según DEC (USD)
 const honorariosPorDEC = (dec) => (dec <= 100 ? 16.30 : dec <= 200 ? 25.28 : dec <= 1000 ? 39.76 : 60.16);
@@ -101,10 +102,9 @@ const Card = React.memo(function Card({ title, children }) {
    Página principal
    ========================= */
 export default function Calculadora({ setVista }) {
-  // Compras: TC editable
+  // Compras: TC editable (ahora se muestra dentro del formulario)
   const [tipoCambio, _setTipoCambio] = useState("3.75");
   const setTipoCambio = useCallback((e) => _setTipoCambio(e.target.value), []);
-  const [mostrarTC, setMostrarTC] = useState(false);
 
   // Jorge: TC y Extra editables
   const [tcJorge, _setTcJorge] = useState(String(TC_JORGE_DEFAULT));
@@ -229,33 +229,10 @@ export default function Calculadora({ setVista }) {
           <h1 className="text-3xl font-bold">Calculadora</h1>
           <p className="text-gray-600">Simula costos y precio de venta mínimo.</p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <button onClick={goHome} className="px-4 py-2 rounded-lg bg-white border hover:bg-gray-100">← Volver</button>
-          <button
-            onClick={() => setMostrarTC((v) => !v)}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-            title="Cambiar tipo de cambio (solo Compras)"
-          >
-            Cambiar tipo de cambio
-          </button>
-        </div>
+        <button onClick={goHome} className="px-4 py-2 rounded-lg bg-white border hover:bg-gray-100">
+          ← Volver
+        </button>
       </header>
-
-      {mostrarTC && (
-        <div className="mb-6 bg-white border rounded-xl p-4 flex items-center gap-4 shadow-sm">
-          <label className="text-sm font-medium">Tipo de cambio (S/ por USD):</label>
-          <input
-            type="text"
-            inputMode="decimal"
-            className="border rounded-lg p-2 w-32"
-            value={tipoCambio}
-            onChange={setTipoCambio}
-            placeholder="3.75"
-          />
-          <span className="text-xs text-gray-500">(Solo se aplica en Compras)</span>
-        </div>
-      )}
 
       {/* Tabs */}
       <div className="flex gap-2 mb-6">
@@ -273,8 +250,9 @@ export default function Calculadora({ setVista }) {
               <Input label="Envío USA (USD) — opcional" value={form.envioUsaUsd} onChange={setField("envioUsaUsd")} placeholder="p.ej. 12" />
               <Input label="Precio DEC (USD)"           value={form.decUsd}      onChange={setField("decUsd")}      placeholder="p.ej. 180" />
               <Input label="Peso estimado (Kg)"         value={form.pesoKg}      onChange={setField("pesoKg")}      placeholder="p.ej. 9.55" />
+              {/* TC Compras dentro del formulario (editable) */}
+              <Input label="TC Compras (S/ por USD)"    value={tipoCambio}       onChange={setTipoCambio}            placeholder="3.75" />
               <div className="text-sm text-gray-500">
-                * TC actual {num(tipoCambio).toFixed(2)}.<br />
                 * Promo -35% solo hasta 3 Kg (transporte eShopex).<br />
                 * &gt;10 Kg: S/ {ADICIONAL_05KG} por cada 0.5 Kg adicional.
               </div>

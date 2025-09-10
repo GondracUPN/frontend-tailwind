@@ -16,6 +16,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     tipo: '',
     estado: '',
     conCaja: '',       // '' obliga a seleccionar
+    casillero: '',
     detalle: {
       gama: '', procesador: '', generacion: '',
       modelo: '', tamaño: '',
@@ -35,12 +36,13 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       tipo: producto.tipo || '',
       estado: producto.estado || '',
       conCaja: producto.conCaja ? 'si' : 'no',
+      casillero: producto.tracking?.[0]?.casillero || '',  // si existe tracking relacionado
       detalle: { ...producto.detalle },
       valor: {
         valorProducto: producto.valor?.valorProducto || '',
-        valorDec:      producto.valor?.valorDec      || '',
-        peso:          producto.valor?.peso          || '',
-        fechaCompra:   producto.valor?.fechaCompra   || '',
+        valorDec: producto.valor?.valorDec || '',
+        peso: producto.valor?.peso || '',
+        fechaCompra: producto.valor?.fechaCompra || '',
       },
     });
   }, [isEdit, producto]);
@@ -63,23 +65,34 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     if (saving) return;         // ⛔ evita doble clic / Enter
     setSaving(true);            // 🔒 bloquea UI
 
-    const url    = isEdit ? `/productos/${producto.id}` : '/productos';
+    const url = isEdit ? `/productos/${producto.id}` : '/productos';
     const method = isEdit ? 'patch' : 'post';
 
     const base = {
-      tipo:   form.tipo,
+      tipo: form.tipo,
       estado: form.estado,
       conCaja: form.conCaja === 'si',
+      casillero: form.casillero,
     };
 
     const payload = { ...base, detalle: form.detalle, valor: form.valor };
-
     try {
-      const res   = await api[method](url, payload);
+      const res = await api[method](url, payload);
       const saved = res?.data ?? res; // ✅ Producto real (no AxiosResponse)
+
+      // 👇 Crear o actualizar tracking con casillero
+      if (form.casillero) {
+        await api.put(`/tracking/producto/${saved.id}`, {
+          casillero: form.casillero,
+          estado: "comprado_sin_tracking",
+        });
+
+      }
+
       onSaved(saved);
       onClose();
     } catch (err) {
+
       console.error('Error al guardar:', err);
       alert('No se pudo guardar el producto.');
     } finally {
@@ -190,6 +203,27 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                     </select>
                   </div>
                 )}
+
+                {/* Casillero */}
+                <div>
+                  <label className="block font-medium">Casillero</label>
+                  <select
+                    className="w-full border p-2 rounded"
+                    value={form.casillero}
+                    onChange={e => onChange('main', 'casillero', e.target.value)}
+                  >
+                    <option value="">Selecciona</option>
+                    <option value="Walter">Walter</option>
+                    <option value="Renato">Renato</option>
+                    <option value="Christian">Christian</option>
+                    <option value="Alex">Alex</option>
+                    <option value="MamaRen">MamaRen</option>
+                    <option value="Jorge">Jorge</option>
+                    <option value="Kenny">Kenny</option>
+                  </select>
+                </div>
+
+
               </div>
 
               {/* — Columna 2: Valores — */}
@@ -205,7 +239,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                       }[field]}
                     </label>
                     <input
-                      type={field === 'fechaCompra' ? 'date' : 'number'} 
+                      type={field === 'fechaCompra' ? 'date' : 'number'}
                       className="w-full border p-2 rounded"
                       value={form.valor[field]}
                       onChange={e => onChange('valor', field, e.target.value)}
