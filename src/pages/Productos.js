@@ -30,6 +30,63 @@ export default function Productos({ setVista }) {
 
   const fmtSoles = (v) => (v != null ? `S/ ${parseFloat(v).toFixed(2)}` : '—');
 
+  // === Importador de recojo ===
+  const [importMode, setImportMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
+  const toggleImportMode = () => {
+    setImportMode(v => !v);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Construye el nombre del producto para el mensaje
+  const buildNombreProducto = (p) => {
+    if (!p) return '';
+    const tipo = p.tipo || '';
+    if (tipo === 'otro') {
+      return (p.detalle?.descripcionOtro || '').trim() || 'Otros';
+    }
+    const gama = p.detalle?.gama || '';
+    const proc = p.detalle?.procesador || '';
+    const tam = p.detalle?.tamaño || p.detalle?.tamanio || ''; // tolera ambos
+    return [tipo, gama, proc, tam].filter(Boolean).join(' ');
+  };
+
+  // Genera y abre el WhatsApp con las líneas seleccionadas
+  const aceptarImportacion = () => {
+    const items = productos.filter(p => selectedIds.has(p.id));
+    if (items.length === 0) {
+      alert('Selecciona al menos un producto');
+      return;
+    }
+    const lineas = items.map(p => {
+      const t = p.tracking?.[0] || {};
+      const trackEsh = (t.trackingEshop || '').trim(); // código Eshopex
+      const casillero = t.casillero || '';
+      const nombre = buildNombreProducto(p);
+      // Cada producto, una línea
+      return `${trackEsh} | ${nombre} | Casillero: ${casillero}`;
+    });
+    const texto = lineas.join('\n');
+    const url = `https://wa.me/51938597478?text=${encodeURIComponent(texto)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+
+    // limpiar modo importador
+    setImportMode(false);
+    setSelectedIds(new Set());
+  };
+
+
+
   // ===== Helpers de Tracking (sin heurística) =====
   const labelFromEstado = (estado) => {
     switch (estado) {
@@ -326,12 +383,45 @@ export default function Productos({ setVista }) {
 
 
 
-      {/* Botón Agregar */}
-      <div className="flex justify-end mb-4">
-        <button onClick={abrirCrear} className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700">
-          Agregar Producto
-        </button>
+      {/* Botonera: Agregar / Importador de recojo */}
+      <div className="flex justify-end gap-2 mb-4">
+        {!importMode ? (
+          <>
+            <button
+              onClick={abrirCrear}
+              className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700"
+            >
+              Agregar Producto
+            </button>
+            <button
+              onClick={toggleImportMode}
+              className="bg-purple-600 text-white px-5 py-2 rounded hover:bg-purple-700"
+              title="Seleccionar varios para recojo (WhatsApp)"
+            >
+              Importar recojo
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={aceptarImportacion}
+              className="bg-emerald-600 text-white px-5 py-2 rounded hover:bg-emerald-700"
+              title="Generar texto y abrir WhatsApp"
+            >
+              Aceptar
+            </button>
+            <button
+              onClick={toggleImportMode}
+              className="bg-gray-300 text-gray-800 px-5 py-2 rounded hover:bg-gray-400"
+            >
+              Cancelar
+            </button>
+          </>
+        )}
       </div>
+
+
+
 
       {/* Cargando / Error */}
       {cargando && <p>Cargando productos…</p>}
@@ -343,6 +433,7 @@ export default function Productos({ setVista }) {
           <table className="w-full text-left border">
             <thead className="bg-gray-100">
               <tr>
+                {importMode && <th className="p-2">Sel.</th>}
                 <th className="p-2">Tipo</th>
                 <th className="p-2">Estado</th>
                 <th className="p-2">Caja</th>
@@ -363,9 +454,22 @@ export default function Productos({ setVista }) {
                 const t = p.tracking?.[0]; // Primer tracking (si existe)
                 const label = labelFromEstado(t?.estado);
                 const link = buildTrackingLink(t);
+                const tieneEshopex = Boolean(p.tracking?.[0]?.trackingEshop);
 
                 return (
                   <tr key={p.id} className="border-t hover:bg-gray-50">
+                    {importMode && (
+                      <td className="p-2">
+                        <input
+                          type="checkbox"
+                          disabled={!tieneEshopex}
+                          title={tieneEshopex ? '' : 'Sin tracking Eshopex'}
+                          checked={selectedIds.has(p.id)}
+                          onChange={() => toggleSelect(p.id)}
+                        />
+                      </td>
+                    )}
+
                     <td className="p-2">
                       <button
                         onClick={() => abrirDetalle(p)}
