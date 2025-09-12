@@ -19,7 +19,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     casillero: '',
     detalle: {
       gama: '', procesador: '', generacion: '',
-      modelo: '', tamaño: '',
+      modelo: '', tamanio: '',
       almacenamiento: '', ram: '',
       conexion: '', descripcionOtro: '',
     },

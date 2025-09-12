@@ -7,6 +7,7 @@ import ModalTracking from '../components/ModalTracking';
 import api from '../api';  // cliente fetch centralizado
 import ResumenCasilleros from '../components/ResumenCasilleros';
 import ModalVenta from '../components/ModalVenta';
+import ModalCalculadora from '../components/ModalCalculadora';
 
 export default function Productos({ setVista }) {
   const [productos, setProductos] = useState([]);
@@ -19,6 +20,7 @@ export default function Productos({ setVista }) {
 
   // Abre modal de venta (creación o lectura)
   const abrirVenta = (p) => { setProductoSeleccionado(p); setModalModo('venta'); };
+  const abrirCalculadora = (p) => { setProductoSeleccionado(p); setModalModo('calc'); };
 
   // Cuando se guarda una venta, refrescamos sólo ese producto en el mapa
   const handleVentaSaved = (ventaGuardada) => {
@@ -169,6 +171,88 @@ export default function Productos({ setVista }) {
     }
   };
 
+  // === CONTADORES ===
+  const stats = React.useMemo(() => {
+    const total = productos.length;
+    let sinTracking = 0;
+    let enCamino = 0;
+    let enEshopex = 0;
+    let disponible = 0;
+    let vendido = 0;
+
+    for (const p of productos) {
+      const t = p.tracking?.[0];
+      const estado = t?.estado || null;
+      const venta = ventasMap[p.id] || null;
+
+      if (!t || estado === 'comprado_sin_tracking') sinTracking++;
+      if (estado === 'comprado_en_camino') enCamino++;
+      if (estado === 'en_eshopex') enEshopex++;
+
+      if (venta) {
+        vendido++;
+      } else if (estado === 'recogido') {
+        disponible++;
+      }
+    }
+
+    return { total, sinTracking, enCamino, enEshopex, disponible, vendido };
+  }, [productos, ventasMap]);
+
+  // === TOTALES DE MONTOS ===
+  // Suma global de valorProducto ($), costoEnvio (S/), costoTotal (S/), total vendido (S/), y ganancia (S/)
+  const totals = React.useMemo(() => {
+    let totalGastadoUSD = 0;   // suma de valorProducto ($)
+    let totalEnvioSoles = 0;   // suma de costoEnvio (S/)
+    let totalDecUSD = 0;
+    let totalCostoSoles = 0;   // suma de costoTotal (S/)
+    let totalVentaSoles = 0;   // suma de venta (S/) sólo si existe registro de venta
+    let gananciaSoles = 0;     // totalVentaSoles - totalCostoSoles (por producto vendido)
+
+    for (const p of productos) {
+      const v = p.valor || {};
+      const venta = ventasMap[p.id] || null;
+
+      // Costos
+      if (v.valorProducto != null && v.valorProducto !== '') {
+        totalGastadoUSD += Number(v.valorProducto) || 0;
+      }
+      if (v.valorDec != null && v.valorDec !== '') {
+        totalDecUSD += Number(v.valorDec) || 0;
+      }
+      if (v.costoEnvio != null && v.costoEnvio !== '') {
+        totalEnvioSoles += Number(v.costoEnvio) || 0;
+      }
+      if (v.costoTotal != null && v.costoTotal !== '') {
+        totalCostoSoles += Number(v.costoTotal) || 0;
+      }
+
+      // Ventas y ganancia (si existe venta)
+      if (venta) {
+        const montoVenta = Number(venta.montoVentaSoles ?? venta.montoVenta ?? 0); // ajusta al nombre real de tu campo
+        totalVentaSoles += montoVenta;
+
+        const costoProducto = Number(v.costoTotal ?? 0);
+        gananciaSoles += (montoVenta - costoProducto);
+      }
+    }
+
+    // Helpers de formato
+    const fmtSoles = (n) => `S/ ${Number(n).toFixed(2)}`;
+    const fmtUSD = (n) => `$ ${Number(n).toFixed(2)}`;
+
+    return {
+      totalGastadoUSD: fmtUSD(totalGastadoUSD),
+      totalEnvioSoles: fmtSoles(totalEnvioSoles),
+      totalDecUSD: fmtUSD(totalDecUSD),
+      totalCostoSoles: fmtSoles(totalCostoSoles),
+      totalVentaSoles: fmtSoles(totalVentaSoles),
+      gananciaSoles: fmtSoles(gananciaSoles),
+    };
+  }, [productos, ventasMap]);
+
+
+
   return (
     <div className="min-h-screen p-8 bg-macGray text-macDark">
       {/* Header */}
@@ -178,8 +262,70 @@ export default function Productos({ setVista }) {
           ← Volver
         </button>
       </header>
+
+      {/* Resumen de conteos */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+        <div className="bg-white border rounded-xl p-4 shadow-sm">
+          <div className="text-sm text-gray-500">Totales</div>
+          <div className="text-2xl font-semibold">{stats.total}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4 shadow-sm">
+          <div className="text-sm text-gray-500">Sin tracking</div>
+          <div className="text-2xl font-semibold">{stats.sinTracking}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4 shadow-sm">
+          <div className="text-sm text-gray-500">En camino US</div>
+          <div className="text-2xl font-semibold">{stats.enCamino}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4 shadow-sm">
+          <div className="text-sm text-gray-500">En Eshopex</div>
+          <div className="text-2xl font-semibold">{stats.enEshopex}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4 shadow-sm">
+          <div className="text-sm text-gray-500">Disponible</div>
+          <div className="text-2xl font-semibold">{stats.disponible}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4 shadow-sm">
+          <div className="text-sm text-gray-500">Vendido</div>
+          <div className="text-2xl font-semibold">{stats.vendido}</div>
+        </div>
+      </div>
+
+
+
       {/* Panel de casilleros */}
       <ResumenCasilleros productos={productos} />
+
+      {/* Totales de montos */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
+        <div className="bg-white border rounded-xl p-4 shadow-sm">
+          <div className="text-sm text-gray-500">Total gastado ($)</div>
+          <div className="text-2xl font-semibold">{totals.totalGastadoUSD}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4 shadow-sm">
+          <div className="text-sm text-gray-500">Total envío (S/)</div>
+          <div className="text-2xl font-semibold">{totals.totalEnvioSoles}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4 shadow-sm">
+          <div className="text-sm text-gray-500">Total DEC ($)</div>
+          <div className="text-2xl font-semibold">{totals.totalDecUSD}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4 shadow-sm">
+          <div className="text-sm text-gray-500">Total costo (S/)</div>
+          <div className="text-2xl font-semibold">{totals.totalCostoSoles}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4 shadow-sm">
+          <div className="text-sm text-gray-500">Total venta (S/)</div>
+          <div className="text-2xl font-semibold">{totals.totalVentaSoles}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4 shadow-sm">
+          <div className="text-sm text-gray-500">Ganancia total (S/)</div>
+          <div className="text-2xl font-semibold">{totals.gananciaSoles}</div>
+        </div>
+      </div>
+
+
+
       {/* Botón Agregar */}
       <div className="flex justify-end mb-4">
         <button onClick={abrirCrear} className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700">
@@ -197,7 +343,6 @@ export default function Productos({ setVista }) {
           <table className="w-full text-left border">
             <thead className="bg-gray-100">
               <tr>
-                <th className="p-2">ID</th>
                 <th className="p-2">Tipo</th>
                 <th className="p-2">Estado</th>
                 <th className="p-2">Caja</th>
@@ -205,6 +350,7 @@ export default function Productos({ setVista }) {
                 <th className="p-2">Valor S/</th>
                 <th className="p-2">Envio S/</th>
                 <th className="p-2">Total S/</th>
+                <th className="p-2">Calculadora</th>
                 <th className="p-2">F. Compra</th>
                 <th className="p-2">Tracking</th>
                 <th className="p-2">Venta</th>
@@ -220,7 +366,6 @@ export default function Productos({ setVista }) {
 
                 return (
                   <tr key={p.id} className="border-t hover:bg-gray-50">
-                    <td className="p-2">{p.id}</td>
                     <td className="p-2">
                       <button
                         onClick={() => abrirDetalle(p)}
@@ -235,6 +380,15 @@ export default function Productos({ setVista }) {
                     <td className="p-2">{fmtSoles(v.valorSoles)}</td>
                     <td className="p-2">{fmtSoles(v.costoEnvio)}</td>
                     <td className="p-2">{fmtSoles(v.costoTotal)}</td>
+                    <td className="p-2">
+                      <button
+                        onClick={() => abrirCalculadora(p)}
+                        className="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
+                        title="Calcular precio de venta"
+                      >
+                        Calcular precio venta
+                      </button>
+                    </td>
                     <td className="p-2">
                       {v.fechaCompra ? new Date(v.fechaCompra).toLocaleDateString() : '—'}
                     </td>
@@ -356,6 +510,14 @@ export default function Productos({ setVista }) {
           onSaved={handleVentaSaved}
         />
       )}
+      {modalModo === 'calc' && (
+        <ModalCalculadora
+          producto={productoSeleccionado}
+          onClose={cerrarModal}
+        />
+      )}
+
+
 
     </div>
   );

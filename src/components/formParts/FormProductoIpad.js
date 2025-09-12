@@ -1,6 +1,8 @@
 // src/components/formParts/FormProductoIpad.js
 export default function FormProductoIpad({ detalle, onChange }) {
-  const { gama, procesador, generacion, tamanio, almacenamiento, conexion } = detalle;
+  // OJO: 'tamaño' viene con ñ desde backend. Lo extraemos con bracket notation.
+  const { gama, procesador, generacion, almacenamiento, conexion } = detalle;
+  const tamaño = detalle['tamaño'] || '';
 
   const generacionesNormales = ['8', '9', '10', '11'];
   const procesadoresAir = ['M1', 'M2', 'M3'];
@@ -12,6 +14,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
     return [];
   };
 
+  // Evitamos ñ en el nombre de la función para no tener problemas, pero el campo sigue siendo 'tamaño'
   const getTamanos = () => {
     if (gama === 'Air' && ['M2', 'M3'].includes(procesador)) return ['11', '13'];
     if (gama === 'Pro') {
@@ -41,15 +44,15 @@ export default function FormProductoIpad({ detalle, onChange }) {
         <label className="block font-medium">Gama</label>
         <select
           className="w-full border p-2 rounded"
-          value={gama}
+          value={gama || ''}
           onChange={e => {
             onChange('gama', e.target.value);
             // reset dependientes
             onChange('procesador', '');
             onChange('generacion', '');
-            onChange('tamanio', '');
+            onChange('tamaño', '');        // <-- con ñ
             onChange('almacenamiento', '');
-            // la conexión puede mantenerse; si prefieres resetearla, descomenta:
+            // Si quieres resetear conexión, descomenta:
             // onChange('conexion', '');
           }}
         >
@@ -66,7 +69,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
           <label className="block font-medium">Generación</label>
           <select
             className="w-full border p-2 rounded"
-            value={generacion}
+            value={generacion || ''}
             onChange={e => onChange('generacion', e.target.value)}
           >
             <option value="">Seleccione</option>
@@ -84,11 +87,11 @@ export default function FormProductoIpad({ detalle, onChange }) {
             <label className="block font-medium">Procesador</label>
             <select
               className="w-full border p-2 rounded"
-              value={procesador}
+              value={procesador || ''}
               onChange={e => {
                 onChange('procesador', e.target.value);
                 // reset dependientes
-                onChange('tamanio', '');
+                onChange('tamaño', '');       // <-- con ñ
                 onChange('almacenamiento', '');
               }}
             >
@@ -105,8 +108,8 @@ export default function FormProductoIpad({ detalle, onChange }) {
               <label className="block font-medium">Tamaño</label>
               <select
                 className="w-full border p-2 rounded"
-                value={tamanio}
-                onChange={e => onChange('tamanio', e.target.value)}
+                value={tamaño}
+                onChange={e => onChange('tamaño', e.target.value)}  // <-- con ñ
               >
                 <option value="">Seleccione</option>
                 {getTamanos().map(t => (
@@ -122,7 +125,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
               <label className="block font-medium">Almacenamiento</label>
               <select
                 className="w-full border p-2 rounded"
-                value={almacenamiento}
+                value={almacenamiento || ''}
                 onChange={e => onChange('almacenamiento', e.target.value)}
               >
                 <option value="">Seleccione</option>
@@ -135,7 +138,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
         </>
       )}
 
-      {/* Conexión (aplica a todas las gamas) */}
+      {/* Conexión */}
       {gama && (
         <div>
           <label className="block font-medium">Conexión</label>

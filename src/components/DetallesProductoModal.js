@@ -84,7 +84,7 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
               <h3 className="font-medium mb-2">Especificaciones</h3>
               <ul className="list-disc list-inside text-gray-700 space-y-1">
                 {Object.entries(producto.detalle)
-                  .filter(([_, v]) => v)
+                  .filter(([k, v]) => k !== 'id' && v)   // ⬅️ esta línea es el cambio
                   .map(([k, v]) => (
                     <li key={k}>
                       <span className="capitalize">
