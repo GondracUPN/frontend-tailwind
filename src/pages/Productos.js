@@ -30,60 +30,93 @@ export default function Productos({ setVista }) {
 
   const fmtSoles = (v) => (v != null ? `S/ ${parseFloat(v).toFixed(2)}` : '—');
 
-  // === Importador de recojo ===
-  const [importMode, setImportMode] = useState(false);
+  // === Selección (Importar recojo / Recojo masivo) ===
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectAction, setSelectAction] = useState(null); // 'whatsapp' | 'pickup'
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [pickupDate, setPickupDate] = useState(''); // YYYY-MM-DD
 
-  const toggleImportMode = () => {
-    setImportMode(v => !v);
+  const startImport = () => {
+    setSelectMode(true);
+    setSelectAction('whatsapp');
     setSelectedIds(new Set());
+    setPickupDate('');
+  };
+
+  const startMassPickup = () => {
+    setSelectMode(true);
+    setSelectAction('pickup');
+    setSelectedIds(new Set());
+    setPickupDate('');
+  };
+
+  const cancelSelect = () => {
+    setSelectMode(false);
+    setSelectAction(null);
+    setSelectedIds(new Set());
+    setPickupDate('');
   };
 
   const toggleSelect = (id) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   };
 
-  // Construye el nombre del producto para el mensaje
+  // Nombre del producto para el texto (iPad, Air, M2, 11) o "Otros" con descripción
   const buildNombreProducto = (p) => {
     if (!p) return '';
-    const tipo = p.tipo || '';
-    if (tipo === 'otro') {
-      return (p.detalle?.descripcionOtro || '').trim() || 'Otros';
-    }
-    const gama = p.detalle?.gama || '';
-    const proc = p.detalle?.procesador || '';
-    const tam = p.detalle?.tamaño || p.detalle?.tamanio || ''; // tolera ambos
-    return [tipo, gama, proc, tam].filter(Boolean).join(' ');
+    if (p.tipo === 'otro') return (p.detalle?.descripcionOtro || '').trim() || 'Otros';
+    const parts = [
+      p.tipo,
+      p.detalle?.gama,
+      p.detalle?.procesador,
+      p.detalle?.tamaño || p.detalle?.tamanio
+    ].filter(Boolean);
+    return parts.join(' ');
   };
 
-  // Genera y abre el WhatsApp con las líneas seleccionadas
-  const aceptarImportacion = () => {
+  // Acción ACEPTAR para ambos flujos (WhatsApp / Recojo masivo)
+  const confirmAction = async () => {
     const items = productos.filter(p => selectedIds.has(p.id));
-    if (items.length === 0) {
-      alert('Selecciona al menos un producto');
+    if (items.length === 0) { alert('Selecciona al menos un producto.'); return; }
+
+    if (selectAction === 'whatsapp') {
+      const lineas = items.map(p => {
+        const t = p.tracking?.[0] || {};
+        const esh = (t.trackingEshop || '').trim();
+        const cas = t.casillero || '';
+        const nombre = buildNombreProducto(p);
+        return `${esh} | ${nombre} | Casillero: ${cas}`;
+      });
+      const url = `https://wa.me/51938597478?text=${encodeURIComponent(lineas.join('\n'))}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+      cancelSelect();
       return;
     }
-    const lineas = items.map(p => {
-      const t = p.tracking?.[0] || {};
-      const trackEsh = (t.trackingEshop || '').trim(); // código Eshopex
-      const casillero = t.casillero || '';
-      const nombre = buildNombreProducto(p);
-      // Cada producto, una línea
-      return `${trackEsh} | ${nombre} | Casillero: ${casillero}`;
-    });
-    const texto = lineas.join('\n');
-    const url = `https://wa.me/51938597478?text=${encodeURIComponent(texto)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
 
-    // limpiar modo importador
-    setImportMode(false);
-    setSelectedIds(new Set());
+    if (selectAction === 'pickup') {
+      if (!pickupDate) { alert('Elige una fecha de recojo.'); return; }
+      try {
+        // Marca todos como 'recogido' con la misma fecha
+        await Promise.all(items.map(p =>
+          api.put(`/tracking/producto/${p.id}`, {
+            estado: 'recogido',
+            fechaRecogido: pickupDate,
+          })
+        ));
+        const data = await api.get('/productos');
+        setProductos(data);
+        cancelSelect();
+      } catch (e) {
+        console.error(e);
+        alert('No se pudo actualizar el estado de algunos productos.');
+      }
+    }
   };
+
 
 
 
@@ -383,10 +416,10 @@ export default function Productos({ setVista }) {
 
 
 
-      {/* Botonera: Agregar / Importador de recojo */}
-      <div className="flex justify-end gap-2 mb-4">
-        {!importMode ? (
-          <>
+      {/* Botonera: Agregar / Importar recojo / Recojo masivo */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        {!selectMode ? (
+          <div className="flex gap-2 justify-end">
             <button
               onClick={abrirCrear}
               className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700"
@@ -394,31 +427,54 @@ export default function Productos({ setVista }) {
               Agregar Producto
             </button>
             <button
-              onClick={toggleImportMode}
+              onClick={startImport}
               className="bg-purple-600 text-white px-5 py-2 rounded hover:bg-purple-700"
-              title="Seleccionar varios para recojo (WhatsApp)"
+              title="Selecciona varios y genera el texto para WhatsApp"
             >
               Importar recojo
             </button>
-          </>
-        ) : (
-          <>
             <button
-              onClick={aceptarImportacion}
+              onClick={startMassPickup}
               className="bg-emerald-600 text-white px-5 py-2 rounded hover:bg-emerald-700"
-              title="Generar texto y abrir WhatsApp"
+              title="Selecciona varios y márcalos como recogidos"
             >
-              Aceptar
+              Recojo masivo
             </button>
-            <button
-              onClick={toggleImportMode}
-              className="bg-gray-300 text-gray-800 px-5 py-2 rounded hover:bg-gray-400"
-            >
-              Cancelar
-            </button>
-          </>
+          </div>
+        ) : (
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 w-full">
+            <div className="flex-1">
+              {selectAction === 'pickup' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Fecha de recojo</label>
+                  <input
+                    type="date"
+                    className="border rounded px-3 py-2 w-full sm:w-60"
+                    value={pickupDate}
+                    onChange={(e) => setPickupDate(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={confirmAction}
+                className="bg-indigo-600 text-white px-5 py-2 rounded hover:bg-indigo-700 disabled:opacity-50"
+                disabled={selectedIds.size === 0 || (selectAction === 'pickup' && !pickupDate)}
+              >
+                Aceptar
+              </button>
+              <button
+                onClick={cancelSelect}
+                className="bg-gray-300 text-gray-800 px-5 py-2 rounded hover:bg-gray-400"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
         )}
       </div>
+
 
 
 
@@ -433,7 +489,7 @@ export default function Productos({ setVista }) {
           <table className="w-full text-left border">
             <thead className="bg-gray-100">
               <tr>
-                {importMode && <th className="p-2">Sel.</th>}
+                {selectMode && <th className="p-2">Sel.</th>}
                 <th className="p-2">Tipo</th>
                 <th className="p-2">Estado</th>
                 <th className="p-2">Caja</th>
@@ -454,21 +510,29 @@ export default function Productos({ setVista }) {
                 const t = p.tracking?.[0]; // Primer tracking (si existe)
                 const label = labelFromEstado(t?.estado);
                 const link = buildTrackingLink(t);
-                const tieneEshopex = Boolean(p.tracking?.[0]?.trackingEshop);
 
                 return (
                   <tr key={p.id} className="border-t hover:bg-gray-50">
-                    {importMode && (
+                    {selectMode && (
                       <td className="p-2">
-                        <input
-                          type="checkbox"
-                          disabled={!tieneEshopex}
-                          title={tieneEshopex ? '' : 'Sin tracking Eshopex'}
-                          checked={selectedIds.has(p.id)}
-                          onChange={() => toggleSelect(p.id)}
-                        />
+                        {(() => {
+                          const esh = p.tracking?.[0]?.trackingEshop?.trim() || '';
+                          const disabled = !esh;
+
+                          return (
+                            <input
+                              type="checkbox"
+                              disabled={disabled}
+                              title={disabled ? 'Sin tracking Eshopex' : ''}
+                              checked={selectedIds.has(p.id)}
+                              onChange={() => toggleSelect(p.id)}
+                            />
+                          );
+                        })()}
                       </td>
                     )}
+
+
 
                     <td className="p-2">
                       <button
