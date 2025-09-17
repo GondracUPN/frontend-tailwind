@@ -302,7 +302,7 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
               <div className="text-sm text-amber-900">
                 <span className="font-semibold">Fecha de Recepción: </span>
                 {fechaRecepcion
-                  ? new Date(fechaRecepcion).toLocaleDateString()
+                  ? new Date(fechaRecepcion).toLocaleDateString('es-PE', { timeZone: 'UTC' })
                   : '—'}
               </div>
             </div>

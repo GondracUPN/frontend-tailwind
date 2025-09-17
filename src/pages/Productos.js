@@ -558,7 +558,7 @@ export default function Productos({ setVista }) {
                       </button>
                     </td>
                     <td className="p-2">
-                      {v.fechaCompra ? new Date(v.fechaCompra).toLocaleDateString() : '—'}
+                      {v.fechaCompra ? new Date(v.fechaCompra).toLocaleDateString('es-PE', { timeZone: 'UTC' }) : '—'}
                     </td>
                     <td className="p-2">
                       {/* Pill/ botón de estado: más grande, negrita y “clickable” */}
