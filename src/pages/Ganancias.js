@@ -12,15 +12,43 @@ const fmtUSD = (n) =>
 
 function nombreProducto(p) {
   if (!p) return '';
-  if (p.tipo === 'otro') return (p.detalle?.descripcionOtro || 'Otros').trim();
+  const d = p.detalle || {};
+  const tipoRaw = (p.tipo || '').toString().trim();
+  const tipoKey = tipoRaw.toLowerCase().replace(/\s+/g, ''); // ej. "applewatch"
+
+  // iPad: incluir Generación, Tamaño (pulgadas) y Conexión
+  if (tipoKey.includes('ipad')) {
+    const gen = d.generacion ? String(d.generacion).trim() : null;
+    const size = (d.tamaño ?? d.tamanio) ? `${d.tamaño ?? d.tamanio}"` : null; // pulgadas
+    const conn = (d.conexion ?? d.conectividad) ? String(d.conexion ?? d.conectividad).trim() : null;
+
+    return ['iPad', gen, size, conn].filter(Boolean).join(' ');
+  }
+
+  // Apple Watch: incluir Generación, Tamaño (mm) y Conexión
+  if (tipoKey.includes('applewatch') || tipoKey === 'watch') {
+    const gen = d.generacion ? String(d.generacion).trim() : null;
+    const size = (d.tamaño ?? d.tamanio) ? `${d.tamaño ?? d.tamanio}mm` : null; // milímetros
+    const conn = (d.conexion ?? d.conectividad) ? String(d.conexion ?? d.conectividad).trim() : null;
+
+    return ['Apple Watch', gen, size, conn].filter(Boolean).join(' ');
+  }
+
+  // Otros tipos (Macbook, iPhone, etc.) -> comportamiento anterior
+  if (tipoKey === 'otro' || tipoKey === 'otros') {
+    return (d.descripcionOtro || 'Otros').toString().trim();
+  }
+
   const parts = [
-    p.tipo,
-    p.detalle?.gama,
-    p.detalle?.procesador,
-    p.detalle?.tamaño || p.detalle?.tamanio,
+    tipoRaw,
+    d.gama,
+    d.procesador,
+    d.tamaño || d.tamanio, // deja tal cual para los demás
   ].filter(Boolean);
+
   return parts.join(' ');
 }
+
 
 function lastDayOfMonth(year, month1to12) {
   return new Date(year, month1to12, 0).getDate();
@@ -51,7 +79,7 @@ function totales(ventasArr) {
   let totalGanancia = 0;
   for (const v of ventasArr) {
     totalVentasSoles += Number(v.precioVenta ?? 0);
-    totalGanancia    += Number(v.ganancia ?? 0);
+    totalGanancia += Number(v.ganancia ?? 0);
   }
   return {
     cantidad: ventasArr.length,
@@ -70,18 +98,18 @@ export default function Ganancias({ setVista }) {
   const currentYear = String(new Date().getFullYear());
 
   // Filtros globales (por defecto año actual)
-  const [mesGlobal, setMesGlobal]   = useState('');
+  const [mesGlobal, setMesGlobal] = useState('');
   const [anioGlobal, setAnioGlobal] = useState(currentYear);
 
   // Filtros por vendedor (por defecto año actual)
-  const [mesGonzalo, setMesGonzalo]     = useState('');
-  const [anioGonzalo, setAnioGonzalo]   = useState(currentYear);
-  const [mesRenato, setMesRenato]       = useState('');
-  const [anioRenato, setAnioRenato]     = useState(currentYear);
+  const [mesGonzalo, setMesGonzalo] = useState('');
+  const [anioGonzalo, setAnioGonzalo] = useState(currentYear);
+  const [mesRenato, setMesRenato] = useState('');
+  const [anioRenato, setAnioRenato] = useState(currentYear);
 
   // Modales
   const [sellerTarget, setSellerTarget] = useState(null);   // 'Gonzalo' | 'Renato' | null
-  const [sellerSunat, setSellerSunat]   = useState(null);   // 'Gonzalo' | 'Renato' | null
+  const [sellerSunat, setSellerSunat] = useState(null);   // 'Gonzalo' | 'Renato' | null
 
   // Carga TODAS las ventas
   const loadVentas = async () => {
@@ -167,9 +195,9 @@ export default function Ganancias({ setVista }) {
       <div className="bg-white border rounded-2xl shadow-sm p-5 mb-6">
         <div className="flex flex-col lg:flex-row items-start lg:items-end lg:justify-between gap-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full lg:w-auto">
-            <Kpi titulo="Ventas totales"        valor={totalesGlobales.cantidad} />
-            <Kpi titulo="Ganancia bruta total"  valor={fmtSoles(totalesGlobales.brutaSoles)} />
-            <Kpi titulo="Ganancia neta total"   valor={fmtSoles(totalesGlobales.netaSoles)} />
+            <Kpi titulo="Ventas totales" valor={totalesGlobales.cantidad} />
+            <Kpi titulo="Ganancia bruta total" valor={fmtSoles(totalesGlobales.brutaSoles)} />
+            <Kpi titulo="Ganancia neta total" valor={fmtSoles(totalesGlobales.netaSoles)} />
           </div>
 
           <div className="flex gap-3 w-full lg:w-auto">
@@ -181,7 +209,7 @@ export default function Ganancias({ setVista }) {
                 onChange={e => setMesGlobal(e.target.value)}
               >
                 <option value="">Todos</option>
-                {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
                   <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
                 ))}
               </select>
@@ -328,8 +356,8 @@ function ColVendedor({
       <div className="flex flex-col lg:flex-row items-start lg:items-end lg:justify-between gap-4 mb-3">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full lg:w-auto">
           <Kpi titulo="Ventas" valor={totales.cantidad} />
-          <Kpi titulo="Bruta"  valor={fmtSoles(totales.brutaSoles)} />
-          <Kpi titulo="Neta"   valor={fmtSoles(totales.netaSoles)} />
+          <Kpi titulo="Bruta" valor={fmtSoles(totales.brutaSoles)} />
+          <Kpi titulo="Neta" valor={fmtSoles(totales.netaSoles)} />
         </div>
 
         <div className="flex gap-3 w-full lg:w-auto">
@@ -341,7 +369,7 @@ function ColVendedor({
               onChange={e => setMes(e.target.value)}
             >
               <option value="">Todos</option>
-              {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
                 <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
               ))}
             </select>
@@ -441,7 +469,7 @@ function ModalImportarVenta({ seller, onClose, onImported }) {
   const [loading, setLoading] = useState(true);
 
   const currentYear = String(new Date().getFullYear());
-  const [mes, setMes]   = useState('');
+  const [mes, setMes] = useState('');
   const [anio, setAnio] = useState(currentYear);
   const [selectedIds, setSelectedIds] = useState(new Set());
 
@@ -453,7 +481,7 @@ function ModalImportarVenta({ seller, onClose, onImported }) {
       if (y && m) {
         const mm = String(m).padStart(2, '0');
         const from = `${y}-${mm}-01`;
-        const to   = `${y}-${mm}-${String(lastDayOfMonth(Number(y), Number(m))).padStart(2, '0')}`;
+        const to = `${y}-${mm}-${String(lastDayOfMonth(Number(y), Number(m))).padStart(2, '0')}`;
         params.set('from', from);
         params.set('to', to);
       }
@@ -526,7 +554,7 @@ function ModalImportarVenta({ seller, onClose, onImported }) {
               onChange={e => setMes(e.target.value)}
             >
               <option value="">Todos</option>
-              {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
                 <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
               ))}
             </select>
@@ -573,13 +601,13 @@ function ModalImportarVenta({ seller, onClose, onImported }) {
               </thead>
               <tbody>
                 {ventas.map(v => {
-                  const p   = v.producto || {};
+                  const p = v.producto || {};
                   const val = p.valor || {};
-                  const nombre      = nombreProducto(p);
-                  const costoTotal  = Number(val.costoTotal ?? 0);
+                  const nombre = nombreProducto(p);
+                  const costoTotal = Number(val.costoTotal ?? 0);
                   const precioVenta = Number(v.precioVenta ?? 0);
-                  const ganancia    = Number(v.ganancia ?? (precioVenta - costoTotal));
-                  const pct         = costoTotal > 0 ? (ganancia / costoTotal) * 100 : 0;
+                  const ganancia = Number(v.ganancia ?? (precioVenta - costoTotal));
+                  const pct = costoTotal > 0 ? (ganancia / costoTotal) * 100 : 0;
 
                   return (
                     <tr key={v.id} className="border-t">
@@ -638,7 +666,7 @@ function ModalImportarVenta({ seller, onClose, onImported }) {
    ========================= */
 function ModalSunat({ seller, onClose, ventas }) {
   const currentYear = String(new Date().getFullYear());
-  const [mes, setMes]   = useState('');
+  const [mes, setMes] = useState('');
   const [anio, setAnio] = useState(currentYear);
 
   const ventasSeller = useMemo(
@@ -658,15 +686,15 @@ function ModalSunat({ seller, onClose, ventas }) {
 
   const filas = useMemo(() => {
     return lista.map(v => {
-      const p   = v.producto || {};
+      const p = v.producto || {};
       const val = p.valor || {};
-      const tipoCambio   = Number(v.tipoCambio ?? 0);
-      const valorDecUSD  = Number(val.valorDec ?? 0);
-      const envioSoles   = Number(val.costoEnvio ?? 0);
-      const ventaSoles   = Number(v.precioVenta ?? 0);
+      const tipoCambio = Number(v.tipoCambio ?? 0);
+      const valorDecUSD = Number(val.valorDec ?? 0);
+      const envioSoles = Number(val.costoEnvio ?? 0);
+      const ventaSoles = Number(v.precioVenta ?? 0);
 
-      const decSoles     = valorDecUSD * tipoCambio;
-      const costoBase    = decSoles + envioSoles;
+      const decSoles = valorDecUSD * tipoCambio;
+      const costoBase = decSoles + envioSoles;
       const gananciaNeta = ventaSoles - costoBase;
 
       return {
@@ -685,16 +713,16 @@ function ModalSunat({ seller, onClose, ventas }) {
 
   const kpis = useMemo(() => {
     let envioTotal = 0;
-    let decTotalS  = 0;
-    let baseTotal  = 0;
+    let decTotalS = 0;
+    let baseTotal = 0;
     let ventaTotal = 0;
-    let ganTotal   = 0;
+    let ganTotal = 0;
     for (const f of filas) {
       envioTotal += f.envioSoles;
-      decTotalS  += f.decSoles;
-      baseTotal  += f.costoBase;
+      decTotalS += f.decSoles;
+      baseTotal += f.costoBase;
       ventaTotal += f.ventaSoles;
-      ganTotal   += f.gananciaNeta;
+      ganTotal += f.gananciaNeta;
     }
     return { envioTotal, decTotalS, baseTotal, ventaTotal, ganTotal };
   }, [filas]);
@@ -720,7 +748,7 @@ function ModalSunat({ seller, onClose, ventas }) {
               onChange={e => setMes(e.target.value)}
             >
               <option value="">Todos</option>
-              {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
                 <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
               ))}
             </select>
@@ -747,10 +775,10 @@ function ModalSunat({ seller, onClose, ventas }) {
 
         {/* KPIs superiores */}
         <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 mb-4">
-          <Kpi titulo="Envío total"        valor={fmtSoles(kpis.envioTotal)} />
-          <Kpi titulo="DEC total (S/)"     valor={fmtSoles(kpis.decTotalS)} />
-          <Kpi titulo="Costo base (S/)"    valor={fmtSoles(kpis.baseTotal)} />
-          <Kpi titulo="Venta total (S/)"   valor={fmtSoles(kpis.ventaTotal)} />
+          <Kpi titulo="Envío total" valor={fmtSoles(kpis.envioTotal)} />
+          <Kpi titulo="DEC total (S/)" valor={fmtSoles(kpis.decTotalS)} />
+          <Kpi titulo="Costo base (S/)" valor={fmtSoles(kpis.baseTotal)} />
+          <Kpi titulo="Venta total (S/)" valor={fmtSoles(kpis.ventaTotal)} />
           <Kpi titulo="Ganancia neta (S/)" valor={fmtSoles(kpis.ganTotal)} />
         </div>
 
