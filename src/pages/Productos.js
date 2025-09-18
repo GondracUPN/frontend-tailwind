@@ -182,7 +182,6 @@ export default function Productos({ setVista }) {
         if (trackingUsa && operador && URLS[operador]) {
           return { href: URLS[operador](trackingUsa), text: `Ver historial ${operador.toUpperCase()}` };
         } 
-        
         return null;
       default:
         return null;
