@@ -108,7 +108,10 @@ export default function Productos({ setVista }) {
           })
         ));
         const data = await api.get('/productos');
-        setProductos(data);
+        const lista = Array.isArray(data)
+          ? data
+          : (Array.isArray(data?.items) ? data.items : []);
+         setProductos(lista);
         cancelSelect();
       } catch (e) {
         console.error(e);
@@ -193,7 +196,10 @@ export default function Productos({ setVista }) {
       setError(null);
       try {
         const data = await api.get('/productos');
-        if (alive) setProductos(data);
+        const lista = Array.isArray(data)
+          ? data
+          : (Array.isArray(data?.items) ? data.items : []);
+        if (alive) setProductos(lista);
       } catch (e) {
         console.error(e);
         if (alive) setError('No se pudieron cargar los productos.');
@@ -664,7 +670,10 @@ export default function Productos({ setVista }) {
           onSaved={async () => {
             try {
               const data = await api.get('/productos'); // ← refresca desde backend correcto
-              setProductos(data);
+              const lista = Array.isArray(data)
+                ? data
+                : (Array.isArray(data?.items) ? data.items : []);
+              setProductos(lista);
             } catch { }
             cerrarModal();
           }}
