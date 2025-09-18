@@ -34,6 +34,7 @@ export default function ModalVenta({ producto, venta, onClose, onSaved }) {
         }
         setSaving(true);
         try {
+            
             const saved = await api.post(`/ventas`, {
                 productoId: producto.id,
                 tipoCambio: Number(form.tipoCambio),
