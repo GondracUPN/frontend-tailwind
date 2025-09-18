@@ -111,7 +111,7 @@ export default function Productos({ setVista }) {
         const lista = Array.isArray(data)
           ? data
           : (Array.isArray(data?.items) ? data.items : []);
-         setProductos(lista);
+        setProductos(lista);
         cancelSelect();
       } catch (e) {
         console.error(e);
@@ -181,7 +181,7 @@ export default function Productos({ setVista }) {
         if (trackingEsh) return { href: URLS.eshopex(trackingEsh), text: 'Ver historial Eshopex' };
         if (trackingUsa && operador && URLS[operador]) {
           return { href: URLS[operador](trackingUsa), text: `Ver historial ${operador.toUpperCase()}` };
-        } 
+        }
         return null;
       default:
         return null;
@@ -213,15 +213,21 @@ export default function Productos({ setVista }) {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if (!productos || productos.length === 0) return;
+      if (!Array.isArray(productos) || productos.length === 0) return;
       try {
         const entries = await Promise.all(
           productos.map(async (p) => {
             try {
-              const data = await api.get(`/ventas/producto/${p.id}`); // devuelve array desc
-              const ultima = Array.isArray(data) && data.length > 0 ? data[0] : null;
+              const data = await api.get(`/ventas/producto/${p.id}`);
+              // Normaliza: array directo | {items:[]} | {data:[]}
+              const arr = Array.isArray(data)
+                ? data
+                : (Array.isArray(data?.items) ? data.items
+                  : (Array.isArray(data?.data) ? data.data : []));
+              const ultima = arr.length > 0 ? arr[0] : null;
               return [p.id, ultima];
-            } catch {
+            } catch (err) {
+              console.warn('ventas/producto error', p.id, err);
               return [p.id, null];
             }
           })
@@ -236,6 +242,7 @@ export default function Productos({ setVista }) {
     })();
     return () => { mounted = false; };
   }, [productos]);
+
 
 
 
@@ -295,6 +302,54 @@ export default function Productos({ setVista }) {
     return { total, sinTracking, enCamino, enEshopex, disponible, vendido };
   }, [productos, ventasMap]);
 
+  // Convierte "S/ 1,234.50" o "$ 99" a número seguro
+  const toNumber = (x) => {
+    if (x == null || x === '') return 0;
+    if (typeof x === 'number') return x;
+    if (typeof x === 'string') {
+      const clean = x.replace(/[^\d.-]/g, ''); // quita S/, $, comas, espacios
+      const n = Number(clean);
+      return isNaN(n) ? 0 : n;
+    }
+    return 0;
+  };
+  // Lee el monto de la venta en S/ sin importar el nombre/caso/anidación
+  const getMontoVentaSoles = (venta) => {
+    if (!venta) return 0;
+
+    // posibles claves planas
+    const claves = [
+      'montoVentaSoles',
+      'montoVenta',
+      'monto_soles',
+      'precioVentaSoles',
+      'precioSoles',
+      'totalSoles',
+      'monto',
+      'precioVenta',
+      'importeSoles',
+      'montoTotalSoles'
+    ];
+
+    for (const k of claves) {
+      const n = toNumber(venta[k]);
+      if (n) return n;
+    }
+
+    // si viniera anidado (p.ej. venta.detalle.montoSoles)
+    if (venta.detalle && typeof venta.detalle === 'object') {
+      const clavesDet = ['montoVentaSoles', 'montoSoles', 'precioSoles', 'totalSoles'];
+      for (const k of clavesDet) {
+        const n = toNumber(venta.detalle[k]);
+        if (n) return n;
+      }
+    }
+
+    return 0;
+  };
+
+
+
   // === TOTALES DE MONTOS ===
   // Suma global de valorProducto ($), costoEnvio (S/), costoTotal (S/), total vendido (S/), y ganancia (S/)
   const totals = React.useMemo(() => {
@@ -325,12 +380,16 @@ export default function Productos({ setVista }) {
 
       // Ventas y ganancia (si existe venta)
       if (venta) {
-        const montoVenta = Number(venta.montoVentaSoles ?? venta.montoVenta ?? 0); // ajusta al nombre real de tu campo
+        // Soporta distintos nombres y formateos
+        const montoVenta = getMontoVentaSoles(venta);
+
+
         totalVentaSoles += montoVenta;
 
-        const costoProducto = Number(v.costoTotal ?? 0);
+        const costoProducto = toNumber(v.costoTotal);
         gananciaSoles += (montoVenta - costoProducto);
       }
+
     }
 
     // Helpers de formato
