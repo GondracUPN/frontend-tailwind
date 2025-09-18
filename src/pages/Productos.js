@@ -181,7 +181,8 @@ export default function Productos({ setVista }) {
         if (trackingEsh) return { href: URLS.eshopex(trackingEsh), text: 'Ver historial Eshopex' };
         if (trackingUsa && operador && URLS[operador]) {
           return { href: URLS[operador](trackingUsa), text: `Ver historial ${operador.toUpperCase()}` };
-        }
+        } 
+        
         return null;
       default:
         return null;
