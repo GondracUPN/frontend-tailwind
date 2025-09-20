@@ -1,5 +1,5 @@
 // src/pages/Productos.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import ModalProducto from '../components/ModalProducto';
 import DetallesProductoModal from '../components/DetallesProductoModal';
 import ModalCostos from '../components/ModalCostos';
@@ -8,6 +8,8 @@ import api from '../api';  // cliente fetch centralizado
 import ResumenCasilleros from '../components/ResumenCasilleros';
 import ModalVenta from '../components/ModalVenta';
 import ModalCalculadora from '../components/ModalCalculadora';
+import ModalDec from '../components/ModalDec';
+import { FiFileText } from 'react-icons/fi';
 
 export default function Productos({ setVista }) {
   const [productos, setProductos] = useState([]);
@@ -252,6 +254,7 @@ export default function Productos({ setVista }) {
   const abrirDetalle = (p) => { setProductoSeleccionado(p); setModalModo('detalle'); };
   const abrirCostos = (p) => { setProductoSeleccionado(p); setModalModo('costos'); };
   const abrirTrack = (p) => { setProductoSeleccionado(p); setModalModo('track'); };
+  const abrirDec = (p) => { setProductoSeleccionado(p); setModalModo('dec'); };
   const cerrarModal = () => setModalModo(null);
 
   const handleSaved = (updated) => {
@@ -505,6 +508,17 @@ export default function Productos({ setVista }) {
             >
               Recojo masivo
             </button>
+            <button
+              onClick={abrirDec}
+              className="bg-gray-800 text-white px-5 py-2 rounded hover:bg-gray-900 inline-flex items-center gap-2"
+              title="Generar DEC / Comprobante"
+            >
+              <FiFileText className="text-lg" />
+              DEC
+            </button>
+
+
+
           </div>
         ) : (
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 w-full">
@@ -752,7 +766,13 @@ export default function Productos({ setVista }) {
           onClose={cerrarModal}
         />
       )}
-
+      {modalModo === 'dec' && (
+   <ModalDec
+    onClose={cerrarModal}
+     productos={productos}   // ✅ le pasas lo que ya cargaste arriba
+     loading={cargando}      // ✅ estado de carga del padre
+   />
+ )}
 
 
     </div>
