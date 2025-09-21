@@ -234,7 +234,7 @@ function resolveCasilleroKeyFromProducto(p) {
   return resolveCasilleroKey(getRawCasillero(p));
 }
 
-/* Helpers tracking en producto */
+/* Helpers tracking en producto (solo para UI, NO se imprime en el HTML) */
 function getT0(p) {
   if (!p) return null;
   return Array.isArray(p.tracking) ? p.tracking[0] : (p.tracking || null);
@@ -245,7 +245,6 @@ function getCarrier(p) {
 }
 function getCarrierTracking(p) {
   const t = getT0(p);
-  // posibles nombres que he visto
   return (
     t?.trackingUsa ||
     t?.trackingUSA ||
@@ -262,20 +261,18 @@ function buildModalContentHTML({
   orderNumber,
   casilleroKey,
   qty,
-  price,        // ← DEC
+  price,        // ← DEC (unit price)
   itemName,
   shippingSvc,
-  carrier,
-  carrierTracking,
 }) {
   const paidOn = placedOn;
   const placedOnTxt = fmtDateUS(placedOn);
   const paidOnTxt = fmtDateUS(paidOn);
 
   const qtyNum = Math.max(1, Number(qty) || 1);
-  const unitPrice = Number(price) || 0;     // DEC limpio
+  const unitPrice = Number(price) || 0;
   const subtotal = qtyNum * unitPrice;
-  const orderTotal = subtotal;               // envío Free y Tax 0
+  const orderTotal = subtotal; // envío Free y Tax 0
   const itemsLabel = `${qtyNum} item${qtyNum === 1 ? "" : "s"}`;
   const shipName = CASILLEROS[casilleroKey] || "";
 
@@ -345,22 +342,6 @@ function buildModalContentHTML({
                           </div>
                         </dl>
                       </div>
-
-                      ${carrier || carrierTracking ? `
-                      <div class="vodlabelsValues">
-                        <dl class="eui-labels-values eui-label-value--table">
-                          ${carrier ? `
-                          <div class="eui-label-value-line">
-                            <dt class="eui-label"><span class="eui-textual-display"><span class="eui-text-span"><span>Carrier</span></span></span></dt>
-                            <dd><span class="eui-textual-display"><span class="eui-text-span"><span>${carrier}</span></span></span></dd>
-                          </div>` : ``}
-                          ${carrierTracking ? `
-                          <div class="eui-label-value-line">
-                            <dt class="eui-label"><span class="eui-textual-display"><span class="eui-text-span"><span>Tracking number</span></span></span></dt>
-                            <dd><span class="eui-textual-display"><span class="eui-text-span"><span>${carrierTracking}</span></span></span></dd>
-                          </div>` : ``}
-                        </dl>
-                      </div>` : ``}
 
                     </div>
                   </div>
@@ -629,7 +610,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setProblemSuffix("");
   };
 
-  // Derivados de tracking (para UI y HTML)
+  // Derivados de tracking SOLO para mostrar en UI (no van al HTML)
   const carrier = getCarrier(productoSel);
   const carrierTracking = getCarrierTracking(productoSel);
 
@@ -644,10 +625,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         price,       // ← DEC
         itemName,
         shippingSvc,
-        carrier,
-        carrierTracking,
       }),
-    [seller, placedOn, orderNumber, casilleroKey, qty, price, itemName, shippingSvc, carrier, carrierTracking]
+    [seller, placedOn, orderNumber, casilleroKey, qty, price, itemName, shippingSvc]
   );
 
   // Cerrar con ESC
@@ -722,7 +701,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
               <input className="input" value={productoSel?.__decResolved || ""} readOnly placeholder="—" />
             </label>
 
-            {/* Casillero (único control que afecta al HTML) */}
+            {/* Casillero único (afecta al HTML) */}
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Casillero</span>
               <select
@@ -756,7 +735,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             </label>
           </div>
 
-          {/* Tracking del transportista (solo lectura) */}
+          {/* Tracking del transportista (solo lectura, NO va al HTML) */}
           <div className="grid sm:grid-cols-3 gap-3">
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Transportista</span>
