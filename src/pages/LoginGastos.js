@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import api from '../api';
 
-export default function LoginGastos({ onLoggedIn }) {
+export default function LoginGastos({ onLoggedIn, onBack }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -28,7 +28,6 @@ export default function LoginGastos({ onLoggedIn }) {
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
 
-      // Avisar al padre (GastosIndex) para que actualice su estado
       onLoggedIn?.(user, token);
     } catch (err) {
       console.error('[login] error:', err);
@@ -41,7 +40,16 @@ export default function LoginGastos({ onLoggedIn }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
       <div className="w-full max-w-sm bg-white border rounded-xl shadow p-6">
-        <h1 className="text-xl font-semibold mb-4">Iniciar sesión</h1>
+        <div className="flex items-center justify-between mb-4">
+          <button
+            type="button"
+            onClick={() => (onBack ? onBack() : window.history.back())}
+            className="px-3 py-1.5 bg-gray-100 border rounded hover:bg-gray-200"
+          >
+            ← Volver
+          </button>
+          <h1 className="text-xl font-semibold">Iniciar sesión</h1>
+        </div>
 
         {error ? (
           <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">

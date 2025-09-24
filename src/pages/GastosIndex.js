@@ -64,9 +64,11 @@ export default function GastosIndex({ setVista }) {
         onLoggedIn={(u, t) => {
           setUser(u || null);
           setToken(t || null);
-          setMode(null); // vuelve al selector
+          setMode(null);
         }}
+        onBack={() => setVista('home')}
       />
+
     );
   }
 
