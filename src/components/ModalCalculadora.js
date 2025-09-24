@@ -38,6 +38,10 @@ export default function ModalCalculadora({ producto, onClose }) {
 
   if (!producto) return null;
 
+  // Ganancias para sugerencias
+  const gananciaMin = pvMin - costoTotal;
+  const gananciaMed = pvMed - costoTotal;
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white w-full max-w-lg rounded-xl shadow-lg p-6 relative">
@@ -57,15 +61,21 @@ export default function ModalCalculadora({ producto, onClose }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           <div className="border rounded-lg p-4 bg-gray-50">
             <div className="text-sm text-gray-500 mb-1">
-              Precio mínimo (+20%) <span className="italic text-xs">(redondeado ×10)</span>
+              Precio mínimo (+20%)
             </div>
             <div className="text-2xl font-semibold">{fmtSoles(pvMin)}</div>
+            <div className="text-sm text-gray-700 mt-1">
+              Ganancia: <strong>{fmtSoles(gananciaMin)}</strong>
+            </div>
           </div>
           <div className="border rounded-lg p-4 bg-gray-50">
             <div className="text-sm text-gray-500 mb-1">
-              Precio medio (+40%) <span className="italic text-xs">(redondeado ×10)</span>
+              Precio medio (+40%)
             </div>
             <div className="text-2xl font-semibold">{fmtSoles(pvMed)}</div>
+            <div className="text-sm text-gray-700 mt-1">
+              Ganancia: <strong>{fmtSoles(gananciaMed)}</strong>
+            </div>
           </div>
         </div>
 

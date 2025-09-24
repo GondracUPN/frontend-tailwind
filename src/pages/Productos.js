@@ -37,6 +37,7 @@ export default function Productos({ setVista }) {
   const [selectAction, setSelectAction] = useState(null); // 'whatsapp' | 'pickup'
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [pickupDate, setPickupDate] = useState(''); // YYYY-MM-DD
+  const [soloDisponibles, setSoloDisponibles] = useState(false);
 
   const startImport = () => {
     setSelectMode(true);
@@ -245,6 +246,26 @@ export default function Productos({ setVista }) {
     return () => { mounted = false; };
   }, [productos]);
 
+  const displayedProductos = React.useMemo(() => {
+    const ts = (p) => {
+      const fc = p?.valor?.fechaCompra || p?.valor?.fecha_compra || p?.fechaCompra || null;
+      const t = fc ? Date.parse(fc) : 0;
+      return Number.isFinite(t) ? t : 0;
+    };
+
+    let list = Array.isArray(productos) ? [...productos] : [];
+
+    if (soloDisponibles) {
+      list = list.filter((p) => {
+        const t = p.tracking?.[0];
+        const venta = ventasMap[p.id] || null;
+        return t?.estado === 'recogido' && !venta;
+      });
+    }
+
+    list.sort((a, b) => ts(b) - ts(a)); // más nuevos arriba
+    return list;
+  }, [productos, ventasMap, soloDisponibles]);
 
 
 
@@ -482,45 +503,57 @@ export default function Productos({ setVista }) {
         </div>
       </div>
 
-
-
       {/* Botonera: Agregar / Importar recojo / Recojo masivo */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         {!selectMode ? (
-          <div className="flex gap-2 justify-end">
-            <button
-              onClick={abrirCrear}
-              className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700"
-            >
-              Agregar Producto
-            </button>
-            <button
-              onClick={startImport}
-              className="bg-purple-600 text-white px-5 py-2 rounded hover:bg-purple-700"
-              title="Selecciona varios y genera el texto para WhatsApp"
-            >
-              Importar recojo
-            </button>
-            <button
-              onClick={startMassPickup}
-              className="bg-emerald-600 text-white px-5 py-2 rounded hover:bg-emerald-700"
-              title="Selecciona varios y márcalos como recogidos"
-            >
-              Recojo masivo
-            </button>
-            <button
-              onClick={abrirDec}
-              className="bg-gray-800 text-white px-5 py-2 rounded hover:bg-gray-900 inline-flex items-center gap-2"
-              title="Generar DEC / Comprobante"
-            >
-              <FiFileText className="text-lg" />
-              DEC
-            </button>
+          <>
+            {/* Filtro a la izquierda */}
+            <div className="flex items-center gap-3">
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={soloDisponibles}
+                  onChange={(e) => setSoloDisponibles(e.target.checked)}
+                />
+                Mostrar solo disponibles para venta
+              </label>
+            </div>
 
-
-
-          </div>
+            {/* Acciones a la derecha */}
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={abrirCrear}
+                className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700"
+              >
+                Agregar Producto
+              </button>
+              <button
+                onClick={startImport}
+                className="bg-purple-600 text-white px-5 py-2 rounded hover:bg-purple-700"
+                title="Selecciona varios y genera el texto para WhatsApp"
+              >
+                Importar recojo
+              </button>
+              <button
+                onClick={startMassPickup}
+                className="bg-emerald-600 text-white px-5 py-2 rounded hover:bg-emerald-700"
+                title="Selecciona varios y márcalos como recogidos"
+              >
+                Recojo masivo
+              </button>
+              <button
+                onClick={abrirDec}
+                className="bg-gray-800 text-white px-5 py-2 rounded hover:bg-gray-900 inline-flex items-center gap-2"
+                title="Generar DEC / Comprobante"
+              >
+                <FiFileText className="text-lg" />
+                DEC
+              </button>
+            </div>
+          </>
         ) : (
+          // ← tu bloque existente de selección (pickup/whatsapp) se mantiene igual
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 w-full">
             <div className="flex-1">
               {selectAction === 'pickup' && (
@@ -558,13 +591,15 @@ export default function Productos({ setVista }) {
 
 
 
+
+
       {/* Cargando / Error */}
       {cargando && <p>Cargando productos…</p>}
       {error && <p className="text-red-500">{error}</p>}
 
       {/* Tabla */}
       {!cargando && !error && (
-        productos.length > 0 ? (
+        displayedProductos.length > 0 ? (
           <table className="w-full text-left border">
             <thead className="bg-gray-100">
               <tr>
@@ -584,7 +619,7 @@ export default function Productos({ setVista }) {
               </tr>
             </thead>
             <tbody>
-              {productos.map((p) => {
+              {displayedProductos.map((p) => {
                 const v = p.valor || {};
                 const t = p.tracking?.[0]; // Primer tracking (si existe)
                 const label = labelFromEstado(t?.estado);
@@ -728,7 +763,7 @@ export default function Productos({ setVista }) {
             </tbody>
           </table>
         ) : (
-          <p>No hay productos aún.</p>
+          <p>{soloDisponibles ? 'No hay productos disponibles para venta.' : 'No hay productos aún.'}</p>
         )
       )}
 
@@ -767,12 +802,12 @@ export default function Productos({ setVista }) {
         />
       )}
       {modalModo === 'dec' && (
-   <ModalDec
-    onClose={cerrarModal}
-     productos={productos}   // ✅ le pasas lo que ya cargaste arriba
-     loading={cargando}      // ✅ estado de carga del padre
-   />
- )}
+        <ModalDec
+          onClose={cerrarModal}
+          productos={productos}   // ✅ le pasas lo que ya cargaste arriba
+          loading={cargando}      // ✅ estado de carga del padre
+        />
+      )}
 
 
     </div>

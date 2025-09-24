@@ -3,6 +3,8 @@ import Home from './pages/Home';
 import Productos from './pages/Productos';
 import Calculadora from './pages/Calculadora';
 import Ganancias from './pages/Ganancias';
+import GastosIndex from './pages/GastosIndex';
+import api from './api';
 
 function App() {
   // Leer la última vista guardada; si no hay, usa 'home'
@@ -13,13 +15,21 @@ function App() {
     localStorage.setItem('vista', vista);
   }, [vista]);
 
+  // Si hay token en localStorage, deja el header Authorization por defecto (axios)
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token && api?.defaults) {
+      api.defaults.headers.common.Authorization = `Bearer ${token}`;
+    }
+  }, []);
+
   return (
     <>
-      {vista === 'home' && <Home setVista={setVista} />}
-      {vista === 'productos' && <Productos setVista={setVista} />}
-       {vista === 'calculadora' && <Calculadora setVista={setVista} />}
-       {vista === 'ganancias' && <Ganancias setVista={setVista} />}
-
+      {vista === 'home'        && <Home setVista={setVista} />}
+      {vista === 'productos'   && <Productos setVista={setVista} />}
+      {vista === 'calculadora' && <Calculadora setVista={setVista} />}
+      {vista === 'ganancias'   && <Ganancias setVista={setVista} />}
+      {vista === 'gastos'      && <GastosIndex setVista={setVista} />}
     </>
   );
 }

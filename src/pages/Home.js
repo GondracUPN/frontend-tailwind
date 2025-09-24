@@ -11,17 +11,20 @@ function Home({ setVista }) {
           Productos
         </button>
         <button className="px-6 py-3 bg-white shadow rounded-2xl border hover:shadow-md hover:border-gray-400 transition text-lg"
-        onClick={() => setVista('ganancias')}>
+          onClick={() => setVista('ganancias')}>
           Ganancias
         </button>
-        <button className="px-6 py-3 bg-white shadow rounded-2xl border hover:shadow-md hover:border-gray-400 transition text-lg">
+        <button
+          className="px-6 py-3 bg-white shadow rounded-2xl border hover:shadow-md hover:border-gray-400 transition text-lg"
+          onClick={() => setVista('gastos')}   // ⬅️ nuevo: navega a Gastos (login + home)
+        >
           Gastos
         </button>
         <button className="px-6 py-3 bg-white shadow rounded-2xl border hover:shadow-md hover:border-gray-400 transition text-lg"
-        onClick={() => setVista('calculadora')}>
+          onClick={() => setVista('calculadora')}>
           Calculadora
         </button>
-        
+
       </div>
     </div>
   );
