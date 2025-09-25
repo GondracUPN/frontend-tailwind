@@ -19,7 +19,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     casillero: '',
     detalle: {
       gama: '', procesador: '', generacion: '',
-      modelo: '', tamanio: '',
+      modelo: '', tamaño: '',
       almacenamiento: '', ram: '',
       conexion: '', descripcionOtro: '',
     },
@@ -72,10 +72,20 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       tipo: form.tipo,
       estado: form.estado,
       conCaja: form.conCaja === 'si',
-      casillero: form.casillero,
     };
 
-    const payload = { ...base, detalle: form.detalle, valor: form.valor };
+    const allowedDetalle = [
+      'gama', 'procesador', 'generacion', 'modelo', 'tamaño',
+      'almacenamiento', 'ram', 'conexion', 'descripcionOtro'
+    ];
+    const cleanDetalle = Object.fromEntries(
+      Object.entries(form.detalle || {}).filter(([k]) => allowedDetalle.includes(k))
+    );
+
+    const payload = { ...base, detalle: cleanDetalle, valor: form.valor };
+
+
+
     try {
       const res = await api[method](url, payload);
       const saved = res?.data ?? res; // ✅ Producto real (no AxiosResponse)

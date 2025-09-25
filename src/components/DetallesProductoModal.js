@@ -1,5 +1,4 @@
 // src/components/DetallesProductoModal.js
-
 import React, { useState, useEffect } from 'react';
 import FormProductoMacbook from './formParts/FormProductoMacbook';
 import FormProductoIpad from './formParts/FormProductoIpad';
@@ -7,7 +6,6 @@ import FormProductoIphone from './formParts/FormProductoIphone';
 import FormProductoWatch from './formParts/FormProductoWatch';
 import FormProductoOtro from './formParts/FormProductoOtro';
 import api from '../api';
-
 
 export default function DetallesProductoModal({ producto, onClose, onSaved }) {
   // ----- 1. Estado e inicialización -----
@@ -26,7 +24,7 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
       tipo: producto.tipo,
       estado: producto.estado,
       conCaja: producto.conCaja ? 'si' : 'no',
-      detalle: { ...producto.detalle },
+      detalle: { ...producto.detalle }, // viene con 'id' -> se filtrará en handleSave
     });
     setIsEditing(false);
   }, [producto]);
@@ -34,24 +32,33 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
   // ----- 3. Handlers genéricos -----
   const handleMainChange = (field, value) =>
     setForm(f => ({ ...f, [field]: value }));
+
   const handleDetalleChange = (field, value) =>
     setForm(f => ({ ...f, detalle: { ...f.detalle, [field]: value } }));
-
 
   // ----- 4. Guardar cambios (PATCH) -----
   const handleSave = async () => {
     // convierte "si"/"no" a booleano
     const conCajaBool = form.conCaja === 'si';
 
-    // payload completo con todos los campos editables
+    // ✅ Lista blanca de campos permitidos en 'detalle'
+    //    (manteniendo 'tamaño' con ñ)
+    const allowedDetalle = [
+      'gama', 'procesador', 'generacion', 'modelo', 'tamaño',
+      'almacenamiento', 'ram', 'conexion', 'descripcionOtro'
+    ];
+    const cleanDetalle = Object.fromEntries(
+      Object.entries(form.detalle || {}).filter(([k]) => allowedDetalle.includes(k))
+    );
+
+    // payload completo con todos los campos editables (sin 'detalle.id')
     const payload = {
       tipo: form.tipo,
       estado: form.estado,
       conCaja: conCajaBool,
-      detalle: form.detalle,
+      detalle: cleanDetalle,
     };
 
-    console.log('📝 payload:', payload);
     try {
       const updated = await api.patch(`/productos/${producto.id}`, payload);
       onSaved(updated);
@@ -60,7 +67,6 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
       console.error('[DetallesProductoModal] Error al guardar:', e);
       alert('No se pudo actualizar el producto.');
     }
-
   };
 
   // ----- 5. Renderizado -----
@@ -83,8 +89,9 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
             <section className="mb-4">
               <h3 className="font-medium mb-2">Especificaciones</h3>
               <ul className="list-disc list-inside text-gray-700 space-y-1">
-                {Object.entries(producto.detalle)
-                  .filter(([k, v]) => k !== 'id' && v)   // ⬅️ esta línea es el cambio
+                {Object
+                  .entries(producto.detalle)
+                  .filter(([k, v]) => k !== 'id' && v) // no mostrar 'id'
                   .map(([k, v]) => (
                     <li key={k}>
                       <span className="capitalize">
@@ -96,17 +103,19 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
               </ul>
             </section>
 
-
-
             <div className="flex justify-end space-x-2">
               <button
                 className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
                 onClick={() => setIsEditing(true)}
-              >Editar</button>
+              >
+                Editar
+              </button>
               <button
                 className="bg-gray-300 text-gray-800 px-4 py-2 rounded hover:bg-gray-400"
                 onClick={onClose}
-              >Cerrar</button>
+              >
+                Cerrar
+              </button>
             </div>
           </>
         ) : (
@@ -178,19 +187,21 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
                   </div>
                 )}
               </div>
-
-
             </div>
 
             <div className="text-right mt-6 space-x-2">
               <button
                 className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
                 onClick={handleSave}
-              >Guardar cambios</button>
+              >
+                Guardar cambios
+              </button>
               <button
                 className="bg-gray-300 text-gray-800 px-6 py-2 rounded hover:bg-gray-400"
                 onClick={() => setIsEditing(false)}
-              >Cancelar</button>
+              >
+                Cancelar
+              </button>
             </div>
           </>
         )}
