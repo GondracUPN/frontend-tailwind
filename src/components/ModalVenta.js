@@ -1,22 +1,26 @@
 // src/components/ModalVenta.jsx
 import React, { useEffect, useState } from 'react';
-import api from '../api'; // ← ajusta esta ruta si tu instancia está en otro lado
+import api from '../api';
 
-export default function ModalVenta({ producto, venta, onClose, onSaved }) {
-  // --- Hooks SIEMPRE al tope (nunca antes un return) ---
-  const [editMode, setEditMode] = useState(false);            // habilita edición cuando ya existe venta
+export default function ModalVenta({
+  producto,
+  venta,
+  onClose,
+  onSaved,
+  allowVendedorOnCreate = false, // permite elegir vendedor al crear
+  presetVendedor = '',           // valor inicial del vendedor
+}) {
+  const [editMode, setEditMode] = useState(false);
   const [form, setForm] = useState({
     tipoCambio: '',
     fechaVenta: '',
     precioVenta: '',
-    vendedor: '', // opcional
+    vendedor: '',
   });
   const [saving, setSaving] = useState(false);
 
-  // isReadOnly depende de si hay venta y no estamos en modo edición
   const isReadOnly = Boolean(venta) && !editMode;
 
-  // Precargar el formulario desde "venta" (lectura o al entrar/salir de edición)
   useEffect(() => {
     if (venta) {
       setForm({
@@ -26,17 +30,15 @@ export default function ModalVenta({ producto, venta, onClose, onSaved }) {
         vendedor: (venta.vendedor ?? '') + '',
       });
     } else {
-      // modo "crear"
       setForm({
         tipoCambio: '',
         fechaVenta: '',
         precioVenta: '',
-        vendedor: '',
+        vendedor: allowVendedorOnCreate ? (presetVendedor || '') : '',
       });
     }
-  }, [venta, editMode]);
+  }, [venta, editMode, allowVendedorOnCreate, presetVendedor]);
 
-  // --- A PARTIR DE AQUÍ puedes decidir no renderizar ---
   if (!producto) return null;
 
   const onChange = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
@@ -55,13 +57,16 @@ export default function ModalVenta({ producto, venta, onClose, onSaved }) {
 
     setSaving(true);
     try {
-      const saved = await api.post(`/ventas`, {
+      const body = {
         productoId: producto.id,
         tipoCambio: Number(form.tipoCambio),
         fechaVenta: form.fechaVenta,
         precioVenta: Number(form.precioVenta),
-        ...(form.vendedor?.trim() ? { vendedor: form.vendedor.trim() } : {}),
-      });
+      };
+      if (allowVendedorOnCreate && form.vendedor?.trim()) {
+        body.vendedor = form.vendedor.trim();
+      }
+      const saved = await api.post(`/ventas`, body);
       onSaved?.(saved);
       onClose?.();
     } catch (e) {
@@ -101,7 +106,7 @@ export default function ModalVenta({ producto, venta, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white w-full max-w-lg rounded-xl shadow-lg p-6 relative">
-        {/* Cerrar */}
+        {/* Cerrar (X) */}
         <button
           className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
           onClick={onClose}
@@ -110,20 +115,12 @@ export default function ModalVenta({ producto, venta, onClose, onSaved }) {
           ✖
         </button>
 
+        {/* Título */}
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-semibold">
             {venta ? (isReadOnly ? 'Detalle de Venta' : 'Editar Venta') : 'Registrar Venta'}
           </h2>
-
-          {/* Botón Editar si hay venta y aún no estamos editando */}
-          {venta && isReadOnly && (
-            <button
-              className="px-3 py-1.5 rounded bg-amber-500 text-white text-sm hover:bg-amber-600"
-              onClick={startEdit}
-            >
-              Editar
-            </button>
-          )}
+          {/* ❌ Ya no mostramos el botón Editar aquí en modo lectura */}
         </div>
 
         {/* Crear nueva venta */}
@@ -160,16 +157,21 @@ export default function ModalVenta({ producto, venta, onClose, onSaved }) {
                 placeholder="Ej. 2499.90"
               />
             </div>
-            <div>
-              <label className="block font-medium mb-1">Vendedor (opcional)</label>
-              <input
-                type="text"
-                className="w-full border p-2 rounded"
-                value={form.vendedor}
-                onChange={e => onChange('vendedor', e.target.value)}
-                placeholder="Nombre del vendedor"
-              />
-            </div>
+
+            {allowVendedorOnCreate && (
+              <div>
+                <label className="block font-medium mb-1">Vendedor (opcional)</label>
+                <select
+                  className="w-full border p-2 rounded"
+                  value={form.vendedor}
+                  onChange={e => onChange('vendedor', e.target.value)}
+                >
+                  <option value="">— Seleccionar —</option>
+                  <option value="Gonzalo">Gonzalo</option>
+                  <option value="Renato">Renato</option>
+                </select>
+              </div>
+            )}
 
             <div className="text-right">
               <button
@@ -183,7 +185,7 @@ export default function ModalVenta({ producto, venta, onClose, onSaved }) {
           </div>
         )}
 
-        {/* Modo lectura */}
+        {/* Modo lectura (ver información) */}
         {venta && isReadOnly && (
           <div className="space-y-3">
             <div>
@@ -213,7 +215,15 @@ export default function ModalVenta({ producto, venta, onClose, onSaved }) {
               </div>
             )}
 
-            <div className="text-right pt-2">
+            {/* ✅ Botones: Cerrar y Editar juntos */}
+            <div className="text-right pt-2 flex items-center justify-end gap-2">
+              
+              <button
+                className="px-3 py-2 rounded bg-amber-500 text-white hover:bg-amber-600"
+                onClick={startEdit}
+              >
+                Editar
+              </button>
               <button
                 className="bg-gray-300 text-gray-800 px-6 py-2 rounded hover:bg-gray-400"
                 onClick={onClose}
@@ -225,7 +235,7 @@ export default function ModalVenta({ producto, venta, onClose, onSaved }) {
         )}
 
         {/* Modo edición */}
-        {venta && editMode && (
+        {venta && !isReadOnly && (
           <div className="space-y-4">
             <div>
               <label className="block font-medium mb-1">Tipo de cambio</label>
@@ -258,13 +268,15 @@ export default function ModalVenta({ producto, venta, onClose, onSaved }) {
             </div>
             <div>
               <label className="block font-medium mb-1">Vendedor (opcional)</label>
-              <input
-                type="text"
+              <select
                 className="w-full border p-2 rounded"
                 value={form.vendedor}
                 onChange={e => onChange('vendedor', e.target.value)}
-                placeholder="Nombre del vendedor"
-              />
+              >
+                <option value="">— Seleccionar —</option>
+                <option value="Gonzalo">Gonzalo</option>
+                <option value="Renato">Renato</option>
+              </select>
             </div>
 
             <div className="flex items-center justify-end gap-2">
