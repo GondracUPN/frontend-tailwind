@@ -53,29 +53,25 @@ export default function GastosPanel({ userId: externalUserId }) {
     setLoading(true);
     setErr('');
     try {
-      const userIdParam = (isAdmin && targetUserId != null && /^\d+$/.test(String(targetUserId)))
-        ? `?userId=${encodeURIComponent(String(targetUserId))}`
-        : '';
-
       const gastosUrl = isAdmin
-        ? `${API_URL}/gastos/all${userIdParam}`
+        ? `${API_URL}/gastos/all${targetUserId ? `?userId=${targetUserId}` : ''}`
         : `${API_URL}/gastos`;
 
-      const cardsUrl = isAdmin && userIdParam
-        ? `${API_URL}/cards/summary-by-user${userIdParam}`
+      const cardsUrl = isAdmin && targetUserId
+        ? `${API_URL}/cards/summary-by-user?userId=${targetUserId}`
         : `${API_URL}/cards/summary`;
-
-      const walletUrl = `${API_URL}/wallet${userIdParam}`;
 
       const [gRes, cRes, wRes] = await Promise.all([
         fetch(gastosUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
         fetch(cardsUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
-        fetch(walletUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/wallet${isAdmin && targetUserId ? `?userId=${targetUserId}` : ''}`, {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+        }),
       ]);
 
-      if (!gRes.ok) throw new Error(`GET ${gastosUrl} -> ${await gRes.text()}`);
-      if (!cRes.ok) throw new Error(`GET ${cardsUrl} -> ${await cRes.text()}`);
-      if (!wRes.ok) throw new Error(`GET ${walletUrl} -> ${await wRes.text()}`);
+      if (!gRes.ok) throw new Error(await gRes.text());
+      if (!cRes.ok) throw new Error(await cRes.text());
+      if (!wRes.ok) throw new Error(await wRes.text());
 
       const [gData, cData, wData] = await Promise.all([gRes.json(), cRes.json(), wRes.json()]);
 
@@ -133,8 +129,7 @@ export default function GastosPanel({ userId: externalUserId }) {
   };
 
   return (
-    <div className="grid gap-6 gastos-panel">
-      <style>{`.gastos-panel td:last-child button[title="Borrar"], .gastos-panel td:last-child button[title="Editar"]{display:none}`}</style>
+    <div className="grid gap-6">
       {/* CABECERA: efectivo + tarjetas */}
       <div className="bg-white border rounded-xl shadow p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -362,3 +357,4 @@ export default function GastosPanel({ userId: externalUserId }) {
     </div>
   );
 }
+

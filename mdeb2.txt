@@ -10,21 +10,12 @@ const BANKS_DEBITO = [
 ];
 
 export default function ModalGastoDebito({ onClose, onSaved, userId }) {
-  const [concepto, setConcepto] = useState('comida'); // comida | gustos | ingresos | pago_tarjeta
+  const [concepto, setConcepto] = useState('comida'); // comida | gusto | ingreso | pago_tarjeta
   const [moneda, setMoneda] = useState('PEN');        // Moneda del pago (cuando aplique)
   const [monto, setMonto] = useState('');
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0,10));
   const [pagoObjetivo, setPagoObjetivo] = useState('PEN'); // 'PEN' | 'USD' (deuda a la que aplica)
   const [banco, setBanco] = useState('interbank');
-  const CARD_FRIENDLY = {
-    interbank: 'Interbank',
-    bcp: 'BCP',
-    bcp_amex: 'BCP Amex',
-    bcp_visa: 'BCP Visa',
-    bbva: 'BBVA',
-    io: 'IO',
-    saga: 'Saga',
-  };
 
   // tarjetas del usuario (para pago_tarjeta)
   const [cards, setCards] = useState([]);
@@ -33,7 +24,6 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
   const [cardsErr, setCardsErr] = useState('');
 
   const [nota, setNota] = useState('');
-  const [tcPago, setTcPago] = useState(TC_FIJO);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -108,13 +98,12 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     };
 
         if (concepto === 'pago_tarjeta') {
-      // Enviar objetivo del pago para que el backend descuente PEN o USD correctamente
-      body.pagoObjetivo = pagoObjetivo;
+      // Nota: no enviamos pagoObjetivo al backend (rechazado por esquema)
       if (pagoObjetivo === 'USD') {
-        // Tasa usada en el pago; editable
-        body.tipoCambioDia = Number(tcPago);
+        // TC fijo; si paga en soles, convertir a USD
+        body.tipoCambioDia = TC_FIJO;
         if (moneda === 'PEN') {
-          const usd = convertPenToUsd(n, Number(tcPago));
+          const usd = convertPenToUsd(n, TC_FIJO);
           if (usd != null) body.montoUsdAplicado = Number(usd.toFixed(2));
         }
       } else {
@@ -160,8 +149,8 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
             <span className="block text-gray-600 mb-1">Concepto</span>
             <select className="w-full border rounded px-3 py-2" value={concepto} onChange={(e)=>setConcepto(e.target.value)}>
               <option value="comida">Comida</option>
-              <option value="gustos">Gustos</option>
-              <option value="ingresos">Ingresos</option>
+              <option value="gusto">Gusto</option>
+              <option value="ingreso">Ingreso</option>
               <option value="pago_tarjeta">Pago Tarjeta</option>
             </select>
           </label>
@@ -204,7 +193,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
                   </label>
                   <label className="text-sm">
                     <span className="block text-gray-600 mb-1">Tipo de cambio</span>
-                    <input type="number" step="0.0001" min="0" className="w-full border rounded px-3 py-2" value={tcPago} onChange={(e)=>setTcPago(e.target.value)} placeholder={String(TC_FIJO)} />
+                    <input type="number" step="0.0001" min="0" className="w-full border rounded px-3 py-2" value={TC_FIJO} onChange={(e)=>(e.target.value)} placeholder={false ? 'Cargando…' : (TC_FIJO ? String(TC_FIJO) : '')} />
                   </label>
                 </div>
               )}
@@ -246,11 +235,9 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
                   onChange={(e)=>setTarjetaPagar(e.target.value)}
                   disabled={loadingCards || !cards.length}
                 >
-                  {cards.map(c => {
-                    const type = c.tipo || c.type;
-                    const label = c.label || c.name || CARD_FRIENDLY[type] || type;
-                    return <option key={c.id} value={type}>{label}</option>;
-                  })}
+                  {cards.map(c => (
+                    <option key={c.id} value={c.tipo || c.type}>{c.label || c.name || c.tipo || c.type}</option>
+                  ))}
                 </select>
                 {!cards.length && (
                   <div className="mt-1 text-xs text-amber-700">
@@ -277,6 +264,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     </div>
   );
 }
+
 
 
 
