@@ -137,10 +137,7 @@ export default function ModalTarjetas({ onClose, onSaved, userId }) { // 👈 re
       aria-modal="true"
       onClick={(e)=>{ if(e.target===e.currentTarget) onClose?.(); }}
     >
-      <div
-        className="w-full max-w-lg bg-white rounded-xl shadow-lg p-6 relative"
-        onClick={(e)=>e.stopPropagation()}
-      >
+      <div className="w-full max-w-lg bg-white rounded-xl shadow-lg p-6 relative max-h-[90vh] overflow-y-auto" onClick={(e)=>e.stopPropagation()}>
         <button
           className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
           onClick={onClose}

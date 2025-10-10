@@ -145,7 +145,7 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
       onClick={handleOverlay}
     >
       <div
-        className="w-full max-w-lg bg-white rounded-xl shadow-lg p-6 relative"
+        className="w-full max-w-lg bg-white rounded-xl shadow-lg p-6 relative max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-800" onClick={onClose}>

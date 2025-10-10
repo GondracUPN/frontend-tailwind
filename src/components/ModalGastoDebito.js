@@ -10,7 +10,7 @@ const BANKS_DEBITO = [
 ];
 
 export default function ModalGastoDebito({ onClose, onSaved, userId }) {
-  const [concepto, setConcepto] = useState('comida'); // comida | gustos | ingresos | pago_tarjeta
+  const [concepto, setConcepto] = useState('comida'); // comida | gustos | ingresos | pago_tarjeta | retiro_agente | gastos_recurrentes
   const [moneda, setMoneda] = useState('PEN');        // Moneda del pago (cuando aplique)
   const [monto, setMonto] = useState('');
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0,10));
@@ -149,7 +149,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={(e)=>{ if(e.target===e.currentTarget) onClose?.(); }}>
-      <div className="w-full max-w-lg bg-white rounded-xl shadow-lg p-6 relative" onClick={e=>e.stopPropagation()}>
+      <div className="w-full max-w-lg bg-white rounded-xl shadow-lg p-6 relative max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
         <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-800" onClick={onClose}>×</button>
         <h2 className="text-lg font-semibold mb-3">Agregar gasto (Débito)</h2>
 
@@ -162,6 +162,8 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
               <option value="comida">Comida</option>
               <option value="gustos">Gustos</option>
               <option value="ingresos">Ingresos</option>
+              <option value="retiro_agente">Retiro agente</option>
+              <option value="gastos_recurrentes">Gastos recurrentes</option>
               <option value="pago_tarjeta">Pago Tarjeta</option>
             </select>
           </label>
@@ -202,10 +204,12 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
                     <span className="block text-gray-600 mb-1">Monto</span>
                     <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={monto} onChange={(e)=>setMonto(e.target.value)} placeholder="0.00" />
                   </label>
-                  <label className="text-sm">
-                    <span className="block text-gray-600 mb-1">Tipo de cambio</span>
-                    <input type="number" step="0.0001" min="0" className="w-full border rounded px-3 py-2" value={tcPago} onChange={(e)=>setTcPago(e.target.value)} placeholder={String(TC_FIJO)} />
-                  </label>
+                  {moneda === 'PEN' && (
+                    <label className="text-sm">
+                      <span className="block text-gray-600 mb-1">Tipo de cambio</span>
+                      <input type="number" step="0.0001" min="0" className="w-full border rounded px-3 py-2" value={tcPago} onChange={(e)=>setTcPago(e.target.value)} placeholder={String(TC_FIJO)} />
+                    </label>
+                  )}
                 </div>
               )}
             </>
@@ -277,7 +281,6 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     </div>
   );
 }
-
 
 
 

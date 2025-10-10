@@ -113,6 +113,9 @@ export default function Calculadora({ setVista }) {
   const [extraJ, setExtraJ] = useState(100); // aplicado (×10 half-up)
 
   const [tab, setTab] = useState("compras"); // 'compras' | 'kenny' | 'jorge'
+  const [pvCompras, setPvCompras] = useState("");
+  const [pvKenny, setPvKenny] = useState("");
+  const [pvJorge, setPvJorge] = useState("");
 
   // Form (UI) y su versión debounced para cálculos
   const [form, setForm] = useState({ precioUsd: "", envioUsaUsd: "", decUsd: "", pesoKg: "" });
@@ -277,6 +280,11 @@ export default function Calculadora({ setVista }) {
               <li className="flex justify-between"><span>Precio en Soles ((Prod + Envío USA) × {num(tipoCambio).toFixed(2)}):</span><strong>{fmtSoles(compras.precioSoles)}</strong></li>
               <li className="flex justify-between"><span>Costo total (S/):</span><strong>{fmtSoles(compras.costoTotal)}</strong></li>
               <li className="flex justify-between text-xl"><span>Precio de Venta Mínimo (+20%):</span><strong>{fmtSoles(compras.precioVentaMin)}</strong></li>
+              <li className="mt-2 pt-2 border-t flex items-center gap-2 text-xs">
+                <label className="text-xs text-gray-600">Precio de venta</label>
+                <input className="w-32 sm:w-40 border rounded px-2 py-1 text-sm" inputMode="decimal" placeholder="S/ 0.00" value={pvCompras} onChange={(e)=>setPvCompras(e.target.value)} />
+                <strong className="text-xs">Ganancia: {fmtSoles(Math.max(0, num(pvCompras) - compras.costoTotal))}</strong>
+              </li>
               <li className="flex justify-between"><span>Ganancia estimada:</span><strong>{fmtSoles(compras.ganancia)}</strong></li>
             </ul>
           </Card>
@@ -309,6 +317,7 @@ export default function Calculadora({ setVista }) {
               <hr className="my-2" />
               <li className="flex justify-between text-lg"><span>Total envío:</span><strong>{fmtSoles(kenny.costoEnvio)}</strong></li>
               <li className="flex justify-between"><span>Extra (13% de Precio en Soles, redondeado ×10):</span><strong>{fmtSoles(kenny.extra)}</strong></li>
+              <li className="flex justify-between"><span>Total envío + Extra:</span><strong>{fmtSoles(kenny.costoEnvio + kenny.extra)}</strong></li>
             </ul>
           </Card>
 
@@ -317,6 +326,11 @@ export default function Calculadora({ setVista }) {
               <li className="flex justify-between"><span>Precio en Soles ((Prod + Envío USA) × {TC_KENNY.toFixed(2)}):</span><strong>{fmtSoles(kenny.precioSoles)}</strong></li>
               <li className="flex justify-between"><span>Costo Total Kenny:</span><strong>{fmtSoles(kenny.costoTotal)}</strong></li>
               <hr className="my-2" />
+              <li className="mt-2 pt-2 border-t flex items-center gap-2 text-xs">
+                <label className="text-xs text-gray-600">Precio de venta</label>
+                <input className="w-32 sm:w-40 border rounded px-2 py-1 text-sm" inputMode="decimal" placeholder="S/ 0.00" value={pvKenny} onChange={(e)=>setPvKenny(e.target.value)} />
+                <strong className="text-xs">Ganancia: {fmtSoles(Math.max(0, num(pvKenny) - kenny.costoTotal))}</strong>
+              </li>
               <li className="flex justify-between"><span>Precio de Venta +10% (redondeado ×10):</span><strong>{fmtSoles(kenny.pv10)}</strong></li>
               <li className="flex justify-between"><span>Ganancia con +10%:</span><strong>{fmtSoles(kenny.ganancia10)}</strong></li>
               <hr className="my-2" />
@@ -384,6 +398,7 @@ export default function Calculadora({ setVista }) {
               <li className="flex justify-between"><span>Seguro:</span><strong>{fmtSoles(jorge.seguro)}</strong></li>
               <hr className="my-2" />
               <li className="flex justify-between text-lg"><span>Total envío (normal):</span><strong>{fmtSoles(jorge.costoEnvio)}</strong></li>
+              <li className="flex justify-between"><span>Mi ganancia (envío + 7% de (base+envío) + extra):</span><strong>{fmtSoles( jorge.costoEnvio + ((jorge.baseSoles + jorge.costoEnvio) * 0.07) + (Number(extraJ)||0) )}</strong></li>
             </ul>
           </Card>
 
@@ -396,6 +411,11 @@ export default function Calculadora({ setVista }) {
               <li className="flex justify-between"><span>PB redondeado (×5):</span><strong>{fmtSoles(jorge.pbR)}</strong></li>
               <li className="flex justify-between"><span>Extra (aplicado, ×10):</span><strong>{fmtSoles(extraJ)}</strong></li>
               <li className="flex justify-between text-lg"><span>Costo Total Jorge (PB redondeado + Extra):</span><strong>{fmtSoles(jorge.costoTotal)}</strong></li>
+              <li className="mt-2 pt-2 border-t flex items-center gap-2 text-xs">
+                <label className="text-xs text-gray-600">Precio de venta</label>
+                <input className="w-32 sm:w-40 border rounded px-2 py-1 text-sm" inputMode="decimal" placeholder="S/ 0.00" value={pvJorge} onChange={(e)=>setPvJorge(e.target.value)} />
+                <strong className="text-xs">Ganancia: {fmtSoles(Math.max(0, num(pvJorge) - jorge.costoTotal))}</strong>
+              </li>
               <hr className="my-2" />
               <li className="flex justify-between"><span>Precio de Venta +10% (redondeado ×10):</span><strong>{fmtSoles(jorge.pv10)}</strong></li>
               <li className="flex justify-between"><span>Ganancia con +10%:</span><strong>{fmtSoles(jorge.ganancia10)}</strong></li>

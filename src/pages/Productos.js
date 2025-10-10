@@ -38,6 +38,47 @@ export default function Productos({ setVista }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [pickupDate, setPickupDate] = useState(''); // YYYY-MM-DD
   const [soloDisponibles, setSoloDisponibles] = useState(false);
+  // Filtros adicionales
+  const [filtroTipo, setFiltroTipo] = useState('todos'); // 'todos' | 'macbook' | 'ipad' | 'pantalla' | 'otro'
+  const [filtroProc, setFiltroProc] = useState('todos'); // procesador o pantalla (texto libre)
+
+  // Tipos disponibles calculados desde la data
+  const tiposDisponibles = React.useMemo(() => {
+    const set = new Set();
+    for (const p of productos || []) {
+      const t = String(p.tipo || '').toLowerCase();
+      if (t) set.add(t);
+    }
+    return Array.from(set);
+  }, [productos]);
+
+  // Opciones disponibles de procesador (macbook/ipad) o tamaño (pantalla)
+  const opcionesProc = React.useMemo(() => {
+    const tipo = String(filtroTipo || '').toLowerCase();
+    const set = new Set();
+    if (tipo === 'macbook' || tipo === 'ipad') {
+      for (const p of productos || []) {
+        if (String(p.tipo || '').toLowerCase() !== tipo) continue;
+        const val = String(p.detalle?.procesador || '').trim();
+        if (val) set.add(val);
+      }
+    } else if (tipo === 'pantalla') {
+      for (const p of productos || []) {
+        if (String(p.tipo || '').toLowerCase() !== tipo) continue;
+        const val = String(p.detalle?.tamanio || '').trim();
+        if (val) set.add(val);
+      }
+    }
+    return Array.from(set);
+  }, [productos, filtroTipo]);
+
+  // Si el tipo seleccionado ya no existe, resetea a 'todos'
+  React.useEffect(() => {
+    if (filtroTipo !== 'todos' && !tiposDisponibles.includes(filtroTipo)) {
+      setFiltroTipo('todos');
+      setFiltroProc('todos');
+    }
+  }, [tiposDisponibles, filtroTipo]);
 
   const startImport = () => {
     setSelectMode(true);
@@ -263,9 +304,29 @@ export default function Productos({ setVista }) {
       });
     }
 
+    // Filtro por tipo
+    if (filtroTipo !== 'todos') {
+      list = list.filter((p) => String(p.tipo || '').toLowerCase() === filtroTipo);
+    }
+    // Subfiltro por procesador o tamaño de pantalla (match exacto de la opción seleccionada)
+    if (filtroProc !== 'todos' && filtroTipo !== 'todos') {
+      const term = String(filtroProc || '').toLowerCase();
+      list = list.filter((p) => {
+        const tipo = String(p.tipo || '').toLowerCase();
+        const d = p.detalle || {};
+        if (tipo === 'macbook' || tipo === 'ipad') {
+          return String(d.procesador || '').toLowerCase() === term;
+        }
+        if (tipo === 'pantalla') {
+          return String(d.tamanio || '').toLowerCase() === term;
+        }
+        return true;
+      });
+    }
+
     list.sort((a, b) => ts(b) - ts(a)); // más nuevos arriba
     return list;
-  }, [productos, ventasMap, soloDisponibles]);
+  }, [productos, ventasMap, soloDisponibles, filtroTipo, filtroProc]);
 
 
 
@@ -508,7 +569,7 @@ export default function Productos({ setVista }) {
         {!selectMode ? (
           <>
             {/* Filtro a la izquierda */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <label className="inline-flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -516,8 +577,39 @@ export default function Productos({ setVista }) {
                   checked={soloDisponibles}
                   onChange={(e) => setSoloDisponibles(e.target.checked)}
                 />
-                Mostrar solo disponibles para venta
+                Mostrar listos venta
               </label>
+
+              <label className="text-sm inline-flex items-center gap-2">
+                <span>Tipo</span>
+                <select
+                  className="border rounded px-2 py-1"
+                  value={filtroTipo}
+                  onChange={(e) => { setFiltroTipo(e.target.value); setFiltroProc('todos'); }}
+                >
+                  <option value="todos">Todos</option>
+                  {tiposDisponibles.includes('macbook') && <option value="macbook">MacBook</option>}
+                  {tiposDisponibles.includes('ipad') && <option value="ipad">iPad</option>}
+                  {tiposDisponibles.includes('pantalla') && <option value="pantalla">Pantalla</option>}
+                  {tiposDisponibles.includes('otro') && <option value="otro">Otros</option>}
+                </select>
+              </label>
+
+              {(filtroTipo === 'macbook' || filtroTipo === 'ipad' || filtroTipo === 'pantalla') && (
+                <label className="text-sm inline-flex items-center gap-2">
+                  <span>{filtroTipo === 'pantalla' ? 'Pantalla' : 'Procesador'}</span>
+                  <select
+                    className="border rounded px-2 py-1"
+                    value={filtroProc}
+                    onChange={(e)=>setFiltroProc(e.target.value)}
+                  >
+                    <option value="todos">Todos</option>
+                    {opcionesProc.map((opt) => (
+                      <option key={opt} value={opt.toLowerCase()}>{opt}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
 
             {/* Acciones a la derecha */}
