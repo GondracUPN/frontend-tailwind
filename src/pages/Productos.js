@@ -11,7 +11,7 @@ import ModalCalculadora from '../components/ModalCalculadora';
 import ModalDec from '../components/ModalDec';
 import { FiFileText } from 'react-icons/fi';
 
-export default function Productos({ setVista }) {
+export default function Productos({ setVista, setAnalisisBack }) {
   const [productos, setProductos] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
@@ -614,6 +614,14 @@ export default function Productos({ setVista }) {
 
             {/* Acciones a la derecha */}
             <div className="flex gap-2 justify-end">
+              {/* Analisis a la izquierda, con más separación del siguiente */}
+              <button
+                onClick={() => { setAnalisisBack('productos'); setVista('analisis'); }}
+                className="bg-slate-600 text-white px-5 py-2 rounded hover:bg-slate-700 mr-6"
+                title="Ir al módulo de análisis"
+              >
+                Analisis
+              </button>
               <button
                 onClick={abrirCrear}
                 className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700"
