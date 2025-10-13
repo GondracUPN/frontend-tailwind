@@ -98,6 +98,18 @@ export default function GastosPanel({ userId: externalUserId }) {
     return (Number(wallet.efectivoPen || 0) + delta).toFixed(2);
   }, [rows, wallet.efectivoPen]);
 
+  // Efectivo calculado (USD)
+  const efectivoUsdCalc = useMemo(() => {
+    let delta = 0;
+    for (const g of rows) {
+      const m = Number(g.monto) || 0;
+      if (g.moneda !== 'USD') continue;
+      if (g.metodoPago !== 'debito') continue;
+      if (String(g.concepto).toLowerCase() === 'ingreso') delta += m; else delta -= m;
+    }
+    return (Number(wallet.efectivoUsd || 0) + delta).toFixed(2);
+  }, [rows, wallet.efectivoUsd]);
+
   const openDeb = () => setShowDeb(true);
   const openCre = () => setShowCre(true);
   const openTar = () => setShowTar(true);
@@ -128,7 +140,7 @@ export default function GastosPanel({ userId: externalUserId }) {
           <div>
             <div className="text-sm text-gray-500">Efectivo para invertir</div>
             <div className="text-3xl font-semibold">S/ {efectivoPenCalc}</div>
-            <div className="text-xs text-gray-600 mt-0.5">$ {Number(wallet.efectivoUsd || 0).toFixed(2)}</div>
+            <div className="text-xs text-gray-600 mt-0.5">$ {efectivoUsdCalc}</div>
             <button onClick={openEfec} className="mt-2 text-sm px-3 py-1.5 rounded bg-gray-800 text-white hover:bg-gray-900">Editar efectivo</button>
           </div>
 

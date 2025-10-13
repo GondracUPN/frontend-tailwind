@@ -10,7 +10,7 @@ const BANKS_DEBITO = [
 ];
 
 export default function ModalGastoDebito({ onClose, onSaved, userId }) {
-  const [concepto, setConcepto] = useState('comida'); // comida | gustos | ingresos | pago_tarjeta | retiro_agente | gastos_recurrentes
+  const [concepto, setConcepto] = useState('comida'); // comida | gustos | ingresos | pago_tarjeta | retiro_agente | gastos_recurrentes | transporte | pago_envios
   const [moneda, setMoneda] = useState('PEN');        // Moneda del pago (cuando aplique)
   const [monto, setMonto] = useState('');
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0,10));
@@ -33,6 +33,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
   const [cardsErr, setCardsErr] = useState('');
 
   const [nota, setNota] = useState('');
+  const [detalleGusto, setDetalleGusto] = useState('');
   const [tcPago, setTcPago] = useState(TC_FIJO);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -95,6 +96,10 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     if (concepto === 'pago_tarjeta' && !tarjetaPagar) {
       return setError('Selecciona la tarjeta a la que vas a pagar.');
     }
+    const isGusto = concepto === 'gustos' || concepto === 'gusto';
+    if (isGusto && !String(detalleGusto).trim()) {
+      return setError('Describe el gusto.');
+    }
 
     const body = {
       concepto,
@@ -105,6 +110,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
       notas: nota || null,
       tarjeta: banco,
       ...(concepto === 'pago_tarjeta' ? { tarjetaPago: tarjetaPagar } : {}),
+      ...(isGusto ? { detalleGusto: String(detalleGusto).trim() } : {}),
     };
 
         if (concepto === 'pago_tarjeta') {
@@ -162,6 +168,8 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
               <option value="comida">Comida</option>
               <option value="gustos">Gustos</option>
               <option value="ingresos">Ingresos</option>
+              <option value="transporte">Transporte</option>
+              <option value="pago_envios">Pago de envíos</option>
               <option value="retiro_agente">Retiro agente</option>
               <option value="gastos_recurrentes">Gastos recurrentes</option>
               <option value="pago_tarjeta">Pago Tarjeta</option>
@@ -214,13 +222,21 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
               )}
             </>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div></div>
-              <label className="text-sm">
-                <span className="block text-gray-600 mb-1">Monto</span>
-                <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={monto} onChange={(e)=>setMonto(e.target.value)} placeholder="0.00" />
-              </label>
-            </div>
+            <>
+              {(concepto === 'gustos' || concepto === 'gusto') && (
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Detalle del gusto</span>
+                  <input className="w-full border rounded px-3 py-2" value={detalleGusto} onChange={(e)=>setDetalleGusto(e.target.value)} placeholder="Ej. ropa, juego, accesorio" />
+                </label>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div></div>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Monto</span>
+                  <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={monto} onChange={(e)=>setMonto(e.target.value)} placeholder="0.00" />
+                </label>
+              </div>
+            </>
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -267,7 +283,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
           <label className="text-sm">
             <span className="block text-gray-600 mb-1">Nota (opcional)</span>
-            <input className="w-full border rounded px-3 py-2" value={nota} onChange={(e)=>setNota(e.target.value)} placeholder={concepto==='gusto'?'¿Qué se compró?':''}/>
+            <input className="w-full border rounded px-3 py-2" value={nota} onChange={(e)=>setNota(e.target.value)} placeholder=""/>
           </label>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -281,8 +297,6 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     </div>
   );
 }
-
-
 
 
 

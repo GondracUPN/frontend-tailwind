@@ -17,6 +17,7 @@ const CONCEPTOS = [
   'Pago Envios',
   'Deuda en cuotas',
   'Gastos recurrentes',
+  'Desgravamen',
 ];
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -26,7 +27,12 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
   const [loadingCards, setLoadingCards] = useState(true);
 
   const [concepto, setConcepto] = useState(initial?.concepto || 'Comida');
-  const [moneda, setMoneda] = useState(initial?.moneda || 'USD');
+  // Moneda por defecto: USD solo para Inversion, PEN para lo demás
+  const defaultMoneda = (() => {
+    const c = (initial?.concepto || 'Comida').toLowerCase();
+    return c === 'inversion' ? 'USD' : 'PEN';
+  })();
+  const [moneda, setMoneda] = useState(initial?.moneda || defaultMoneda);
   const [monto, setMonto] = useState(initial?.monto != null ? String(initial.monto) : '');
   const [fecha, setFecha] = useState(initial?.fecha || today());
   const [nota, setNota] = useState(initial?.notas || '');
@@ -68,7 +74,7 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
   const cardLabel = (c) => c?.label || c?.name || c?.tipo || c?.type || '';
   const cardValue = (c) => c?.type || c?.tipo || c?.label || c?.name || '';
 
-  const isCompra = concepto === 'Comida' || concepto === 'Gusto' || concepto === 'Inversion' || concepto === 'Pago Envios' || concepto === 'Deuda en cuotas' || concepto === 'Gastos recurrentes';
+  const isCompra = concepto === 'Comida' || concepto === 'Gusto' || concepto === 'Inversion' || concepto === 'Pago Envios' || concepto === 'Deuda en cuotas' || concepto === 'Gastos recurrentes' || concepto === 'Desgravamen';
   const isIngreso = false; // ya no se usa aquí
   const isCuotas = concepto === 'Deuda en cuotas';
   const isRecurrente = concepto === 'Gastos recurrentes';
@@ -76,6 +82,16 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
   const needDetalleGusto = concepto === 'Gusto';
 
   const fechaLabel = useMemo(() => 'Fecha de compra', []);
+
+  // Al cambiar de concepto, fijar moneda default: USD para Inversion, PEN para lo demás
+  useEffect(() => {
+    const c = String(concepto || '').toLowerCase();
+    setMoneda((prev) => {
+      // Si el usuario ya eligió manualmente, no forzar si coincide con la regla actual
+      const target = c === 'inversion' ? 'USD' : 'PEN';
+      return target;
+    });
+  }, [concepto]);
 
   const onSubmit = async (e) => {
     e?.preventDefault?.();
