@@ -126,8 +126,9 @@ export default function GastosPanel({ userId: externalUserId }) {
       <div className="bg-white border rounded-xl shadow p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-sm text-gray-500">Efectivo para invertir (S/)</div>
+            <div className="text-sm text-gray-500">Efectivo para invertir</div>
             <div className="text-3xl font-semibold">S/ {efectivoPenCalc}</div>
+            <div className="text-xs text-gray-600 mt-0.5">$ {Number(wallet.efectivoUsd || 0).toFixed(2)}</div>
             <button onClick={openEfec} className="mt-2 text-sm px-3 py-1.5 rounded bg-gray-800 text-white hover:bg-gray-900">Editar efectivo</button>
           </div>
 
