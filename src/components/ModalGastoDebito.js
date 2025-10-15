@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL } from '../api';
 import { convertPenToUsd, TC_FIJO } from '../utils/tipoCambio';
+import CloseX from './CloseX';
 
 const BANKS_DEBITO = [
   { value: 'interbank', label: 'Interbank' },
@@ -9,30 +10,32 @@ const BANKS_DEBITO = [
   { value: 'bbva', label: 'BBVA' },
 ];
 
-export default function ModalGastoDebito({ onClose, onSaved, userId }) {
-  const [concepto, setConcepto] = useState('comida'); // comida | gustos | ingresos | pago_tarjeta | retiro_agente | gastos_recurrentes | transporte | pago_envios
-  const [moneda, setMoneda] = useState('PEN');        // Moneda del pago (cuando aplique)
-  const [monto, setMonto] = useState('');
-  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0,10));
-  const [pagoObjetivo, setPagoObjetivo] = useState('PEN'); // 'PEN' | 'USD' (deuda a la que aplica)
-  const [banco, setBanco] = useState('interbank');
-  const CARD_FRIENDLY = {
-    interbank: 'Interbank',
-    bcp: 'BCP',
-    bcp_amex: 'BCP Amex',
-    bcp_visa: 'BCP Visa',
-    bbva: 'BBVA',
-    io: 'IO',
-    saga: 'Saga',
-  };
+// Mapeo de tipos de tarjeta a nombres amigables
+const CARD_FRIENDLY = {
+  interbank: 'Interbank',
+  bcp: 'BCP',
+  bcp_amex: 'BCP Amex',
+  bcp_visa: 'BCP Visa',
+  bbva: 'BBVA',
+  io: 'IO',
+  saga: 'Saga',
+};
 
-  // tarjetas del usuario (para pago_tarjeta)
+export default function ModalGastoDebito({ onClose, onSaved, userId }) {
+  const [concepto, setConcepto] = useState('comida');
+  const [moneda, setMoneda] = useState('PEN');
+  const [monto, setMonto] = useState('');
+  const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
+  const [pagoObjetivo, setPagoObjetivo] = useState('PEN'); // 'PEN' | 'USD'
+  const [banco, setBanco] = useState('interbank');
+
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(true);
   const [tarjetaPagar, setTarjetaPagar] = useState('');
   const [cardsErr, setCardsErr] = useState('');
 
   const [nota, setNota] = useState('');
+  const [detalleMensual, setDetalleMensual] = useState('');
   const [detalleGusto, setDetalleGusto] = useState('');
   const [tcPago, setTcPago] = useState(TC_FIJO);
   const [saving, setSaving] = useState(false);
@@ -47,19 +50,14 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
         setCardsErr('');
         const token = localStorage.getItem('token');
         const url = `${API_URL}/cards${userId ? `?userId=${userId}` : ''}`;
-        const res = await fetch(url, {
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(url, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
         const data = await res.json();
         if (!alive) return;
         const list = Array.isArray(data) ? data : [];
         setCards(list);
         if (list.length) setTarjetaPagar(list[0].tipo || list[0].type || '');
       } catch (e) {
-        if (alive) {
-          console.error('[ModalGastoDebito] cards load:', e);
-          setCardsErr('No se pudieron cargar tus tarjetas.');
-        }
+        if (alive) setCardsErr('No se pudieron cargar tus tarjetas.');
       } finally {
         if (alive) setLoadingCards(false);
       }
@@ -67,9 +65,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     return () => { alive = false; };
   }, [userId]);
 
-  // TC fijo, no depende de fecha
-
-  // En conceptos distintos a pago_tarjeta, forzar soles y limpiar objetivo
+  // En conceptos distintos a pago_tarjeta, forzar soles
   useEffect(() => {
     if (concepto !== 'pago_tarjeta') {
       setMoneda('PEN');
@@ -87,7 +83,6 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
   const submit = async (e) => {
     e?.preventDefault?.();
     if (saving) return;
-
     setError('');
     const n = Number(monto);
     if (!isFinite(n) || n <= 0) return setError('Monto inválido.');
@@ -97,8 +92,12 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
       return setError('Selecciona la tarjeta a la que vas a pagar.');
     }
     const isGusto = concepto === 'gustos' || concepto === 'gusto';
+    const isMensual = concepto === 'gastos_recurrentes';
     if (isGusto && !String(detalleGusto).trim()) {
       return setError('Describe el gusto.');
+    }
+    if (isMensual && !String(detalleMensual).trim()) {
+      return setError('Ingresa el detalle del gasto mensual.');
     }
 
     const body = {
@@ -107,38 +106,31 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
       moneda,
       monto: n,
       fecha,
-      notas: nota || null,
+      notas: isMensual ? String(detalleMensual).trim() : (nota || null),
       tarjeta: banco,
       ...(concepto === 'pago_tarjeta' ? { tarjetaPago: tarjetaPagar } : {}),
       ...(isGusto ? { detalleGusto: String(detalleGusto).trim() } : {}),
     };
 
-        if (concepto === 'pago_tarjeta') {
-      // Enviar objetivo del pago para que el backend descuente PEN o USD correctamente
+    if (concepto === 'pago_tarjeta') {
       body.pagoObjetivo = pagoObjetivo;
       if (pagoObjetivo === 'USD') {
-        // Tasa usada en el pago; editable
         body.tipoCambioDia = Number(tcPago);
         if (moneda === 'PEN') {
           const usd = convertPenToUsd(n, Number(tcPago));
           if (usd != null) body.montoUsdAplicado = Number(usd.toFixed(2));
         }
       } else {
-        // Pagar soles: no se requiere TC ni conversiones; forzar pago en PEN
         body.moneda = 'PEN';
       }
-      }
+    }
 
     const token = localStorage.getItem('token');
     if (!token) return setError('No hay sesión.');
 
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/gastos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(body),
-      });
+      const res = await fetch(`${API_URL}/gastos`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       onSaved?.(data);
@@ -151,12 +143,12 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
   };
 
   const showPagoTarjeta = concepto === 'pago_tarjeta';
-  const showTarjetaDestino = concepto === 'pago_tarjeta';
+  const showTarjetaDestino = showPagoTarjeta;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={(e)=>{ if(e.target===e.currentTarget) onClose?.(); }}>
-      <div className="w-full max-w-lg bg-white rounded-xl shadow-lg p-6 relative max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
-        <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-800" onClick={onClose}>×</button>
+      <div className="w-full max-w-lg bg-white rounded-xl shadow-lg p-6 relative max-h-[90vh] overflow-y-auto" onClick={(e)=>e.stopPropagation()}>
+        <CloseX onClick={onClose} />
         <h2 className="text-lg font-semibold mb-3">Agregar gasto (Débito)</h2>
 
         {error && <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>}
@@ -171,15 +163,13 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
               <option value="transporte">Transporte</option>
               <option value="pago_envios">Pago de envíos</option>
               <option value="retiro_agente">Retiro agente</option>
-              <option value="gastos_recurrentes">Gastos recurrentes</option>
+              <option value="gastos_recurrentes">Gastos mensuales</option>
               <option value="pago_tarjeta">Pago Tarjeta</option>
             </select>
           </label>
 
-          {/* UI variable según concepto */}
           {showPagoTarjeta ? (
             <>
-              {/* Elegir a qué deuda aplicar */}
               <div className="flex gap-4">
                 <label className="text-sm inline-flex items-center gap-2">
                   <input type="radio" name="pagoObjetivo" value="PEN" checked={pagoObjetivo==='PEN'} onChange={()=>setPagoObjetivo('PEN')} />
@@ -229,6 +219,13 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
                   <input className="w-full border rounded px-3 py-2" value={detalleGusto} onChange={(e)=>setDetalleGusto(e.target.value)} placeholder="Ej. ropa, juego, accesorio" />
                 </label>
               )}
+
+              {concepto === 'gastos_recurrentes' && (
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Detalle del gasto mensual</span>
+                  <input className="w-full border rounded px-3 py-2" value={detalleMensual} onChange={(e)=>setDetalleMensual(e.target.value)} placeholder="Ej. Internet, Netflix, Membresía" />
+                </label>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div></div>
                 <label className="text-sm">
@@ -241,9 +238,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="text-sm">
-              <span className="block text-gray-600 mb-1">
-                {concepto === 'ingreso' ? 'Fecha de ingreso' : (concepto === 'pago_tarjeta' ? 'Fecha de pago' : 'Fecha de compra')}
-              </span>
+              <span className="block text-gray-600 mb-1">{concepto === 'ingreso' ? 'Fecha de ingreso' : (concepto === 'pago_tarjeta' ? 'Fecha de pago' : 'Fecha de compra')}</span>
               <input type="date" className="w-full border rounded px-3 py-2" value={fecha} onChange={(e)=>setFecha(e.target.value)} />
             </label>
 
@@ -260,12 +255,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
               {cardsErr && <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">{cardsErr}</div>}
               <label className="text-sm">
                 <span className="block text-gray-600 mb-1">Tarjeta a la que paga</span>
-                <select
-                  className="w-full border rounded px-3 py-2"
-                  value={tarjetaPagar}
-                  onChange={(e)=>setTarjetaPagar(e.target.value)}
-                  disabled={loadingCards || !cards.length}
-                >
+                <select className="w-full border rounded px-3 py-2" value={tarjetaPagar} onChange={(e)=>setTarjetaPagar(e.target.value)} disabled={loadingCards || !cards.length}>
                   {cards.map(c => {
                     const type = c.tipo || c.type;
                     const label = c.label || c.name || CARD_FRIENDLY[type] || type;
@@ -273,30 +263,25 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
                   })}
                 </select>
                 {!cards.length && (
-                  <div className="mt-1 text-xs text-amber-700">
-                    No tienes tarjetas registradas. Agrega una en “Ingresar línea de crédito / Tarjeta”.
-                  </div>
+                  <div className="mt-1 text-xs text-amber-700">No tienes tarjetas registradas. Agrega una en “Ingresar línea de crédito / Tarjeta”.</div>
                 )}
               </label>
             </>
           )}
 
-          <label className="text-sm">
-            <span className="block text-gray-600 mb-1">Nota (opcional)</span>
-            <input className="w-full border rounded px-3 py-2" value={nota} onChange={(e)=>setNota(e.target.value)} placeholder=""/>
-          </label>
+          {concepto !== 'gastos_recurrentes' && (
+            <label className="text-sm">
+              <span className="block text-gray-600 mb-1">Nota (opcional)</span>
+              <input className="w-full border rounded px-3 py-2" value={nota} onChange={(e)=>setNota(e.target.value)} placeholder=""/>
+            </label>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className="px-4 py-2 rounded bg-gray-200 text-gray-800 hover:bg-gray-300" onClick={onClose}>Cancelar</button>
-            <button type="submit" disabled={saving || (concepto==='pago_tarjeta' && !cards.length)} className="px-5 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60">
-              {saving ? 'Guardando…' : 'Guardar'}
-            </button>
+            <button type="submit" disabled={saving || (concepto==='pago_tarjeta' && !cards.length)} className="px-5 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60">{saving ? 'Guardando…' : 'Guardar'}</button>
           </div>
         </form>
       </div>
     </div>
   );
 }
-
-
-

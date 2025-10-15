@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
 
 import ModalGastoDebito from '../components/ModalGastoDebito';
@@ -8,7 +8,7 @@ import ModalCuotasYGastos from '../components/ModalCuotasYGastos';
 import ModalEditarGasto from '../components/ModalEditarGasto';
 import ModalEditarEfectivo from '../components/ModalEditarEfectivo';
 
-  const fmtMoney = (moneda, monto) => {
+const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
   if (!isFinite(n)) return '-';
   const symbol = moneda === 'USD' ? '$' : 'S/';
@@ -86,12 +86,6 @@ export default function GastosPanel({ userId: externalUserId }) {
     }
   };
 
-  const displayConcepto = (c) => {
-    const n = String(c || '').toLowerCase().replace(/\s+/g,'_');
-    if (n === 'gastos_recurrentes') return 'Gastos mensuales';
-    return String(c || '').replace(/_/g,' ');
-  };
-
   useEffect(() => { reloadAll(); /* eslint-disable-next-line */ }, [token, isAdmin, targetUserId]);
 
   // Efectivo calculado (PEN)
@@ -154,16 +148,13 @@ export default function GastosPanel({ userId: externalUserId }) {
           </div>
 
           <div className="flex-1 min-w-[260px]">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-semibold">Saldo de tarjetas</div>
-              <div className="flex items-center gap-2">
-                <button onClick={openCG} className="text-sm px-3 py-2 sm:py-1.5 rounded border border-gray-300 text-gray-800 hover:bg-gray-100 min-h-[40px]">Cuotas / Gastos mensuales</button>
-                <button onClick={openTar} className="text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Ingresar línea de crédito / Tarjeta</button>
-              </div>
-            </div>
-
-            {cardsSummary.length === 0 ? (
-              <div className="text-sm text-gray-600">Aún no has agregado tarjetas.</div>
+            <div className=" flex items-center justify-between mb-2\>
+ <div className=\text-sm font-semibold\>Saldo de tarjetas</div>
+ <div className=\flex items-center gap-2\>
+ <button onClick={openCG} className=\text-sm px-3 py-2 sm:py-1.5 rounded border border-gray-300 text-gray-800 hover:bg-gray-100 min-h-[40px]\>Cuotas / Gastos mensuales</button>
+ <button onClick={openTar} className=\text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]\>Ingresar l�nea de cr�dito / Tarjeta</button>
+ </div>
+ </div
             ) : (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {cardsSummary.map((c) => (
@@ -211,7 +202,7 @@ export default function GastosPanel({ userId: externalUserId }) {
                     const conceptoCell = g.concepto === 'pago_tarjeta'
                       ? `Pago Tarjeta · ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
                       : (g.concepto || '').replace(/_/g, ' ');
-                    const detalle = g.detalleGusto || g.notas || '-';
+                    const detalle = g.notas || '-';
                     return (
                       <tr key={g.id} className="border-t">
                         <td className="p-2 align-top">{g.fecha}</td>
@@ -266,7 +257,7 @@ export default function GastosPanel({ userId: externalUserId }) {
                   {rows.filter((g) => g.metodoPago === 'credito').map((g) => (
                     <tr key={g.id} className="border-t">
                       <td className="p-2 align-top">{g.fecha}</td>
-                      <td className="p-2 align-top capitalize">{displayConcepto(g.concepto)}</td>
+                      <td className="p-2 align-top capitalize">{(g.concepto || '').replace(/_/g,' ')}</td>
                       <td className="p-2 align-top">{CARD_LABEL[g.tarjeta] || g.tarjeta || '-'}</td>
                       <td className="p-2 align-top">{g.notas || '-'}</td>
                       <td className="p-2 align-top font-semibold">{fmtMoney(g.moneda, g.monto)}</td>
@@ -324,14 +315,6 @@ export default function GastosPanel({ userId: externalUserId }) {
           gasto={editingGasto}
           onClose={closeEdit}
           onSaved={onEdited}
-        />
-      )}
-      {showCG && (
-        <ModalCuotasYGastos
-          onClose={() => setShowCG(false)}
-          rows={rows}
-          userId={targetUserId}
-          onChanged={reloadAll}
         />
       )}
     </div>

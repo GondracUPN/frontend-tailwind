@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL } from '../api';
+import CloseX from './CloseX';
 
 export default function ModalEditarEfectivo({ onClose, onSaved, current }) {
   const [pen, setPen] = useState(String(current?.efectivoPen ?? '0'));
@@ -45,7 +46,7 @@ export default function ModalEditarEfectivo({ onClose, onSaved, current }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-6 relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-800" onClick={onClose}>×</button>
+        <CloseX onClick={onClose} />
         <h2 className="text-lg font-semibold mb-3">Editar efectivo</h2>
 
         {err && (

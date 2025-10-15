@@ -1,6 +1,7 @@
 // src/components/ModalEditarGasto.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
+import CloseX from './CloseX';
 
 const BANKS_DEBITO = [
   { value: 'interbank', label: 'Interbank' },
@@ -14,14 +15,12 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
   const [notas, setNotas] = useState(gasto?.notas || '');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
-  // Estados adicionales para edición completa
   const [concepto, setConcepto] = useState(gasto?.concepto || '');
   const [tarjeta, setTarjeta] = useState(gasto?.tarjeta || '');
   const [tarjetaPago, setTarjetaPago] = useState(gasto?.tarjetaPago || '');
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(false);
 
-  // Derivados
   const isCredito = gasto?.metodoPago === 'credito';
   const titulo = isCredito ? 'Editar gasto (Crédito)' : 'Editar gasto (Débito)';
 
@@ -33,7 +32,8 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
         { value: 'inversion', label: 'Inversión' },
         { value: 'pago_envios', label: 'Pago envíos' },
         { value: 'deuda_cuotas', label: 'Deuda en cuotas' },
-        { value: 'gastos_recurrentes', label: 'Gastos recurrentes' },
+        { value: 'gastos_recurrentes', label: 'Gastos mensuales' },
+        { value: 'desgravamen', label: 'Desgravamen' },
       ];
     }
     return [
@@ -41,7 +41,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
       { value: 'gustos', label: 'Gustos' },
       { value: 'ingresos', label: 'Ingresos' },
       { value: 'retiro_agente', label: 'Retiro agente' },
-      { value: 'gastos_recurrentes', label: 'Gastos recurrentes' },
+      { value: 'gastos_recurrentes', label: 'Gastos mensuales' },
       { value: 'pago_tarjeta', label: 'Pago Tarjeta' },
     ];
   }, [isCredito]);
@@ -72,6 +72,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
     })();
     return () => { alive = false; };
   }, [isCredito, concepto]);
+
   const submit = async (e) => {
     e?.preventDefault?.();
     if (saving) return;
@@ -107,21 +108,21 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
     }
   };
 
-  const handleOverlay = (e) => { if (e.target === e.currentTarget) onClose?.(); }
+  const handleOverlay = (e) => { if (e.target === e.currentTarget) onClose?.(); };
 
   if (!gasto) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={handleOverlay}>
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-6 relative max-h-[90vh] overflow-y-auto" onClick={(e)=>e.stopPropagation()}>
-        <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-800" onClick={onClose}>×</button>
+        <CloseX onClick={onClose} />
         <h2 className="text-lg font-semibold mb-3">{titulo}</h2>
 
         {err && <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</div>}
 
         <div className="mb-2 text-xs text-gray-600">
           <div>Concepto: <b className="capitalize">{String(gasto.concepto || '').replace(/_/g,' ')}</b></div>
-          <div>Método: <b className="capitalize">{gasto.metodoPago}</b> · Moneda: <b>{gasto.moneda}</b> · Tarjeta/Banco: <b>{gasto.tarjeta || '-'}</b></div>
+          <div>Método: <b className="capitalize">{gasto.metodoPago}</b> • Moneda: <b>{gasto.moneda}</b> • Tarjeta/Banco: <b>{gasto.tarjeta || '-'}</b></div>
         </div>
 
         <form className="grid gap-3" onSubmit={submit}>
@@ -188,3 +189,4 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
     </div>
   );
 }
+
