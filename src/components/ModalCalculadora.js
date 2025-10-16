@@ -1,4 +1,4 @@
-// src/components/ModalCalculadora.js
+﻿// src/components/ModalCalculadora.js
 import React, { useMemo, useState } from 'react';
 
 const fmtSoles = (v) => (isNaN(v) ? '—' : `S/ ${Number(v).toFixed(2)}`);
@@ -44,7 +44,7 @@ export default function ModalCalculadora({ producto, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white w-full max-w-lg rounded-xl shadow-lg p-6 relative">
+      <div className="bg-white w-full sm:max-w-lg rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-y-auto">
         {/* Cerrar */}
         <button
           className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
@@ -125,3 +125,4 @@ export default function ModalCalculadora({ producto, onClose }) {
     </div>
   );
 }
+

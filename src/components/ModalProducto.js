@@ -1,4 +1,4 @@
-// src/components/ModalProducto.js
+﻿// src/components/ModalProducto.js
 import React, { useState, useEffect } from 'react';
 import FormProductoMacbook from './formParts/FormProductoMacbook';
 import FormProductoIpad from './formParts/FormProductoIpad';
@@ -113,7 +113,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
   // ————— Renderizado —————
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white w-full max-w-5xl rounded-xl shadow-lg p-6 relative">
+      <div className="bg-white w-full sm:max-w-5xl rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-y-auto">
         {/* Cerrar */}
         <button
           className={`absolute top-4 right-4 ${saving ? 'opacity-50 cursor-not-allowed' : 'text-gray-500 hover:text-gray-800'}`}
@@ -138,7 +138,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                 <div>
                   <label className="block font-medium">Tipo de Producto</label>
                   <select
-                    className="w-full border p-2 rounded"
+                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     value={form.tipo}
                     onChange={e => onChange('main', 'tipo', e.target.value)}
                   >
@@ -187,7 +187,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                 <div>
                   <label className="block font-medium">Estado</label>
                   <select
-                    className="w-full border p-2 rounded"
+                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     value={form.estado}
                     onChange={e => onChange('main', 'estado', e.target.value)}
                   >
@@ -203,7 +203,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                   <div>
                     <label className="block font-medium">¿Tiene caja?</label>
                     <select
-                      className="w-full border p-2 rounded"
+                      className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       value={form.conCaja}
                       onChange={e => onChange('main', 'conCaja', e.target.value)}
                     >
@@ -218,7 +218,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                 <div>
                   <label className="block font-medium">Casillero</label>
                   <select
-                    className="w-full border p-2 rounded"
+                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     value={form.casillero}
                     onChange={e => onChange('main', 'casillero', e.target.value)}
                   >
@@ -250,7 +250,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                     </label>
                     <input
                       type={field === 'fechaCompra' ? 'date' : 'number'}
-                      className="w-full border p-2 rounded"
+                      className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       value={form.valor[field]}
                       onChange={e => onChange('valor', field, e.target.value)}
                     />
@@ -276,3 +276,4 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     </div>
   );
 }
+

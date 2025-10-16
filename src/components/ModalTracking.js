@@ -1,4 +1,4 @@
-// src/components/ModalTracking.js
+﻿// src/components/ModalTracking.js
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 
@@ -147,14 +147,14 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium">Tracking USA</label>
-                <input className="w-full border p-2 rounded"
+                <input className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   value={trackingUsa}
                   onChange={e => setTrackingUsa(e.target.value)} />
               </div>
 
               <div>
                 <label className="block text-sm font-medium">Transportista</label>
-                <select className="w-full border p-2 rounded"
+                <select className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   value={transportista}
                   onChange={e => setTransportista(e.target.value)}>
                   <option value="">Selecciona</option>
@@ -166,7 +166,7 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
 
               <div>
                 <label className="block text-sm font-medium">Casillero</label>
-                <select className="w-full border p-2 rounded"
+                <select className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   value={casillero}
                   onChange={e => setCasillero(e.target.value)}>
                   <option value="">Selecciona</option>
@@ -213,13 +213,13 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium">Tracking Eshopex</label>
-                <input className="w-full border p-2 rounded"
+                <input className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   value={trackingEshop}
                   onChange={e => setTrackingEshop(e.target.value)} />
               </div>
               <div>
                 <label className="block text-sm font-medium">Fecha de Recepción</label>
-                <input type="date" className="w-full border p-2 rounded"
+                <input type="date" className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   value={fechaRecepcion}
                   onChange={e => setFechaRecepcion(e.target.value)} />
               </div>
@@ -255,13 +255,13 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium">Tracking Eshopex</label>
-                <input className="w-full border p-2 rounded"
+                <input className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   value={trackingEshop}
                   onChange={e => setTrackingEshop(e.target.value)} />
               </div>
               <div>
                 <label className="block text-sm font-medium">Fecha de Recepción</label>
-                <input type="date" className="w-full border p-2 rounded"
+                <input type="date" className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   value={fechaRecepcion}
                   onChange={e => setFechaRecepcion(e.target.value)} />
               </div>
@@ -311,7 +311,7 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
               <label className="block text-sm font-medium">Fecha de Recogido</label>
               <input
                 type="date"
-                className="w-full border p-2 rounded"
+                className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 value={fechaRecogido}
                 onChange={e => setFechaRecogido(e.target.value)}
               />

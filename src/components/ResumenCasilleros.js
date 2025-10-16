@@ -1,4 +1,4 @@
-// src/components/CasillerosResumen.jsx
+﻿// src/components/CasillerosResumen.jsx
 import React, { useMemo } from 'react';
 
 // Casilleros a mostrar (orden fijo)
@@ -30,9 +30,9 @@ export default function CasillerosResumen({ productos = [], loading = false }) {
   if (loading) {
     // Skeleton compacto con “barra que se mueve”
     return (
-      <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="mb-4 -mx-2 px-2 flex items-stretch gap-2 overflow-x-auto snap-x snap-mandatory flex-nowrap">
         {CASILLEROS.slice(0,4).map((k) => (
-          <div key={k} className="p-3 rounded-md border bg-white">
+          <div key={k} className="snap-start flex-[1_1_12rem] min-w-[10.5rem] p-3 rounded-md border bg-white">
             <div className="h-4 w-24 mb-2 bg-gray-200 rounded animate-pulse" />
             <div className="h-3 w-full bg-gray-100 rounded overflow-hidden">
               <div className="h-3 w-1/2 bg-gray-300 animate-pulse" />
@@ -45,7 +45,7 @@ export default function CasillerosResumen({ productos = [], loading = false }) {
   }
 
   return (
-    <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+    <div className="mb-4 -mx-2 px-2 flex items-stretch gap-2 overflow-x-auto snap-x snap-mandatory flex-nowrap">
       {CASILLEROS.map((cas) => {
         const { total, actuales } = stats[cas] || { total: 0, actuales: 0 };
         const capacidadMax = 2;                     // regla: < 2 habilitado
@@ -53,7 +53,7 @@ export default function CasillerosResumen({ productos = [], loading = false }) {
         const pct = Math.min((actuales / capacidadMax) * 100, 100);
 
         return (
-          <div key={cas} className="p-3 rounded-md border bg-white">
+          <div key={cas} className="snap-start flex-[1_1_12rem] min-w-[10.5rem] p-3 rounded-md border bg-white">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-semibold">{cas}</span>
               <span
@@ -93,3 +93,6 @@ export default function CasillerosResumen({ productos = [], loading = false }) {
     </div>
   );
 }
+
+
+

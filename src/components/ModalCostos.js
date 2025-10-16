@@ -1,4 +1,4 @@
-// src/components/ModalCostos.js
+﻿// src/components/ModalCostos.js
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 
@@ -48,7 +48,7 @@ export default function ModalCostos({ producto, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md relative">
+      <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-md relative">
         <button
           className="absolute top-3 right-3 text-gray-500 hover:text-gray-800"
           onClick={onClose}
@@ -65,7 +65,7 @@ export default function ModalCostos({ producto, onClose, onSaved }) {
               </label>
               <input
                 type={field==='fechaCompra' ? 'date' : field==='tracking' ? 'text' : 'number'}
-                className="w-full border p-2 rounded"
+                className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 value={form[field]}
                 onChange={e => onChange(field, e.target.value)}
               />
@@ -90,3 +90,4 @@ export default function ModalCostos({ producto, onClose, onSaved }) {
     </div>
   );
 }
+

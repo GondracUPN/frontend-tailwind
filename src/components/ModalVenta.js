@@ -1,4 +1,4 @@
-// src/components/ModalVenta.jsx
+﻿// src/components/ModalVenta.jsx
 import React, { useEffect, useState } from 'react';
 import api from '../api';
 
@@ -105,7 +105,7 @@ export default function ModalVenta({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white w-full max-w-lg rounded-xl shadow-lg p-6 relative">
+      <div className="bg-white w-full sm:max-w-lg rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-y-auto">
         {/* Cerrar (X) */}
         <button
           className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
@@ -131,7 +131,7 @@ export default function ModalVenta({
               <input
                 type="number"
                 step="0.0001"
-                className="w-full border p-2 rounded"
+                className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 value={form.tipoCambio}
                 onChange={e => onChange('tipoCambio', e.target.value)}
                 placeholder="Ej. 3.85"
@@ -141,7 +141,7 @@ export default function ModalVenta({
               <label className="block font-medium mb-1">Fecha de venta</label>
               <input
                 type="date"
-                className="w-full border p-2 rounded"
+                className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 value={form.fechaVenta}
                 onChange={e => onChange('fechaVenta', e.target.value)}
               />
@@ -151,7 +151,7 @@ export default function ModalVenta({
               <input
                 type="number"
                 step="0.01"
-                className="w-full border p-2 rounded"
+                className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 value={form.precioVenta}
                 onChange={e => onChange('precioVenta', e.target.value)}
                 placeholder="Ej. 2499.90"
@@ -162,7 +162,7 @@ export default function ModalVenta({
               <div>
                 <label className="block font-medium mb-1">Vendedor (opcional)</label>
                 <select
-                  className="w-full border p-2 rounded"
+                  className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   value={form.vendedor}
                   onChange={e => onChange('vendedor', e.target.value)}
                 >
@@ -242,7 +242,7 @@ export default function ModalVenta({
               <input
                 type="number"
                 step="0.0001"
-                className="w-full border p-2 rounded"
+                className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 value={form.tipoCambio}
                 onChange={e => onChange('tipoCambio', e.target.value)}
               />
@@ -251,7 +251,7 @@ export default function ModalVenta({
               <label className="block font-medium mb-1">Fecha de venta</label>
               <input
                 type="date"
-                className="w-full border p-2 rounded"
+                className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 value={form.fechaVenta}
                 onChange={e => onChange('fechaVenta', e.target.value)}
               />
@@ -261,7 +261,7 @@ export default function ModalVenta({
               <input
                 type="number"
                 step="0.01"
-                className="w-full border p-2 rounded"
+                className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 value={form.precioVenta}
                 onChange={e => onChange('precioVenta', e.target.value)}
               />
@@ -269,7 +269,7 @@ export default function ModalVenta({
             <div>
               <label className="block font-medium mb-1">Vendedor (opcional)</label>
               <select
-                className="w-full border p-2 rounded"
+                className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 value={form.vendedor}
                 onChange={e => onChange('vendedor', e.target.value)}
               >
@@ -301,3 +301,4 @@ export default function ModalVenta({
     </div>
   );
 }
+

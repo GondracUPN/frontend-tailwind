@@ -1,4 +1,4 @@
-﻿// src/pages/Productos.js
+// src/pages/Productos.js
 import React, { useState, useEffect, useCallback } from 'react';
 import ModalProducto from '../components/ModalProducto';
 import DetallesProductoModal from '../components/DetallesProductoModal';
@@ -9,7 +9,7 @@ import ResumenCasilleros from '../components/ResumenCasilleros';
 import ModalVenta from '../components/ModalVenta';
 import ModalCalculadora from '../components/ModalCalculadora';
 import ModalDec from '../components/ModalDec';
-import { FiFileText, FiLayers, FiAlertCircle, FiTruck, FiBox, FiCheckCircle, FiShoppingCart, FiDollarSign, FiTrendingUp } from 'react-icons/fi';
+import { FiFileText } from 'react-icons/fi';
 
 export default function Productos({ setVista, setAnalisisBack }) {
   const [productos, setProductos] = useState([]);
@@ -17,22 +17,22 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [error, setError] = useState(null);
   const [modalModo, setModalModo] = useState(null); // 'crear'|'detalle'|'costos'|'track'
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
-  // Mapa: productoId -> Ãºltima venta (o null)
+  // Mapa: productoId -> última venta (o null)
   const [ventasMap, setVentasMap] = useState({});
 
-  // Abre modal de venta (creaciÃ³n o lectura)
+  // Abre modal de venta (creación o lectura)
   const abrirVenta = (p) => { setProductoSeleccionado(p); setModalModo('venta'); };
   const abrirCalculadora = (p) => { setProductoSeleccionado(p); setModalModo('calc'); };
 
-  // Cuando se guarda una venta, refrescamos sÃ³lo ese producto en el mapa
+  // Cuando se guarda una venta, refrescamos sólo ese producto en el mapa
   const handleVentaSaved = (ventaGuardada) => {
     setVentasMap(prev => ({ ...prev, [ventaGuardada.productoId]: ventaGuardada }));
     cerrarModal();
   };
 
-  const fmtSoles = (v) => (v != null ? `S/ ${parseFloat(v).toFixed(2)}` : 'N/A');
+  const fmtSoles = (v) => (v != null ? `S/ ${parseFloat(v).toFixed(2)}` : '—');
 
-  // === SelecciÃ³n (Importar recojo / Recojo masivo) ===
+  // === Selección (Importar recojo / Recojo masivo) ===
   const [selectMode, setSelectMode] = useState(false);
   const [selectAction, setSelectAction] = useState(null); // 'whatsapp' | 'pickup' | 'adelantar'
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -52,7 +52,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     return Array.from(set);
   }, [productos]);
 
-  // Opciones disponibles de procesador (macbook/ipad) o tamaÃ±o (pantalla)
+  // Opciones disponibles de procesador (macbook/ipad) o tamaño (pantalla)
   const opcionesProc = React.useMemo(() => {
     const tipo = String(filtroTipo || '').toLowerCase();
     const set = new Set();
@@ -116,7 +116,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     });
   };
 
-  // Nombre del producto para el texto (iPad, Air, M2, 11) o "Otros" con descripciÃ³n
+  // Nombre del producto para el texto (iPad, Air, M2, 11) o "Otros" con descripción
   const buildNombreProducto = (p) => {
     if (!p) return '';
     if (p.tipo === 'otro') return (p.detalle?.descripcionOtro || '').trim() || 'Otros';
@@ -129,7 +129,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     return parts.join(' ');
   };
 
-  // AcciÃ³n ACEPTAR para ambos flujos (WhatsApp / Recojo masivo)
+  // Acción ACEPTAR para ambos flujos (WhatsApp / Recojo masivo)
   const confirmAction = async () => {
     const items = productos.filter(p => selectedIds.has(p.id));
     if (items.length === 0) { alert('Selecciona al menos un producto.'); return; }
@@ -176,7 +176,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
       // Abrir modal de venta normal para el producto elegido
       setProductoSeleccionado(p);
       setModalModo('venta');
-      // Salir del modo selecciÃ³n
+      // Salir del modo selección
       cancelSelect();
       return;
     }
@@ -185,14 +185,14 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
 
 
-  // ===== Helpers de Tracking (sin heurÃ­stica) =====
+  // ===== Helpers de Tracking (sin heurística) =====
   const labelFromEstado = (estado) => {
     switch (estado) {
       case 'comprado_sin_tracking': return 'Comprado (Sin Tracking)';
       case 'comprado_en_camino': return 'Comprado (En Camino US)';
       case 'en_eshopex': return 'En Eshopex (Camino Lima)';
       case 'recogido': return 'Recogido';
-      default: return 'â€”';
+      default: return '—';
     }
   };
   // Colores Tailwind por estado
@@ -211,28 +211,6 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
   };
 
-  // Icono por estado (evita caracteres no ASCII en el código fuente)
-  const iconFromEstado = (estado) => {
-    let cp;
-    switch (estado) {
-      case 'comprado_sin_tracking':
-        cp = 0x1F4DD; // 📝 nota
-        break;
-      case 'comprado_en_camino':
-        cp = 0x1F69A; // 🚚 camión
-        break;
-      case 'en_eshopex':
-        cp = 0x1F4E6; // 📦 caja
-        break;
-      case 'recogido':
-        cp = 0x2705; // ✅ check
-        break;
-      default:
-        cp = 0x2139; // ℹ️ info
-    }
-    return String.fromCodePoint(cp);
-  };
-
   // Bases de URL por operador declarado por backend
   const URLS = {
     usps: (code) => `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(code)}`,
@@ -243,7 +221,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     eshopex: (code) => `https://usamybox.com/internacional/tracking_box.php?nrotrack=${encodeURIComponent(code)}`,
   };
 
-  // Construye el link segÃºn estado y datos
+  // Construye el link según estado y datos
   const buildTrackingLink = (t) => {
     if (!t) return null;
 
@@ -272,7 +250,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
   };
 
-  // ðŸ”„ Carga inicial usando api.js
+  // 🔄 Carga inicial usando api.js
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -293,7 +271,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     })();
     return () => { alive = false; };
   }, []);
-  // Cargar Ãºltima venta por producto (si existe) cuando cambia la lista
+  // Cargar última venta por producto (si existe) cuando cambia la lista
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -348,7 +326,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     if (filtroTipo !== 'todos') {
       list = list.filter((p) => String(p.tipo || '').toLowerCase() === filtroTipo);
     }
-    // Subfiltro por procesador o tamaÃ±o de pantalla (match exacto de la opciÃ³n seleccionada)
+    // Subfiltro por procesador o tamaño de pantalla (match exacto de la opción seleccionada)
     if (filtroProc !== 'todos' && filtroTipo !== 'todos') {
       const term = String(filtroProc || '').toLowerCase();
       list = list.filter((p) => {
@@ -364,7 +342,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
       });
     }
 
-    list.sort((a, b) => ts(b) - ts(a)); // mÃ¡s nuevos arriba
+    list.sort((a, b) => ts(b) - ts(a)); // más nuevos arriba
     return list;
   }, [productos, ventasMap, soloDisponibles, filtroTipo, filtroProc]);
 
@@ -389,7 +367,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Â¿Eliminar este producto?')) return;
+    if (!window.confirm('¿Eliminar este producto?')) return;
     try {
       await api.del(`/productos/${id}`);
       setProductos(list => list.filter(p => p.id !== id));
@@ -427,7 +405,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     return { total, sinTracking, enCamino, enEshopex, disponible, vendido };
   }, [productos, ventasMap]);
 
-  // Convierte "S/ 1,234.50" o "$ 99" a nÃºmero seguro
+  // Convierte "S/ 1,234.50" o "$ 99" a número seguro
   const toNumber = (x) => {
     if (x == null || x === '') return 0;
     if (typeof x === 'number') return x;
@@ -438,7 +416,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
     return 0;
   };
-  // Lee el monto de la venta en S/ sin importar el nombre/caso/anidaciÃ³n
+  // Lee el monto de la venta en S/ sin importar el nombre/caso/anidación
   const getMontoVentaSoles = (venta) => {
     if (!venta) return 0;
 
@@ -482,7 +460,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     let totalEnvioSoles = 0;   // suma de costoEnvio (S/)
     let totalDecUSD = 0;
     let totalCostoSoles = 0;   // suma de costoTotal (S/)
-    let totalVentaSoles = 0;   // suma de venta (S/) sÃ³lo si existe registro de venta
+    let totalVentaSoles = 0;   // suma de venta (S/) sólo si existe registro de venta
     let gananciaSoles = 0;     // totalVentaSoles - totalCostoSoles (por producto vendido)
 
     for (const p of productos) {
@@ -534,11 +512,11 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
 
   return (
-    <div className="min-h-screen p-4 sm:p-8 bg-macGray text-macDark">
+    <div className="min-h-screen p-8 bg-macGray text-macDark">
       {/* Header */}
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-        <h2 className="text-2xl sm:text-3xl font-semibold">Gestión de Productos</h2>
-        <button onClick={() => setVista('home')} className="inline-flex items-center justify-center px-4 py-2 bg-white border rounded-lg shadow-sm hover:bg-gray-50">
+      <header className="flex justify-between items-center mb-8">
+        <h2 className="text-3xl font-semibold">Gestión de Productos</h2>
+        <button onClick={() => setVista('home')} className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100">
           ← Volver
         </button>
       </header>
@@ -577,13 +555,13 @@ export default function Productos({ setVista, setAnalisisBack }) {
       <ResumenCasilleros productos={productos} />
 
       {/* Totales de montos */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
         <div className="bg-white border rounded-xl p-4 shadow-sm">
           <div className="text-sm text-gray-500">Total gastado ($)</div>
           <div className="text-2xl font-semibold">{totals.totalGastadoUSD}</div>
         </div>
         <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total envÃ­o (S/)</div>
+          <div className="text-sm text-gray-500">Total envío (S/)</div>
           <div className="text-2xl font-semibold">{totals.totalEnvioSoles}</div>
         </div>
         <div className="bg-white border rounded-xl p-4 shadow-sm">
@@ -654,11 +632,11 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
             {/* Acciones a la derecha */}
             <div className="flex gap-2 justify-end">
-              {/* Analisis a la izquierda, con mÃ¡s separaciÃ³n del siguiente */}
+              {/* Analisis a la izquierda, con más separación del siguiente */}
               <button
                 onClick={() => { setAnalisisBack('productos'); setVista('analisis'); }}
                 className="bg-slate-600 text-white px-5 py-2 rounded hover:bg-slate-700 mr-6"
-                title="Ir al mÃ³dulo de anÃ¡lisis"
+                title="Ir al módulo de análisis"
               >
                 Analisis
               </button>
@@ -685,7 +663,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
               <button
                 onClick={startMassPickup}
                 className="bg-emerald-600 text-white px-5 py-2 rounded hover:bg-emerald-700"
-                title="Selecciona varios y mÃ¡rcalos como recogidos"
+                title="Selecciona varios y márcalos como recogidos"
               >
                 Recojo masivo
               </button>
@@ -700,7 +678,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
             </div>
           </>
         ) : (
-          // â† tu bloque existente de selecciÃ³n (pickup/whatsapp) se mantiene igual
+          // ← tu bloque existente de selección (pickup/whatsapp) se mantiene igual
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 w-full">
             <div className="flex-1">
               {selectAction === 'pickup' && (
@@ -741,29 +719,28 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
 
       {/* Cargando / Error */}
-      {cargando && <p className="text-gray-600">Cargando productos...</p>}
+      {cargando && <p>Cargando productos…</p>}
       {error && <p className="text-red-500">{error}</p>}
 
       {/* Tabla */}
       {!cargando && !error && (
         displayedProductos.length > 0 ? (
-          <div className="overflow-x-auto bg-white border rounded-xl shadow-sm">
-          <table className="w-full min-w-[1000px] text-left">
+          <table className="w-full text-left border">
             <thead className="bg-gray-100">
               <tr>
-                {selectMode && <th className="p-3 text-xs font-semibold text-gray-600">Sel.</th>}
-                <th className="p-3 text-xs font-semibold text-gray-600">Tipo</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Estado</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Caja</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Valor $</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Valor S/</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Envío S/</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Total S/</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Calculadora</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">F. Compra</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Tracking</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Venta</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Acciones</th>
+                {selectMode && <th className="p-2">Sel.</th>}
+                <th className="p-2">Tipo</th>
+                <th className="p-2">Estado</th>
+                <th className="p-2">Caja</th>
+                <th className="p-2">Valor $</th>
+                <th className="p-2">Valor S/</th>
+                <th className="p-2">Envio S/</th>
+                <th className="p-2">Total S/</th>
+                <th className="p-2">Calculadora</th>
+                <th className="p-2">F. Compra</th>
+                <th className="p-2">Tracking</th>
+                <th className="p-2">Venta</th>
+                <th className="p-2">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -776,14 +753,14 @@ export default function Productos({ setVista, setAnalisisBack }) {
                 return (
                   <tr key={p.id} className="border-t hover:bg-gray-50">
                     {selectMode && (
-                      <td className="p-3">
+                      <td className="p-2">
                         {(() => {
                           const esh = p.tracking?.[0]?.trackingEshop?.trim() || '';
                           const venta = ventasMap[p.id] || null;
                           const isAdelantar = selectAction === 'adelantar';
                           // Reglas:
                           // - whatsapp/pickup: requiere tracking eshopex
-                          // - adelantar: no permite productos ya vendidos y restringe a 1 selección
+                          // - adelantar: no permite productos ya vendidos y restringe a 1 selecci�n
                           const disabled = isAdelantar
                             ? (!!venta || (selectedIds.size >= 1 && !selectedIds.has(p.id)))
                             : (!esh);
@@ -803,7 +780,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
 
 
-                    <td className="p-3">
+                    <td className="p-2">
                       <button
                         onClick={() => abrirDetalle(p)}
                         className="bg-gray-200 px-2 py-1 rounded hover:bg-gray-300"
@@ -811,13 +788,13 @@ export default function Productos({ setVista, setAnalisisBack }) {
                         {p.tipo}
                       </button>
                     </td>
-                    <td className="p-3">{p.estado}</td>
-                    <td className="p-3">{p.conCaja ? 'Sí' : 'No'}</td>
-                    <td className="p-3">{v.valorProducto != null ? `$ ${v.valorProducto}` : 'N/A'}</td>
-                    <td className="p-3">{fmtSoles(v.valorSoles)}</td>
-                    <td className="p-3">{fmtSoles(v.costoEnvio)}</td>
-                    <td className="p-3">{fmtSoles(v.costoTotal)}</td>
-                    <td className="p-3">
+                    <td className="p-2">{p.estado}</td>
+                    <td className="p-2">{p.conCaja ? 'Sí' : 'No'}</td>
+                    <td className="p-2">{v.valorProducto != null ? `$ ${v.valorProducto}` : '—'}</td>
+                    <td className="p-2">{fmtSoles(v.valorSoles)}</td>
+                    <td className="p-2">{fmtSoles(v.costoEnvio)}</td>
+                    <td className="p-2">{fmtSoles(v.costoTotal)}</td>
+                    <td className="p-2">
                       <button
                         onClick={() => abrirCalculadora(p)}
                         className="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
@@ -826,26 +803,26 @@ export default function Productos({ setVista, setAnalisisBack }) {
                         Calcular precio venta
                       </button>
                     </td>
-                    <td className="p-3">
-                      {v.fechaCompra ? new Date(v.fechaCompra).toLocaleDateString('es-PE', { timeZone: 'UTC' }) : 'â€”'}
+                    <td className="p-2">
+                      {v.fechaCompra ? new Date(v.fechaCompra).toLocaleDateString('es-PE', { timeZone: 'UTC' }) : '—'}
                     </td>
-                    <td className="p-3">
-                      {/* Pill/ botÃ³n de estado: mÃ¡s grande, negrita y â€œclickableâ€ */}
+                    <td className="p-2">
+                      {/* Pill/ botón de estado: más grande, negrita y “clickable” */}
                       <button
                         onClick={() => abrirTrack(p)}
                         className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${badgeClasses(t?.estado)}`}
                         title="Abrir tracking"
                       >
-                        <span className="text-base" aria-hidden>{iconFromEstado(t?.estado)}</span>
+                        <span className="text-xs">📦</span>
                         {label}
                       </button>
 
-                      {/* Casillero mÃ¡s visible (mÃ¡s grande + negrita) */}
+                      {/* Casillero más visible (más grande + negrita) */}
                       <div className="mt-1 text-sm font-semibold text-gray-800">
-                        {t?.casillero ? `Casillero: ${t.casillero}` : 'Casillero: â€”'}
+                        {t?.casillero ? `Casillero: ${t.casillero}` : 'Casillero: —'}
                       </div>
 
-                      {/* Enlace dinÃ¡mico debajo */}
+                      {/* Enlace dinámico debajo */}
                       {link && (
                         <div className="mt-1 text-xs">
                           <a
@@ -863,7 +840,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
 
                     {/* Venta */}
-                    <td className="p-3">
+                    <td className="p-2">
                       {(() => {
                         const t = p.tracking?.[0];
                         const venta = ventasMap[p.id] || null;
@@ -889,7 +866,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
                             onClick={() => { if (!disabled) abrirVenta(p); }}
                             className={`${className} px-3 py-1 rounded`}
                             disabled={disabled}
-                            title={disabled ? 'AÃºn no estÃ¡ recogido' : ''}
+                            title={disabled ? 'Aún no está recogido' : ''}
                           >
                             {text}
                           </button>
@@ -898,7 +875,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
                     </td>
 
 
-                    <td className="p-3 space-x-1">
+                    <td className="p-2 space-x-1">
                       <button
                         onClick={() => abrirCostos(p)}
                         className="bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
@@ -917,9 +894,8 @@ export default function Productos({ setVista, setAnalisisBack }) {
               })}
             </tbody>
           </table>
-          </div>
         ) : (
-          <p>{soloDisponibles ? 'No hay productos disponibles para venta.' : 'No hay productos aÃºn.'}</p>
+          <p>{soloDisponibles ? 'No hay productos disponibles para venta.' : 'No hay productos aún.'}</p>
         )
       )}
 
@@ -933,7 +909,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
           onClose={cerrarModal}
           onSaved={async () => {
             try {
-              const data = await api.get('/productos'); // â† refresca desde backend correcto
+              const data = await api.get('/productos'); // ← refresca desde backend correcto
               const lista = Array.isArray(data)
                 ? data
                 : (Array.isArray(data?.items) ? data.items : []);
@@ -960,8 +936,8 @@ export default function Productos({ setVista, setAnalisisBack }) {
       {modalModo === 'dec' && (
         <ModalDec
           onClose={cerrarModal}
-          productos={productos}   // âœ… le pasas lo que ya cargaste arriba
-          loading={cargando}      // âœ… estado de carga del padre
+          productos={productos}   // ✅ le pasas lo que ya cargaste arriba
+          loading={cargando}      // ✅ estado de carga del padre
         />
       )}
 
@@ -970,17 +946,6 @@ export default function Productos({ setVista, setAnalisisBack }) {
   );
 
 }
-
-
-
-
-
-
-
-
-
-
-
 
 
 

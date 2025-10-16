@@ -1,4 +1,4 @@
-// src/components/DetallesProductoModal.js
+﻿// src/components/DetallesProductoModal.js
 import React, { useState, useEffect } from 'react';
 import FormProductoMacbook from './formParts/FormProductoMacbook';
 import FormProductoIpad from './formParts/FormProductoIpad';
@@ -74,7 +74,7 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white w-full max-w-3xl rounded-xl shadow-lg p-6 relative">
+      <div className="bg-white w-full sm:max-w-3xl rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-y-auto">
         {/* Cerrar modal */}
         <button
           className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
@@ -129,7 +129,7 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
                 <div>
                   <label className="block font-medium">Tipo</label>
                   <select
-                    className="w-full border p-2 rounded"
+                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     value={form.tipo}
                     onChange={e => handleMainChange('tipo', e.target.value)}
                   >
@@ -161,7 +161,7 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
                 <div>
                   <label className="block font-medium">Estado</label>
                   <select
-                    className="w-full border p-2 rounded"
+                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     value={form.estado}
                     onChange={e => handleMainChange('estado', e.target.value)}
                   >
@@ -176,7 +176,7 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
                   <div>
                     <label className="block font-medium">¿Tiene caja?</label>
                     <select
-                      className="w-full border p-2 rounded"
+                      className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       value={form.conCaja}
                       onChange={e => handleMainChange('conCaja', e.target.value)}
                     >
@@ -209,3 +209,4 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
     </div>
   );
 }
+
