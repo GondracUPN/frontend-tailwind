@@ -583,7 +583,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
           <div className="text-2xl font-semibold">{totals.totalGastadoUSD}</div>
         </div>
         <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total envÃ­o (S/)</div>
+          <div className="text-sm text-gray-500">Total envío (S/)</div>
           <div className="text-2xl font-semibold">{totals.totalEnvioSoles}</div>
         </div>
         <div className="bg-white border rounded-xl p-4 shadow-sm">
@@ -970,6 +970,8 @@ export default function Productos({ setVista, setAnalisisBack }) {
   );
 
 }
+
+
 
 
 
