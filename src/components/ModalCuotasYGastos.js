@@ -266,7 +266,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal>
+    <div className="fixed inset-0 z-50 bg-neutral-900/50 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal>
       <div className="w-full max-w-3xl bg-white rounded-xl shadow-lg p-6 relative max-h-[90vh] overflow-y-auto">
         <CloseX onClick={onClose} />
         <h2 className="text-lg font-semibold mb-4">Cuotas / Gastos mensuales</h2>
@@ -302,7 +302,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
               <div className="text-sm text-gray-600">No hay pagos mensuales registrados.</div>
             ) : (
               <>
-                <div className="overflow-x-auto border rounded">
+                <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm">
                   <table className="min-w-[720px] w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr>
@@ -348,7 +348,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
                 </div>
 
                 <div className="flex justify-end mt-3">
-                  <button className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700" onClick={pagarSeleccionados}>Pagar seleccionados</button>
+                  <button className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500" onClick={pagarSeleccionados}>Pagar seleccionados</button>
                 </div>
               </>
             )}

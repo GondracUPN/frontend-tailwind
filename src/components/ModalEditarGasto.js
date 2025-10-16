@@ -113,8 +113,8 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
   if (!gasto) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={handleOverlay}>
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-6 relative max-h-[90vh] overflow-y-auto" onClick={(e)=>e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 bg-neutral-900/50 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={handleOverlay}>
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl ring-1 ring-gray-200 p-6 relative max-h-[90vh] overflow-y-auto" onClick={(e)=>e.stopPropagation()}>
         <CloseX onClick={onClose} />
         <h2 className="text-lg font-semibold mb-3">{titulo}</h2>
 
@@ -189,4 +189,3 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
     </div>
   );
 }
-

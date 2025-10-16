@@ -144,20 +144,20 @@ export default function GastosPanel({ userId: externalUserId }) {
     <div className="grid gap-6 gastos-panel">
 
       {/* Cabecera */}
-      <div className="bg-white border rounded-xl shadow p-4 sm:p-5">
+      <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-sm text-gray-500">Efectivo para invertir</div>
             <div className="text-3xl font-semibold">S/ {efectivoPenCalc}</div>
             <div className="text-xs text-gray-600 mt-0.5">$ {efectivoUsdCalc}</div>
-            <button onClick={openEfec} className="mt-2 text-sm px-3 py-1.5 rounded bg-gray-800 text-white hover:bg-gray-900">Editar efectivo</button>
+            <button onClick={openEfec} className="mt-2 text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-white hover:bg-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-700">Editar efectivo</button>
           </div>
 
           <div className="flex-1 min-w-[260px]">
             <div className="flex items-center justify-between mb-2">
               <div className="text-sm font-semibold">Saldo de tarjetas</div>
               <div className="flex items-center gap-2">
-                <button onClick={openCG} className="text-sm px-3 py-2 sm:py-1.5 rounded border border-gray-300 text-gray-800 hover:bg-gray-100 min-h-[40px]">Cuotas / Gastos mensuales</button>
+                <button onClick={openCG} className="text-sm px-3 py-2 sm:py-1.5 rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-100 min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-300">Cuotas / Gastos mensuales</button>
                 <button onClick={openTar} className="text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Ingresar línea de crédito / Tarjeta</button>
               </div>
             </div>
@@ -167,7 +167,7 @@ export default function GastosPanel({ userId: externalUserId }) {
             ) : (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {cardsSummary.map((c) => (
-                  <div key={c.id} className="border rounded p-3 bg-gray-50">
+                  <div key={c.id} className="rounded-xl ring-1 ring-gray-200 bg-white p-4 hover:shadow-sm transition">
                     <div className="text-sm text-gray-600">{CARD_LABEL[c.tipo] || c.tipo}</div>
                     <div className="mt-1 text-xs text-gray-500">Línea: S/ {Number(c.creditLine).toFixed(2)}</div>
                     <div className="text-xs text-gray-500">Usado: S/ {Number(c.usedPen ?? 0).toFixed(2)} · $ {Number(c.usedUsd ?? 0).toFixed(2)}</div>
@@ -183,7 +183,7 @@ export default function GastosPanel({ userId: externalUserId }) {
       {/* Débito y Crédito */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Débito */}
-        <div className="bg-white border rounded-xl shadow p-4 sm:p-5">
+        <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-semibold">Débito</h3>
             <button onClick={openDeb} className="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[44px]">Agregar gasto débito</button>
@@ -194,7 +194,7 @@ export default function GastosPanel({ userId: externalUserId }) {
           ) : err ? (
             <div className="text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</div>
           ) : (
-            <div className="overflow-x-auto border rounded">
+            <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm">
               <table className="min-w-[720px] w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
@@ -213,7 +213,7 @@ export default function GastosPanel({ userId: externalUserId }) {
                       : (g.concepto || '').replace(/_/g, ' ');
                     const detalle = g.detalleGusto || g.notas || '-';
                     return (
-                      <tr key={g.id} className="border-t">
+                    <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
                         <td className="p-2 align-top">{g.fecha}</td>
                         <td className="p-2 align-top capitalize">{conceptoCell}</td>
                         <td className="p-2 align-top">{CARD_LABEL[g.tarjeta] || g.tarjeta || '-'}</td>
@@ -239,7 +239,7 @@ export default function GastosPanel({ userId: externalUserId }) {
         </div>
 
         {/* Crédito */}
-        <div className="bg-white border rounded-xl shadow p-4 sm:p-5">
+        <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-semibold">Crédito</h3>
             <button onClick={openCre} className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 min-h-[44px]">Agregar gasto crédito</button>
@@ -250,7 +250,7 @@ export default function GastosPanel({ userId: externalUserId }) {
           ) : err ? (
             <div className="text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</div>
           ) : (
-            <div className="overflow-x-auto border rounded">
+            <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm">
               <table className="min-w-[720px] w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
@@ -264,7 +264,7 @@ export default function GastosPanel({ userId: externalUserId }) {
                 </thead>
                 <tbody>
                   {rows.filter((g) => g.metodoPago === 'credito').map((g) => (
-                    <tr key={g.id} className="border-t">
+                    <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
                       <td className="p-2 align-top">{g.fecha}</td>
                       <td className="p-2 align-top capitalize">{displayConcepto(g.concepto)}</td>
                       <td className="p-2 align-top">{CARD_LABEL[g.tarjeta] || g.tarjeta || '-'}</td>

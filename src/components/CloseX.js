@@ -7,7 +7,7 @@ export default function CloseX({ onClick, className = '', title = 'Cerrar', aria
       onClick={onClick}
       title={title}
       aria-label={ariaLabel}
-      className={`absolute top-4 right-4 inline-flex items-center justify-center w-8 h-8 rounded-full hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white/0 ${className}`}
+      className={`absolute top-4 right-4 inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-200 bg-white/80 text-gray-700 shadow-sm hover:bg-white focus:outline-none focus:ring-2 focus:ring-violet-300 ${className}`}
     >
       <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <defs>
@@ -22,4 +22,3 @@ export default function CloseX({ onClick, className = '', title = 'Cerrar', aria
     </button>
   );
 }
-
