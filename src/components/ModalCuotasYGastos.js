@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import CloseX from './CloseX';
 import { API_URL } from '../api';
 
@@ -50,17 +50,56 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
   }, [token]);
 
   const cuotasList = useMemo(() => {
-    const list = rows.filter(r => r.metodoPago === 'credito' && norm(r.concepto) === 'deuda_cuotas');
-    return list.map((g) => {
+    const today = new Date().toISOString().slice(0,10);
+    const deudas = rows
+      .filter(r => r.metodoPago === 'credito' && norm(r.concepto) === 'deuda_cuotas')
+      .sort((a,b)=> a.fecha.localeCompare(b.fecha));
+
+    const pagosByKey = new Map();
+    const pagos = rows
+      .filter(r => r.metodoPago === 'debito' && norm(r.concepto) === 'pago_tarjeta')
+      .map(p => ({ ...p, restante: Number(p.monto) }))
+      .sort((a,b)=> a.fecha.localeCompare(b.fecha));
+    for (const p of pagos) {
+      const key = `${p.tarjetaPago || ''}|${p.moneda}`;
+      const arr = pagosByKey.get(key) || [];
+      arr.push(p);
+      pagosByKey.set(key, arr);
+    }
+
+    return deudas.map((g) => {
       const n = Number(g.cuotasMeses || 0) || 1;
-      const per = (Number(g.monto) / n);
-      const schedule = Array.from({ length: n }).map((_, i) => ({ idx: i + 1, fecha: addMonths(g.fecha, i + 1), monto: per }));
-      const today = new Date().toISOString().slice(0,10);
-      const marked = schedule.map(it => ({ ...it, paid: it.fecha <= today }));
-      return { ...g, per, schedule: marked };
+      const per = Number(g.monto) / n;
+      const scheduleBase = Array.from({ length: n }).map((_, i) => ({ idx: i + 1, fecha: addMonths(g.fecha, i + 1), monto: per }));
+      const marked = scheduleBase.map(it => ({ ...it, paid: it.fecha <= today, prepaid: false }));
+
+      const key = `${g.tarjeta || ''}|${g.moneda}`;
+      const lista = pagosByKey.get(key) || [];
+      for (const p of lista) {
+        if (p.fecha < g.fecha) continue;
+        let left = p.restante;
+        if (!Number.isFinite(left) || left <= 0) continue;
+        for (const it of marked) {
+          if (it.paid || it.prepaid) continue;
+          if (it.fecha <= today) continue;
+          if (left + 0.01 >= it.monto) {
+            it.prepaid = true;
+            left -= it.monto;
+          } else {
+            break;
+          }
+        }
+        p.restante = left;
+      }
+
+      const paidCount = marked.filter(x => x.paid || x.prepaid).length;
+      const remainingCount = Math.max(0, n - paidCount);
+      const saldoPendiente = remainingCount * per;
+      return { ...g, per, schedule: marked, remainingCount, saldoPendiente };
     });
   }, [rows]);
-
+  
+  // Grupos de gastos mensuales (para selección y programación)
   const mensualesGroups = useMemo(() => {
     const list = rows.filter(r => ['gastos_recurrentes', 'gastos_mensuales'].includes(norm(r.concepto)));
     const map = new Map();
@@ -76,9 +115,23 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
       const [metodoPago, moneda, tarjeta, notas, monto] = key.split('|');
       return { key, metodoPago, moneda, tarjeta, notas, monto: Number(monto), last, count: arr.length, lastTarjeta: last?.tarjeta || null, lastTarjetaPago: last?.tarjetaPago || null };
     });
-    // Mostrar todos los grupos detectados desde gastos menos los ocultos
     return groups.filter(g => !hiddenKeys.has(g.key));
   }, [rows, hiddenKeys]);
+
+
+  const findScheduleForGroup = (g) => {
+    const montoStr = Number(g.monto).toFixed(2);
+    const isCredito = g.metodoPago === 'credito';
+    return schedules.find((s) => (
+      s?.tipo === 'recurrente'
+      && norm(s?.concepto) === 'gastos_recurrentes'
+      && s?.metodoPago === g.metodoPago
+      && String(s?.moneda) === g.moneda
+      && Number(Number(s?.monto || 0).toFixed(2)) === Number(montoStr)
+      && (isCredito ? (String(s?.tarjeta || '') === (g.tarjeta === '-' ? '' : g.tarjeta))
+                    : (String(s?.tarjetaPago || '') === (g.tarjeta === '-' ? (g.lastTarjetaPago || '') : g.tarjeta)))
+    ));
+  };
 
   const hideGroup = (k) => {
     setHiddenKeys(prev => {
@@ -99,8 +152,20 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
       for (const k of keys) {
         const it = mensualesGroups.find(x => x.key === k);
         if (!it) continue;
-        const body = { concepto: 'Gastos mensuales', metodoPago: it.metodoPago, moneda: it.moneda, monto: Number(it.monto), fecha: today, notas: it.notas || null, tarjeta: it.tarjeta !== '-' ? it.tarjeta : null };
-        const res = await fetch(`${API_URL}/gastos`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+        const body = {
+          concepto: 'Gastos mensuales',
+          metodoPago: it.metodoPago,
+          moneda: it.moneda,
+          monto: Number(it.monto),
+          fecha: today,
+          notas: it.notas || null,
+          tarjeta: it.tarjeta && it.tarjeta !== '-' ? it.tarjeta : null,
+        };
+        const res = await fetch(`${API_URL}/gastos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body)
+        });
         if (!res.ok) throw new Error(await res.text());
       }
       onChanged?.();
@@ -109,20 +174,6 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
       console.error('[ModalCuotasYGastos] pagar seleccionados:', e);
       alert('No se pudieron registrar los pagos seleccionados.');
     }
-  };
-
-  const findScheduleForGroup = (g) => {
-    const montoStr = Number(g.monto).toFixed(2);
-    const isCredito = g.metodoPago === 'credito';
-    return schedules.find((s) => (
-      s?.tipo === 'recurrente'
-      && norm(s?.concepto) === 'gastos_recurrentes'
-      && s?.metodoPago === g.metodoPago
-      && String(s?.moneda) === g.moneda
-      && Number(Number(s?.monto || 0).toFixed(2)) === Number(montoStr)
-      && (isCredito ? (String(s?.tarjeta || '') === (g.tarjeta === '-' ? '' : g.tarjeta))
-                    : (String(s?.tarjetaPago || '') === (g.tarjeta === '-' ? (g.lastTarjetaPago || '') : g.tarjeta)))
-    ));
   };
 
   const crearMensual = async (k) => {
@@ -147,14 +198,14 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
       setSchedules(Array.isArray(list) ? list : []);
     } catch (e) {
       console.error('[ModalCuotasYGastos] crear mensual:', e);
-      alert('No se pudo crear la programación.');
+      alert('No se pudo crear la programaciÃ³n.');
     }
   };
 
   const eliminarUltimo = async (k) => {
     const it = mensualesGroups.find(x => x.key === k);
     if (!it?.last?.id) return;
-    if (!window.confirm('¿Eliminar el último pago de este gasto mensual?')) return;
+    if (!window.confirm('Â¿Eliminar el Ãºltimo pago de este gasto mensual?')) return;
     try {
       const res = await fetch(`${API_URL}/gastos/${it.last.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error(await res.text());
@@ -169,8 +220,8 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
     const g = mensualesGroups.find((x) => x.key === k);
     if (!g) return;
     const sch = findScheduleForGroup(g);
-    if (!sch?.id) { alert('No se encontró la programación para este gasto mensual.'); return; }
-    if (!window.confirm('Eliminar gasto mensual: solo se elimina la programación futura. No se borrarán los gastos ya registrados. ¿Continuar?')) return;
+    if (!sch?.id) { alert('No se encontrÃ³ la programaciÃ³n para este gasto mensual.'); return; }
+    if (!window.confirm('Eliminar gasto mensual: solo se elimina la programaciÃ³n futura. No se borrarÃ¡n los gastos ya registrados. Â¿Continuar?')) return;
     try {
       const res = await fetch(`${API_URL}/schedules/${sch.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error(await res.text());
@@ -179,20 +230,20 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
       onChanged?.();
     } catch (e) {
       console.error('[ModalCuotasYGastos] eliminar mensual:', e);
-      alert('No se pudo eliminar la programación.');
+      alert('No se pudo eliminar la programaciÃ³n.');
     }
   };
 
   const borrarDefinitivo = async (k) => {
     if (!token) return;
     const g = mensualesGroups.find((x) => x.key === k);
-    if (!g) { alert('No se encontró el grupo.'); return; }
+    if (!g) { alert('No se encontrÃ³ el grupo.'); return; }
     const sch = findScheduleForGroup(g);
 
-    if (!window.confirm('Quitar de "Gastos mensuales". No se borrarán gastos ya registrados. ¿Continuar?')) return;
+    if (!window.confirm('Quitar de "Gastos mensuales". No se borrarÃ¡n gastos ya registrados. Â¿Continuar?')) return;
 
     try {
-      // 1) Si existe programación mensual, eliminarla
+      // 1) Si existe programaciÃ³n mensual, eliminarla
       if (sch?.id) {
         const res = await fetch(`${API_URL}/schedules/${sch.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
         if (!res.ok) throw new Error(await res.text());
@@ -233,12 +284,12 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
               <div key={q.id} className="border rounded p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="text-sm text-gray-700">Compra: {q.fecha} • Total {fmtMoney(q.moneda, q.monto)}</div>
-                  <div className="text-sm text-gray-700">{q.cuotasMeses} cuotas de {fmtMoney(q.moneda, q.per)}</div>
+                  <div className="text-sm text-gray-700">{q.cuotasMeses} cuotas de {fmtMoney(q.moneda, q.per)} • Saldo: {fmtMoney(q.moneda, q.saldoPendiente)}</div>
                 </div>
                 <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-2 mt-2">
                   {q.schedule.map(it => (
-                    <div key={it.idx} className={`text-sm px-2 py-1 rounded border ${it.paid ? 'line-through text-gray-500 bg-gray-50 border-gray-200' : 'bg-amber-50 border-amber-300 text-amber-800'}`} title={it.paid ? 'Cuota pagada (fecha alcanzada)' : 'Cuota pendiente'}>
-                      {it.idx}. {it.fecha} – {fmtMoney(q.moneda, it.monto)} {it.paid ? '(pagado)' : '(pendiente)'}
+                    <div key={it.idx} className={`text-sm px-2 py-1 rounded border ${(it.paid || it.prepaid) ? 'line-through text-gray-600 bg-gray-50 border-gray-200' : 'bg-amber-50 border-amber-300 text-amber-800'}`} title={(it.paid || it.prepaid) ? (it.paid ? 'Cuota pagada (fecha alcanzada)' : 'Cuota prepagada (cubre próxima fecha)') : 'Cuota pendiente'}>
+                      {it.idx}. {it.fecha} – {fmtMoney(q.moneda, it.monto)} {(it.paid || it.prepaid) ? (it.paid ? '(pagado)' : '(prepagado)') : '(pendiente)'}
                     </div>
                   ))}
                 </div>
@@ -257,10 +308,10 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
                       <tr>
                         <th className="p-2 text-left">Seleccionar</th>
                         <th className="p-2 text-left">Detalle</th>
-                        <th className="p-2 text-left">Método</th>
+                        <th className="p-2 text-left">MÃ©todo</th>
                         <th className="p-2 text-left">Moneda</th>
                         <th className="p-2 text-left">Monto</th>
-                        <th className="p-2 text-left">Último pago</th>
+                        <th className="p-2 text-left">Ãšltimo pago</th>
                         <th className="p-2 text-left">Acciones</th>
                       </tr>
                     </thead>
@@ -268,22 +319,22 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
                       {mensualesGroups.map((g) => (
                         <tr key={g.key} className="border-t">
                           <td className="p-2 align-top"><input type="checkbox" checked={!!selKeys[g.key]} onChange={()=>toggleSel(g.key)} /></td>
-                          <td className="p-2 align-top">{g.notas || '(Sin detalle)'} {g.tarjeta && g.tarjeta !== '-' ? `• ${g.tarjeta}` : ''}</td>
+                          <td className="p-2 align-top">{g.notas || '(Sin detalle)'} {g.tarjeta && g.tarjeta !== '-' ? `â€¢ ${g.tarjeta}` : ''}</td>
                           <td className="p-2 align-top capitalize">{g.metodoPago}</td>
                           <td className="p-2 align-top">{g.moneda}</td>
                           <td className="p-2 align-top font-semibold">{fmtMoney(g.moneda, g.monto)}</td>
                           <td className="p-2 align-top">{g.last?.fecha || '-'}</td>
                           <td className="p-2 align-top">
                             <div className="flex gap-2">
-                              <button className="px-2 py-1 text-red-600 hover:bg-red-50 rounded border" onClick={()=>eliminarUltimo(g.key)}>Eliminar último</button>
+                              <button className="px-2 py-1 text-red-600 hover:bg-red-50 rounded border" onClick={()=>eliminarUltimo(g.key)}>Eliminar Ãºltimo</button>
                               {findScheduleForGroup(g) ? (
-                                <button className="px-2 py-1 text-red-700 hover:bg-red-50 rounded border" title="Eliminar programación (no borra gastos históricos)" onClick={()=>eliminarMensual(g.key)}>Eliminar mensual</button>
+                                <button className="px-2 py-1 text-red-700 hover:bg-red-50 rounded border" title="Eliminar programaciÃ³n (no borra gastos histÃ³ricos)" onClick={()=>eliminarMensual(g.key)}>Eliminar mensual</button>
                               ) : (
-                                <button className="px-2 py-1 text-green-700 hover:bg-green-50 rounded border" title="Crear programación mensual para este grupo" onClick={()=>crearMensual(g.key)}>Crear mensual</button>
+                                <button className="px-2 py-1 text-green-700 hover:bg-green-50 rounded border" title="Crear programaciÃ³n mensual para este grupo" onClick={()=>crearMensual(g.key)}>Crear mensual</button>
                               )}
                               <button
                                 className="px-2 py-1 text-white bg-red-600 hover:bg-red-700 rounded"
-                                title="Quita este grupo de 'Gastos mensuales' y elimina su programación futura (no borra históricos)"
+                                title="Quita este grupo de 'Gastos mensuales' y elimina su programaciÃ³n futura (no borra histÃ³ricos)"
                                 onClick={() => borrarDefinitivo(g.key)}
                               >
                                 Quitar de mensuales
