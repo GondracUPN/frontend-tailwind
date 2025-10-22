@@ -1,4 +1,4 @@
-ï»¿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
 
 import ModalGastoDebito from '../components/ModalGastoDebito';
@@ -92,7 +92,7 @@ export default function GastosPanel({ userId: externalUserId }) {
       });
     } catch (e) {
       console.error('[GastosPanel] load error:', e);
-      setErr('No se pudo cargar la informaciÃ³n.');
+      setErr('No se pudo cargar la información.');
     } finally {
       setLoading(false);
     }
@@ -140,7 +140,7 @@ export default function GastosPanel({ userId: externalUserId }) {
   const onEdited = () => { setEditingGasto(null); reloadAll(); };
   const onDelete = async (g) => {
     if (!g?.id) return;
-    if (!window.confirm('Â¿Eliminar este gasto?')) return;
+    if (!window.confirm('¿Eliminar este gasto?')) return;
     try {
       const t = localStorage.getItem('token');
       const res = await fetch(`${API_URL}/gastos/${g.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` } });
@@ -171,27 +171,26 @@ export default function GastosPanel({ userId: externalUserId }) {
                 <div className="text-sm font-semibold">Saldo de tarjetas</div>
                 {cardsSummary.length > 0 && (
                   <div className="text-xs text-gray-600 mt-0.5">
-                    Gastado total: <b>S/ {cardsTotals.pen}</b> Â· <b>$ {cardsTotals.usd}</b> Â· En soles: <b>S/ {cardsTotals.totalPen}</b>
+                    Gastado total: <b>S/ {cardsTotals.pen}</b> · <b>$ {cardsTotals.usd}</b> · En soles: <b>S/ {cardsTotals.totalPen}</b>
                   </div>
                 )}
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={openCG} className="text-sm px-3 py-2 sm:py-1.5 rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-100 min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-300">Cuotas / Gastos mensuales</button>
-                <button onClick={openTar} className="text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Ingresar lÃ­nea de crÃ©dito / Tarjeta</button>
+                <button onClick={openTar} className="text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Ingresar línea de crédito / Tarjeta</button>
               </div>
             </div>
 
             {cardsSummary.length === 0 ? (
-              <div className="text-sm text-gray-600">AÃºn no has agregado tarjetas.</div>
+              <div className="text-sm text-gray-600">Aún no has agregado tarjetas.</div>
             ) : (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {cardsSummary.map((c) => (
                   <div key={c.id} className="rounded-xl ring-1 ring-gray-200 bg-white p-4 hover:shadow-sm transition">
                     <div className="text-sm text-gray-600">{CARD_LABEL[c.tipo] || c.tipo}</div>
-                    <div className="mt-1 text-xs text-gray-500">LÃ­nea: S/ {Number(c.creditLine).toFixed(2)}</div>
-                    <div className="text-xs text-gray-500">Usado: S/ {Number(c.usedPen ?? 0).toFixed(2)} Â· $ {Number(c.usedUsd ?? 0).toFixed(2)}</div>
+                    <div className="mt-1 text-xs text-gray-500">Línea: S/ {Number(c.creditLine).toFixed(2)}</div>
+                    <div className="text-xs text-gray-500">Usado: S/ {Number(c.usedPen ?? 0).toFixed(2)} · $ {Number(c.usedUsd ?? 0).toFixed(2)}</div>
                     <div className="text-sm font-semibold mt-1">Disponible: S/ {Number(c.available).toFixed(2)}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">Consumido en soles: S/ {(Number(c.usedPen || 0) + Number(c.usedUsd || 0) * TIPO_CAMBIO).toFixed(2)}</div>
                   </div>
                 ))}
               </div>
@@ -200,17 +199,17 @@ export default function GastosPanel({ userId: externalUserId }) {
         </div>
       </div>
 
-      {/* DÃ©bito y CrÃ©dito */}
+      {/* Débito y Crédito */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* DÃ©bito */}
+        {/* Débito */}
         <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-semibold">DÃ©bito</h3>
-            <button onClick={openDeb} className="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[44px]">Agregar gasto dÃ©bito</button>
+            <h3 className="text-lg font-semibold">Débito</h3>
+            <button onClick={openDeb} className="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[44px]">Agregar gasto débito</button>
           </div>
 
           {loading ? (
-            <div className="text-gray-600">Cargandoâ€¦</div>
+            <div className="text-gray-600">Cargando…</div>
           ) : err ? (
             <div className="text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</div>
           ) : (
@@ -229,7 +228,7 @@ export default function GastosPanel({ userId: externalUserId }) {
                 <tbody>
                   {rows.filter((g) => g.metodoPago === 'debito').map((g) => {
                     const conceptoCell = g.concepto === 'pago_tarjeta'
-                      ? `Pago Tarjeta Â· ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
+                      ? `Pago Tarjeta · ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
                       : (g.concepto || '').replace(/_/g, ' ');
                     const detalle = g.detalleGusto || g.notas || '-';
                     return (
@@ -258,15 +257,15 @@ export default function GastosPanel({ userId: externalUserId }) {
           )}
         </div>
 
-        {/* CrÃ©dito */}
+        {/* Crédito */}
         <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-semibold">CrÃ©dito</h3>
-            <button onClick={openCre} className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 min-h-[44px]">Agregar gasto crÃ©dito</button>
+            <h3 className="text-lg font-semibold">Crédito</h3>
+            <button onClick={openCre} className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 min-h-[44px]">Agregar gasto crédito</button>
           </div>
 
           {loading ? (
-            <div className="text-gray-600">Cargandoâ€¦</div>
+            <div className="text-gray-600">Cargando…</div>
           ) : err ? (
             <div className="text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</div>
           ) : (
@@ -357,3 +356,4 @@ export default function GastosPanel({ userId: externalUserId }) {
     </div>
   );
 }
+

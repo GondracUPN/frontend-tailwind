@@ -39,7 +39,7 @@ export default function CardsSummary({ reloadKey }) {
 
   return (
     <div className="bg-white border rounded-xl shadow p-4">
-      <div className="font-semibold mb-3">Tarjetas (línea / usado / disponible)</div>
+      <div className="font-semibold mb-1">Tarjetas (línea / usado / disponible)</div>
       {loading ? (
         <div className="text-sm text-gray-600">Cargando…</div>
       ) : rows.length === 0 ? (
@@ -61,3 +61,5 @@ export default function CardsSummary({ reloadKey }) {
     </div>
   );
 }
+
+
