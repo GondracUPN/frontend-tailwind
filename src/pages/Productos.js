@@ -50,7 +50,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [filtroTipo, setFiltroTipo] = useState('todos'); // 'todos' | 'macbook' | 'ipad' | 'pantalla' | 'otro'
   const [filtroProc, setFiltroProc] = useState('todos'); // procesador o pantalla (texto libre)
   const [filtroTam, setFiltroTam] = useState('todos');   // tamano adicional para macbook/ipad
-  const [buscarTracking, setBuscarTracking] = useState('');
+  const [trackingQuery, setTrackingQuery] = useState('');
 
   // Helper: lee tamano desde detalle (soporta 'tamano' | 'tamanio' | 'tamano')
   const getTam = (d) => {
@@ -369,6 +369,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   }, [productos]);
 
   const displayedProductos = React.useMemo(() => {
+
     const ts = (p) => {
       const fc = p?.valor?.fechaCompra || p?.valor?.fecha_compra || p?.fechaCompra || null;
       const t = fc ? Date.parse(fc) : 0;
@@ -376,16 +377,33 @@ export default function Productos({ setVista, setAnalisisBack }) {
     };
 
     let list = Array.isArray(productos) ? [...productos] : [];
-    // Filtro por número de tracking (USA o Eshopex)
-    if (buscarTracking && buscarTracking.trim()) {
-      const q = buscarTracking.trim().toLowerCase();
+    // --- Filtro por tracking (USA / Eshopex) ---
+    const q = String(trackingQuery || '').trim().toLowerCase();
+    if (q) {
+      // versión solo-dígitos para casos donde pegas un código largo que contiene el real
+      const qDigits = q.replace(/\D+/g, '');
+
       list = list.filter((p) => {
         const t = p.tracking?.[0] || {};
-        const usa = String(t.trackingUsa || '').toLowerCase();
-        const esh = String(t.trackingEshop || '').toLowerCase();
-        return (usa && usa.startsWith(q)) || (esh && esh.startsWith(q));
+        const usa = String(t.trackingUsa || '').trim().toLowerCase();
+        const esh = String(t.trackingEshop || '').trim().toLowerCase();
+
+        const usaDigits = usa.replace(/\D+/g, '');
+        const eshDigits = esh.replace(/\D+/g, '');
+
+        // Coincidencias en ambos sentidos:
+        // - normal: usa/esh contienen q  O q contiene usa/esh
+        // - solo-dígitos: usaDigits/eshDigits contienen qDigits  O qDigits contiene usaDigits/eshDigits
+        const match =
+          (usa && (usa.includes(q) || q.includes(usa))) ||
+          (esh && (esh.includes(q) || q.includes(esh))) ||
+          (qDigits && usaDigits && (usaDigits.includes(qDigits) || qDigits.includes(usaDigits))) ||
+          (qDigits && eshDigits && (eshDigits.includes(qDigits) || qDigits.includes(eshDigits)));
+
+        return Boolean(match);
       });
     }
+
 
     if (soloDisponibles) {
       list = list.filter((p) => {
@@ -449,7 +467,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
     list.sort((a, b) => ts(b) - ts(a)); // más nuevos arriba
     return list;
-  }, [productos, ventasMap, soloDisponibles, filtroTipo, filtroProc, filtroTam, buscarTracking]);
+  }, [productos, ventasMap, soloDisponibles, filtroTipo, filtroProc, filtroTam, trackingQuery]);
 
 
 
@@ -703,10 +721,11 @@ export default function Productos({ setVista, setAnalisisBack }) {
               <input
                 type="text"
                 className="border rounded px-2 py-1"
-                placeholder="Buscar tracking (USA o Eshopex)"
-                value={buscarTracking}
-                onChange={(e) => setBuscarTracking(e.target.value)}
+                placeholder="Buscar tracking (USA/Eshopex)"
+                value={trackingQuery}
+                onChange={(e) => setTrackingQuery(e.target.value)}
               />
+
 
 
               <label className="text-sm inline-flex items-center gap-2">
