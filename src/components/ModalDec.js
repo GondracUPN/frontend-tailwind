@@ -1,4 +1,4 @@
-// src/components/ModalDec.js
+﻿// src/components/ModalDec.js
 import React, { useMemo, useState, useEffect } from "react";
 import api from "../api";
 
@@ -35,7 +35,7 @@ const PROBLEMS = {
     "Touch not working","WiFi and Bluetooth not working","Battery not charging","Screen frozen",
     "Stuck on Apple logo","Camera not working","Speaker not working","No network service",
     "SIM card not detected","Face ID not working","Home button not working","Screen flickering",
-    "Ghost touch issue","No sound output","Boot loop stuck","Water damaged won’t turn on",
+    "Ghost touch issue","No sound output","Boot loop stuck","Water damaged won't turn on",
   ],
 };
 const pickOne = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -75,7 +75,9 @@ const get = (o, keys, def = "") =>
   keys.reduce((v, k) => (v != null ? v : o?.[k]), null) ?? def;
 
 function getSize(p) {
-  return get(p?.detalle, ["tamaño", "tamanio", "tamano"]) || p?.size || p?.tamaño || p?.tamanio || "";
+  const sizeFromDetalle = get(p?.detalle, ["tama\u00f1o", "tamanio", "tamano"]);
+  const sizeFromRoot = get(p, ["tama\u00f1o", "tamanio", "tamano"]);
+  return sizeFromDetalle || p?.size || sizeFromRoot || "";
 }
 function getGama(p) {
   const d = get(p?.detalle, ["gama"]) || p?.gama || "";
@@ -124,7 +126,7 @@ function labelForDropdown(p) {
   const base = [tipo, gama, size && `${size}"`].filter(Boolean).join(" ");
   const extras = [proc, ram && `${ram} RAM`, sto && `${sto} GB`]
     .filter(Boolean)
-    .join(" • ");
+    .join(" . ");
   return extras ? `${base} ${extras}` : base;
 }
 
@@ -261,7 +263,7 @@ function buildModalContentHTML({
   orderNumber,
   casilleroKey,
   qty,
-  price,        // ← DEC (unit price)
+  price,        // ? DEC (unit price)
   itemName,
   shippingSvc,
 }) {
@@ -491,7 +493,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [hardError, setHardError] = useState("");
   const [productoSel, setProductoSel] = useState(null);
 
-  // Núcleo de nombre y problema
+  // N�cleo de nombre y problema
   const [nameCore, setNameCore] = useState("");       // sin problema
   const [problemSuffix, setProblemSuffix] = useState(""); // solo el problema
 
@@ -528,10 +530,10 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     return () => { mounted = false; };
   }, [productosProp]);
 
-  // Fuente única
+  // Fuente �nica
   const productosAll = productosProp && productosProp.length ? productosProp : productosApi;
 
-  // Filtrado: “en camino”
+  // Filtrado: "en camino"
   const productosEnCamino = useMemo(
     () => (productosAll || []).filter(isEnCaminoCliente),
     [productosAll]
@@ -563,7 +565,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     // Nombre base (sin problema)
     const core = buildCoreName(p);
 
-    // Casillero automático (si lo puedo resolver)
+    // Casillero autom�tico (si lo puedo resolver)
     const autoKey = resolveCasilleroKeyFromProducto(p);
 
     // Set del producto NUEVO y derivados
@@ -583,7 +585,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     if (autoKey) setCasilleroKey(autoKey);
   }, [productoSel]);
 
-  // 🎲 CPU aleatoria (Mac) + problema aleatorio al final
+  // ?? CPU aleatoria (Mac) + problema aleatorio al final
   const rollName = () => {
     if (!productoSel) return;
     const tipo = normalize(productoSel?.tipo);
@@ -622,7 +624,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         orderNumber,
         casilleroKey,
         qty,
-        price,       // ← DEC
+        price,       // ? DEC
         itemName,
         shippingSvc,
       }),
@@ -639,10 +641,10 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const handleOverlayClick = (e) => { if (e.target === e.currentTarget) onClose?.(); };
 
   const copyHTML = async () => {
-    try { await navigator.clipboard.writeText(html); alert("HTML copiado al portapapeles ✅"); }
+    try { await navigator.clipboard.writeText(html); alert("HTML copiado al portapapeles ?"); }
     catch {
       const ta = document.getElementById("dec-html-ta");
-      if (ta) { ta.select(); document.execCommand("copy"); alert("HTML copiado (fallback) ✅"); }
+      if (ta) { ta.select(); document.execCommand("copy"); alert("HTML copiado (fallback) ?"); }
     }
   };
   const copySelector = async () => { try { await navigator.clipboard.writeText('class="gen-tables"'); } catch { } };
@@ -660,8 +662,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       <div className="w-full max-w-5xl bg-white rounded-xl shadow-xl" onClick={(e) => e.stopPropagation()}>
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b">
-          <h2 className="text-base font-semibold">Generar HTML – Printer friendly (solo textos)</h2>
-          <button onClick={onClose} className="text-gray-700 hover:text-black text-sm" aria-label="Close modal">← Back</button>
+          <h2 className="text-base font-semibold">Generar HTML - Printer friendly (solo textos)</h2>
+          <button onClick={onClose} className="text-gray-700 hover:text-black text-sm" aria-label="Close modal">? Back</button>
         </div>
 
         {/* Productos */}
@@ -683,8 +685,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                   {loading
                     ? "Cargando productos..."
                     : productosEnCamino.length
-                      ? "— Seleccionar —"
-                      : "— Sin resultados (en camino) —"}
+                      ? "- Seleccionar -"
+                      : "- Sin resultados (en camino) -"}
                 </option>
                 {!loading &&
                   productosEnCamino.map((p) => (
@@ -698,7 +700,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             {/* Valor DEC solo lectura */}
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Valor DEC</span>
-              <input className="input" value={productoSel?.__decResolved || ""} readOnly placeholder="—" />
+              <input className="input" value={productoSel?.__decResolved || ""} readOnly placeholder="-" />
             </label>
 
             {/* Casillero único (afecta al HTML) */}
@@ -714,7 +716,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                 ))}
               </select>
               <div className="text-[11px] text-gray-500 mt-1">
-                Detectado del producto: {rawCas || "—"}
+                Detectado del producto: {rawCas || "-"}
               </div>
             </label>
           </div>
@@ -739,11 +741,11 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
           <div className="grid sm:grid-cols-3 gap-3">
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Transportista</span>
-              <input className="input" value={carrier || ""} readOnly placeholder="—" />
+              <input className="input" value={carrier || ""} readOnly placeholder="-" />
             </label>
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Tracking #</span>
-              <input className="input" value={carrierTracking || ""} readOnly placeholder="—" />
+              <input className="input" value={carrierTracking || ""} readOnly placeholder="-" />
             </label>
             <div />
           </div>
@@ -765,7 +767,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                   className="px-3 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700"
                   disabled={!productoSel}
                 >
-                  🎲
+                  ??
                 </button>
               </div>
             </label>
@@ -780,7 +782,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         <div className="p-4 sm:p-6">
           <div className="flex items-start justify-between mb-2 gap-4">
             <div>
-              <h3 className="font-semibold">HTML (solo “modal-content”)</h3>
+              <h3 className="font-semibold">HTML (solo "modal-content")</h3>
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1">
                 Recordatorio: busca <code>class="gen-tables"</code> en tu DOM para pegar este HTML.
               </p>

@@ -1,4 +1,4 @@
-function Home({ setVista, setAnalisisBack }) {
+﻿function Home({ setVista, setAnalisisBack }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-10 p-6">
       <h1 className="text-4xl font-semibold">MacSomenos Servicios</h1>
@@ -22,7 +22,7 @@ function Home({ setVista, setAnalisisBack }) {
         </button>
         <button
           className="px-6 py-3 bg-white shadow rounded-2xl border hover:shadow-md hover:border-gray-400 transition text-lg"
-          onClick={() => setVista('gastos')}   // ⬅️ nuevo: navega a Gastos (login + home)
+          onClick={() => setVista('gastos')}   // ?? nuevo: navega a Gastos (login + home)
         >
           Gastos
         </button>

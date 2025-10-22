@@ -9,7 +9,15 @@ import ResumenCasilleros from '../components/ResumenCasilleros';
 import ModalVenta from '../components/ModalVenta';
 import ModalCalculadora from '../components/ModalCalculadora';
 import ModalDec from '../components/ModalDec';
-import { FiFileText, FiLayers, FiAlertCircle, FiTruck, FiBox, FiCheckCircle, FiShoppingCart, FiDollarSign, FiTrendingUp } from 'react-icons/fi';
+import {
+  FiFileText,
+  FiPackage,        // comprado_sin_tracking
+  FiTruck,          // comprado_en_camino
+  FiMapPin,         // en_eshopex
+  FiCheckCircle,    // recogido
+  FiHelpCircle      // default / desconocido
+} from 'react-icons/fi';
+
 
 export default function Productos({ setVista, setAnalisisBack }) {
   const [productos, setProductos] = useState([]);
@@ -17,22 +25,22 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [error, setError] = useState(null);
   const [modalModo, setModalModo] = useState(null); // 'crear'|'detalle'|'costos'|'track'
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
-  // Mapa: productoId -> Ãºltima venta (o null)
+  // Mapa: productoId -> última venta (o null)
   const [ventasMap, setVentasMap] = useState({});
 
-  // Abre modal de venta (creaciÃ³n o lectura)
+  // Abre modal de venta (creación o lectura)
   const abrirVenta = (p) => { setProductoSeleccionado(p); setModalModo('venta'); };
   const abrirCalculadora = (p) => { setProductoSeleccionado(p); setModalModo('calc'); };
 
-  // Cuando se guarda una venta, refrescamos sÃ³lo ese producto en el mapa
+  // Cuando se guarda una venta, refrescamos sólo ese producto en el mapa
   const handleVentaSaved = (ventaGuardada) => {
     setVentasMap(prev => ({ ...prev, [ventaGuardada.productoId]: ventaGuardada }));
     cerrarModal();
   };
 
-  const fmtSoles = (v) => (v != null ? `S/ ${parseFloat(v).toFixed(2)}` : 'N/A');
+  const fmtSoles = (v) => (v != null ? `S/ ${parseFloat(v).toFixed(2)}` : '-');
 
-  // === SelecciÃ³n (Importar recojo / Recojo masivo) ===
+  // === Selección (Importar recojo / Recojo masivo) ===
   const [selectMode, setSelectMode] = useState(false);
   const [selectAction, setSelectAction] = useState(null); // 'whatsapp' | 'pickup' | 'adelantar'
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -41,6 +49,22 @@ export default function Productos({ setVista, setAnalisisBack }) {
   // Filtros adicionales
   const [filtroTipo, setFiltroTipo] = useState('todos'); // 'todos' | 'macbook' | 'ipad' | 'pantalla' | 'otro'
   const [filtroProc, setFiltroProc] = useState('todos'); // procesador o pantalla (texto libre)
+  const [filtroTam, setFiltroTam] = useState('todos');   // tamano adicional para macbook/ipad
+  const [buscarTracking, setBuscarTracking] = useState('');
+
+  // Helper: lee tamano desde detalle (soporta 'tamano' | 'tamanio' | 'tamano')
+  const getTam = (d) => {
+    if (!d) return '';
+    const keys = Object.keys(d);
+    for (const k of keys) {
+      if (String(k || '').toLowerCase().startsWith('tama')) {
+        const v = d[k];
+        if (typeof v === 'string' && v.trim()) return v.trim();
+      }
+    }
+    const alt = (d.tamanio ?? d.tamano ?? '').toString().trim();
+    return alt;
+  };
 
   // Tipos disponibles calculados desde la data
   const tiposDisponibles = React.useMemo(() => {
@@ -52,7 +76,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     return Array.from(set);
   }, [productos]);
 
-  // Opciones disponibles de procesador (macbook/ipad) o tamaÃ±o (pantalla)
+  // Opciones disponibles de procesador (macbook/ipad) o tamaño (pantalla)
   const opcionesProc = React.useMemo(() => {
     const tipo = String(filtroTipo || '').toLowerCase();
     const set = new Set();
@@ -65,12 +89,29 @@ export default function Productos({ setVista, setAnalisisBack }) {
     } else if (tipo === 'pantalla') {
       for (const p of productos || []) {
         if (String(p.tipo || '').toLowerCase() !== tipo) continue;
-        const val = String(p.detalle?.tamanio || '').trim();
+        const val = getTam(p.detalle || {});
         if (val) set.add(val);
       }
     }
     return Array.from(set);
   }, [productos, filtroTipo]);
+
+  // Opciones de tamano para macbook/ipad
+  const opcionesTam = React.useMemo(() => {
+    const tipo = String(filtroTipo || '').toLowerCase();
+    const proc = String(filtroProc || '').toLowerCase();
+    const set = new Set();
+    if (tipo === 'macbook' || tipo === 'ipad') {
+      for (const p of productos || []) {
+        if (String(p.tipo || '').toLowerCase() !== tipo) continue;
+        const procP = String(p.detalle?.procesador || '').toLowerCase();
+        if (proc !== 'todos' && procP !== proc) continue;
+        const val = getTam(p.detalle || {});
+        if (val) set.add(val);
+      }
+    }
+    return Array.from(set);
+  }, [productos, filtroTipo, filtroProc]);
 
   // Si el tipo seleccionado ya no existe, resetea a 'todos'
   React.useEffect(() => {
@@ -80,19 +121,14 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
   }, [tiposDisponibles, filtroTipo]);
 
-  const startImport = () => {
+  // Reemplaza ambos startImport() / startMassPickup() por:
+  const startRecojo = () => {
     setSelectMode(true);
-    setSelectAction('whatsapp');
+    setSelectAction('recojo'); // flujo único
     setSelectedIds(new Set());
     setPickupDate('');
   };
 
-  const startMassPickup = () => {
-    setSelectMode(true);
-    setSelectAction('pickup');
-    setSelectedIds(new Set());
-    setPickupDate('');
-  };
 
   const startAdelantarVenta = () => {
     setSelectMode(true);
@@ -116,7 +152,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     });
   };
 
-  // Nombre del producto para el texto (iPad, Air, M2, 11) o "Otros" con descripciÃ³n
+  // Nombre del producto para el texto (iPad, Air, M2, 11) o "Otros" con descripción
   const buildNombreProducto = (p) => {
     if (!p) return '';
     if (p.tipo === 'otro') return (p.detalle?.descripcionOtro || '').trim() || 'Otros';
@@ -129,54 +165,60 @@ export default function Productos({ setVista, setAnalisisBack }) {
     return parts.join(' ');
   };
 
-  // AcciÃ³n ACEPTAR para ambos flujos (WhatsApp / Recojo masivo)
+  // Acción ACEPTAR (flujo único: marcar recogidos + WhatsApp)
   const confirmAction = async () => {
     const items = productos.filter(p => selectedIds.has(p.id));
     if (items.length === 0) { alert('Selecciona al menos un producto.'); return; }
 
-    if (selectAction === 'whatsapp') {
-      const lineas = items.map(p => {
-        const t = p.tracking?.[0] || {};
-        const esh = (t.trackingEshop || '').trim();
-        const cas = t.casillero || '';
-        const nombre = buildNombreProducto(p);
-        return `${esh} | ${nombre} | Casillero: ${cas}`;
-      });
-      const url = `https://wa.me/51938597478?text=${encodeURIComponent(lineas.join('\n'))}`;
-      window.open(url, '_blank', 'noopener,noreferrer');
-      cancelSelect();
-      return;
-    }
-
-    if (selectAction === 'pickup') {
+    if (selectAction === 'recojo') {
       if (!pickupDate) { alert('Elige una fecha de recojo.'); return; }
+
       try {
-        // Marca todos como 'recogido' con la misma fecha
+        // 1) Marca todos como 'recogido' con la misma fecha
         await Promise.all(items.map(p =>
           api.put(`/tracking/producto/${p.id}`, {
             estado: 'recogido',
             fechaRecogido: pickupDate,
           })
         ));
+
+        // 2) Genera texto para WhatsApp
+        const lineas = items.map(p => {
+          const t = p.tracking?.[0] || {};
+          const esh = (t.trackingEshop || '').trim(); // puede ser vacío
+          const cas = t.casillero || '';
+          const nombre = buildNombreProducto(p);
+          return `${esh} | ${nombre} | Casillero: ${cas}`;
+        });
+
+        const url = `https://wa.me/+51938597478?text=${encodeURIComponent(lineas.join('\n'))}`;
+
+        // 3) Refresca productos
         const data = await api.get('/productos');
-        const lista = Array.isArray(data)
-          ? data
+        const lista = Array.isArray(data) ? data
           : (Array.isArray(data?.items) ? data.items : []);
         setProductos(lista);
+
+        // 4) Abre WhatsApp
+        window.open(url, '_blank', 'noopener,noreferrer');
+
+        // 5) Salir del modo selección
         cancelSelect();
+        return;
       } catch (e) {
         console.error(e);
-        alert('No se pudo actualizar el estado de algunos productos.');
+        alert('No se pudo completar el recojo de algunos productos.');
+        return;
       }
     }
 
+    // (se mantiene el caso 'adelantar' tal cual ya lo tienes)
     if (selectAction === 'adelantar') {
-      if (items.length !== 1) { alert('Selecciona exactamente un producto.'); return; }
-      const p = items[0];
-      // Abrir modal de venta normal para el producto elegido
+      const itemsSel = productos.filter(p => selectedIds.has(p.id));
+      if (itemsSel.length !== 1) { alert('Selecciona exactamente un producto.'); return; }
+      const p = itemsSel[0];
       setProductoSeleccionado(p);
       setModalModo('venta');
-      // Salir del modo selecciÃ³n
       cancelSelect();
       return;
     }
@@ -185,16 +227,18 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
 
 
-  // ===== Helpers de Tracking (sin heurÃ­stica) =====
+
+  // ===== Helpers de Tracking (sin heurística) =====
   const labelFromEstado = (estado) => {
     switch (estado) {
-      case 'comprado_sin_tracking': return 'Comprado (Sin Tracking)';
-      case 'comprado_en_camino': return 'Comprado (En Camino US)';
-      case 'en_eshopex': return 'En Eshopex (Camino Lima)';
+      case 'comprado_sin_tracking': return 'Sin Tracking';
+      case 'comprado_en_camino': return 'En Camino';
+      case 'en_eshopex': return 'Eshopex';
       case 'recogido': return 'Recogido';
-      default: return 'â€”';
+      default: return '-';
     }
   };
+
   // Colores Tailwind por estado
   const badgeClasses = (estado) => {
     switch (estado) {
@@ -211,27 +255,24 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
   };
 
-  // Icono por estado (evita caracteres no ASCII en el código fuente)
-  const iconFromEstado = (estado) => {
-    let cp;
+  // Reemplaza tu helper por emojis:
+  const emojiFromEstado = (estado) => {
     switch (estado) {
       case 'comprado_sin_tracking':
-        cp = 0x1F4DD; // 📝 nota
-        break;
+        return <span role="img" aria-label="Paquete" className="text-xl">📦</span>;
       case 'comprado_en_camino':
-        cp = 0x1F69A; // 🚚 camión
-        break;
+        return <span role="img" aria-label="Camión" className="text-xl">🚚</span>;
       case 'en_eshopex':
-        cp = 0x1F4E6; // 📦 caja
-        break;
+        return <span role="img" aria-label="Pin" className="text-xl">📍</span>;
       case 'recogido':
-        cp = 0x2705; // ✅ check
-        break;
+        return <span role="img" aria-label="Check" className="text-xl">✅</span>;
       default:
-        cp = 0x2139; // ℹ️ info
+        return <span role="img" aria-label="Desconocido" className="text-xl">❔</span>;
     }
-    return String.fromCodePoint(cp);
   };
+
+
+
 
   // Bases de URL por operador declarado por backend
   const URLS = {
@@ -243,7 +284,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     eshopex: (code) => `https://usamybox.com/internacional/tracking_box.php?nrotrack=${encodeURIComponent(code)}`,
   };
 
-  // Construye el link segÃºn estado y datos
+  // Construye el link según estado y datos
   const buildTrackingLink = (t) => {
     if (!t) return null;
 
@@ -272,7 +313,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
   };
 
-  // ðŸ”„ Carga inicial usando api.js
+  // �Y"" Carga inicial usando api.js
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -293,7 +334,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     })();
     return () => { alive = false; };
   }, []);
-  // Cargar Ãºltima venta por producto (si existe) cuando cambia la lista
+  // Cargar última venta por producto (si existe) cuando cambia la lista
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -335,6 +376,16 @@ export default function Productos({ setVista, setAnalisisBack }) {
     };
 
     let list = Array.isArray(productos) ? [...productos] : [];
+    // Filtro por número de tracking (USA o Eshopex)
+    if (buscarTracking && buscarTracking.trim()) {
+      const q = buscarTracking.trim().toLowerCase();
+      list = list.filter((p) => {
+        const t = p.tracking?.[0] || {};
+        const usa = String(t.trackingUsa || '').toLowerCase();
+        const esh = String(t.trackingEshop || '').toLowerCase();
+        return (usa && usa.startsWith(q)) || (esh && esh.startsWith(q));
+      });
+    }
 
     if (soloDisponibles) {
       list = list.filter((p) => {
@@ -344,29 +395,61 @@ export default function Productos({ setVista, setAnalisisBack }) {
       });
     }
 
-    // Filtro por tipo
+    // Filtro por tipo ("otro" = todo lo que NO es macbook ni ipad)
     if (filtroTipo !== 'todos') {
-      list = list.filter((p) => String(p.tipo || '').toLowerCase() === filtroTipo);
+      const matchTipo = (tipo) => {
+        const t = String(tipo || '').toLowerCase().trim();
+        if (filtroTipo === 'otro') {
+          return t !== 'macbook' && t !== 'ipad';
+          // Si NO quieres incluir "pantalla" dentro de "otros", usa:
+          // return t !== 'macbook' && t !== 'ipad' && t !== 'pantalla';
+        }
+        return t === filtroTipo;
+      };
+      list = list.filter((p) => matchTipo(p.tipo));
     }
-    // Subfiltro por procesador o tamaÃ±o de pantalla (match exacto de la opciÃ³n seleccionada)
-    if (filtroProc !== 'todos' && filtroTipo !== 'todos') {
-      const term = String(filtroProc || '').toLowerCase();
+
+    // Subfiltros por procesador y tamaño (según tipo)
+    if (filtroTipo !== 'todos') {
+      const procTerm = String(filtroProc || '').toLowerCase();
+      const tamTerm = String(filtroTam || '').toLowerCase();
+
       list = list.filter((p) => {
         const tipo = String(p.tipo || '').toLowerCase();
         const d = p.detalle || {};
+
         if (tipo === 'macbook' || tipo === 'ipad') {
-          return String(d.procesador || '').toLowerCase() === term;
+          // Filtro por procesador (si aplica)
+          if (procTerm !== 'todos') {
+            const proc = String(d.procesador || '').toLowerCase();
+            if (proc !== procTerm) return false;
+          }
+          // Filtro por tamaño (si aplica)
+          if (tamTerm !== 'todos') {
+            const tam = String(getTam(d) || '').toLowerCase();
+            if (tam !== tamTerm) return false;
+          }
+          return true;
         }
+
         if (tipo === 'pantalla') {
-          return String(d.tamanio || '').toLowerCase() === term;
+          // Para Pantalla, el selector "Procesador" es en realidad el tamaño
+          if (procTerm !== 'todos') {
+            const tam = String(getTam(d) || '').toLowerCase();
+            return tam === procTerm;
+          }
+          return true;
         }
+
+        // Otros tipos no tienen subfiltros
         return true;
       });
     }
 
-    list.sort((a, b) => ts(b) - ts(a)); // mÃ¡s nuevos arriba
+
+    list.sort((a, b) => ts(b) - ts(a)); // más nuevos arriba
     return list;
-  }, [productos, ventasMap, soloDisponibles, filtroTipo, filtroProc]);
+  }, [productos, ventasMap, soloDisponibles, filtroTipo, filtroProc, filtroTam, buscarTracking]);
 
 
 
@@ -389,7 +472,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Â¿Eliminar este producto?')) return;
+    if (!window.confirm('¿Eliminar este producto?')) return;
     try {
       await api.del(`/productos/${id}`);
       setProductos(list => list.filter(p => p.id !== id));
@@ -427,7 +510,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     return { total, sinTracking, enCamino, enEshopex, disponible, vendido };
   }, [productos, ventasMap]);
 
-  // Convierte "S/ 1,234.50" o "$ 99" a nÃºmero seguro
+  // Convierte "S/ 1,234.50" o "$ 99" a número seguro
   const toNumber = (x) => {
     if (x == null || x === '') return 0;
     if (typeof x === 'number') return x;
@@ -438,7 +521,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
     return 0;
   };
-  // Lee el monto de la venta en S/ sin importar el nombre/caso/anidaciÃ³n
+  // Lee el monto de la venta en S/ sin importar el nombre/caso/anidación
   const getMontoVentaSoles = (venta) => {
     if (!venta) return 0;
 
@@ -482,7 +565,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     let totalEnvioSoles = 0;   // suma de costoEnvio (S/)
     let totalDecUSD = 0;
     let totalCostoSoles = 0;   // suma de costoTotal (S/)
-    let totalVentaSoles = 0;   // suma de venta (S/) sÃ³lo si existe registro de venta
+    let totalVentaSoles = 0;   // suma de venta (S/) sólo si existe registro de venta
     let gananciaSoles = 0;     // totalVentaSoles - totalCostoSoles (por producto vendido)
 
     for (const p of productos) {
@@ -534,12 +617,12 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
 
   return (
-    <div className="min-h-screen p-4 sm:p-8 bg-macGray text-macDark">
+    <div className="min-h-screen p-8 bg-macGray text-macDark">
       {/* Header */}
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-        <h2 className="text-2xl sm:text-3xl font-semibold">Gestión de Productos</h2>
-        <button onClick={() => setVista('home')} className="inline-flex items-center justify-center px-4 py-2 bg-white border rounded-lg shadow-sm hover:bg-gray-50">
-          ← Volver
+      <header className="flex justify-between items-center mb-8">
+        <h2 className="text-3xl font-semibold">Gesti&oacute;n de Productos</h2>
+        <button onClick={() => setVista('home')} className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100">
+          &larr; Volver
         </button>
       </header>
 
@@ -569,27 +652,24 @@ export default function Productos({ setVista, setAnalisisBack }) {
           <div className="text-sm text-gray-500">Vendido</div>
           <div className="text-2xl font-semibold">{stats.vendido}</div>
         </div>
-      </div>
-
-
-
-      {/* Panel de casilleros */}
+      </div>{/* Panel de casilleros */}
       <ResumenCasilleros productos={productos} />
 
       {/* Totales de montos */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
         <div className="bg-white border rounded-xl p-4 shadow-sm">
           <div className="text-sm text-gray-500">Total gastado ($)</div>
           <div className="text-2xl font-semibold">{totals.totalGastadoUSD}</div>
         </div>
         <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total envío (S/)</div>
+          <div className="text-sm text-gray-500">Total env&iacute;o (S/)</div>
           <div className="text-2xl font-semibold">{totals.totalEnvioSoles}</div>
-        </div>
+        </div> {/* ✅ cierre agregado aquí */}
         <div className="bg-white border rounded-xl p-4 shadow-sm">
           <div className="text-sm text-gray-500">Total DEC ($)</div>
           <div className="text-2xl font-semibold">{totals.totalDecUSD}</div>
         </div>
+
         <div className="bg-white border rounded-xl p-4 shadow-sm">
           <div className="text-sm text-gray-500">Total costo (S/)</div>
           <div className="text-2xl font-semibold">{totals.totalCostoSoles}</div>
@@ -620,12 +700,21 @@ export default function Productos({ setVista, setAnalisisBack }) {
                 Mostrar listos venta
               </label>
 
+              <input
+                type="text"
+                className="border rounded px-2 py-1"
+                placeholder="Buscar tracking (USA o Eshopex)"
+                value={buscarTracking}
+                onChange={(e) => setBuscarTracking(e.target.value)}
+              />
+
+
               <label className="text-sm inline-flex items-center gap-2">
                 <span>Tipo</span>
                 <select
                   className="border rounded px-2 py-1"
                   value={filtroTipo}
-                  onChange={(e) => { setFiltroTipo(e.target.value); setFiltroProc('todos'); }}
+                  onChange={(e) => { setFiltroTipo(e.target.value); setFiltroProc('todos'); setFiltroTam('todos'); }}
                 >
                   <option value="todos">Todos</option>
                   {tiposDisponibles.includes('macbook') && <option value="macbook">MacBook</option>}
@@ -641,7 +730,13 @@ export default function Productos({ setVista, setAnalisisBack }) {
                   <select
                     className="border rounded px-2 py-1"
                     value={filtroProc}
-                    onChange={(e)=>setFiltroProc(e.target.value)}
+                    onChange={(e) => { setFiltroProc(e.target.value); setFiltroTam('todos'); }}
+
+
+
+
+
+
                   >
                     <option value="todos">Todos</option>
                     {opcionesProc.map((opt) => (
@@ -650,17 +745,33 @@ export default function Productos({ setVista, setAnalisisBack }) {
                   </select>
                 </label>
               )}
+
+              {(filtroTipo === 'macbook' || filtroTipo === 'ipad') && (
+                <label className="text-sm inline-flex items-center gap-2">
+                  <span>Tamaño</span>
+                  <select
+                    className="border rounded px-2 py-1"
+                    value={filtroTam}
+                    onChange={(e) => setFiltroTam(e.target.value)}
+                  >
+                    <option value="todos">Todos</option>
+                    {opcionesTam.map((opt) => (
+                      <option key={opt} value={String(opt).toLowerCase()}>{opt}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
 
             {/* Acciones a la derecha */}
             <div className="flex gap-2 justify-end">
-              {/* Analisis a la izquierda, con mÃ¡s separaciÃ³n del siguiente */}
+              {/* Análisis a la izquierda, con m\u00e1s separaci\u00f3n del siguiente */}
               <button
                 onClick={() => { setAnalisisBack('productos'); setVista('analisis'); }}
                 className="bg-slate-600 text-white px-5 py-2 rounded hover:bg-slate-700 mr-6"
-                title="Ir al mÃ³dulo de anÃ¡lisis"
+                title="Ir al m\u00f3dulo de Análisis"
               >
-                Analisis
+                Análisis
               </button>
               <button
                 onClick={startAdelantarVenta}
@@ -676,19 +787,13 @@ export default function Productos({ setVista, setAnalisisBack }) {
                 Agregar Producto
               </button>
               <button
-                onClick={startImport}
+                onClick={startRecojo}
                 className="bg-purple-600 text-white px-5 py-2 rounded hover:bg-purple-700"
-                title="Selecciona varios y genera el texto para WhatsApp"
+                title="Selecciona varios y marcar como recogidos + generar texto para WhatsApp"
               >
-                Importar recojo
+                Recojo
               </button>
-              <button
-                onClick={startMassPickup}
-                className="bg-emerald-600 text-white px-5 py-2 rounded hover:bg-emerald-700"
-                title="Selecciona varios y mÃ¡rcalos como recogidos"
-              >
-                Recojo masivo
-              </button>
+
               <button
                 onClick={abrirDec}
                 className="bg-gray-800 text-white px-5 py-2 rounded hover:bg-gray-900 inline-flex items-center gap-2"
@@ -700,10 +805,10 @@ export default function Productos({ setVista, setAnalisisBack }) {
             </div>
           </>
         ) : (
-          // â† tu bloque existente de selecciÃ³n (pickup/whatsapp) se mantiene igual
+          // �?� tu bloque existente de selección (pickup/whatsapp) se mantiene igual
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 w-full">
             <div className="flex-1">
-              {selectAction === 'pickup' && (
+              {selectAction === 'recojo' && (
                 <div>
                   <label className="block text-sm font-medium mb-1">Fecha de recojo</label>
                   <input
@@ -712,6 +817,9 @@ export default function Productos({ setVista, setAnalisisBack }) {
                     value={pickupDate}
                     onChange={(e) => setPickupDate(e.target.value)}
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Al aceptar: marcará como <b>Recogido</b> y abrirá WhatsApp con el listado.
+                  </p>
                 </div>
               )}
             </div>
@@ -719,7 +827,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
               <button
                 onClick={confirmAction}
                 className="bg-indigo-600 text-white px-5 py-2 rounded hover:bg-indigo-700 disabled:opacity-50"
-                disabled={(selectAction === 'pickup' && !pickupDate) || (selectAction === 'adelantar' ? selectedIds.size !== 1 : selectedIds.size === 0)}
+                disabled={(selectAction === 'recojo' && !pickupDate) || (selectAction === 'adelantar' ? selectedIds.size !== 1 : selectedIds.size === 0)}
               >
                 Aceptar
               </button>
@@ -741,29 +849,28 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
 
       {/* Cargando / Error */}
-      {cargando && <p className="text-gray-600">Cargando productos...</p>}
+      {cargando && <p>Cargando productos...</p>}
       {error && <p className="text-red-500">{error}</p>}
 
       {/* Tabla */}
       {!cargando && !error && (
         displayedProductos.length > 0 ? (
-          <div className="overflow-x-auto bg-white border rounded-xl shadow-sm">
-          <table className="w-full min-w-[1000px] text-left">
+          <table className="w-full text-left border">
             <thead className="bg-gray-100">
               <tr>
-                {selectMode && <th className="p-3 text-xs font-semibold text-gray-600">Sel.</th>}
-                <th className="p-3 text-xs font-semibold text-gray-600">Tipo</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Estado</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Caja</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Valor $</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Valor S/</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Envío S/</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Total S/</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Calculadora</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">F. Compra</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Tracking</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Venta</th>
-                <th className="p-3 text-xs font-semibold text-gray-600">Acciones</th>
+                {selectMode && <th className="p-2">Sel.</th>}
+                <th className="p-2">Tipo</th>
+                <th className="p-2">Estado</th>
+                <th className="p-2">Caja</th>
+                <th className="p-2">Valor $</th>
+                <th className="p-2">Valor S/</th>
+                <th className="p-2">Envío S/</th>
+                <th className="p-2">Total S/</th>
+                <th className="p-2">Calculadora</th>
+                <th className="p-2">F. Compra</th>
+                <th className="p-2">Tracking</th>
+                <th className="p-2">Venta</th>
+                <th className="p-2">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -772,11 +879,40 @@ export default function Productos({ setVista, setAnalisisBack }) {
                 const t = p.tracking?.[0]; // Primer tracking (si existe)
                 const label = labelFromEstado(t?.estado);
                 const link = buildTrackingLink(t);
+                const estado = t?.estado || '';
+                const venta = ventasMap[p.id] || null;
+
+                // Solo seleccionable en Recojo si está en Eshopex
+                const canSelectRecojo = selectAction === 'recojo' ? estado === 'en_eshopex' : true;
+
+                // En adelantar, tu regla de 1 y no vendido; en recojo, bloquear si no es Eshopex
+                const disabledSel = selectAction === 'adelantar'
+                  ? (!!venta || (selectedIds.size >= 1 && !selectedIds.has(p.id)))
+                  : !canSelectRecojo;
+
+                const isSelected = selectedIds.has(p.id);
+
+
+
+                const tRow = t;
+
+                const esh = (tRow?.trackingEshop || '').trim();
+
+                // Selección deshabilitada solo para 'adelantar' (ya vendido o ya hay otro marcado)
 
                 return (
-                  <tr key={p.id} className="border-t hover:bg-gray-50">
+                  <tr
+                    key={p.id}
+                    className={`border-t hover:bg-gray-50 ${selectMode ? 'cursor-pointer' : ''} ${isSelected ? 'bg-indigo-50' : ''} ${(selectMode && disabledSel) ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    onClick={() => {
+                      if (!selectMode) return;
+                      if (disabledSel) return;
+                      toggleSelect(p.id);
+                    }}
+                  >
+
                     {selectMode && (
-                      <td className="p-3">
+                      <td className="p-2">
                         {(() => {
                           const esh = p.tracking?.[0]?.trackingEshop?.trim() || '';
                           const venta = ventasMap[p.id] || null;
@@ -787,15 +923,24 @@ export default function Productos({ setVista, setAnalisisBack }) {
                           const disabled = isAdelantar
                             ? (!!venta || (selectedIds.size >= 1 && !selectedIds.has(p.id)))
                             : (!esh);
-                          
+
                           return (
                             <input
                               type="checkbox"
-                              disabled={disabled}
-                              title={disabled ? (isAdelantar ? 'No disponible para adelantar (vendido u otro ya seleccionado)' : 'Sin tracking Eshopex') : ''}
-                              checked={selectedIds.has(p.id)}
+                              disabled={disabledSel}
+                              title={
+                                disabledSel
+                                  ? (selectAction === 'recojo'
+                                    ? 'Solo se pueden seleccionar productos en Eshopex'
+                                    : 'No disponible para adelantar')
+                                  : ''
+                              }
+                              checked={isSelected}
+                              onClick={(e) => e.stopPropagation()}
                               onChange={() => toggleSelect(p.id)}
                             />
+
+
                           );
                         })()}
                       </td>
@@ -803,49 +948,53 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
 
 
-                    <td className="p-3">
+                    <td className="p-2">
                       <button
-                        onClick={() => abrirDetalle(p)}
+                        onClick={(e) => { e.stopPropagation(); abrirDetalle(p); }}
                         className="bg-gray-200 px-2 py-1 rounded hover:bg-gray-300"
                       >
                         {p.tipo}
                       </button>
+
                     </td>
-                    <td className="p-3">{p.estado}</td>
-                    <td className="p-3">{p.conCaja ? 'Sí' : 'No'}</td>
-                    <td className="p-3">{v.valorProducto != null ? `$ ${v.valorProducto}` : 'N/A'}</td>
-                    <td className="p-3">{fmtSoles(v.valorSoles)}</td>
-                    <td className="p-3">{fmtSoles(v.costoEnvio)}</td>
-                    <td className="p-3">{fmtSoles(v.costoTotal)}</td>
-                    <td className="p-3">
+                    <td className="p-2">{p.estado}</td>
+                    <td className="p-2">{p.conCaja ? "Sí" : "No"}</td>
+                    <td className="p-2">{v.valorProducto != null ? `$ ${v.valorProducto}` : '-'}</td>
+                    <td className="p-2">{fmtSoles(v.valorSoles)}</td>
+                    <td className="p-2">{fmtSoles(v.costoEnvio)}</td>
+                    <td className="p-2">{fmtSoles(v.costoTotal)}</td>
+                    <td className="p-2">
                       <button
-                        onClick={() => abrirCalculadora(p)}
+                        onClick={(e) => { e.stopPropagation(); abrirCalculadora(p); }}
                         className="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
                         title="Calcular precio de venta"
                       >
                         Calcular precio venta
                       </button>
+
                     </td>
-                    <td className="p-3">
-                      {v.fechaCompra ? new Date(v.fechaCompra).toLocaleDateString('es-PE', { timeZone: 'UTC' }) : 'â€”'}
+                    <td className="p-2">
+                      {v.fechaCompra ? new Date(v.fechaCompra).toLocaleDateString('es-PE', { timeZone: 'UTC' }) : '-'}
                     </td>
-                    <td className="p-3">
-                      {/* Pill/ botÃ³n de estado: mÃ¡s grande, negrita y â€œclickableâ€ */}
+                    <td className="p-2">
+                      {/* Pill/ botón de estado: más grande, negrita y �?oclickable�?� */}
                       <button
-                        onClick={() => abrirTrack(p)}
+                        onClick={(e) => { e.stopPropagation(); abrirTrack(p); }}
                         className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${badgeClasses(t?.estado)}`}
                         title="Abrir tracking"
                       >
-                        <span className="text-base" aria-hidden>{iconFromEstado(t?.estado)}</span>
+                        {emojiFromEstado(t?.estado)}
                         {label}
                       </button>
 
-                      {/* Casillero mÃ¡s visible (mÃ¡s grande + negrita) */}
+
+
+                      {/* Casillero más visible (más grande + negrita) */}
                       <div className="mt-1 text-sm font-semibold text-gray-800">
-                        {t?.casillero ? `Casillero: ${t.casillero}` : 'Casillero: â€”'}
+                        {t?.casillero ? `Casillero: ${t.casillero}` : 'Casillero: N/A'}
                       </div>
 
-                      {/* Enlace dinÃ¡mico debajo */}
+                      {/* Enlace dinámico debajo */}
                       {link && (
                         <div className="mt-1 text-xs">
                           <a
@@ -853,17 +1002,35 @@ export default function Productos({ setVista, setAnalisisBack }) {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-blue-600 underline"
+                            onClick={(e) => e.stopPropagation()}
                           >
                             {link.text}
                           </a>
+
                         </div>
                       )}
+
+                      {/* Transportista + tracking USA, separados para copiar fácilmente */}
+                      {(() => {
+                        const carrier = (t?.transportista || '').toString().trim();
+                        const trackUsa = (t?.trackingUsa || '').toString().trim();
+                        if (!carrier || !trackUsa) return null;
+                        return (
+                          <div className="mt-1 text-xs text-gray-700 font-mono flex gap-1">
+                            <span className="select-none">{carrier.toLowerCase()}:</span>
+                            <span className="select-all">{trackUsa}</span>
+                          </div>
+                        );
+                      })()}
+
+
+
                     </td>
 
 
 
                     {/* Venta */}
-                    <td className="p-3">
+                    <td className="p-2">
                       {(() => {
                         const t = p.tracking?.[0];
                         const venta = ventasMap[p.id] || null;
@@ -889,7 +1056,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
                             onClick={() => { if (!disabled) abrirVenta(p); }}
                             className={`${className} px-3 py-1 rounded`}
                             disabled={disabled}
-                            title={disabled ? 'AÃºn no estÃ¡ recogido' : ''}
+                            title={disabled ? 'A\u00fan no est\u00e1 recogido' : ''}
                           >
                             {text}
                           </button>
@@ -898,28 +1065,28 @@ export default function Productos({ setVista, setAnalisisBack }) {
                     </td>
 
 
-                    <td className="p-3 space-x-1">
+                    <td className="p-2 space-x-1">
                       <button
-                        onClick={() => abrirCostos(p)}
+                        onClick={(e) => { e.stopPropagation(); abrirCostos(p); }}
                         className="bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
                       >
                         Editar Costos
                       </button>
                       <button
-                        onClick={() => handleDelete(p.id)}
+                        onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
                         className="bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
                       >
                         Borrar
                       </button>
+
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          </div>
         ) : (
-          <p>{soloDisponibles ? 'No hay productos disponibles para venta.' : 'No hay productos aÃºn.'}</p>
+          <p>{soloDisponibles ? 'No hay productos disponibles para venta.' : 'No hay productos a\u00fan.'}</p>
         )
       )}
 
@@ -933,7 +1100,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
           onClose={cerrarModal}
           onSaved={async () => {
             try {
-              const data = await api.get('/productos'); // â† refresca desde backend correcto
+              const data = await api.get('/productos'); // �?� refresca desde backend correcto
               const lista = Array.isArray(data)
                 ? data
                 : (Array.isArray(data?.items) ? data.items : []);
@@ -960,8 +1127,8 @@ export default function Productos({ setVista, setAnalisisBack }) {
       {modalModo === 'dec' && (
         <ModalDec
           onClose={cerrarModal}
-          productos={productos}   // âœ… le pasas lo que ya cargaste arriba
-          loading={cargando}      // âœ… estado de carga del padre
+          productos={productos}   // �o. le pasas lo que ya cargaste arriba
+          loading={cargando}      // �o. estado de carga del padre
         />
       )}
 
@@ -970,6 +1137,13 @@ export default function Productos({ setVista, setAnalisisBack }) {
   );
 
 }
+
+
+
+
+
+
+
 
 
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api';
 
 function Card({ title, value, sub }) {
@@ -64,7 +64,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
           const toVenta = `${y}-${pad2(m)}-${pad2(lastDay)}`;
           q.set('fromVenta', fromVenta);
           q.set('toVenta', toVenta);
-          // también filtrar por fecha de compra para métricas de inventario del mes
+          // tambi�n filtrar por fecha de compra para m�tricas de inventario del mes
           q.set('fromCompra', fromVenta);
           q.set('toCompra', toVenta);
         }
@@ -96,7 +96,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
     <div className="min-h-screen p-6 bg-gray-50">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-semibold">Análisis</h1>
+          <h1 className="text-3xl font-semibold">análisis</h1>
           <div className="flex items-center gap-2">
             <input
               type="month"
@@ -141,7 +141,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
         </div>
 
         {loading ? (
-          <div className="text-gray-500">Cargando…</div>
+          <div className="text-gray-500">Cargando.</div>
         ) : error ? (
           <div className="text-red-600">{error}</div>
         ) : !data ? null : (
@@ -165,11 +165,11 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
                 </>
               )}
               <Card
-                title="Rotación (mediana)"
+                title="Rotaci�n (mediana)"
                 value={`${data.summary?.rotationMedianDaysOverall ?? '-'} días`}
               />
               <Card
-                title={isGeneral ? "Margen % promedio (últ. mes)" : "Margen % promedio (mes)"}
+                title={isGeneral ? "Margen % promedio (�lt. mes)" : "Margen % promedio (mes)"}
                 value={(() => {
                   const rows = data.sales?.perMonth || [];
                   const row = rows[rows.length - 1];
@@ -229,7 +229,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
             <div className="bg-white rounded-xl border shadow-sm p-5 mb-6">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-lg font-semibold">Compras del mes</h2>
-                <div className="text-xs text-gray-500">Unidades: {data.summary?.comprasPeriodoUnidades ?? 0} · Capital: <Currency v={data.summary?.comprasPeriodoCapital || 0} /></div>
+                <div className="text-xs text-gray-500">Unidades: {data.summary?.comprasPeriodoUnidades ?? 0} � Capital: <Currency v={data.summary?.comprasPeriodoCapital || 0} /></div>
               </div>
               <div className="max-h-72 overflow-auto">
                 <table className="w-full text-sm">
@@ -256,28 +256,28 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
             </div>
             )}
 
-            {/* Verificador de inventario por antigüedad (solo general) */}
+            {/* Verificador de inventario por antig�edad (solo general) */}
             {isGeneral && (
             <div className="bg-white rounded-xl border shadow-sm p-5 mb-6">
-              <h2 className="text-lg font-semibold mb-3">Verificador de inventario por antigüedad</h2>
+              <h2 className="text-lg font-semibold mb-3">Verificador de inventario por antig�edad</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <div className="text-sm font-medium mb-1">15–29 días</div>
+                  <div className="text-sm font-medium mb-1">15-29 días</div>
                   <ul className="text-sm text-gray-700 space-y-1 max-h-56 overflow-auto">
                     {(data.aging?.bucket15_29 || []).map((p) => (
                       <li key={`a1-${p.productoId}`} className="flex justify-between border-b py-1">
-                        <span>#{p.productoId} · {p.display || p.tipo}</span>
+                        <span>#{p.productoId} � {p.display || p.tipo}</span>
                         <span className="text-gray-500">{p.diasEnStock} días</span>
                       </li>
                     ))}
                   </ul>
                 </div>
                 <div>
-                  <div className="text-sm font-medium mb-1">30–59 días</div>
+                  <div className="text-sm font-medium mb-1">30-59 días</div>
                   <ul className="text-sm text-gray-700 space-y-1 max-h-56 overflow-auto">
                     {(data.aging?.bucket30_59 || []).map((p) => (
                       <li key={`a2-${p.productoId}`} className="flex justify-between border-b py-1">
-                        <span>#{p.productoId} · {p.display || p.tipo}</span>
+                        <span>#{p.productoId} � {p.display || p.tipo}</span>
                         <span className="text-gray-500">{p.diasEnStock} días</span>
                       </li>
                     ))}
@@ -288,7 +288,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
                   <ul className="text-sm text-gray-700 space-y-1 max-h-56 overflow-auto">
                     {(data.aging?.bucket60_plus || []).map((p) => (
                       <li key={`a3-${p.productoId}`} className="flex justify-between border-b py-1">
-                        <span>#{p.productoId} · {p.display || p.tipo}</span>
+                        <span>#{p.productoId} � {p.display || p.tipo}</span>
                         <span className="text-gray-500">{p.diasEnStock} días</span>
                       </li>
                     ))}
@@ -357,7 +357,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
                           <th className="py-1">#</th>
                           <th className="py-1">Producto</th>
                           <th className="py-1">Costo</th>
-                          <th className="py-1">Días desde recojo</th>
+                          <th className="py-1">días desde recojo</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -414,14 +414,14 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
                       {/* Listas de productos: en Modo Mes -> vendidos del mes y stock actual; en General -> totales */}
                       <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                          <div className="text-sm font-medium mb-2">Productos vendidos {isGeneral ? '(todo)' : '(mes)'} · {vendTotal}</div>
+                          <div className="text-sm font-medium mb-2">Productos vendidos {isGeneral ? '(todo)' : '(mes)'} � {vendTotal}</div>
                           <div className="max-h-52 overflow-auto">
                             {(data.sales?.porTipoDetalle || []).map((t) => (
                               <div key={`ven-${t.tipo}`} className="mb-3">
-                                <div className="text-xs text-gray-500 mb-1">{t.tipo} · {t.vendidos.total}</div>
+                                <div className="text-xs text-gray-500 mb-1">{t.tipo} � {t.vendidos.total}</div>
                                 <ul className="text-sm text-gray-700 space-y-1">
                                   {t.vendidos.items.map((it, i) => (
-                                    <li key={`vi-${t.tipo}-${it.productoId}-${i}`} className="border-b py-0.5">#{it.productoId} · {it.display}</li>
+                                    <li key={`vi-${t.tipo}-${it.productoId}-${i}`} className="border-b py-0.5">#{it.productoId} � {it.display}</li>
                                   ))}
                                 </ul>
                               </div>
@@ -429,14 +429,14 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
                           </div>
                         </div>
                         <div>
-                          <div className="text-sm font-medium mb-2">Productos en stock {isGeneral ? '(actual)' : '(actual)'} · {stockTotal}</div>
+                          <div className="text-sm font-medium mb-2">Productos en stock {isGeneral ? '(actual)' : '(actual)'} � {stockTotal}</div>
                           <div className="max-h-52 overflow-auto">
                             {(data.sales?.porTipoDetalle || []).map((t) => (
                               <div key={`stk-${t.tipo}`} className="mb-3">
-                                <div className="text-xs text-gray-500 mb-1">{t.tipo} · {t.stock.total}</div>
+                                <div className="text-xs text-gray-500 mb-1">{t.tipo} � {t.stock.total}</div>
                                 <ul className="text-sm text-gray-700 space-y-1">
                                   {t.stock.items.map((it, i) => (
-                                    <li key={`si-${t.tipo}-${it.productoId}-${i}`} className="border-b py-0.5">#{it.productoId} · {it.display}</li>
+                                    <li key={`si-${t.tipo}-${it.productoId}-${i}`} className="border-b py-0.5">#{it.productoId} � {it.display}</li>
                                   ))}
                                 </ul>
                               </div>
@@ -504,32 +504,32 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
               </div>
             </div>
 
-            {/* Logística */}
+            {/* Log�stica */}
             <div className="bg-white rounded-xl border shadow-sm p-5 mb-6">
-              <h2 className="text-lg font-semibold mb-3">Logística</h2>
+              <h2 className="text-lg font-semibold mb-3">Log�stica</h2>
               <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
                 <div>
-                  <div className="text-sm font-medium mb-2">Tiempo compra → recepción</div>
+                  <div className="text-sm font-medium mb-2">Tiempo compra ? recepci�n</div>
                   <div className="text-sm text-gray-700">Promedio: {data.logistica?.compraARecepcion?.mean ?? '-'} días</div>
                   <div className="text-sm text-gray-700">Mediana: {data.logistica?.compraARecepcion?.median ?? '-'} días</div>
                 </div>
                 <div>
-                  <div className="text-sm font-medium mb-2">Tiempo compra → recojo</div>
+                  <div className="text-sm font-medium mb-2">Tiempo compra ? recojo</div>
                   <div className="text-sm text-gray-700">Promedio: {data.logistica?.compraARecogido?.mean ?? '-'} días</div>
                   <div className="text-sm text-gray-700">Mediana: {data.logistica?.compraARecogido?.median ?? '-'} días</div>
                 </div>
                 <div>
-                  <div className="text-sm font-medium mb-2">Tiempo recepción → recojo</div>
+                  <div className="text-sm font-medium mb-2">Tiempo recepci�n ? recojo</div>
                   <div className="text-sm text-gray-700">Promedio: {data.logistica?.recepcionARecogido?.mean ?? '-'} días</div>
                   <div className="text-sm text-gray-700">Mediana: {data.logistica?.recepcionARecogido?.median ?? '-'} días</div>
                 </div>
                 <div>
-                  <div className="text-sm font-medium mb-2">Tiempo recojo → venta</div>
+                  <div className="text-sm font-medium mb-2">Tiempo recojo ? venta</div>
                   <div className="text-sm text-gray-700">Promedio: {data.logistica?.recogidoAVenta?.mean ?? '-'} días</div>
                   <div className="text-sm text-gray-700">Mediana: {data.logistica?.recogidoAVenta?.median ?? '-'} días</div>
                 </div>
                 <div>
-                  <div className="text-sm font-medium mb-2">Tiempo compra → venta</div>
+                  <div className="text-sm font-medium mb-2">Tiempo compra ? venta</div>
                   <div className="text-sm text-gray-700">Promedio: {data.logistica?.compraAVenta?.mean ?? '-'} días</div>
                   <div className="text-sm text-gray-700">Mediana: {data.logistica?.compraAVenta?.median ?? '-'} días</div>
                 </div>
@@ -541,11 +541,11 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
                     <thead>
                       <tr className="text-left text-gray-500">
                         <th className="py-1">Tipo</th>
-                        <th className="py-1">Compra→Recepción</th>
-                        <th className="py-1">Compra→Recojo</th>
-                        <th className="py-1">Recepción→Recojo</th>
-                        <th className="py-1">Recojo→Venta</th>
-                        <th className="py-1">Compra→Venta</th>
+                        <th className="py-1">Compra?Recepci�n</th>
+                        <th className="py-1">Compra?Recojo</th>
+                        <th className="py-1">Recepci�n?Recojo</th>
+                        <th className="py-1">Recojo?Venta</th>
+                        <th className="py-1">Compra?Venta</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -565,13 +565,13 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
                 <div>
-                  <div className="text-sm font-medium mb-2">Tardíos por transportista</div>
+                  <div className="text-sm font-medium mb-2">Tard�os por transportista</div>
                   <div className="max-h-40 overflow-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-left text-gray-500">
                           <th className="py-1">Transportista</th>
-                          <th className="py-1">Tardíos %</th>
+                          <th className="py-1">Tard�os %</th>
                           <th className="py-1">Mediana días</th>
                         </tr>
                       </thead>
@@ -588,13 +588,13 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
                   </div>
                 </div>
                 <div>
-                  <div className="text-sm font-medium mb-2">Desempeño por casillero</div>
+                  <div className="text-sm font-medium mb-2">Desempe�o por casillero</div>
                   <div className="max-h-40 overflow-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-left text-gray-500">
                           <th className="py-1">Casillero</th>
-                          <th className="py-1">Tardíos %</th>
+                          <th className="py-1">Tard�os %</th>
                           <th className="py-1">Mediana días</th>
                         </tr>
                       </thead>
@@ -620,18 +620,18 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
                 <ul className="text-sm text-gray-700 space-y-1 max-h-72 overflow-auto">
                   {(data.alerts?.lowMarginVentas || []).map((v) => (
                     <li key={`lm-${v.id}`} className="flex justify-between border-b py-1">
-                      <span>#{v.id} · {v.display || v.tipo}</span>
+                      <span>#{v.id} � {v.display || v.tipo}</span>
                       <span className="text-gray-500"><Percent v={v.margen} /></span>
                     </li>
                   ))}
                 </ul>
               </div>
               <div className="bg-white rounded-xl border shadow-sm p-5">
-                <h2 className="text-lg font-semibold mb-3">Alertas: tránsito prolongado</h2>
+                <h2 className="text-lg font-semibold mb-3">Alertas: tr�nsito prolongado</h2>
                 <ul className="text-sm text-gray-700 space-y-1 max-h-72 overflow-auto">
                   {(data.alerts?.transitLongItems || []).map((p, i) => (
                     <li key={`tl-${p.productoId}-${i}`} className="flex justify-between border-b py-1">
-                      <span>#{p.productoId} · {p.display || p.tipo} · {p.estado}</span>
+                      <span>#{p.productoId} � {p.display || p.tipo} � {p.estado}</span>
                       <span className="text-gray-500">{p.dias} días</span>
                     </li>
                   ))}
@@ -644,3 +644,4 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
     </div>
   );
 }
+
