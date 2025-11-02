@@ -1,5 +1,5 @@
 // src/api.js
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+const API_URL = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_BASE || 'http://localhost:3001';
 
 async function request(path, opts = {}) {
   const token = localStorage.getItem('token'); // 👈 lee el token guardado

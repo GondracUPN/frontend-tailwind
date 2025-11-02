@@ -1,4 +1,4 @@
-// src/pages/Calculadora.jsx
+﻿// src/pages/Calculadora.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 /* =========================
@@ -40,7 +40,7 @@ const round5HalfUp = (v) => {
   const n = Number(v) || 0, down = Math.floor(n / 5) * 5, up = down + 5;
   return (n - down) >= 2.5 ? up : down;
 };
-// Peso: redondea al décimo (0.1 kg): centésimas .05 hacia abajo; .06–.09 hacia arriba (a la décima)
+// Peso: redondea al dÃ©cimo (0.1 kg): centÃ©simas .05 hacia abajo; .06â€“.09 hacia arriba (a la dÃ©cima)
 const roundTenth05Down = (kg) => {
   const v = Number(String(kg).replace(",", ".")) || 0;
   if (v <= 0) return 0;
@@ -50,7 +50,7 @@ const roundTenth05Down = (kg) => {
   return (rem <= 5 ? tens : tens + 1) / 10;
 };
 
-// Envío eShopex (interpolación lineal)
+// EnvÃ­o eShopex (interpolaciÃ³n lineal)
 const tarifaEshopexInterpolada = (pesoKg) => {
   if (!pesoKg || pesoKg <= 0) return 0;
   const P = TARIFAS;
@@ -68,7 +68,7 @@ const tarifaEshopexInterpolada = (pesoKg) => {
 const tarifaHasta3Kg = (pesoKg) =>
   tarifaEshopexInterpolada(Math.min(Math.max(pesoKg || 0, 0), 3));
 
-// Honorarios / Seguro según DEC (USD)
+// Honorarios / Seguro segÃºn DEC (USD)
 const honorariosPorDEC = (dec) => (dec <= 100 ? 16.30 : dec <= 200 ? 25.28 : dec <= 1000 ? 39.76 : 60.16);
 const seguroPorDEC     = (dec) => (dec <= 100 ? 8.86  : dec <= 200 ? 15.98 : 21.10);
 
@@ -102,7 +102,7 @@ const Card = React.memo(function Card({ title, children }) {
 });
 
 /* =========================
-   Página principal
+   PÃ¡gina principal
    ========================= */
 export default function Calculadora({ setVista }) {
   // Compras: TC editable (ahora se muestra dentro del formulario)
@@ -113,14 +113,14 @@ export default function Calculadora({ setVista }) {
   const [tcJorge, _setTcJorge] = useState(String(TC_JORGE_DEFAULT));
   const setTcJorge = useCallback((e) => _setTcJorge(e.target.value), []);
   const [extraJInput, setExtraJInput] = useState("100");
-  const [extraJ, setExtraJ] = useState(100); // aplicado (a 10, half‑up)
+  const [extraJ, setExtraJ] = useState(100); // aplicado (a 10, halfâ€‘up)
 
   const [tab, setTab] = useState("compras"); // 'compras' | 'kenny' | 'jorge'
   const [pvCompras, setPvCompras] = useState("");
   const [pvKenny, setPvKenny] = useState("");
   const [pvJorge, setPvJorge] = useState("");
 
-  // Form (UI) y su versión debounced para cálculos
+  // Form (UI) y su versiÃ³n debounced para cÃ¡lculos
   const [form, setForm] = useState({ precioUsd: "", envioUsaUsd: "", decUsd: "", pesoKg: "" });
   const setField = useCallback((field) => (e) => {
     const v = e.target?.value ?? e;
@@ -209,7 +209,7 @@ export default function Calculadora({ setVista }) {
     const seguro     = seguroPorDEC(decUsd);
     const costoEnvio = transporteConPromo + honorarios + seguro;
 
-    // PB = baseSoles con 7% de ganancia + costoEnvio (la ganancia NO aplica sobre envío)
+    // PB = baseSoles con 7% de ganancia + costoEnvio (la ganancia NO aplica sobre envÃ­o)
     const pb  = baseSoles * 1.07 + costoEnvio;
     const pbR = round5HalfUp(pb);
 
@@ -233,9 +233,9 @@ export default function Calculadora({ setVista }) {
       <header className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Calculadora</h1>
-          <p className="text-gray-600">Simula costos y precio de venta mínimo.</p>
+          <p className="text-gray-600">Simula costos y precio de venta mÃ­nimo.</p>
         </div>
-        <button onClick={goHome} className="px-4 py-2 rounded-lg bg-white border hover:bg-gray-100">&larr; Volver</button>
+        <button onClick={goHome} className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100">&larr; Volver</button>
       </header>
 
       {/* Tabs */}
@@ -251,7 +251,7 @@ export default function Calculadora({ setVista }) {
           <Card title="Datos de entrada">
             <div className="space-y-4">
               <Input label="Precio del Producto (USD)" value={form.precioUsd}   onChange={setField("precioUsd")}   placeholder="p.ej. 180" />
-              <Input label="Envío USA (USD) - opcional" value={form.envioUsaUsd} onChange={setField("envioUsaUsd")} placeholder="p.ej. 12" />
+              <Input label="EnvÃ­o USA (USD) - opcional" value={form.envioUsaUsd} onChange={setField("envioUsaUsd")} placeholder="p.ej. 12" />
               <Input label="Precio DEC (USD)"           value={form.decUsd}      onChange={setField("decUsd")}      placeholder="p.ej. 180" />
               <Input label="Peso estimado (Kg)"         value={form.pesoKg}      onChange={setField("pesoKg")}      placeholder="p.ej. 9.55" />
               {/* TC Compras dentro del formulario (editable) */}
@@ -263,7 +263,7 @@ export default function Calculadora({ setVista }) {
             </div>
           </Card>
 
-          <Card title="Costo de Envío (desglose)">
+          <Card title="Costo de EnvÃ­o (desglose)">
             <ul className="space-y-2">
               <li className="flex justify-between"><span>Peso facturable (kg):</span><strong>{compras.pesoFacturable.toFixed(1)}</strong></li>
               <li className="flex justify-between"><span>Transporte (tabla eShopex):</span><strong>{fmtSoles(compras.transporteBruto)}</strong></li>
@@ -272,15 +272,15 @@ export default function Calculadora({ setVista }) {
               <li className="flex justify-between"><span>Honorarios:</span><strong>{fmtSoles(compras.honorarios)}</strong></li>
               <li className="flex justify-between"><span>Seguro:</span><strong>{fmtSoles(compras.seguro)}</strong></li>
               <hr className="my-2" />
-              <li className="flex justify-between text-lg"><span>Total envío:</span><strong>{fmtSoles(compras.costoEnvio)}</strong></li>
+              <li className="flex justify-between text-lg"><span>Total envÃ­o:</span><strong>{fmtSoles(compras.costoEnvio)}</strong></li>
             </ul>
           </Card>
 
           <Card title="Resultados">
             <ul className="space-y-2">
-              <li className="flex justify-between"><span>Precio en Soles ((Prod + Envío USA) x {num(tipoCambio).toFixed(2)}):</span><strong>{fmtSoles(compras.precioSoles)}</strong></li>
+              <li className="flex justify-between"><span>Precio en Soles ((Prod + EnvÃ­o USA) x {num(tipoCambio).toFixed(2)}):</span><strong>{fmtSoles(compras.precioSoles)}</strong></li>
               <li className="flex justify-between"><span>Costo total (S/):</span><strong>{fmtSoles(compras.costoTotal)}</strong></li>
-              <li className="flex justify-between text-xl"><span>Precio de Venta Mínimo (+20%):</span><strong>{fmtSoles(compras.precioVentaMin)}</strong></li>
+              <li className="flex justify-between text-xl"><span>Precio de Venta MÃ­nimo (+20%):</span><strong>{fmtSoles(compras.precioVentaMin)}</strong></li>
               <li className="mt-2 pt-2 border-t flex items-center gap-2 text-xs">
                 <label className="text-xs text-gray-600">Precio de venta</label>
                 <input className="w-32 sm:w-40 border rounded px-2 py-1 text-sm" inputMode="decimal" placeholder="S/ 0.00" value={pvCompras} onChange={(e)=>setPvCompras(e.target.value)} />
@@ -298,7 +298,7 @@ export default function Calculadora({ setVista }) {
           <Card title="Datos de entrada (Kenny)">
             <div className="space-y-4">
               <Input label="Precio del Producto (USD)" value={form.precioUsd}   onChange={setField("precioUsd")}   placeholder="p.ej. 180" />
-              <Input label="Envío USA (USD) - opcional" value={form.envioUsaUsd} onChange={setField("envioUsaUsd")} placeholder="p.ej. 12" />
+              <Input label="EnvÃ­o USA (USD) - opcional" value={form.envioUsaUsd} onChange={setField("envioUsaUsd")} placeholder="p.ej. 12" />
               <Input label="Precio DEC (USD)"           value={form.decUsd}      onChange={setField("decUsd")}      placeholder="p.ej. 180" />
               <Input label="Peso estimado (Kg)"         value={form.pesoKg}      onChange={setField("pesoKg")}      placeholder="p.ej. 1.8" />
               <div className="text-sm text-gray-500">
@@ -307,7 +307,7 @@ export default function Calculadora({ setVista }) {
             </div>
           </Card>
 
-          <Card title="Costo de Envío (desglose)">
+          <Card title="Costo de EnvÃ­o (desglose)">
             <ul className="space-y-2">
               <li className="flex justify-between"><span>Peso facturable (kg):</span><strong>{kenny.pesoFacturable.toFixed(1)}</strong></li>
               <li className="flex justify-between"><span>Transporte (tabla eShopex):</span><strong>{fmtSoles(kenny.transporteBruto)}</strong></li>
@@ -316,15 +316,15 @@ export default function Calculadora({ setVista }) {
               <li className="flex justify-between"><span>Honorarios:</span><strong>{fmtSoles(kenny.honorarios)}</strong></li>
               <li className="flex justify-between"><span>Seguro:</span><strong>{fmtSoles(kenny.seguro)}</strong></li>
               <hr className="my-2" />
-              <li className="flex justify-between text-lg"><span>Total envío:</span><strong>{fmtSoles(kenny.costoEnvio)}</strong></li>
+              <li className="flex justify-between text-lg"><span>Total envÃ­o:</span><strong>{fmtSoles(kenny.costoEnvio)}</strong></li>
               <li className="flex justify-between"><span>Extra (13% de Precio en Soles, redondeado a 10):</span><strong>{fmtSoles(kenny.extra)}</strong></li>
-              <li className="flex justify-between"><span>Total envío:</span><strong>{fmtSoles(kenny.costoEnvio + kenny.extra)}</strong></li>
+              <li className="flex justify-between"><span>Total envÃ­o:</span><strong>{fmtSoles(kenny.costoEnvio + kenny.extra)}</strong></li>
             </ul>
           </Card>
 
           <Card title="Resultados Kenny">
             <ul className="space-y-2">
-              <li className="flex justify-between"><span>Precio en Soles ((Prod + Envío USA) x {TC_KENNY.toFixed(2)}):</span><strong>{fmtSoles(kenny.precioSoles)}</strong></li>
+              <li className="flex justify-between"><span>Precio en Soles ((Prod + EnvÃ­o USA) x {TC_KENNY.toFixed(2)}):</span><strong>{fmtSoles(kenny.precioSoles)}</strong></li>
               <li className="flex justify-between"><span>Costo Total Kenny:</span><strong>{fmtSoles(kenny.costoTotal)}</strong></li>
               <hr className="my-2" />
               <li className="mt-2 pt-2 border-t flex items-center gap-2 text-xs">
@@ -348,7 +348,7 @@ export default function Calculadora({ setVista }) {
           <Card title="Datos de entrada (Jorge)">
             <div className="space-y-4">
               <Input label="Precio del Producto (USD)" value={form.precioUsd}   onChange={setField("precioUsd")}   placeholder="p.ej. 470" />
-              <Input label="Envío USA (USD) - opcional" value={form.envioUsaUsd} onChange={setField("envioUsaUsd")} placeholder="p.ej. 12" />
+              <Input label="EnvÃ­o USA (USD) - opcional" value={form.envioUsaUsd} onChange={setField("envioUsaUsd")} placeholder="p.ej. 12" />
               <Input label="Precio DEC (USD)"           value={form.decUsd}      onChange={setField("decUsd")}      placeholder="p.ej. 115" />
               <Input label="Peso estimado (Kg)"         value={form.pesoKg}      onChange={setField("pesoKg")}      placeholder="p.ej. 3" />
 
@@ -363,7 +363,7 @@ export default function Calculadora({ setVista }) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Extra (S/) — redondeado a 10</label>
+                  <label className="block text-sm font-medium mb-1">Extra (S/) â€” redondeado a 10</label>
                   <div className="flex gap-2">
                     <input
                       type="text" inputMode="decimal"
@@ -382,14 +382,14 @@ export default function Calculadora({ setVista }) {
               </div>
 
               <div className="text-sm text-gray-500">
-                * PB = (Base en soles + Envío normal) × <strong>1.07</strong>.<br />
-                * PB redondeado a múltiplos de 5 (nearest).<br />
+                * PB = (Base en soles + EnvÃ­o normal) Ã— <strong>1.07</strong>.<br />
+                * PB redondeado a mÃºltiplos de 5 (nearest).<br />
                 * Costo Total Jorge = PB redondeado + Extra.
               </div>
             </div>
           </Card>
 
-          <Card title="Costo de Envío (desglose)">
+          <Card title="Costo de EnvÃ­o (desglose)">
             <ul className="space-y-2">
               <li className="flex justify-between"><span>Peso facturable (kg):</span><strong>{jorge.pesoFacturable.toFixed(1)}</strong></li>
               <li className="flex justify-between"><span>Transporte (tabla eShopex):</span><strong>{fmtSoles(jorge.transporteBruto)}</strong></li>
@@ -398,17 +398,17 @@ export default function Calculadora({ setVista }) {
               <li className="flex justify-between"><span>Honorarios:</span><strong>{fmtSoles(jorge.honorarios)}</strong></li>
               <li className="flex justify-between"><span>Seguro:</span><strong>{fmtSoles(jorge.seguro)}</strong></li>
               <hr className="my-2" />
-              <li className="flex justify-between text-lg"><span>Total envío:</span><strong>{fmtSoles(jorge.costoEnvio)}</strong></li>
+              <li className="flex justify-between text-lg"><span>Total envÃ­o:</span><strong>{fmtSoles(jorge.costoEnvio)}</strong></li>
               <li className="flex justify-between"><span>Mi ganancia (7% de base + extra):</span><strong>{fmtSoles((jorge.baseSoles * 0.07) + (Number(extraJ)||0))}</strong></li>
             </ul>
           </Card>
 
           <Card title="Resultados Jorge">
             <ul className="space-y-2">
-              <li className="flex justify-between"><span>Base en soles ((Prod + Envío USA) x {num(tcJorge).toFixed(2)}):</span><strong>{fmtSoles(jorge.baseSoles)}</strong></li>
-              <li className="flex justify-between"><span>Envío normal:</span><strong>{fmtSoles(jorge.costoEnvio)}</strong></li>
+              <li className="flex justify-between"><span>Base en soles ((Prod + EnvÃ­o USA) x {num(tcJorge).toFixed(2)}):</span><strong>{fmtSoles(jorge.baseSoles)}</strong></li>
+              <li className="flex justify-between"><span>EnvÃ­o normal:</span><strong>{fmtSoles(jorge.costoEnvio)}</strong></li>
               <hr className="my-2" />
-              <li className="flex justify-between"><span>PB = (Base + Envío) × 1.07:</span><strong>{fmtSoles(jorge.pb)}</strong></li>
+              <li className="flex justify-between"><span>PB = (Base + EnvÃ­o) Ã— 1.07:</span><strong>{fmtSoles(jorge.pb)}</strong></li>
               <li className="flex justify-between"><span>PB redondeado (a 5):</span><strong>{fmtSoles(jorge.pbR)}</strong></li>
               <li className="flex justify-between"><span>Extra (aplicado, redondeado a 10):</span><strong>{fmtSoles(extraJ)}</strong></li>
               <li className="flex justify-between text-lg"><span>Costo Total Jorge (PB redondeado + Extra):</span><strong>{fmtSoles(jorge.costoTotal)}</strong></li>

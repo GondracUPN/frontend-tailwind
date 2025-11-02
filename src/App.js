@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Home from './pages/Home';
 import Productos from './pages/Productos';
+import Servicios from './pages/Servicios';
 import Calculadora from './pages/Calculadora';
 import Ganancias from './pages/Ganancias';
 import Analisis from './pages/Analisis';
@@ -28,7 +29,8 @@ function App() {
   return (
     <>
       {vista === 'home'        && <Home setVista={setVista} setAnalisisBack={setAnalisisBack} />}
-      {vista === 'productos'   && <Productos setVista={setVista} setAnalisisBack={setAnalisisBack} />}
+      {vista === 'productos'   && <Productos setVista={setVista} setAnalisisBack={setAnalisisBack} />} 
+      {vista === 'servicios'   && <Servicios setVista={setVista} />}
       {vista === 'calculadora' && <Calculadora setVista={setVista} />}
       {vista === 'ganancias'   && <Ganancias setVista={setVista} />}
       {vista === 'gastos'      && <GastosIndex setVista={setVista} />}

@@ -12,6 +12,15 @@
         </button>
         <button
           className="px-6 py-3 bg-white shadow rounded-2xl border hover:shadow-md hover:border-gray-400 transition text-lg"
+          onClick={() => {
+            // Acceso directo sin requisito de sufijo en la URL
+            setVista('servicios');
+          }}
+        >
+          Servicios (Admin)
+        </button>
+        <button
+          className="px-6 py-3 bg-white shadow rounded-2xl border hover:shadow-md hover:border-gray-400 transition text-lg"
           onClick={() => { setAnalisisBack('home'); setVista('analisis'); }}
         >
           Analisis

@@ -1,4 +1,4 @@
-// src/pages/GastosIndex.jsx
+﻿// src/pages/GastosIndex.jsx
 import React, { useEffect, useState } from 'react';
 import GastosCrearUsuario from './GastosCrearUsuario';
 import GastosPanel from './GastosPanel';
@@ -11,7 +11,7 @@ export default function GastosIndex({ setVista }) {
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(null);
 
-  // Lee sesión desde localStorage al montar
+  // Lee sesiÃ³n desde localStorage al montar
   const [user, setUser] = useState(() => {
     try {
       const raw = localStorage.getItem('user');
@@ -57,7 +57,7 @@ export default function GastosIndex({ setVista }) {
     setVista?.('home');
   };
 
-  // Si NO hay sesión, mostramos el login aquí mismo
+  // Si NO hay sesiÃ³n, mostramos el login aquÃ­ mismo
   if (!isLogged) {
     return (
       <LoginGastos
@@ -76,15 +76,8 @@ export default function GastosIndex({ setVista }) {
     <div className="min-h-screen p-8 bg-gray-50">
       {/* Header */}
       <header className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setVista('home')}
-            className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
-          >
-            ← Volver
-          </button>
-          <h2 className="text-2xl font-semibold">
-            Hola {user?.username}! — <span className="font-normal">sesión iniciada</span>
+        <div className="flex items-center gap-3"><h2 className="text-2xl font-semibold">
+            Hola {user?.username}! â€” <span className="font-normal">sesiÃ³n iniciada</span>
           </h2>
         </div>
         <div className="flex items-center gap-3">
@@ -97,6 +90,12 @@ export default function GastosIndex({ setVista }) {
             className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900"
           >
             Cerrar sesión
+          </button>
+          <button
+            onClick={() => setVista('home')}
+            className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
+          >
+            ← Volver
           </button>
         </div>
       </header>
@@ -122,16 +121,16 @@ export default function GastosIndex({ setVista }) {
                 }}
                 className="px-5 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700"
               >
-                Ver gastos (míos)
+                Ver gastos (mÃ­os)
               </button>
             </div>
 
             <div>
               <div className="text-md font-semibold mb-2">Usuarios disponibles</div>
               {loadingUsers ? (
-                <div className="text-sm text-gray-600">Cargando usuarios…</div>
+                <div className="text-sm text-gray-600">Cargando usuariosâ€¦</div>
               ) : users.length === 0 ? (
-                <div className="text-sm text-gray-600">No hay usuarios aún.</div>
+                <div className="text-sm text-gray-600">No hay usuarios aÃºn.</div>
               ) : (
                 <div className="overflow-auto border rounded">
                   <table className="w-full text-left text-sm">
@@ -171,7 +170,7 @@ export default function GastosIndex({ setVista }) {
         ) : (
           <div>
             <div className="mb-3 text-gray-700">
-              Usa “Ver mis gastos” para revisar y agregar desde el panel.
+              Usa â€œVer mis gastosâ€ para revisar y agregar desde el panel.
             </div>
             <div className="mt-2">
               <button
@@ -188,7 +187,7 @@ export default function GastosIndex({ setVista }) {
         )}
       </div>
 
-      {/* Contenido según el modo */}
+      {/* Contenido segÃºn el modo */}
       {mode === 'create' && isAdmin && <GastosCrearUsuario />}
 
       {mode === 'panel' && (
@@ -197,3 +196,4 @@ export default function GastosIndex({ setVista }) {
     </div>
   );
 }
+

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import api from '../api';
 
 export default function LoginGastos({ onLoggedIn, onBack }) {
@@ -10,7 +10,6 @@ export default function LoginGastos({ onLoggedIn, onBack }) {
   const submit = async (e) => {
     e.preventDefault();
     if (busy) return;
-
     setBusy(true);
     setError('');
     try {
@@ -18,16 +17,12 @@ export default function LoginGastos({ onLoggedIn, onBack }) {
         username: username.trim(),
         password,
       });
-
       const data = resp?.data ?? resp;
       const token = data?.token ?? data?.access_token;
       const user = data?.user;
-
       if (!token || !user) throw new Error('Respuesta inválida');
-
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
-
       onLoggedIn?.(user, token);
     } catch (err) {
       console.error('[login] error:', err);
@@ -41,14 +36,14 @@ export default function LoginGastos({ onLoggedIn, onBack }) {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
       <div className="w-full max-w-sm bg-white border rounded-xl shadow p-6">
         <div className="flex items-center justify-between mb-4">
+          <h1 className="text-xl font-semibold">Iniciar sesión</h1>
           <button
             type="button"
             onClick={() => (onBack ? onBack() : window.history.back())}
-            className="px-3 py-1.5 bg-gray-100 border rounded hover:bg-gray-200"
+            className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
           >
             ← Volver
           </button>
-          <h1 className="text-xl font-semibold">Iniciar sesión</h1>
         </div>
 
         {error ? (
