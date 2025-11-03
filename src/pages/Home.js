@@ -1,4 +1,29 @@
-﻿function Home({ setVista, setAnalisisBack }) {
+﻿import React, { useEffect } from 'react';
+import api from '../api';
+
+function Home({ setVista, setAnalisisBack }) {
+  useEffect(() => {
+    const cacheKey = 'productos:lastList:v1';
+    const prefetch = async () => {
+      try {
+        const rawTs = localStorage.getItem(`${cacheKey}:ts`);
+        const freshMs = 60000; // 60s para mantenerlo caliente
+        const isFresh = rawTs && (Date.now() - Number(rawTs)) < freshMs;
+        if (isFresh) return;
+        const data = await api.get('/productos');
+        const lista = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+        localStorage.setItem(cacheKey, JSON.stringify(lista));
+        localStorage.setItem(`${cacheKey}:ts`, String(Date.now()));
+      } catch {}
+    };
+    if ('requestIdleCallback' in window) {
+      // @ts-ignore
+      window.requestIdleCallback(prefetch);
+    } else {
+      setTimeout(prefetch, 500);
+    }
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-10 p-6">
       <h1 className="text-4xl font-semibold">MacSomenos Servicios</h1>
@@ -13,7 +38,6 @@
         <button
           className="px-6 py-3 bg-white shadow rounded-2xl border hover:shadow-md hover:border-gray-400 transition text-lg"
           onClick={() => {
-            // Acceso directo sin requisito de sufijo en la URL
             setVista('servicios');
           }}
         >
@@ -31,7 +55,7 @@
         </button>
         <button
           className="px-6 py-3 bg-white shadow rounded-2xl border hover:shadow-md hover:border-gray-400 transition text-lg"
-          onClick={() => setVista('gastos')}   // ?? nuevo: navega a Gastos (login + home)
+          onClick={() => setVista('gastos')}
         >
           Gastos
         </button>
@@ -39,7 +63,6 @@
           onClick={() => setVista('calculadora')}>
           Calculadora
         </button>
-
       </div>
     </div>
   );

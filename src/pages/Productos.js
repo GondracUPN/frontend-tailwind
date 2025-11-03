@@ -20,7 +20,16 @@ import {
 
 
 export default function Productos({ setVista, setAnalisisBack }) {
-  const [productos, setProductos] = useState([]);
+  const cacheKey = 'productos:lastList:v1';
+  const [productos, setProductos] = useState(() => {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  });
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
   const [modalModo, setModalModo] = useState(null); // 'crear'|'detalle'|'costos'|'track'
@@ -194,10 +203,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
         const url = `https://wa.me/+51938597478?text=${encodeURIComponent(lineas.join('\n'))}`;
 
         // 3) Refresca productos
-        const data = await api.get('/productos');
-        const lista = Array.isArray(data) ? data
-          : (Array.isArray(data?.items) ? data.items : []);
-        setProductos(lista);
+        await refreshProductos();
 
         // 4) Abre WhatsApp
         window.open(url, '_blank', 'noopener,noreferrer');
@@ -298,7 +304,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
         return null;
       case 'comprado_en_camino':
         if (!trackingUsa || !operador || !URLS[operador]) return null;
-        return { href: URLS[operador](trackingUsa), text: `Ver tracking ${operador.toUpperCase()}` };
+        return { href: URLS[operador](trackingUsa), text: `Ver tracking ${operador.toUpperCase()}`};
       case 'en_eshopex':
         if (!trackingEsh) return null;
         return { href: URLS.eshopex(trackingEsh), text: 'Ver tracking Eshopex' };
@@ -313,28 +319,44 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
   };
 
-  // �Y"" Carga inicial usando api.js
+  // SWR helpers: cache + refresh
+  // SWR helpers: cache + refresh
+  const saveCache = (lista) => {
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(lista));
+      localStorage.setItem(`${cacheKey}:ts`, String(Date.now()));
+    } catch {}
+  };
+
+  const refreshProductos = useCallback(async () => {
+    setCargando(productos.length === 0);
+    setError(null);
+    try {
+      const data = await api.get('/productos');
+      const lista = Array.isArray(data)
+        ? data
+        : (Array.isArray(data?.items) ? data.items : []);
+      setProductos(lista);
+      saveCache(lista);
+      return lista;
+    } catch (e) {
+      console.error(e);
+      setError('No se pudieron cargar los productos.');
+      return null;
+    } finally {
+      setCargando(false);
+    }
+  }, [productos.length]);
+
+  // Carga inicial con SWR: muestra snapshot y revalida en segundo plano
   useEffect(() => {
-    let alive = true;
+    let mounted = true;
     (async () => {
-      setCargando(true);
-      setError(null);
-      try {
-        const data = await api.get('/productos');
-        const lista = Array.isArray(data)
-          ? data
-          : (Array.isArray(data?.items) ? data.items : []);
-        if (alive) setProductos(lista);
-      } catch (e) {
-        console.error(e);
-        if (alive) setError('No se pudieron cargar los productos.');
-      } finally {
-        if (alive) setCargando(false);
-      }
+      if (!mounted) return;
+      await refreshProductos();
     })();
-    return () => { alive = false; };
-  }, []);
-  // Cargar última venta por producto (si existe) cuando cambia la lista
+    return () => { mounted = false; };
+  }, [refreshProductos]);  // Cargar última venta por producto (si existe) cuando cambia la lista
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -1119,11 +1141,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
           onClose={cerrarModal}
           onSaved={async () => {
             try {
-              const data = await api.get('/productos'); // �?� refresca desde backend correcto
-              const lista = Array.isArray(data)
-                ? data
-                : (Array.isArray(data?.items) ? data.items : []);
-              setProductos(lista);
+              await refreshProductos();
             } catch { }
             cerrarModal();
           }}
@@ -1156,6 +1174,9 @@ export default function Productos({ setVista, setAnalisisBack }) {
   );
 
 }
+
+
+
 
 
 
