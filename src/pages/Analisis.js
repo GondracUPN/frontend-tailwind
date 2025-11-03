@@ -39,16 +39,40 @@ function Bar({ label, value, max }) {
 export default function Analisis({ setVista, analisisBack = 'home' }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [data, setData] = useState(null);
-
-  const pad2 = (n) => String(n).padStart(2, '0');
 
   // Filtros del formulario y aplicados
   const [form, setForm] = useState({ month: '', tipo: '' });
   const [applied, setApplied] = useState({ month: '', tipo: '' });
 
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const cacheKey = useMemo(() => {
+    const m = applied.month || '';
+    const t = applied.tipo || '';
+    return `analytics:lastSummary:v1:${m}:${t}`;
+  }, [applied.month, applied.tipo]);
+
+  // Lee snapshot cacheado para render inmediato (SWR: stale-while-revalidate)
+  const [data, setData] = useState(() => {
+    try {
+      const raw = localStorage.getItem(`analytics:lastSummary:v1::`); // compat old key
+      const raw2 = cacheKey ? localStorage.getItem(cacheKey) : null;
+      const parsed = raw2 ? JSON.parse(raw2) : raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isStale, setIsStale] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(() => {
+    try {
+      const raw = cacheKey ? localStorage.getItem(`${cacheKey}:ts`) : null;
+      return raw ? Number(raw) : null;
+    } catch { return null; }
+  });
+
   const load = async () => {
-    setLoading(true);
+    setLoading(!data); // si hay snapshot, no bloquear todo el layout
+    setIsStale(!!data);
     setError('');
     try {
       const q = new URLSearchParams();
@@ -69,10 +93,17 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
       if (applied.tipo) q.set('tipo', applied.tipo);
       const res = await api.get(`/analytics/summary?${q.toString()}`);
       setData(res);
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify(res));
+        const ts = Date.now();
+        localStorage.setItem(`${cacheKey}:ts`, String(ts));
+        setLastUpdated(ts);
+      } catch {}
     } catch (e) {
       setError(e.message || 'Error');
     } finally {
       setLoading(false);
+      setIsStale(false);
     }
   };
 
@@ -136,12 +167,16 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
           </div>
         </div>
 
-        {loading ? (
-          <div className="text-gray-500">Cargando…</div>
-        ) : error ? (
+        {error ? (
           <div className="text-red-600">{error}</div>
-        ) : !data ? null : (
+        ) : !data && loading ? (
+          <div className="text-gray-500">Cargando…</div>
+        ) : (
           <>
+            {/* Indicador de actualizado */}
+            {lastUpdated ? (
+              <div className="text-xs text-gray-500 mb-2">Actualizado {new Date(lastUpdated).toLocaleString()} {isStale ? '(actualizando…)':''}</div>
+            ) : null}
             {/* Resumen superior */}
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
               {isGeneral ? (
@@ -458,4 +493,3 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
     </div>
   );
 }
-
