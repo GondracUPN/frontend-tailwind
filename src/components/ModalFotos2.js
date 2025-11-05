@@ -91,8 +91,8 @@ export default function ModalFotos2({ producto, onClose }) {
   if (!producto) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white w-full sm:max-w-3xl rounded-xl shadow-lg p-4 relative mx-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-3xl rounded-xl shadow-lg p-4 relative mx-4" onClick={(e) => e.stopPropagation()}>
         <button className="absolute top-3 right-3 text-gray-500 hover:text-gray-800" onClick={onClose}>x</button>
         <h3 className="text-lg font-semibold mb-3">Fotos Es - {producto?.tipo || ''}</h3>
 
