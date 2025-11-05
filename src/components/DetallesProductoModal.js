@@ -13,7 +13,7 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
   const [form, setForm] = useState({
     tipo: '',
     estado: '',
-    conCaja: '',           // 'si' | 'no'
+    accesorios: [],        // ['Caja','Cubo','Cable'] o ['Todos']
     detalle: {},           // dinámico según tipo
   });
 
@@ -23,7 +23,7 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
     setForm({
       tipo: producto.tipo,
       estado: producto.estado,
-      conCaja: producto.conCaja ? 'si' : 'no',
+      accesorios: Array.isArray(producto.accesorios) ? producto.accesorios : [],
       detalle: { ...producto.detalle }, // viene con 'id' -> se filtrará en handleSave
     });
     setIsEditing(false);
@@ -38,23 +38,23 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
 
   // ----- 4. Guardar cambios (PATCH) -----
   const handleSave = async () => {
-    // convierte "si"/"no" a booleano
-    const conCajaBool = form.conCaja === 'si';
+    // Normaliza accesorios para backend
+    let accesorios = Array.isArray(form.accesorios) ? [...form.accesorios] : [];
+    const hasTodos = accesorios.includes('Todos');
+    const isNuevo = String(form.estado || '').toLowerCase() === 'nuevo';
+    if (hasTodos || isNuevo) accesorios = ['Caja','Cubo','Cable'];
 
     // Lista blanca de campos permitidos en 'detalle' (sin 'id')
     const cleanDetalle = Object.fromEntries(
       Object.entries(form.detalle || {}).filter(([k]) => k !== 'id')
     );
     // payload completo con todos los campos editables (sin 'detalle.id')
-    const payload = {
-      tipo: form.tipo,
-      estado: form.estado,
-      conCaja: conCajaBool,
-      detalle: cleanDetalle,
-    };
+    const payload = { tipo: form.tipo, estado: form.estado, accesorios, detalle: cleanDetalle };
 
     try {
-      const updated = await api.patch(`/productos/${producto.id}`, payload);
+    
+      const res = await api.patch('/productos/' + producto.id, payload);
+      const updated = res?.data ?? res;
       onSaved(updated);
       setIsEditing(false);
     } catch (e) {
@@ -118,7 +118,7 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
             <h2 className="text-2xl font-semibold mb-4">Editar Producto</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Columna 1: tipo, detalle, estado, conCaja */}
+              {/* Columna 1: tipo, detalle, estado, accesorios */}
               <div className="space-y-4">
                 <div>
                   <label className="block font-medium">Tipo</label>
@@ -166,20 +166,44 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
                   </select>
                 </div>
 
-                {form.estado === 'usado' && (
-                  <div>
-                    <label className="block font-medium">¿Tiene caja?</label>
-                    <select
-                      className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      value={form.conCaja}
-                      onChange={e => handleMainChange('conCaja', e.target.value)}
-                    >
-                      <option value="">Selecciona</option>
-                      <option value="si">Sí</option>
-                      <option value="no">No</option>
-                    </select>
-                  </div>
-                )}
+                <div>
+                  <label className="block font-medium mb-1">Accesorios</label>
+                  {(() => {
+                    const isNuevo = String(form.estado || '').toLowerCase() === 'nuevo';
+                    const todos = Array.isArray(form.accesorios) && form.accesorios.includes('Todos');
+                    const disabledGroup = isNuevo || todos;
+                    return (
+                      <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 ${disabledGroup ? 'opacity-60' : ''}`}>
+                        {['Caja','Cubo','Cable','Todos'].map(opt => (
+                          <label key={opt} className={`flex items-center gap-2 border rounded px-3 py-2 cursor-pointer ${isNuevo ? 'pointer-events-none' : ''}`}>
+                            <input
+                              type="checkbox"
+                              className="accent-indigo-600"
+                              checked={isNuevo ? true : (opt==='Todos' ? todos : (todos ? true : (form.accesorios||[]).includes(opt)))}
+                              disabled={opt!=='Todos' && (isNuevo || todos)}
+                              onChange={e => {
+                                const checked = e.target.checked;
+                                setForm(f => {
+                                  let next = Array.isArray(f.accesorios) ? [...f.accesorios] : [];
+                                  if (opt==='Todos') {
+                                    // toggle 'Todos' únicamente; el resto se muestra marcado visualmente
+                                    return { ...f, accesorios: checked ? Array.from(new Set([...next,'Todos'])) : next.filter(x=>x!=='Todos') };
+                                  }
+                                  if (checked) next = Array.from(new Set([...next, opt])); else next = next.filter(x=>x!==opt);
+                                  return { ...f, accesorios: next };
+                                });
+                              }}
+                            />
+                            <span>{opt}</span>
+                          </label>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  {String(form.estado || '').toLowerCase() === 'nuevo' && (
+                    <p className="text-sm text-gray-500 mt-1">Estado "Nuevo" fuerza Todos (Caja, Cubo y Cable).</p>
+                  )}
+                </div>
               </div>
             </div>
 

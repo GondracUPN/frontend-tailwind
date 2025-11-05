@@ -896,7 +896,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
                 {selectMode && <th className="p-2">Sel.</th>}
                 <th className="p-2">Tipo</th>
                 <th className="p-2">Estado</th>
-                <th className="p-2">Caja</th>
+                <th className="p-2">Accesorios</th>
                 <th className="p-2">Valor $</th>
                 <th className="p-2">Valor S/</th>
                 <th className="p-2">Envío S/</th>
@@ -993,7 +993,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
                     </td>
                     <td className="p-2">{p.estado}</td>
-                    <td className="p-2">{p.conCaja ? "Sí" : "No"}</td>
+                    <td className="p-2">{Array.isArray(p.accesorios) && p.accesorios.length ? (p.accesorios.length===3 ? "Todos" : p.accesorios.join(", ")) : "-"}</td>
                     <td className="p-2">{v.valorProducto != null ? `$ ${v.valorProducto}` : '-'}</td>
                     <td className="p-2">{fmtSoles(v.valorSoles)}</td>
                     <td className="p-2">{fmtSoles(v.costoEnvio)}</td>
@@ -1168,6 +1168,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   );
 
 }
+
 
 
 

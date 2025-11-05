@@ -15,7 +15,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
   const [form, setForm] = useState({
     tipo: '',
     estado: '',
-    conCaja: '',       // '' obliga a seleccionar
+    accesorios: [],    // ['Caja','Cubo','Cable'] o ['Todos']
     casillero: '',
     detalle: {
       gama: '', procesador: '', generacion: '',
@@ -35,7 +35,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     setForm({
       tipo: producto.tipo || '',
       estado: producto.estado || '',
-      conCaja: producto.conCaja ? 'si' : 'no',
+      accesorios: Array.isArray(producto.accesorios) ? producto.accesorios : [],
       casillero: producto.tracking?.[0]?.casillero || '',  // si existe tracking relacionado
       detalle: { ...producto.detalle },
       valor: {
@@ -68,11 +68,13 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     const url = isEdit ? `/productos/${producto.id}` : '/productos';
     const method = isEdit ? 'patch' : 'post';
 
-    const base = {
-      tipo: form.tipo,
-      estado: form.estado,
-      conCaja: form.conCaja === 'si',
-    };
+    // Normalizar accesorios: si marcaron 'Todos' (o estado nuevo), enviar los 3
+    let accesorios = Array.isArray(form.accesorios) ? [...form.accesorios] : [];
+    const hasTodos = accesorios.includes('Todos');
+    const isNuevo = String(form.estado || '').toLowerCase() === 'nuevo';
+    if (hasTodos || isNuevo) accesorios = ['Caja','Cubo','Cable'];
+
+    const base = { tipo: form.tipo, estado: form.estado, accesorios };
 
 
     const allowedDetalle = ['gama','procesador','generacion','numero','modelo','tamaño','almacenamiento','ram','conexion','descripcionOtro'];
@@ -198,21 +200,44 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                   </select>
                 </div>
 
-                {/* ConCaja */}
-                {form.estado === 'usado' && (
-                  <div>
-                    <label className="block font-medium">¿Tiene caja?</label>
-                    <select
-                      className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      value={form.conCaja}
-                      onChange={e => onChange('main', 'conCaja', e.target.value)}
-                    >
-                      <option value="">Selecciona</option>
-                      <option value="si">Sí</option>
-                      <option value="no">No</option>
-                    </select>
-                  </div>
-                )}
+                {/* Accesorios */}
+                <div>
+                  <label className="block font-medium mb-1">Accesorios</label>
+                  {(() => {
+                    const isNuevo = String(form.estado||'').toLowerCase()==='nuevo';
+                    const todos = Array.isArray(form.accesorios) && form.accesorios.includes('Todos');
+                    const disabledGroup = isNuevo || todos;
+                    return (
+                      <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 ${disabledGroup ? 'opacity-60' : ''}`}>
+                        {['Caja','Cubo','Cable','Todos'].map(opt => (
+                          <label key={opt} className={`flex items-center gap-2 border rounded px-3 py-2 cursor-pointer ${isNuevo ? 'pointer-events-none' : ''}`}>
+                            <input
+                              type="checkbox"
+                              className="accent-indigo-600"
+                              checked={isNuevo ? true : (opt==='Todos' ? todos : (todos ? true : (form.accesorios||[]).includes(opt)))}
+                              disabled={opt!=='Todos' && (isNuevo || todos)}
+                              onChange={e => {
+                                const checked = e.target.checked;
+                                setForm(f => {
+                                  let next = Array.isArray(f.accesorios) ? [...f.accesorios] : [];
+                                  if (opt==='Todos') {
+                                    return { ...f, accesorios: checked ? Array.from(new Set([...next,'Todos'])) : next.filter(x=>x!=='Todos') };
+                                  }
+                                  if (checked) next = Array.from(new Set([...next, opt])); else next = next.filter(x=>x!==opt);
+                                  return { ...f, accesorios: next };
+                                });
+                              }}
+                            />
+                            <span>{opt}</span>
+                          </label>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  {String(form.estado||'').toLowerCase()==='nuevo' && (
+                    <p className="text-sm text-gray-500 mt-1">Estado "Nuevo" fuerza Todos (Caja, Cubo y Cable).</p>
+                  )}
+                </div>
 
                 {/* Casillero */}
                 <div>
@@ -276,4 +301,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     </div>
   );
 }
+
+
 
