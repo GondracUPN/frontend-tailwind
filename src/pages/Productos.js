@@ -7,6 +7,7 @@ import ModalTracking from '../components/ModalTracking';
 import api from '../api';  // cliente fetch centralizado
 import ResumenCasilleros from '../components/ResumenCasilleros';
 import ModalVenta from '../components/ModalVenta';
+import ModalFotos from '../components/ModalFotos2';
 import ModalCalculadora from '../components/ModalCalculadora';
 import ModalDec from '../components/ModalDec';
 import {
@@ -41,6 +42,14 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const abrirVenta = (p) => { setProductoSeleccionado(p); setModalModo('venta'); };
   const abrirCalculadora = (p) => { setProductoSeleccionado(p); setModalModo('calc'); };
 
+  const abrirFotos = (p) => {
+    // Log de depuración al abrir el modal de fotos
+    const fecha = p?.valor?.fechaCompra || '';
+    const trackingEshop = (p?.tracking || []).map(t => t?.trackingEshop).find(v => v && String(v).trim()) || '';
+    console.log('[Productos] Ver foto →', { id: p?.id, fechaCompra: fecha, trackingEshop });
+    setProductoSeleccionado(p);
+    setModalModo('fotos');
+  };
   // Cuando se guarda una venta, refrescamos sólo ese producto en el mapa
   const handleVentaSaved = (ventaGuardada) => {
     setVentasMap(prev => ({ ...prev, [ventaGuardada.productoId]: ventaGuardada }));
@@ -494,7 +503,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const abrirCostos = (p) => { setProductoSeleccionado(p); setModalModo('costos'); };
   const abrirTrack = (p) => { setProductoSeleccionado(p); setModalModo('track'); };
   const abrirDec = (p) => { setProductoSeleccionado(p); setModalModo('dec'); };
-  const cerrarModal = () => setModalModo(null);
+  const cerrarModal = () => { setModalModo(null); setProductoSeleccionado(null); };
 
   const handleSaved = (updated) => {
     setProductos(list =>
@@ -904,7 +913,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
                 <th className="p-2">Calculadora</th>
                 <th className="p-2">F. Compra</th>
                 <th className="p-2">Tracking</th>
-                <th className="p-2">Venta</th>
+                <th className="p-2">Fotos Es</th>
                 <th className="p-2">Acciones</th>
               </tr>
             </thead>
@@ -1063,6 +1072,17 @@ export default function Productos({ setVista, setAnalisisBack }) {
                     </td>
 
 
+                    {/* Fotos Es */}
+                    <td className="p-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); abrirFotos(p); }}
+                        className="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
+                        title="Ver fotos Eshopex"
+                      >
+                        Ver foto
+                      </button>
+                    </td>
+
 
                     {/* Venta */}
                     <td className="p-2">
@@ -1127,7 +1147,14 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
       {/* Modales */}
       {modalModo === 'crear' && <ModalProducto onClose={cerrarModal} onSaved={handleSaved} />}
-      {modalModo === 'detalle' && <DetallesProductoModal producto={productoSeleccionado} onClose={cerrarModal} onSaved={handleSaved} />}
+      {modalModo === 'detalle' && (
+        <DetallesProductoModal
+          producto={productoSeleccionado}
+          onClose={cerrarModal}
+          onSaved={handleSaved}
+        />
+      )}
+            {modalModo === 'fotos' && (<ModalFotos producto={productoSeleccionado} onClose={cerrarModal} />)}
       {modalModo === 'costos' && <ModalCostos producto={productoSeleccionado} onClose={cerrarModal} onSaved={handleSaved} />}
       {modalModo === 'track' && (
         <ModalTracking
@@ -1168,6 +1195,13 @@ export default function Productos({ setVista, setAnalisisBack }) {
   );
 
 }
+
+
+
+
+
+
+
 
 
 
