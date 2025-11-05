@@ -27,7 +27,7 @@ export default function ModalCalculadora({ producto, onClose }) {
   }, [tipoCambio, valorUSD, envioSoles, costoTotalBase]);
 
   // Sugerencias basadas en costo base
-  const { pvMin, pvMed } = useMemo(() => {
+  const { pvMin,  pvMed } = useMemo(() => {
     const pvMinRounded = roundUp10(costoTotalBase * 1.20); // +20%
     const pvMedRounded = roundUp10(costoTotalBase * 1.40); // +40%
     return { pvMin: pvMinRounded, pvMed: pvMedRounded };
