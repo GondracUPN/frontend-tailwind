@@ -6,25 +6,37 @@ export default function FormProductoMacbook({ detalle, onChange }) {
   const procesadoresPro = [
     'M1', 'M2', 'M3', 'M4',
     'M1 Pro', 'M2 Pro', 'M3 Pro', 'M4 Pro',
+    'M1 Max', 'M2 Max', 'M3 Max', 'M4 Max',
   ];
 
-  const getTamanos = () => {
-    if (gama === 'Air') return ['13', '15'];
-    if (gama === 'Pro') {
-      if (['M1','M2'].includes(procesador)) return ['13'];
-      if (procesador === 'M4')             return ['14'];
-      return ['14','16'];
+  const getConfig = () => {
+    const p = String(procesador || '').trim();
+    let sizes = [];
+    let rams = [];
+    let ssds = [];
+    if (gama === 'Air') {
+      if (p === 'M1') { sizes=['13']; rams=['8','16']; ssds=['256','512','1TB','2TB']; }
+      else if (p === 'M2') { sizes=['13.6','15.3']; rams=['8','16','24']; ssds=['256','512','1TB','2TB']; }
+      else if (p === 'M3') { sizes=['13.6','15.3']; rams=['8','16','24']; ssds=['256','512','1TB','2TB']; }
+      else if (p === 'M4') { sizes=['13.6','15.3']; rams=['16','24','32']; ssds=['256','512','1TB','2TB']; }
+    } else if (gama === 'Pro') {
+      if (p === 'M1') { sizes=['13']; rams=['8','16']; ssds=['256','512','1TB','2TB']; }
+      else if (p === 'M1 Pro') { sizes=['14','16']; rams=['16','32']; ssds=['512','1TB','2TB']; }
+      else if (p === 'M1 Max') { sizes=['14','16']; rams=['32','64']; ssds=['512','1TB','2TB','4TB','8TB']; }
+      else if (p === 'M2') { sizes=['13']; rams=['8','16','24']; ssds=['256','512','1TB','2TB']; }
+      else if (p === 'M2 Pro') { sizes=['14','16']; rams=['16','32','36']; ssds=['512','1TB','2TB']; }
+      else if (p === 'M2 Max') { sizes=['14','16']; rams=['32','64','96']; ssds=['512','1TB','2TB','4TB','8TB']; }
+      else if (p === 'M3') { sizes=['14']; rams=['8','16','24']; ssds=['512','1TB','2TB']; }
+      else if (p === 'M3 Pro') { sizes=['14','16']; rams=['18','36']; ssds=['512','1TB','2TB','4TB']; }
+      else if (p === 'M3 Max') { sizes=['14','16']; rams=['36','48','64']; ssds=['1TB','2TB','4TB','8TB']; }
+      else if (p === 'M4') { sizes=['14']; rams=['8','16','24']; ssds=['512','1TB','2TB']; }
+      else if (p === 'M4 Pro') { sizes=['14','16']; rams=['24','48']; ssds=['512','1TB','2TB','4TB']; }
+      else if (p === 'M4 Max') { sizes=['14','16']; rams=['48','64','128']; ssds=['1TB','2TB','4TB','8TB']; }
     }
-    return [];
+    return { sizes, rams, ssds };
   };
 
-  const getAlmacenamiento = () => {
-    if (gama === 'Air')                       return ['256', '512', '1TB'];
-    if (['M1','M2'].includes(procesador)) return ['256','512','1TB'];
-    return ['512','1TB','2TB'];
-  };
-
-  const rams = ['8','16','24','32','48'];
+  const { sizes, rams, ssds } = getConfig();
 
   return (
     <>
@@ -34,7 +46,7 @@ export default function FormProductoMacbook({ detalle, onChange }) {
         <select
           value={gama}
           className="w-full border p-2 rounded"
-          onChange={e => onChange('gama', e.target.value)}
+          onChange={e => { onChange('gama', e.target.value); onChange('procesador',''); onChange('tamaño',''); onChange('ram',''); onChange('almacenamiento',''); }}
         >
           <option value="">Seleccione</option>
           <option value="Air">Air</option>
@@ -48,7 +60,7 @@ export default function FormProductoMacbook({ detalle, onChange }) {
         <select
           value={procesador}
           className="w-full border p-2 rounded"
-          onChange={e => onChange('procesador', e.target.value)}
+          onChange={e => { onChange('procesador', e.target.value); onChange('tamaño',''); onChange('ram',''); onChange('almacenamiento',''); }}
         >
           <option value="">Seleccione</option>
           {(gama === 'Air' ? procesadoresAir : procesadoresPro).map(p => (
@@ -61,14 +73,12 @@ export default function FormProductoMacbook({ detalle, onChange }) {
       <div>
         <label className="block font-medium">Tamaño</label>
         <select
-          value={detalle.tamaño}
+          value={detalle['tamaño']}
           className="w-full border p-2 rounded"
           onChange={e => onChange('tamaño', e.target.value)}
         >
           <option value="">Seleccione</option>
-          {getTamanos().map(t => (
-            <option key={t} value={t}>{t}″</option>
-          ))}
+          {sizes.map(t => (<option key={t} value={t}>{t}″</option>))}
         </select>
       </div>
 
@@ -81,9 +91,7 @@ export default function FormProductoMacbook({ detalle, onChange }) {
           onChange={e => onChange('ram', e.target.value)}
         >
           <option value="">Seleccione</option>
-          {rams.map(r => (
-            <option key={r} value={r}>{r} GB</option>
-          ))}
+          {rams.map(r => (<option key={r} value={r}>{r} GB</option>))}
         </select>
       </div>
 
@@ -96,11 +104,10 @@ export default function FormProductoMacbook({ detalle, onChange }) {
           onChange={e => onChange('almacenamiento', e.target.value)}
         >
           <option value="">Seleccione</option>
-          {getAlmacenamiento().map(a => (
-            <option key={a} value={a}>{a}</option>
-          ))}
+          {ssds.map(a => (<option key={a} value={a}>{a}</option>))}
         </select>
       </div>
     </>
   );
 }
+

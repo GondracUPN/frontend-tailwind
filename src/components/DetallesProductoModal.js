@@ -41,16 +41,10 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
     // convierte "si"/"no" a booleano
     const conCajaBool = form.conCaja === 'si';
 
-    // ✅ Lista blanca de campos permitidos en 'detalle'
-    //    (manteniendo 'tamaño' con ñ)
-    const allowedDetalle = [
-      'gama', 'procesador', 'generacion', 'modelo', 'tamaño',
-      'almacenamiento', 'ram', 'conexion', 'descripcionOtro'
-    ];
+    // Lista blanca de campos permitidos en 'detalle' (sin 'id')
     const cleanDetalle = Object.fromEntries(
-      Object.entries(form.detalle || {}).filter(([k]) => allowedDetalle.includes(k))
+      Object.entries(form.detalle || {}).filter(([k]) => k !== 'id')
     );
-
     // payload completo con todos los campos editables (sin 'detalle.id')
     const payload = {
       tipo: form.tipo,
@@ -209,4 +203,5 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
     </div>
   );
 }
+
 

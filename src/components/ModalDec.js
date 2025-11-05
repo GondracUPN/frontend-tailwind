@@ -1,6 +1,7 @@
 ﻿// src/components/ModalDec.js
 import React, { useMemo, useState, useEffect } from "react";
 import api from "../api";
+import { FaDice } from "react-icons/fa";
 
 /** Casilleros exactos (para el HTML final) */
 const CASILLEROS = {
@@ -75,8 +76,8 @@ const get = (o, keys, def = "") =>
   keys.reduce((v, k) => (v != null ? v : o?.[k]), null) ?? def;
 
 function getSize(p) {
-  const sizeFromDetalle = get(p?.detalle, ["tama\u00f1o", "tamanio", "tamano"]);
-  const sizeFromRoot = get(p, ["tama\u00f1o", "tamanio", "tamano"]);
+  const sizeFromDetalle = get(p?.detalle, ["tamaño", "tamanio", "tamano"]);
+  const sizeFromRoot = get(p, ["tamaño", "tamanio", "tamano"]);
   return sizeFromDetalle || p?.size || sizeFromRoot || "";
 }
 function getGama(p) {
@@ -406,6 +407,8 @@ function buildModalContentHTML({
                             </div>
                           </div>
                         </div>
+
+                        <hr />
 
                         <div class="section">
                           <div class="section-data-items">
@@ -767,7 +770,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                   className="px-3 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700"
                   disabled={!productoSel}
                 >
-                  ??
+                  <FaDice className="text-base" />
                 </button>
               </div>
             </label>

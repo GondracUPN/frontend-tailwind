@@ -74,13 +74,13 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       conCaja: form.conCaja === 'si',
     };
 
-    const allowedDetalle = [
-      'gama', 'procesador', 'generacion', 'modelo', 'tamaño',
-      'almacenamiento', 'ram', 'conexion', 'descripcionOtro'
-    ];
+
+    const allowedDetalle = ['gama','procesador','generacion','numero','modelo','tamaño','almacenamiento','ram','conexion','descripcionOtro'];
     const cleanDetalle = Object.fromEntries(
       Object.entries(form.detalle || {}).filter(([k]) => allowedDetalle.includes(k))
     );
+
+
 
     const payload = { ...base, detalle: cleanDetalle, valor: form.valor };
 

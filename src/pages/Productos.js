@@ -64,15 +64,8 @@ export default function Productos({ setVista, setAnalisisBack }) {
   // Helper: lee tamano desde detalle (soporta 'tamano' | 'tamanio' | 'tamano')
   const getTam = (d) => {
     if (!d) return '';
-    const keys = Object.keys(d);
-    for (const k of keys) {
-      if (String(k || '').toLowerCase().startsWith('tama')) {
-        const v = d[k];
-        if (typeof v === 'string' && v.trim()) return v.trim();
-      }
-    }
-    const alt = (d.tamanio ?? d.tamano ?? '').toString().trim();
-    return alt;
+    const v = (d['tamaño'] ? String(d['tamaño']).trim() : '');
+    return v;
   };
 
   // Tipos disponibles calculados desde la data
@@ -169,7 +162,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
       p.tipo,
       p.detalle?.gama,
       p.detalle?.procesador,
-      p.detalle?.tamanio
+      (p.detalle || {})['tamaño']
     ].filter(Boolean);
     return parts.join(' ');
   };
@@ -340,8 +333,9 @@ export default function Productos({ setVista, setAnalisisBack }) {
       saveCache(lista);
       return lista;
     } catch (e) {
-      console.error(e);
-      setError('No se pudieron cargar los productos.');
+      console.error('Error cargando /productos:', e);
+      const msg = (e && e.message) ? String(e.message) : '';
+      setError(`No se pudieron cargar los productos. ${msg}`);
       return null;
     } finally {
       setCargando(false);
@@ -1174,6 +1168,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   );
 
 }
+
 
 
 
