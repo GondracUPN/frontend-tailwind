@@ -6,6 +6,7 @@ import ModalCostos from '../components/ModalCostos';
 import ModalTracking from '../components/ModalTracking';
 import api from '../api';  // cliente fetch centralizado
 import ResumenCasilleros from '../components/ResumenCasilleros';
+import ModalCasillero from '../components/ModalCasillero';
 import ModalVenta from '../components/ModalVenta';
 import ModalFotos from '../components/ModalFotos2';
 import ModalCalculadora from '../components/ModalCalculadora';
@@ -64,6 +65,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [pickupDate, setPickupDate] = useState(''); // YYYY-MM-DD
   const [soloDisponibles, setSoloDisponibles] = useState(false);
+  const [selectedCasillero, setSelectedCasillero] = useState(null);
   // Filtros adicionales
   const [filtroTipo, setFiltroTipo] = useState('todos'); // 'todos' | 'macbook' | 'ipad' | 'pantalla' | 'otro'
   const [filtroProc, setFiltroProc] = useState('todos'); // procesador o pantalla (texto libre)
@@ -504,6 +506,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const abrirTrack = (p) => { setProductoSeleccionado(p); setModalModo('track'); };
   const abrirDec = (p) => { setProductoSeleccionado(p); setModalModo('dec'); };
   const cerrarModal = () => { setModalModo(null); setProductoSeleccionado(null); };
+  const abrirCasillero = (cas) => { setSelectedCasillero(cas); setModalModo('casillero'); };
 
   const handleSaved = (updated) => {
     setProductos(list =>
@@ -696,7 +699,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
           <div className="text-2xl font-semibold">{stats.vendido}</div>
         </div>
       </div>{/* Panel de casilleros */}
-      <ResumenCasilleros productos={productos} />
+      <ResumenCasilleros productos={productos} onCasilleroClick={abrirCasillero} />
 
       {/* Totales de montos */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
@@ -1172,6 +1175,14 @@ export default function Productos({ setVista, setAnalisisBack }) {
             } catch { }
             cerrarModal();
           }}
+        />
+      )}
+      {modalModo === 'casillero' && (
+        <ModalCasillero
+          casillero={selectedCasillero}
+          productos={productos}
+          onClose={() => { setSelectedCasillero(null); cerrarModal(); }}
+          onOpenProducto={(p) => { setProductoSeleccionado(p); setModalModo('detalle'); }}
         />
       )}
       {modalModo === 'venta' && (
