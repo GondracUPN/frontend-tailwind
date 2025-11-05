@@ -1074,13 +1074,19 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
                     {/* Fotos Es */}
                     <td className="p-2">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); abrirFotos(p); }}
-                        className="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
-                        title="Ver fotos Eshopex"
-                      >
-                        Ver foto
-                      </button>
+                      {(() => {
+                        const puedeVer = estado === 'en_eshopex' || estado === 'recogido';
+                        return (
+                          <button
+                            onClick={(e) => { if (!puedeVer) return; e.stopPropagation(); abrirFotos(p); }}
+                            disabled={!puedeVer}
+                            className={`${puedeVer ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-300 text-gray-600 cursor-not-allowed'} px-2 py-1 rounded`}
+                            title={puedeVer ? 'Ver fotos Eshopex' : 'Fotos no disponibles para este estado'}
+                          >
+                            Ver foto
+                          </button>
+                        );
+                      })()}
                     </td>
 
 
