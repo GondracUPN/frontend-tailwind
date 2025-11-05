@@ -9,7 +9,6 @@ const roundUp10 = (n) => {
 };
 
 export default function ModalCalculadora({ producto, onClose }) {
-  if (!producto) return null;
 
   // Valores base del producto
   const costoTotalBase = Number(producto?.valor?.costoTotal ?? 0);
@@ -130,4 +129,3 @@ export default function ModalCalculadora({ producto, onClose }) {
     </div>
   );
 }
-
