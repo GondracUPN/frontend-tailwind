@@ -1,4 +1,4 @@
-﻿// src/pages/GastosIndex.jsx
+// src/pages/GastosIndex.jsx
 import React, { useEffect, useState } from 'react';
 import GastosCrearUsuario from './GastosCrearUsuario';
 import GastosPanel from './GastosPanel';
@@ -11,7 +11,7 @@ export default function GastosIndex({ setVista }) {
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(null);
 
-  // Lee sesiÃ³n desde localStorage al montar
+  // Lee sesión desde localStorage al montar
   const [user, setUser] = useState(() => {
     try {
       const raw = localStorage.getItem('user');
@@ -54,10 +54,12 @@ export default function GastosIndex({ setVista }) {
     localStorage.removeItem('user');
     setToken(null);
     setUser(null);
-    setVista?.('home');
+    // Quedarse en esta vista: al no estar logueado, se muestra el Login
+    setMode(null);
+    setSelectedUserId(null);
   };
 
-  // Si NO hay sesiÃ³n, mostramos el login aquÃ­ mismo
+  // Si NO hay sesión, mostramos el login aquí mismo
   if (!isLogged) {
     return (
       <LoginGastos
@@ -68,7 +70,6 @@ export default function GastosIndex({ setVista }) {
         }}
         onBack={() => setVista('home')}
       />
-
     );
   }
 
@@ -76,8 +77,9 @@ export default function GastosIndex({ setVista }) {
     <div className="min-h-screen p-8 bg-gray-50">
       {/* Header */}
       <header className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3"><h2 className="text-2xl font-semibold">
-            Hola {user?.username}! â€” <span className="font-normal">sesiÃ³n iniciada</span>
+        <div className="flex items-center gap-3">
+          <h2 className="text-2xl font-semibold">
+            Hola {user?.username}! — <span className="font-normal">sesión iniciada</span>
           </h2>
         </div>
         <div className="flex items-center gap-3">
@@ -121,16 +123,16 @@ export default function GastosIndex({ setVista }) {
                 }}
                 className="px-5 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700"
               >
-                Ver gastos (mÃ­os)
+                Ver gastos (míos)
               </button>
             </div>
 
             <div>
               <div className="text-md font-semibold mb-2">Usuarios disponibles</div>
               {loadingUsers ? (
-                <div className="text-sm text-gray-600">Cargando usuariosâ€¦</div>
+                <div className="text-sm text-gray-600">Cargando usuarios...</div>
               ) : users.length === 0 ? (
-                <div className="text-sm text-gray-600">No hay usuarios aÃºn.</div>
+                <div className="text-sm text-gray-600">No hay usuarios aún.</div>
               ) : (
                 <div className="overflow-auto border rounded">
                   <table className="w-full text-left text-sm">
@@ -170,7 +172,7 @@ export default function GastosIndex({ setVista }) {
         ) : (
           <div>
             <div className="mb-3 text-gray-700">
-              Usa â€œVer mis gastosâ€ para revisar y agregar desde el panel.
+              Usa "Ver mis gastos" para revisar y agregar desde el panel.
             </div>
             <div className="mt-2">
               <button
@@ -187,7 +189,7 @@ export default function GastosIndex({ setVista }) {
         )}
       </div>
 
-      {/* Contenido segÃºn el modo */}
+      {/* Contenido según el modo */}
       {mode === 'create' && isAdmin && <GastosCrearUsuario />}
 
       {mode === 'panel' && (
@@ -196,4 +198,3 @@ export default function GastosIndex({ setVista }) {
     </div>
   );
 }
-
