@@ -10,6 +10,22 @@ const fmtSoles = (n) =>
 const fmtUSD = (n) =>
   n != null && n !== '' ? `$ ${Number(n).toFixed(2)}` : '$ 0.00';
 
+const normalizeVendedor = (value) =>
+  (value == null ? '' : String(value)).trim().toLowerCase();
+
+const SELLER_SLUGS = ['gonzalo', 'renato'];
+const SPLIT_VENDOR = 'ambos';
+const SPLIT_SHARE = 0.5;
+
+const shareForSeller = (venta, seller) => {
+  const vend = normalizeVendedor(venta?.vendedor);
+  const target = normalizeVendedor(seller);
+  if (!vend || !target) return 0;
+  if (vend === target) return 1;
+  if (vend === SPLIT_VENDOR && SELLER_SLUGS.includes(target)) return SPLIT_SHARE;
+  return 0;
+};
+
 function nombreProducto(p) {
   if (!p) return '';
   const d = p.detalle || {};
@@ -78,8 +94,9 @@ function totales(ventasArr) {
   let totalVentasSoles = 0;
   let totalGanancia = 0;
   for (const v of ventasArr) {
-    totalVentasSoles += Number(v.precioVenta ?? 0);
-    totalGanancia += Number(v.ganancia ?? 0);
+    const share = Number(v?.__share ?? 1);
+    totalVentasSoles += Number(v.precioVenta ?? 0) * share;
+    totalGanancia += Number(v.ganancia ?? 0) * share;
   }
   return {
     cantidad: ventasArr.length,
@@ -94,6 +111,7 @@ function totales(ventasArr) {
 export default function Ganancias({ setVista }) {
   const [ventas, setVentas] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [assigningVenta, setAssigningVenta] = useState(null);
 
   const currentYear = String(new Date().getFullYear());
 
@@ -108,7 +126,6 @@ export default function Ganancias({ setVista }) {
   const [anioRenato, setAnioRenato] = useState(currentYear);
 
   // Modales
-  const [sellerTarget, setSellerTarget] = useState(null);   // 'Gonzalo' | 'Renato' | null
   const [sellerSunat, setSellerSunat] = useState(null);   // 'Gonzalo' | 'Renato' | null
 
   // Carga TODAS las ventas
@@ -131,6 +148,20 @@ export default function Ganancias({ setVista }) {
     }
   };
 
+  const handleAssignVenta = async (ventaId, vendedor) => {
+    if (!ventaId || !vendedor) return;
+    try {
+      setAssigningVenta(`${ventaId}-${vendedor}`);
+      await api.patch(`/ventas/${ventaId}`, { vendedor });
+      await loadVentas();
+    } catch (e) {
+      console.error('[Ganancias] Error asignando vendedor:', e);
+      alert('No se pudo asignar el vendedor.');
+    } finally {
+      setAssigningVenta(null);
+    }
+  };
+
   useEffect(() => { loadVentas(); }, []);
 
   // Global
@@ -147,14 +178,28 @@ export default function Ganancias({ setVista }) {
     [ventasGlobalFiltradas]
   );
 
-  // Por vendedor
+  // Por vendedor (incluye ventas divididas 50/50)
   const ventasGonzalo = useMemo(
-    () => ventas.filter(v => (v.vendedor || '').toLowerCase() === 'gonzalo'),
-    [ventas]
+    () =>
+      ventas
+        .map((v) => {
+          const share = shareForSeller(v, 'gonzalo');
+          if (!share) return null;
+          return { ...v, __share: share, __split: share !== 1 };
+        })
+        .filter(Boolean),
+    [ventas],
   );
   const ventasRenato = useMemo(
-    () => ventas.filter(v => (v.vendedor || '').toLowerCase() === 'renato'),
-    [ventas]
+    () =>
+      ventas
+        .map((v) => {
+          const share = shareForSeller(v, 'renato');
+          if (!share) return null;
+          return { ...v, __share: share, __split: share !== 1 };
+        })
+        .filter(Boolean),
+    [ventas],
   );
 
   const rangoGonzalo = useMemo(
@@ -177,6 +222,16 @@ export default function Ganancias({ setVista }) {
 
   const tG = useMemo(() => totales(ventasGonzaloFiltradas), [ventasGonzaloFiltradas]);
   const tR = useMemo(() => totales(ventasRenatoFiltradas), [ventasRenatoFiltradas]);
+  const ventasSinVendedor = useMemo(() => {
+    return ventas
+      .filter((v) => !normalizeVendedor(v.vendedor))
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(b.fechaVenta || b.createdAt || 0) -
+          new Date(a.fechaVenta || a.createdAt || 0),
+      );
+  }, [ventas]);
 
   return (
     <div className="min-h-screen p-8 bg-macGray text-macDark">
@@ -236,6 +291,99 @@ export default function Ganancias({ setVista }) {
         </div>
       </div>
 
+      {/* Ventas sin vendedor */}
+      <div className="bg-white border rounded-2xl shadow-sm p-5 mb-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+          <div>
+            <div className="text-lg font-semibold">Ventas sin vendedor</div>
+            <div className="text-sm text-gray-500">
+              {ventasSinVendedor.length
+                ? 'Asigna cada venta para que aparezca en la columna del vendedor.'
+                : 'Todas las ventas tienen vendedor asignado.'}
+            </div>
+          </div>
+          {ventasSinVendedor.length > 0 && (
+            <div className="text-sm text-gray-500">
+              Total: {ventasSinVendedor.length} venta{ventasSinVendedor.length === 1 ? '' : 's'}
+            </div>
+          )}
+        </div>
+        {ventasSinVendedor.length === 0 ? (
+          <div className="text-sm text-gray-500">Sin ventas pendientes de asignar.</div>
+        ) : (
+          <div className="overflow-auto border rounded max-h-[60vh]">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-gray-100 sticky top-0">
+                <tr>
+                  <th className="p-2">Nombre</th>
+                  <th className="p-2">Total (S/)</th>
+                  <th className="p-2">F. compra</th>
+                  <th className="p-2">Precio venta (S/)</th>
+                  <th className="p-2">Ganancia (S/)</th>
+                  <th className="p-2">% Gan.</th>
+                  <th className="p-2">F. venta</th>
+                  <th className="p-2">Asignar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ventasSinVendedor.map((v) => {
+                  const p = v.producto || {};
+                  const val = p.valor || {};
+                  const costoTotal = Number(val.costoTotal ?? 0);
+                  const precioVenta = Number(v.precioVenta ?? 0);
+                  const ganancia = Number(v.ganancia ?? (precioVenta - costoTotal));
+                  const pct = costoTotal > 0 ? (ganancia / costoTotal) * 100 : 0;
+                  return (
+                    <tr key={v.id} className="border-t">
+                      <td className="p-2">{nombreProducto(p) || '--'}</td>
+                      <td className="p-2">{fmtSoles(costoTotal)}</td>
+                      <td className="p-2">
+                        {val.fechaCompra
+                          ? new Date(val.fechaCompra).toLocaleDateString()
+                          : '--'}
+                      </td>
+                      <td className="p-2">{fmtSoles(precioVenta)}</td>
+                      <td className="p-2">{fmtSoles(ganancia)}</td>
+                      <td className="p-2">{isFinite(pct) ? `${pct.toFixed(2)}%` : '--'}</td>
+                      <td className="p-2">
+                        {v.fechaVenta
+                          ? new Date(v.fechaVenta).toLocaleDateString()
+                          : '--'}
+                      </td>
+                      <td className="p-2">
+                        <div className="flex flex-wrap gap-2">
+                          {['Gonzalo', 'Renato'].map((vend) => {
+                            const key = `${v.id}-${vend}`;
+                            const busy = assigningVenta === key;
+                            return (
+                              <button
+                                key={vend}
+                                onClick={() => handleAssignVenta(v.id, vend)}
+                                className="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 text-xs"
+                                disabled={busy}
+                              >
+                                {busy ? 'Asignando…' : `Asignar a ${vend}`}
+                              </button>
+                            );
+                          })}
+                          <button
+                            onClick={() => handleAssignVenta(v.id, SPLIT_VENDOR)}
+                            className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 text-xs"
+                            disabled={assigningVenta === `${v.id}-${SPLIT_VENDOR}`}
+                          >
+                            {assigningVenta === `${v.id}-${SPLIT_VENDOR}` ? 'Dividiendo…' : 'Dividir 50/50'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Dos columnas: Gonzalo y Renato */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ColVendedor
@@ -246,7 +394,6 @@ export default function Ganancias({ setVista }) {
           anio={anioGonzalo}
           setMes={setMesGonzalo}
           setAnio={setAnioGonzalo}
-          onImport={() => setSellerTarget('Gonzalo')}
           onSunat={() => setSellerSunat('Gonzalo')}
           reloadVentas={loadVentas}
         />
@@ -258,25 +405,12 @@ export default function Ganancias({ setVista }) {
           anio={anioRenato}
           setMes={setMesRenato}
           setAnio={setAnioRenato}
-          onImport={() => setSellerTarget('Renato')}
           onSunat={() => setSellerSunat('Renato')}
           reloadVentas={loadVentas}
         />
       </div>
 
       {loading && <p className="mt-4 text-gray-500">Cargando ventas…</p>}
-
-      {/* Modal: Importar ventas */}
-      {sellerTarget && (
-        <ModalImportarVenta
-          seller={sellerTarget}
-          onClose={() => setSellerTarget(null)}
-          onImported={async () => {
-            await loadVentas();
-            setSellerTarget(null);
-          }}
-        />
-      )}
 
       {/* Modal: Sunat */}
       {sellerSunat && (
@@ -307,7 +441,6 @@ function ColVendedor({
   ventas,
   totales,
   mes, anio, setMes, setAnio,
-  onImport,
   onSunat,
   reloadVentas,
 }) {
@@ -342,12 +475,6 @@ function ColVendedor({
             className="bg-amber-600 text-white px-4 py-2 rounded-xl hover:bg-amber-700"
           >
             Calcular Sunat
-          </button>
-          <button
-            onClick={onImport}
-            className="bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700"
-          >
-            Importar venta
           </button>
         </div>
       </div>
@@ -422,23 +549,37 @@ function ColVendedor({
                 const p = v.producto || {};
                 const val = p.valor || {};
                 const pct = Number(v.porcentajeGanancia ?? 0);
+                const share = Number(v.__share ?? 1);
+                const costoTotal = Number(val.costoTotal ?? 0);
+                const precioVenta = Number(v.precioVenta ?? 0);
+                const gananciaBase = Number(v.ganancia ?? (precioVenta - costoTotal));
+                const gananciaMostrada = gananciaBase * share;
 
                 return (
                   <tr key={v.id} className="border-t">
-                    <td className="p-2">{nombreProducto(p) || '—'}</td>
+                    <td className="p-2">
+                      <div className="flex flex-col">
+                        <span>{nombreProducto(p) || '--'}</span>
+                        {share !== 1 && (
+                          <span className="text-[10px] uppercase text-gray-500">
+                            50% compartido
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-2">{fmtSoles(val.costoTotal)}</td>
                     <td className="p-2">
                       {val.fechaCompra
                         ? new Date(val.fechaCompra).toLocaleDateString()
-                        : '—'}
+                        : '--'}
                     </td>
                     <td className="p-2">{fmtSoles(v.precioVenta)}</td>
-                    <td className="p-2">{fmtSoles(v.ganancia)}</td>
-                    <td className="p-2">{isFinite(pct) ? `${pct.toFixed(2)}%` : '—'}</td>
+                    <td className="p-2">{fmtSoles(gananciaMostrada)}</td>
+                    <td className="p-2">{isFinite(pct) ? `${pct.toFixed(2)}%` : '--'}</td>
                     <td className="p-2">
                       {v.fechaVenta
                         ? new Date(v.fechaVenta).toLocaleDateString()
-                        : '—'}
+                        : '--'}
                     </td>
                     <td className="p-2">
                       <button
@@ -462,206 +603,6 @@ function ColVendedor({
 }
 
 /* =========================
-   ModalImportarVenta
-   ========================= */
-function ModalImportarVenta({ seller, onClose, onImported }) {
-  const [ventas, setVentas] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const currentYear = String(new Date().getFullYear());
-  const [mes, setMes] = useState('');
-  const [anio, setAnio] = useState(currentYear);
-  const [selectedIds, setSelectedIds] = useState(new Set());
-
-  const fetchVentas = async (m = mes, y = anio) => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set('unassigned', 'true');
-      if (y && m) {
-        const mm = String(m).padStart(2, '0');
-        const from = `${y}-${mm}-01`;
-        const to = `${y}-${mm}-${String(lastDayOfMonth(Number(y), Number(m))).padStart(2, '0')}`;
-        params.set('from', from);
-        params.set('to', to);
-      }
-      const data = await api.get(`/ventas?${params.toString()}`);
-      const list = (Array.isArray(data) ? data : []).sort(
-        (a, b) =>
-          new Date(b.fechaVenta || b.createdAt || 0) -
-          new Date(a.fechaVenta || a.createdAt || 0)
-      );
-      setVentas(list);
-    } catch (e) {
-      console.error('[ModalImportarVenta] Error cargando ventas:', e);
-      setVentas([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchVentas(); }, []);
-  useEffect(() => {
-    if (anio && mes) fetchVentas(mes, anio);
-    if (!anio || !mes) fetchVentas('', '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mes, anio]);
-
-  const toggle = (id) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const aceptar = async () => {
-    if (selectedIds.size === 0) {
-      alert('Selecciona al menos una venta.');
-      return;
-    }
-    try {
-      const payload = { vendedor: seller };
-      await Promise.all(
-        [...selectedIds].map(id => api.patch(`/ventas/${id}`, payload))
-      );
-      onImported && onImported();
-    } catch (e) {
-      console.error('[ModalImportarVenta] Error asignando vendedor:', e);
-      alert('No se pudo asignar el vendedor a alguna venta.');
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white w-full max-w-6xl rounded-2xl shadow-lg p-6 relative">
-        <button
-          className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
-          onClick={onClose}
-        >
-          ✖
-        </button>
-        <h2 className="text-2xl font-semibold mb-4">Importar venta — {seller}</h2>
-
-        {/* Filtros Mes/Año */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-4">
-          <div>
-            <label className="block text-sm text-gray-700 mb-1">Mes</label>
-            <select
-              className="border rounded px-3 py-2"
-              value={mes}
-              onChange={e => setMes(e.target.value)}
-            >
-              <option value="">Todos</option>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
-                <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm text-gray-700 mb-1">Año</label>
-            <input
-              type="number"
-              className="border rounded px-3 py-2 w-28"
-              placeholder="YYYY"
-              value={anio}
-              onChange={e => setAnio(e.target.value)}
-            />
-          </div>
-          <div className="flex items-end gap-2">
-            <button
-              className="px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
-              onClick={() => { setMes(''); setAnio(currentYear); }}
-            >
-              Limpiar
-            </button>
-          </div>
-        </div>
-
-        {/* Tabla (sin Precio DEC) */}
-        {loading ? (
-          <p>Cargando ventas…</p>
-        ) : ventas.length === 0 ? (
-          <p>No hay ventas sin asignar en ese rango.</p>
-        ) : (
-          <div className="overflow-auto max-h-[60vh] border rounded">
-            <table className="w-full text-left">
-              <thead className="bg-gray-100 sticky top-0">
-                <tr>
-                  <th className="p-2">Sel.</th>
-                  <th className="p-2">Nombre</th>
-                  <th className="p-2">Total (S/)</th>
-                  <th className="p-2">F. compra</th>
-                  <th className="p-2">Precio venta (S/)</th>
-                  <th className="p-2">Ganancia (S/)</th>
-                  <th className="p-2">% Gan.</th>
-                  <th className="p-2">F. venta</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ventas.map(v => {
-                  const p = v.producto || {};
-                  const val = p.valor || {};
-                  const nombre = nombreProducto(p);
-                  const costoTotal = Number(val.costoTotal ?? 0);
-                  const precioVenta = Number(v.precioVenta ?? 0);
-                  const ganancia = Number(v.ganancia ?? (precioVenta - costoTotal));
-                  const pct = costoTotal > 0 ? (ganancia / costoTotal) * 100 : 0;
-
-                  return (
-                    <tr key={v.id} className="border-t">
-                      <td className="p-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(v.id)}
-                          onChange={() => toggle(v.id)}
-                        />
-                      </td>
-                      <td className="p-2">{nombre || '—'}</td>
-                      <td className="p-2">{fmtSoles(costoTotal)}</td>
-                      <td className="p-2">
-                        {val.fechaCompra
-                          ? new Date(val.fechaCompra).toLocaleDateString()
-                          : '—'}
-                      </td>
-                      <td className="p-2">{fmtSoles(precioVenta)}</td>
-                      <td className="p-2">{fmtSoles(ganancia)}</td>
-                      <td className="p-2">{isFinite(pct) ? `${pct.toFixed(2)}%` : '—'}</td>
-                      <td className="p-2">
-                        {v.fechaVenta
-                          ? new Date(v.fechaVenta).toLocaleDateString()
-                          : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2 mt-4">
-          <button
-            className="bg-indigo-600 text-white px-5 py-2 rounded hover:bg-indigo-700 disabled:opacity-50"
-            onClick={aceptar}
-            disabled={selectedIds.size === 0}
-          >
-            Aceptar
-          </button>
-          <button
-            className="bg-gray-300 text-gray-800 px-5 py-2 rounded hover:bg-gray-400"
-            onClick={onClose}
-          >
-            Cancelar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* =========================
    ModalSunat (por vendedor)
    ========================= */
 function ModalSunat({ seller, onClose, ventas }) {
@@ -669,9 +610,17 @@ function ModalSunat({ seller, onClose, ventas }) {
   const [mes, setMes] = useState('');
   const [anio, setAnio] = useState(currentYear);
 
+  const sellerSlug = normalizeVendedor(seller);
   const ventasSeller = useMemo(
-    () => ventas.filter(v => (v.vendedor || '').toLowerCase() === seller.toLowerCase()),
-    [ventas, seller]
+    () =>
+      ventas
+        .map((v) => {
+          const share = shareForSeller(v, sellerSlug);
+          if (!share) return null;
+          return { ...v, __share: share, __split: share !== 1 };
+        })
+        .filter(Boolean),
+    [ventas, sellerSlug],
   );
 
   const rango = useMemo(() => rangoFromMesAnio(mes, anio), [mes, anio]);
@@ -689,13 +638,18 @@ function ModalSunat({ seller, onClose, ventas }) {
       const p = v.producto || {};
       const val = p.valor || {};
       const tipoCambio = Number(v.tipoCambio ?? 0);
-      const valorDecUSD = Number(val.valorDec ?? 0);
-      const envioSoles = Number(val.costoEnvio ?? 0);
-      const ventaSoles = Number(v.precioVenta ?? 0);
+      const share = Number(v.__share ?? 1);
+      const valorDecUSDBase = Number(val.valorDec ?? 0);
+      const envioSolesBase = Number(val.costoEnvio ?? 0);
+      const ventaSolesBase = Number(v.precioVenta ?? 0);
 
+      const valorDecUSD = valorDecUSDBase * share;
+      const envioSoles = envioSolesBase * share;
+      const ventaSoles = ventaSolesBase * share;
       const decSoles = valorDecUSD * tipoCambio;
       const costoBase = decSoles + envioSoles;
-      const gananciaNeta = ventaSoles - costoBase;
+      const gananciaBase = Number(v.ganancia ?? (ventaSolesBase - Number(val.costoTotal ?? 0)));
+      const gananciaNeta = gananciaBase * share;
 
       return {
         id: v.id,
@@ -707,6 +661,7 @@ function ModalSunat({ seller, onClose, ventas }) {
         costoBase,
         gananciaNeta,
         fechaVenta: v.fechaVenta || v.createdAt || null,
+        split: share !== 1,
       };
     });
   }, [lista]);
@@ -803,7 +758,16 @@ function ModalSunat({ seller, onClose, ventas }) {
               <tbody>
                 {filas.map(f => (
                   <tr key={f.id} className="border-t">
-                    <td className="p-2">{f.nombre || '—'}</td>
+                    <td className="p-2">
+                      <div className="flex flex-col">
+                        <span>{f.nombre || '—'}</span>
+                        {f.split && (
+                          <span className="text-[10px] uppercase text-gray-500">
+                            50% compartido
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-2">{fmtUSD(f.valorDecUSD)}</td>
                     <td className="p-2">{fmtSoles(f.decSoles)}</td>
                     <td className="p-2">{fmtSoles(f.envioSoles)}</td>
