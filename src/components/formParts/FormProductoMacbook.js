@@ -16,9 +16,9 @@ export default function FormProductoMacbook({ detalle, onChange }) {
     let ssds = [];
     if (gama === 'Air') {
       if (p === 'M1') { sizes=['13']; rams=['8','16']; ssds=['256','512','1TB','2TB']; }
-      else if (p === 'M2') { sizes=['13.6','15.3']; rams=['8','16','24']; ssds=['256','512','1TB','2TB']; }
-      else if (p === 'M3') { sizes=['13.6','15.3']; rams=['8','16','24']; ssds=['256','512','1TB','2TB']; }
-      else if (p === 'M4') { sizes=['13.6','15.3']; rams=['16','24','32']; ssds=['256','512','1TB','2TB']; }
+      else if (p === 'M2') { sizes=['13','15']; rams=['8','16','24']; ssds=['256','512','1TB','2TB']; }
+      else if (p === 'M3') { sizes=['13','15']; rams=['8','16','24']; ssds=['256','512','1TB','2TB']; }
+      else if (p === 'M4') { sizes=['13','15']; rams=['16','24','32']; ssds=['256','512','1TB','2TB']; }
     } else if (gama === 'Pro') {
       if (p === 'M1') { sizes=['13']; rams=['8','16']; ssds=['256','512','1TB','2TB']; }
       else if (p === 'M1 Pro') { sizes=['14','16']; rams=['16','32']; ssds=['512','1TB','2TB']; }
@@ -46,7 +46,7 @@ export default function FormProductoMacbook({ detalle, onChange }) {
         <select
           value={gama}
           className="w-full border p-2 rounded"
-          onChange={e => { onChange('gama', e.target.value); onChange('procesador',''); onChange('tamaño',''); onChange('ram',''); onChange('almacenamiento',''); }}
+          onChange={e => { onChange('gama', e.target.value); onChange('procesador',''); onChange('tamano',''); onChange('ram',''); onChange('almacenamiento',''); }}
         >
           <option value="">Seleccione</option>
           <option value="Air">Air</option>
@@ -60,7 +60,7 @@ export default function FormProductoMacbook({ detalle, onChange }) {
         <select
           value={procesador}
           className="w-full border p-2 rounded"
-          onChange={e => { onChange('procesador', e.target.value); onChange('tamaño',''); onChange('ram',''); onChange('almacenamiento',''); }}
+          onChange={e => { onChange('procesador', e.target.value); onChange('tamano',''); onChange('ram',''); onChange('almacenamiento',''); }}
         >
           <option value="">Seleccione</option>
           {(gama === 'Air' ? procesadoresAir : procesadoresPro).map(p => (
@@ -69,13 +69,13 @@ export default function FormProductoMacbook({ detalle, onChange }) {
         </select>
       </div>
 
-      {/* Tamaño */}
+      {/* Tamaño (mostrar ñ, guardar en 'tamano') */}
       <div>
         <label className="block font-medium">Tamaño</label>
         <select
-          value={detalle['tamaño']}
+          value={detalle?.tamano || ''}
           className="w-full border p-2 rounded"
-          onChange={e => onChange('tamaño', e.target.value)}
+          onChange={e => onChange('tamano', e.target.value)}
         >
           <option value="">Seleccione</option>
           {sizes.map(t => (<option key={t} value={t}>{t}″</option>))}
@@ -110,4 +110,3 @@ export default function FormProductoMacbook({ detalle, onChange }) {
     </>
   );
 }
-

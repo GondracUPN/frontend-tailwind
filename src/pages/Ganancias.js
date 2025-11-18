@@ -35,7 +35,8 @@ function nombreProducto(p) {
   // iPad: incluir Generación, Tamaño (pulgadas) y Conexión
   if (tipoKey.includes('ipad')) {
     const gen = d.generacion ? String(d.generacion).trim() : null;
-    const size = (d.tamaño ?? d.tamanio) ? `${d.tamaño ?? d.tamanio}"` : null; // pulgadas
+    const sizeVal = d.tamano ?? d.tamanio ?? d['tamaño'];
+    const size = sizeVal ? `${sizeVal}"` : null; // pulgadas
     const conn = (d.conexion ?? d.conectividad) ? String(d.conexion ?? d.conectividad).trim() : null;
 
     return ['iPad', gen, size, conn].filter(Boolean).join(' ');
@@ -44,7 +45,8 @@ function nombreProducto(p) {
   // Apple Watch: incluir Generación, Tamaño (mm) y Conexión
   if (tipoKey.includes('applewatch') || tipoKey === 'watch') {
     const gen = d.generacion ? String(d.generacion).trim() : null;
-    const size = (d.tamaño ?? d.tamanio) ? `${d.tamaño ?? d.tamanio}mm` : null; // milímetros
+    const sizeVal = d.tamano ?? d.tamanio ?? d['tamaño'];
+    const size = sizeVal ? `${sizeVal}mm` : null; // milímetros
     const conn = (d.conexion ?? d.conectividad) ? String(d.conexion ?? d.conectividad).trim() : null;
 
     return ['Apple Watch', gen, size, conn].filter(Boolean).join(' ');
@@ -59,7 +61,7 @@ function nombreProducto(p) {
     tipoRaw,
     d.gama,
     d.procesador,
-    d.tamaño || d.tamanio, // deja tal cual para los demás
+    d.tamano || d.tamanio || d['tamaño'], // deja tal cual para los demás
   ].filter(Boolean);
 
   return parts.join(' ');

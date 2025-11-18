@@ -19,7 +19,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     casillero: '',
     detalle: {
       gama: '', procesador: '', generacion: '',
-      modelo: '', tamaño: '',
+      modelo: '', tamano: '',
       almacenamiento: '', ram: '',
       conexion: '', descripcionOtro: '',
     },
@@ -32,12 +32,23 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
   useEffect(() => {
     if (!isEdit) return;
 
+    const detalle = { ...(producto.detalle || {}) };
+    // Normaliza llave de tamaño a 'tamano' (ASCII)
+    if (detalle['tamaño'] && !detalle.tamano) {
+      detalle.tamano = detalle['tamaño'];
+      delete detalle['tamaño'];
+    }
+    if (detalle.tamanio && !detalle.tamano) {
+      detalle.tamano = detalle.tamanio;
+      delete detalle.tamanio;
+    }
+
     setForm({
       tipo: producto.tipo || '',
       estado: producto.estado || '',
       accesorios: Array.isArray(producto.accesorios) ? producto.accesorios : [],
       casillero: producto.tracking?.[0]?.casillero || '',  // si existe tracking relacionado
-      detalle: { ...producto.detalle },
+      detalle,
       valor: {
         valorProducto: producto.valor?.valorProducto || '',
         valorDec: producto.valor?.valorDec || '',
@@ -77,7 +88,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     const base = { tipo: form.tipo, estado: form.estado, accesorios };
 
 
-    const allowedDetalle = ['gama','procesador','generacion','numero','modelo','tamaño','almacenamiento','ram','conexion','descripcionOtro'];
+    const allowedDetalle = ['gama','procesador','generacion','numero','modelo','tamano','almacenamiento','ram','conexion','descripcionOtro'];
     const cleanDetalle = Object.fromEntries(
       Object.entries(form.detalle || {}).filter(([k]) => allowedDetalle.includes(k))
     );
@@ -92,19 +103,18 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       const res = await api[method](url, payload);
       const saved = res?.data ?? res; // ✅ Producto real (no AxiosResponse)
 
-      // 👇 Crear o actualizar tracking con casillero
-      if (form.casillero) {
-        await api.put(`/tracking/producto/${saved.id}`, {
-          casillero: form.casillero,
-          estado: "comprado_sin_tracking",
-        });
-
-      }
-
+      // Actualiza estado global y cierra de inmediato (no bloquea mientras se guarda tracking)
       onSaved(saved);
       onClose();
-    } catch (err) {
 
+      // Crear o actualizar tracking con casillero en segundo plano
+      if (form.casillero) {
+        api.put(`/tracking/producto/${saved.id}`, {
+          casillero: form.casillero,
+          estado: "comprado_sin_tracking",
+        }).catch((err) => console.error('Error al asignar casillero:', err));
+      }
+    } catch (err) {
       console.error('Error al guardar:', err);
       alert('No se pudo guardar el producto.');
     } finally {
@@ -118,11 +128,16 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       <div className="bg-white w-full sm:max-w-5xl rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-y-auto">
         {/* Cerrar */}
         <button
-          className={`absolute top-4 right-4 ${saving ? 'opacity-50 cursor-not-allowed' : 'text-gray-500 hover:text-gray-800'}`}
+          className={`absolute top-3 right-3 w-10 h-10 flex items-center justify-center text-2xl font-bold rounded-full hover:bg-gray-100 ${
+            saving ? 'opacity-50 cursor-not-allowed text-gray-400' : 'text-gray-600 hover:text-gray-900'
+          }`}
           onClick={saving ? undefined : onClose}
           disabled={saving}
           aria-disabled={saving}
-        >✖</button>
+          aria-label="Cerrar"
+        >
+          ×
+        </button>
 
         {/* Título */}
         <h2 className="text-2xl font-semibold mb-4">

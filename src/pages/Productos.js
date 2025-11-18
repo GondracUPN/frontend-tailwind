@@ -8,7 +8,7 @@ import api from '../api';  // cliente fetch centralizado
 import ResumenCasilleros from '../components/ResumenCasilleros';
 import ModalCasillero from '../components/ModalCasillero';
 import ModalVenta from '../components/ModalVenta';
-import ModalFotos from '../components/ModalFotos2';
+import ModalFotos from '../components/ModalFotos';
 import ModalCalculadora from '../components/ModalCalculadora';
 import ModalDec from '../components/ModalDec';
 import {
@@ -72,11 +72,18 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [filtroTam, setFiltroTam] = useState('todos');   // tamano adicional para macbook/ipad
   const [trackingQuery, setTrackingQuery] = useState('');
 
-  // Helper: lee tamano desde detalle (soporta 'tamano' | 'tamanio' | 'tamano')
+  // Helper: lee tamano desde detalle (normaliza a 'tamano' ASCII) y ajusta a enteros para macbooks
   const getTam = (d) => {
     if (!d) return '';
-    const v = (d['tamaño'] ? String(d['tamaño']).trim() : '');
-    return v;
+    const raw = (d.tamano ?? d.tamanio ?? d['tamaño'] ?? '').toString().trim();
+    if (!raw) return '';
+    // Normaliza tamaños decimales de MacBook (13.6 -> 13, 15.3 -> 15)
+    const n = Number(raw.replace(',', '.'));
+    if (!Number.isNaN(n)) {
+      if (n >= 15 && n < 15.6) return '15';
+      if (n >= 13 && n < 13.7) return '13';
+    }
+    return raw;
   };
 
   // Tipos disponibles calculados desde la data
@@ -173,7 +180,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
       p.tipo,
       p.detalle?.gama,
       p.detalle?.procesador,
-      (p.detalle || {})['tamaño']
+        (p.detalle || {})['tamano'] || (p.detalle || {})['tamaño'] || (p.detalle || {})['tamanio']
     ].filter(Boolean);
     return parts.join(' ');
   };

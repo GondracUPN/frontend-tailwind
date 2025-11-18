@@ -1,8 +1,7 @@
-﻿// src/components/formParts/FormProductoIpad.js
+// src/components/formParts/FormProductoIpad.js
 export default function FormProductoIpad({ detalle, onChange }) {
-  // OJO: 'tamaño' viene con Ã± desde backend. Lo extraemos con bracket notation.
   const { gama, procesador, generacion, almacenamiento, conexion } = detalle;
-  const tamaño = detalle['tamaño'] || '';
+  const tamano = detalle.tamano || '';
 
   const generacionesNormales = ['8', '9', '10', '11'];
   const procesadoresAir = ['M1', 'M2', 'M3'];
@@ -14,7 +13,6 @@ export default function FormProductoIpad({ detalle, onChange }) {
     return [];
   };
 
-  // Evitamos Ã± en el nombre de la funciÃ³n para no tener problemas, pero el campo sigue siendo 'tamaño'
   const getTamanos = () => {
     if (gama === 'Air' && ['M2', 'M3'].includes(procesador)) return ['11', '13'];
     if (gama === 'Pro') {
@@ -50,7 +48,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
             // reset dependientes
             onChange('procesador', '');
             onChange('generacion', '');
-            onChange('tamaño', '');        // <-- con Ã±
+            onChange('tamano', '');        // reset tamano en ASCII
             onChange('almacenamiento', '');
             // Si quieres resetear conexiÃ³n, descomenta:
             // onChange('conexion', '');
@@ -91,7 +89,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
               onChange={e => {
                 onChange('procesador', e.target.value);
                 // reset dependientes
-                onChange('tamaño', '');       // <-- con Ã±
+                onChange('tamano', '');       // reset tamano ASCII
                 onChange('almacenamiento', '');
               }}
             >
@@ -102,14 +100,14 @@ export default function FormProductoIpad({ detalle, onChange }) {
             </select>
           </div>
 
-          {/* tamaño dinÃ¡mico */}
+          {/* tamaño dinámico (label con ñ, campo 'tamano') */}
           {getTamanos().length > 0 && (
             <div>
               <label className="block font-medium">tamaño</label>
               <select
                 className="w-full border p-2 rounded"
-                value={tamaño}
-                onChange={e => onChange('tamaño', e.target.value)}  // <-- con Ã±
+                value={tamano}
+                onChange={e => onChange('tamano', e.target.value)}
               >
                 <option value="">Seleccione</option>
                 {getTamanos().map(t => (
