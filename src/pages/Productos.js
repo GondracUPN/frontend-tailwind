@@ -66,6 +66,8 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [pickupDate, setPickupDate] = useState(''); // YYYY-MM-DD
   const [soloDisponibles, setSoloDisponibles] = useState(false);
   const [selectedCasillero, setSelectedCasillero] = useState(null);
+  const [productoEnCasillero, setProductoEnCasillero] = useState(null);
+  const [savingProductos, setSavingProductos] = useState(() => new Set());
   // Filtros adicionales
   const [filtroTipo, setFiltroTipo] = useState('todos'); // 'todos' | 'macbook' | 'ipad' | 'pantalla' | 'otro'
   const [filtroProc, setFiltroProc] = useState('todos'); // procesador o pantalla (texto libre)
@@ -512,16 +514,55 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const abrirCostos = (p) => { setProductoSeleccionado(p); setModalModo('costos'); };
   const abrirTrack = (p) => { setProductoSeleccionado(p); setModalModo('track'); };
   const abrirDec = (p) => { setProductoSeleccionado(p); setModalModo('dec'); };
-  const cerrarModal = () => { setModalModo(null); setProductoSeleccionado(null); };
+  const cerrarModal = () => { setModalModo(null); setProductoSeleccionado(null); setProductoEnCasillero(null); };
   const abrirCasillero = (cas) => { setSelectedCasillero(cas); setModalModo('casillero'); };
 
-  const handleSaved = (updated) => {
+  const applyProductoUpdate = (updated, { isNuevo = false, closeModal = true } = {}) => {
     setProductos(list =>
-      modalModo === 'crear'
+      isNuevo
         ? [updated, ...list]
         : list.map(p => (p.id === updated.id ? updated : p))
     );
-    cerrarModal();
+    if (closeModal) cerrarModal();
+  };
+
+  const guardarDetalleProducto = async (id, payload) => {
+    let yaGuardando = false;
+    setSavingProductos((prev) => {
+      if (prev.has(id)) {
+        yaGuardando = true;
+        return prev;
+      }
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    if (yaGuardando) return;
+
+    try {
+      const res = await api.patch('/productos/' + id, payload);
+      const updated = res?.data ?? res;
+      applyProductoUpdate(updated, { isNuevo: false, closeModal: false });
+    } catch (e) {
+      console.error('[Productos] Error al guardar producto', e);
+      alert('No se pudo actualizar el producto.');
+    } finally {
+      setSavingProductos((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  const handleSaved = (updated) => {
+    applyProductoUpdate(updated, { isNuevo: modalModo === 'crear' });
+  };
+
+  const handleSavedEnCasillero = (updated) => {
+    applyProductoUpdate(updated, { isNuevo: false, closeModal: false });
+    setProductoEnCasillero(null);
   };
 
   const handleDelete = async (id) => {
@@ -945,6 +986,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
                   : !canSelectRecojo;
 
                 const isSelected = selectedIds.has(p.id);
+                const guardando = savingProductos.has(p.id);
 
 
 
@@ -1004,10 +1046,11 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
                     <td className="p-2">
                       <button
-                        onClick={(e) => { e.stopPropagation(); abrirDetalle(p); }}
-                        className="bg-gray-200 px-2 py-1 rounded hover:bg-gray-300"
+                        onClick={(e) => { e.stopPropagation(); if (!guardando) abrirDetalle(p); }}
+                        className={`bg-gray-200 px-2 py-1 rounded hover:bg-gray-300 ${guardando ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        disabled={guardando}
                       >
-                        {p.tipo}
+                        {guardando ? 'Guardando...' : p.tipo}
                       </button>
 
                     </td>
@@ -1161,6 +1204,8 @@ export default function Productos({ setVista, setAnalisisBack }) {
         )
       )}
 
+      
+
       {/* Modales */}
       {modalModo === 'crear' && <ModalProducto onClose={cerrarModal} onSaved={handleSaved} />}
       {modalModo === 'detalle' && (
@@ -1168,9 +1213,10 @@ export default function Productos({ setVista, setAnalisisBack }) {
           producto={productoSeleccionado}
           onClose={cerrarModal}
           onSaved={handleSaved}
+          onSaveOutside={guardarDetalleProducto}
         />
       )}
-            {modalModo === 'fotos' && (<ModalFotos producto={productoSeleccionado} onClose={cerrarModal} />)}
+      {modalModo === 'fotos' && (<ModalFotos producto={productoSeleccionado} onClose={cerrarModal} />)}
       {modalModo === 'costos' && <ModalCostos producto={productoSeleccionado} onClose={cerrarModal} onSaved={handleSaved} />}
       {modalModo === 'track' && (
         <ModalTracking
@@ -1189,7 +1235,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
           casillero={selectedCasillero}
           productos={productos}
           onClose={() => { setSelectedCasillero(null); cerrarModal(); }}
-          onOpenProducto={(p) => { setProductoSeleccionado(p); setModalModo('detalle'); }}
+          onOpenProducto={(p) => { setProductoEnCasillero(p); setProductoSeleccionado(p); }}
         />
       )}
       {modalModo === 'venta' && (
@@ -1206,13 +1252,23 @@ export default function Productos({ setVista, setAnalisisBack }) {
           onClose={cerrarModal}
         />
       )}
+      {modalModo === 'casillero' && productoEnCasillero && (
+        <DetallesProductoModal
+          producto={productoEnCasillero}
+          onClose={() => setProductoEnCasillero(null)}
+          onSaved={handleSavedEnCasillero}
+          onSaveOutside={guardarDetalleProducto}
+        />
+      )}
       {modalModo === 'dec' && (
         <ModalDec
           onClose={cerrarModal}
-          productos={productos}   // �o. le pasas lo que ya cargaste arriba
-          loading={cargando}      // �o. estado de carga del padre
+          productos={productos}   // ?o. le pasas lo que ya cargaste arriba
+          loading={cargando}      // ?o. estado de carga del padre
         />
       )}
+
+
 
 
     </div>

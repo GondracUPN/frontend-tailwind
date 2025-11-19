@@ -7,7 +7,7 @@ import FormProductoWatch from './formParts/FormProductoWatch';
 import FormProductoOtro from './formParts/FormProductoOtro';
 import api from '../api';
 
-export default function DetallesProductoModal({ producto, onClose, onSaved }) {
+export default function DetallesProductoModal({ producto, onClose, onSaved, onSaveOutside }) {
   // ----- 1. Estado e inicialización -----
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState({
@@ -52,6 +52,11 @@ export default function DetallesProductoModal({ producto, onClose, onSaved }) {
     const payload = { tipo: form.tipo, estado: form.estado, accesorios, detalle: cleanDetalle };
 
     try {
+      if (onSaveOutside) {
+        onSaveOutside(producto.id, payload); // Guardado gestionado por el padre para cerrar rapido el modal
+        onClose?.();
+        return;
+      }
     
       const res = await api.patch('/productos/' + producto.id, payload);
       const updated = res?.data ?? res;

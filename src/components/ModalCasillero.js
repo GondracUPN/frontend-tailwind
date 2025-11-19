@@ -1,4 +1,4 @@
-// src/components/ModalCasillero.js
+﻿// src/components/ModalCasillero.js
 import React, { useMemo } from 'react';
 
 const fmtUSD = (v) => (isNaN(v) ? '-' : `$ ${Number(v).toFixed(2)}`);
@@ -71,7 +71,13 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
       <div className="bg-white w-full sm:max-w-4xl rounded-2xl shadow-2xl p-0 relative mx-4 max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="px-6 pt-5 pb-4 border-b bg-gradient-to-r from-indigo-50 to-white">
-          <button className="absolute top-4 right-4 text-gray-500 hover:text-gray-800" onClick={onClose}>×</button>
+          <button
+            className="absolute top-4 right-4 text-2xl leading-none text-purple-600 hover:text-purple-800 font-bold"
+            onClick={onClose}
+            aria-label="Cerrar"
+          >
+            ×
+          </button>
           <h2 className="text-xl font-semibold">Casillero: {casillero}</h2>
           <p className="text-sm text-gray-600 mt-1">Productos en camino (activos, no recogidos)</p>
           {/* Resumen */}
