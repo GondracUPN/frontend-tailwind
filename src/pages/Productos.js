@@ -9,6 +9,7 @@ import ResumenCasilleros from '../components/ResumenCasilleros';
 import ModalCasillero from '../components/ModalCasillero';
 import ModalVenta from '../components/ModalVenta';
 import ModalFotos from '../components/ModalFotos';
+import ModalFotosManual from '../components/ModalFotosManual';
 import ModalCalculadora from '../components/ModalCalculadora';
 import ModalDec from '../components/ModalDec';
 import {
@@ -34,7 +35,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   });
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
-  const [modalModo, setModalModo] = useState(null); // 'crear'|'detalle'|'costos'|'track'
+  const [modalModo, setModalModo] = useState(null); // 'crear'|'detalle'|'costos'|'track'|'fotosManual'
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   // Mapa: productoId -> última venta (o null)
   const [ventasMap, setVentasMap] = useState({});
@@ -47,7 +48,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     // Log de depuración al abrir el modal de fotos
     const fecha = p?.valor?.fechaCompra || '';
     const trackingEshop = (p?.tracking || []).map(t => t?.trackingEshop).find(v => v && String(v).trim()) || '';
-    console.log('[Productos] Ver foto →', { id: p?.id, fechaCompra: fecha, trackingEshop });
+    console.log('[Productos] Ver foto ->', { id: p?.id, fechaCompra: fecha, trackingEshop });
     setProductoSeleccionado(p);
     setModalModo('fotos');
   };
@@ -73,6 +74,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [filtroProc, setFiltroProc] = useState('todos'); // procesador o pantalla (texto libre)
   const [filtroTam, setFiltroTam] = useState('todos');   // tamano adicional para macbook/ipad
   const [trackingQuery, setTrackingQuery] = useState('');
+  const [filtroGama, setFiltroGama] = useState('todos'); // gama (Pro, Air, etc)
 
   // Helper: lee tamano desde detalle (normaliza a 'tamano' ASCII) y ajusta a enteros para macbooks
   const getTam = (d) => {
@@ -101,10 +103,16 @@ export default function Productos({ setVista, setAnalisisBack }) {
   // Opciones disponibles de procesador (macbook/ipad) o tamaño (pantalla)
   const opcionesProc = React.useMemo(() => {
     const tipo = String(filtroTipo || '').toLowerCase();
+    const gamaSel = String(filtroGama || '').toLowerCase();
+    const tamSel = String(filtroTam || '').toLowerCase();
     const set = new Set();
     if (tipo === 'macbook' || tipo === 'ipad') {
       for (const p of productos || []) {
         if (String(p.tipo || '').toLowerCase() !== tipo) continue;
+        const gama = String(p.detalle?.gama || p.gama || '').toLowerCase();
+        if (gamaSel !== 'todos' && gama !== gamaSel) continue;
+        const tam = String(getTam(p.detalle || {})).toLowerCase();
+        if (tamSel !== 'todos' && tam !== tamSel) continue;
         const val = String(p.detalle?.procesador || '').trim();
         if (val) set.add(val);
       }
@@ -116,30 +124,49 @@ export default function Productos({ setVista, setAnalisisBack }) {
       }
     }
     return Array.from(set);
-  }, [productos, filtroTipo]);
+  }, [productos, filtroTipo, filtroGama, filtroTam]);
 
-  // Opciones de tamano para macbook/ipad
+  // Opciones de tamaño para macbook/ipad
   const opcionesTam = React.useMemo(() => {
     const tipo = String(filtroTipo || '').toLowerCase();
     const proc = String(filtroProc || '').toLowerCase();
+    const gamaSel = String(filtroGama || '').toLowerCase();
     const set = new Set();
     if (tipo === 'macbook' || tipo === 'ipad') {
       for (const p of productos || []) {
         if (String(p.tipo || '').toLowerCase() !== tipo) continue;
         const procP = String(p.detalle?.procesador || '').toLowerCase();
         if (proc !== 'todos' && procP !== proc) continue;
+        const gama = String(p.detalle?.gama || p.gama || '').toLowerCase();
+        if (gamaSel !== 'todos' && gama !== gamaSel) continue;
         const val = getTam(p.detalle || {});
         if (val) set.add(val);
       }
     }
     return Array.from(set);
-  }, [productos, filtroTipo, filtroProc]);
+  }, [productos, filtroTipo, filtroProc, filtroGama]);
+
+  // Opciones de gama (por tipo)
+  const opcionesGama = React.useMemo(() => {
+    const tipo = String(filtroTipo || '').toLowerCase();
+    const set = new Set();
+    if (tipo !== 'todos') {
+      for (const p of productos || []) {
+        if (String(p.tipo || '').toLowerCase() !== tipo) continue;
+        const val = String(p.detalle?.gama || p.gama || '').trim();
+        if (val) set.add(val);
+      }
+    }
+    return Array.from(set);
+  }, [productos, filtroTipo]);
 
   // Si el tipo seleccionado ya no existe, resetea a 'todos'
   React.useEffect(() => {
     if (filtroTipo !== 'todos' && !tiposDisponibles.includes(filtroTipo)) {
       setFiltroTipo('todos');
       setFiltroProc('todos');
+      setFiltroGama('todos');
+      setFiltroTam('todos');
     }
   }, [tiposDisponibles, filtroTipo]);
 
@@ -467,10 +494,12 @@ export default function Productos({ setVista, setAnalisisBack }) {
     if (filtroTipo !== 'todos') {
       const procTerm = String(filtroProc || '').toLowerCase();
       const tamTerm = String(filtroTam || '').toLowerCase();
+      const gamaTerm = String(filtroGama || '').toLowerCase();
 
       list = list.filter((p) => {
         const tipo = String(p.tipo || '').toLowerCase();
         const d = p.detalle || {};
+        const gamaP = String(d.gama || p.gama || '').toLowerCase();
 
         if (tipo === 'macbook' || tipo === 'ipad') {
           // Filtro por procesador (si aplica)
@@ -478,6 +507,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
             const proc = String(d.procesador || '').toLowerCase();
             if (proc !== procTerm) return false;
           }
+          if (gamaTerm !== 'todos' && gamaP !== gamaTerm) return false;
           // Filtro por tamaño (si aplica)
           if (tamTerm !== 'todos') {
             const tam = String(getTam(d) || '').toLowerCase();
@@ -495,6 +525,10 @@ export default function Productos({ setVista, setAnalisisBack }) {
           return true;
         }
 
+        if (gamaTerm !== 'todos') {
+          return gamaP === gamaTerm;
+        }
+
         // Otros tipos no tienen subfiltros
         return true;
       });
@@ -503,7 +537,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
     list.sort((a, b) => ts(b) - ts(a)); // más nuevos arriba
     return list;
-  }, [productos, ventasMap, soloDisponibles, filtroTipo, filtroProc, filtroTam, trackingQuery]);
+  }, [productos, ventasMap, soloDisponibles, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery]);
 
 
 
@@ -514,6 +548,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const abrirCostos = (p) => { setProductoSeleccionado(p); setModalModo('costos'); };
   const abrirTrack = (p) => { setProductoSeleccionado(p); setModalModo('track'); };
   const abrirDec = (p) => { setProductoSeleccionado(p); setModalModo('dec'); };
+  const abrirFotosManual = () => { setModalModo('fotosManual'); };
   const cerrarModal = () => { setModalModo(null); setProductoSeleccionado(null); setProductoEnCasillero(null); };
   const abrirCasillero = (cas) => { setSelectedCasillero(cas); setModalModo('casillero'); };
 
@@ -758,7 +793,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
         <div className="bg-white border rounded-xl p-4 shadow-sm">
           <div className="text-sm text-gray-500">Total env&iacute;o (S/)</div>
           <div className="text-2xl font-semibold">{totals.totalEnvioSoles}</div>
-        </div> {/* ✅ cierre agregado aquí */}
+        </div> {/* ? cierre agregado aquí */}
         <div className="bg-white border rounded-xl p-4 shadow-sm">
           <div className="text-sm text-gray-500">Total DEC ($)</div>
           <div className="text-2xl font-semibold">{totals.totalDecUSD}</div>
@@ -809,7 +844,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
                 <select
                   className="border rounded px-2 py-1"
                   value={filtroTipo}
-                  onChange={(e) => { setFiltroTipo(e.target.value); setFiltroProc('todos'); setFiltroTam('todos'); }}
+                  onChange={(e) => { setFiltroTipo(e.target.value); setFiltroProc('todos'); setFiltroGama('todos'); setFiltroTam('todos'); }}
                 >
                   <option value="todos">Todos</option>
                   {tiposDisponibles.includes('macbook') && <option value="macbook">MacBook</option>}
@@ -818,6 +853,22 @@ export default function Productos({ setVista, setAnalisisBack }) {
                   {tiposDisponibles.includes('otro') && <option value="otro">Otros</option>}
                 </select>
               </label>
+
+              {(filtroTipo !== 'todos' && opcionesGama.length > 0) && (
+                <label className="text-sm inline-flex items-center gap-2">
+                  <span>Gama</span>
+                  <select
+                    className="border rounded px-2 py-1"
+                    value={filtroGama}
+                    onChange={(e) => setFiltroGama(e.target.value)}
+                  >
+                    <option value="todos">Todas</option>
+                    {opcionesGama.map((opt) => (
+                      <option key={opt} value={String(opt).toLowerCase()}>{opt}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
 
               {(filtroTipo === 'macbook' || filtroTipo === 'ipad' || filtroTipo === 'pantalla') && (
                 <label className="text-sm inline-flex items-center gap-2">
@@ -890,6 +941,13 @@ export default function Productos({ setVista, setAnalisisBack }) {
               </button>
 
               <button
+                onClick={abrirFotosManual}
+                className="bg-teal-600 text-white px-5 py-2 rounded hover:bg-teal-700"
+                title="Ingresar tracking y fecha para consultar fotos en Eshopex"
+              >
+                Fotos
+              </button>
+              <button
                 onClick={abrirDec}
                 className="bg-gray-800 text-white px-5 py-2 rounded hover:bg-gray-900 inline-flex items-center gap-2"
                 title="Generar DEC / Comprobante"
@@ -900,7 +958,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
             </div>
           </>
         ) : (
-          // �?� tu bloque existente de selección (pickup/whatsapp) se mantiene igual
+          // ??? tu bloque existente de selección (pickup/whatsapp) se mantiene igual
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 w-full">
             <div className="flex-1">
               {selectAction === 'recojo' && (
@@ -1074,7 +1132,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
                       {v.fechaCompra ? new Date(v.fechaCompra).toLocaleDateString('es-PE', { timeZone: 'UTC' }) : '-'}
                     </td>
                     <td className="p-2">
-                      {/* Pill/ botón de estado: más grande, negrita y �?oclickable�?� */}
+                      {/* Pill/ botón de estado: más grande, negrita y ??oclickable??? */}
                       <button
                         onClick={(e) => { e.stopPropagation(); abrirTrack(p); }}
                         className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${badgeClasses(t?.estado)}`}
@@ -1217,6 +1275,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
         />
       )}
       {modalModo === 'fotos' && (<ModalFotos producto={productoSeleccionado} onClose={cerrarModal} />)}
+      {modalModo === 'fotosManual' && (<ModalFotosManual onClose={cerrarModal} />)}
       {modalModo === 'costos' && <ModalCostos producto={productoSeleccionado} onClose={cerrarModal} onSaved={handleSaved} />}
       {modalModo === 'track' && (
         <ModalTracking
@@ -1275,6 +1334,11 @@ export default function Productos({ setVista, setAnalisisBack }) {
   );
 
 }
+
+
+
+
+
 
 
 

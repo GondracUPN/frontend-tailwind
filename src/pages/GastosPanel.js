@@ -7,6 +7,7 @@ import ModalTarjetas from '../components/ModalTarjetas';
 import ModalCuotasYGastos from '../components/ModalCuotasYGastos';
 import ModalEditarGasto from '../components/ModalEditarGasto';
 import ModalEditarEfectivo from '../components/ModalEditarEfectivo';
+import ModalAnalisisGastosMes from '../components/ModalAnalisisGastosMes';
 
   const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
@@ -37,6 +38,7 @@ export default function GastosPanel({ userId: externalUserId }) {
   const [showCre, setShowCre] = useState(false);
   const [showTar, setShowTar] = useState(false);
   const [showCG, setShowCG] = useState(false);
+  const [showAnalisisMes, setShowAnalisisMes] = useState(false);
   const [showEfec, setShowEfec] = useState(false);
   const [editingGasto, setEditingGasto] = useState(null);
 
@@ -177,7 +179,8 @@ export default function GastosPanel({ userId: externalUserId }) {
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={openCG} className="text-sm px-3 py-2 sm:py-1.5 rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-100 min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-300">Cuotas / Gastos mensuales</button>
-                <button onClick={openTar} className="text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Ingresar línea de crédito / Tarjeta</button>
+                <button onClick={() => setShowAnalisisMes(true)} className="text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Análisis de gastos</button>
+                <button onClick={openTar} className="text-sm px-3 py-2 sm:py-1.5 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 min-h-[40px]">Ingresar línea de crédito / Tarjeta</button>
               </div>
             </div>
 
@@ -352,6 +355,12 @@ export default function GastosPanel({ userId: externalUserId }) {
           rows={rows}
           userId={targetUserId}
           onChanged={reloadAll}
+        />
+      )}
+      {showAnalisisMes && (
+        <ModalAnalisisGastosMes
+          rows={rows}
+          onClose={() => setShowAnalisisMes(false)}
         />
       )}
     </div>

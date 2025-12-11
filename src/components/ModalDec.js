@@ -65,12 +65,35 @@ function toYYYYMMDD(input) {
 function normalize(s) {
   return String(s || "").trim().toLowerCase();
 }
+function parseDateScore(val) {
+  if (!val) return 0;
+  const ts = Date.parse(val);
+  return Number.isNaN(ts) ? 0 : ts;
+}
+function latestTracking(p) {
+  if (!Array.isArray(p?.tracking) || p.tracking.length === 0) return null;
+  const sorted = [...p.tracking].sort((a, b) => {
+    const scoreA = Math.max(parseDateScore(a?.updatedAt), parseDateScore(a?.createdAt), a?.id || 0);
+    const scoreB = Math.max(parseDateScore(b?.updatedAt), parseDateScore(b?.createdAt), b?.id || 0);
+    return scoreB - scoreA;
+  });
+  return sorted[0] || null;
+}
+function estadoCuentaParaDec(estado) {
+  const e = normalize(estado);
+  if (!e) return false;
+  if (e === "recogido") return false;
+  if (e === "en_eshopex") return true;
+  if (e === "comprado_en_camino") return true;
+  if (e.includes("camino")) return true;
+  if (e.includes("adelant")) return true;
+  if (e.includes("venta") && !e.includes("recogido")) return true;
+  return false;
+}
 function isEnCaminoCliente(p) {
-  const eProd = normalize(p?.estado);
-  if (eProd === "comprado_en_camino" || eProd.includes("camino")) return true;
-  const t0 = Array.isArray(p?.tracking) ? p.tracking[0] : null;
-  const eT0 = normalize(t0?.estado);
-  return eT0 === "comprado_en_camino" || eT0.includes("camino");
+  if (estadoCuentaParaDec(p?.estado)) return true;
+  const ultimo = latestTracking(p);
+  return estadoCuentaParaDec(ultimo?.estado);
 }
 const get = (o, keys, def = "") =>
   keys.reduce((v, k) => (v != null ? v : o?.[k]), null) ?? def;
@@ -491,12 +514,13 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [productosApi, setProductosApi] = useState([]);
   const [loadingApi, setLoadingApi] = useState(true);
   const loading = loadingProp || loadingApi;
+  const [localOverrides, setLocalOverrides] = useState({});
 
   // UI
   const [hardError, setHardError] = useState("");
   const [productoSel, setProductoSel] = useState(null);
 
-  // N�cleo de nombre y problema
+  // N?cleo de nombre y problema
   const [nameCore, setNameCore] = useState("");       // sin problema
   const [problemSuffix, setProblemSuffix] = useState(""); // solo el problema
 
@@ -509,6 +533,19 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [price, setPrice] = useState("0.00"); // DEC
   const [itemName, setItemName] = useState("");
   const [shippingSvc, setShippingSvc] = useState("Standard Shipping");
+  const [savingFactura, setSavingFactura] = useState(false);
+  const resetSeleccion = () => {
+    setProductoSel(null);
+    setNameCore("");
+    setProblemSuffix("");
+    setItemName("");
+    setPlacedOn("");
+    setOrderNumber("");
+    setQty(1);
+    setPrice("0.00");
+    setShippingSvc("Standard Shipping");
+    setCasilleroKey("Renato");
+  };
 
   // 1) Si NO vienen productos por props, cargar del backend
   useEffect(() => {
@@ -533,12 +570,18 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     return () => { mounted = false; };
   }, [productosProp]);
 
-  // Fuente �nica
-  const productosAll = productosProp && productosProp.length ? productosProp : productosApi;
+  // Fuente ?nica
+  const productosAll = useMemo(() => {
+    const base = productosProp && productosProp.length ? productosProp : productosApi;
+    if (!localOverrides || Object.keys(localOverrides).length === 0) return base;
+    return (base || []).map((item) =>
+      localOverrides[item?.id] ? { ...item, ...localOverrides[item.id] } : item
+    );
+  }, [productosProp, productosApi, localOverrides]);
 
   // Filtrado: "en camino"
   const productosEnCamino = useMemo(
-    () => (productosAll || []).filter(isEnCaminoCliente),
+    () => (productosAll || []).filter((p) => isEnCaminoCliente(p) && !p?.facturaDecSubida),
     [productosAll]
   );
 
@@ -568,7 +611,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     // Nombre base (sin problema)
     const core = buildCoreName(p);
 
-    // Casillero autom�tico (si lo puedo resolver)
+    // Casillero autom?tico (si lo puedo resolver)
     const autoKey = resolveCasilleroKeyFromProducto(p);
 
     // Set del producto NUEVO y derivados
@@ -651,6 +694,38 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     }
   };
   const copySelector = async () => { try { await navigator.clipboard.writeText('class="gen-tables"'); } catch { } };
+  const facturaMarcada = Boolean(productoSel?.facturaDecSubida);
+  const toggleFacturaMarcada = async () => {
+    if (!productoSel || savingFactura || facturaMarcada) return;
+    const nextValue = true;
+    setSavingFactura(true);
+    try {
+      const updated = await api.patch(`/productos/${productoSel.id}`, {
+        facturaDecSubida: nextValue,
+      });
+      const base = updated?.id ? updated : { ...productoSel, facturaDecSubida: nextValue };
+      const merged = productoSel?.__decResolved != null
+        ? { ...base, __decResolved: productoSel.__decResolved }
+        : base;
+      setProductoSel(merged);
+      setLocalOverrides((prev) => ({
+        ...prev,
+        [merged.id]: { ...(prev[merged.id] || {}), facturaDecSubida: merged.facturaDecSubida },
+      }));
+      setProductosApi((prev) => {
+        if (!Array.isArray(prev) || prev.length === 0) return prev;
+        return prev.map((item) =>
+          item?.id === merged.id ? { ...item, facturaDecSubida: merged.facturaDecSubida } : item
+        );
+      });
+      setTimeout(resetSeleccion, 350);
+    } catch (err) {
+      console.error('[ModalDec] Error al marcar factura DEC:', err);
+      alert('No se pudo actualizar el estado de la factura.');
+    } finally {
+      setSavingFactura(false);
+    }
+  };
 
   const disabledSelect = loading || !!hardError;
   const rawCas = getRawCasillero(productoSel);
@@ -666,7 +741,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b">
           <h2 className="text-base font-semibold">Generar HTML - Printer friendly (solo textos)</h2>
-          <button onClick={onClose} className="text-gray-700 hover:text-black text-sm" aria-label="Close modal">? Back</button>
+          <button onClick={onClose} className="text-gray-700 hover:text-black text-sm" aria-label="Close modal">&lt; Back</button>
         </div>
 
         {/* Productos */}
@@ -793,6 +868,19 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             <div className="flex items-center gap-2">
               <button onClick={copySelector} className="px-3 py-1.5 rounded border border-gray-300 text-sm hover:bg-gray-50 h-9">Copiar selector</button>
               <button onClick={copyHTML} className="px-3 py-1.5 rounded bg-black text-white text-sm hover:bg-gray-900 h-9">Copiar HTML</button>
+              <button
+                type="button"
+                onClick={toggleFacturaMarcada}
+                disabled={!productoSel || savingFactura || facturaMarcada}
+                className={`px-3 py-1.5 rounded text-sm h-9 border transition ${
+                  facturaMarcada
+                    ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                } ${(!productoSel || savingFactura || facturaMarcada) ? 'opacity-60 cursor-not-allowed' : ''}`}
+                title={productoSel ? 'Marca cuando la factura ya fue subida' : 'Selecciona un producto primero'}
+              >
+                {facturaMarcada ? 'Factura subida' : 'Subir factura'}
+              </button>
             </div>
           </div>
 
