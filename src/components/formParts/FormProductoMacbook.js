@@ -2,7 +2,7 @@
 export default function FormProductoMacbook({ detalle, onChange }) {
   const { gama, procesador } = detalle;
 
-  // Chips base y Pro/Max hasta M4; para M5 solo variante base. RAM arranca en 16GB.
+  // Opciones clásicas; se agrega M5 solo en variante base (sin Pro/Max)
   const procesadoresAir = ['M1', 'M2', 'M3', 'M4', 'M5'];
   const procesadoresPro = [
     'M1', 'M2', 'M3', 'M4', 'M5',
@@ -16,22 +16,22 @@ export default function FormProductoMacbook({ detalle, onChange }) {
     let rams = [];
     let ssds = [];
     if (gama === 'Air') {
-      if (p === 'M1') { sizes=['13']; rams=['16']; ssds=['256','512','1TB','2TB']; }
-      else if (p === 'M2') { sizes=['13','15']; rams=['16','24']; ssds=['256','512','1TB','2TB']; }
-      else if (p === 'M3') { sizes=['13','15']; rams=['16','24']; ssds=['256','512','1TB','2TB']; }
+      if (p === 'M1') { sizes=['13']; rams=['8','16']; ssds=['256','512','1TB','2TB']; }
+      else if (p === 'M2') { sizes=['13','15']; rams=['8','16','24']; ssds=['256','512','1TB','2TB']; }
+      else if (p === 'M3') { sizes=['13','15']; rams=['8','16','24']; ssds=['256','512','1TB','2TB']; }
       else if (p === 'M4') { sizes=['13','15']; rams=['16','24','32']; ssds=['256','512','1TB','2TB']; }
       else if (p === 'M5') { sizes=['13','15']; rams=['16','24','32']; ssds=['256','512','1TB','2TB']; }
     } else if (gama === 'Pro') {
-      if (p === 'M1') { sizes=['13']; rams=['16']; ssds=['256','512','1TB','2TB']; }
+      if (p === 'M1') { sizes=['13']; rams=['8','16']; ssds=['256','512','1TB','2TB']; }
       else if (p === 'M1 Pro') { sizes=['14','16']; rams=['16','32']; ssds=['512','1TB','2TB']; }
       else if (p === 'M1 Max') { sizes=['14','16']; rams=['32','64']; ssds=['512','1TB','2TB','4TB','8TB']; }
-      else if (p === 'M2') { sizes=['13']; rams=['16','24']; ssds=['256','512','1TB','2TB']; }
+      else if (p === 'M2') { sizes=['13']; rams=['8','16','24']; ssds=['256','512','1TB','2TB']; }
       else if (p === 'M2 Pro') { sizes=['14','16']; rams=['16','32','36']; ssds=['512','1TB','2TB']; }
       else if (p === 'M2 Max') { sizes=['14','16']; rams=['32','64','96']; ssds=['512','1TB','2TB','4TB','8TB']; }
-      else if (p === 'M3') { sizes=['14']; rams=['16','24']; ssds=['512','1TB','2TB']; }
+      else if (p === 'M3') { sizes=['14']; rams=['8','16','24']; ssds=['512','1TB','2TB']; }
       else if (p === 'M3 Pro') { sizes=['14','16']; rams=['18','36']; ssds=['512','1TB','2TB','4TB']; }
       else if (p === 'M3 Max') { sizes=['14','16']; rams=['36','48','64']; ssds=['1TB','2TB','4TB','8TB']; }
-      else if (p === 'M4') { sizes=['14']; rams=['16','24']; ssds=['512','1TB','2TB']; }
+      else if (p === 'M4') { sizes=['14']; rams=['8','16','24']; ssds=['512','1TB','2TB']; }
       else if (p === 'M4 Pro') { sizes=['14','16']; rams=['24','48']; ssds=['512','1TB','2TB','4TB']; }
       else if (p === 'M4 Max') { sizes=['14','16']; rams=['48','64','128']; ssds=['1TB','2TB','4TB','8TB']; }
       else if (p === 'M5') { sizes=['14']; rams=['16','24']; ssds=['512','1TB','2TB']; }
