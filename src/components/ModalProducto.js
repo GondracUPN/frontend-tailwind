@@ -1,4 +1,4 @@
-﻿// src/components/ModalProducto.js
+// src/components/ModalProducto.js
 import React, { useState, useEffect } from 'react';
 import FormProductoMacbook from './formParts/FormProductoMacbook';
 import FormProductoIpad from './formParts/FormProductoIpad';
@@ -10,8 +10,14 @@ import api from '../api';
 export default function ModalProducto({ producto, onClose, onSaved }) {
   const isEdit = Boolean(producto);
   const [saving, setSaving] = useState(false); // 🔒 evita doble envío
+  const [linkerOpen, setLinkerOpen] = useState(false);
+  const [loadingLinker, setLoadingLinker] = useState(false);
+  const [linkables, setLinkables] = useState([]);
+  const [pendingLinkId, setPendingLinkId] = useState(null);
+  const [vincularCon, setVincularCon] = useState(null);
+  const [desvincularEnvio, setDesvincularEnvio] = useState(false);
 
-  // ————— Estado e inicialización —————
+  // ----- Estado e inicialización -----
   const [form, setForm] = useState({
     tipo: '',
     estado: '',
@@ -28,6 +34,31 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       peso: '', fechaCompra: '',
     },
   });
+
+  const getLastTrackingEstado = (p) => {
+    const trk = Array.isArray(p?.tracking) ? [...p.tracking] : [];
+    if (!trk.length) return '';
+    trk.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      return (b.id || 0) - (a.id || 0);
+    });
+    return String(trk[0]?.estado || '').toLowerCase();
+  };
+
+  const getCasilleroActual = () => {
+    if (form.casillero) return form.casillero;
+    const trk = Array.isArray(producto?.tracking) ? [...producto.tracking] : [];
+    if (!trk.length) return '';
+    trk.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      return (b.id || 0) - (a.id || 0);
+    });
+    return trk[0]?.casillero || '';
+  };
 
   useEffect(() => {
     if (!isEdit) return;
@@ -56,9 +87,13 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
         fechaCompra: producto.valor?.fechaCompra || '',
       },
     });
+    setVincularCon(null);
+    setPendingLinkId(null);
+    setDesvincularEnvio(false);
+    setLinkerOpen(false);
   }, [isEdit, producto]);
 
-  // ————— Handlers genéricos —————
+  // ----- Handlers genéricos -----
   const onChange = (section, field, value) => {
     if (section === 'main') {
       setForm(f => ({ ...f, [field]: value }));
@@ -70,7 +105,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     }
   };
 
-  // ————— Envío (POST o PATCH) —————
+  // ----- Envío (POST o PATCH) -----
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     if (saving) return;         // ⛔ evita doble clic / Enter
@@ -96,6 +131,8 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
 
 
     const payload = { ...base, detalle: cleanDetalle, valor: form.valor };
+    if (vincularCon) payload.vincularCon = Number(vincularCon);
+    if (desvincularEnvio) payload.desvincularEnvio = true;
 
 
 
@@ -296,6 +333,136 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                     />
                   </div>
                 ))}
+                {/* Vincular envío compartido */}
+                <div className="border rounded-lg p-3 space-y-2 bg-gray-50/60">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="font-medium">Vincular envío</span>
+                      {producto?.envioGrupoId && (
+                        <span className="text-xs text-gray-600">Grupo: {producto.envioGrupoId}</span>
+                      )}
+                    </div>
+                  </div>
+                  {producto?.envioGrupoId && !linkerOpen && !desvincularEnvio && (
+                    <p className="text-sm text-gray-600">Este producto ya está vinculado. Usa “Cambiar vínculo” solo si necesitas moverlo o desvincular.</p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="px-3 py-2 rounded border text-sm bg-white hover:bg-gray-100"
+                      onClick={async () => {
+                        if (!linkerOpen) {
+                          try {
+                            setLoadingLinker(true);
+                            const res = await api.get('/productos');
+                            const data = res?.data || res || [];
+                            const allowed = new Set(['comprado_sin_tracking','comprado_en_camino','en_eshopex']);
+                            const casActual = getCasilleroActual();
+                            const filtered = (Array.isArray(data) ? data : []).filter((p) => {
+                              if (!allowed.has(getLastTrackingEstado(p))) return false;
+                              const casP = Array.isArray(p?.tracking) && p.tracking[0]?.casillero ? p.tracking[0].casillero : '';
+                              if (casActual && casP && casActual !== casP) return false;
+                              if (isEdit && p.id === producto.id) return false;
+                              return true;
+                            });
+                            setLinkables(filtered);
+                          } catch (err) {
+                            console.error('No se pudieron cargar productos para vincular', err);
+                            alert('No se pudieron cargar productos elegibles para vincular.');
+                          } finally {
+                            setLoadingLinker(false);
+                          }
+                        }
+                        setLinkerOpen((v) => !v);
+                      }}
+                    >
+                      {linkerOpen ? 'Cerrar lista' : (producto?.envioGrupoId ? 'Cambiar vínculo' : 'Vincular producto')}
+                    </button>
+                    {producto?.envioGrupoId && (
+                      <button
+                        type="button"
+                        className="px-3 py-2 rounded border text-sm bg-white hover:bg-gray-100 text-red-600 border-red-200"
+                        onClick={() => {
+                          setDesvincularEnvio(true);
+                          setVincularCon(null);
+                          setPendingLinkId(null);
+                          setLinkerOpen(false);
+                        }}
+                      >
+                        Desvincular
+                      </button>
+                    )}
+                    {vincularCon && !desvincularEnvio && (
+                      <span className="text-sm text-gray-700">Seleccionado: #{vincularCon}</span>
+                    )}
+                    {desvincularEnvio && (
+                      <span className="text-sm text-amber-600">Se desvinculará al guardar.</span>
+                    )}
+                  </div>
+                  {linkerOpen && (
+                    <div className="mt-2 border rounded bg-white p-2 space-y-2 max-h-56 overflow-auto">
+                      {loadingLinker && <div className="text-sm text-gray-500">Cargando opciones…</div>}
+                      {!loadingLinker && linkables.length === 0 && (
+                        <div className="text-sm text-gray-500">No hay productos elegibles.</div>
+                      )}
+                      {!loadingLinker && linkables.map((p) => {
+                        const d = p.detalle || {};
+                        const checked = pendingLinkId === p.id;
+                        const locked = producto?.envioGrupoId
+                          ? (p.envioGrupoId && p.envioGrupoId !== producto.envioGrupoId)
+                          : false;
+                        return (
+                          <label
+                            key={`link-${p.id}`}
+                            className={`flex flex-col gap-0.5 border rounded p-2 cursor-pointer ${checked ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'} ${locked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="font-medium text-sm">#{p.id} · {p.tipo}</div>
+                              <input
+                                type="radio"
+                                name="link-product"
+                                checked={checked}
+                                disabled={locked}
+                                onChange={() => {
+                                  if (locked) return;
+                                  setPendingLinkId(prev => prev === p.id ? null : p.id);
+                                }}
+                              />
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              {[d.gama, d.procesador, d.tamano, p.estado].filter(Boolean).join(' · ')}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              Casillero: {p.tracking?.[0]?.casillero || 'N/A'} · Tracking: {getLastTrackingEstado(p) || 'N/A'}
+                              {locked && <span className="ml-1 text-amber-600">(Ya en grupo)</span>}
+                            </div>
+                          </label>
+                        );
+                      })}
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded border text-sm bg-white hover:bg-gray-100"
+                          onClick={() => { setLinkerOpen(false); setPendingLinkId(null); }}
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded text-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+                          disabled={!pendingLinkId}
+                          onClick={() => {
+                            setVincularCon(pendingLinkId);
+                            setDesvincularEnvio(false);
+                            setLinkerOpen(false);
+                          }}
+                        >
+                          Aceptar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </fieldset>
@@ -316,6 +483,3 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     </div>
   );
 }
-
-
-

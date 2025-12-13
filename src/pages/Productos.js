@@ -1269,6 +1269,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
       {modalModo === 'detalle' && (
         <DetallesProductoModal
           producto={productoSeleccionado}
+          productosAll={productos}
           onClose={cerrarModal}
           onSaved={handleSaved}
           onSaveOutside={guardarDetalleProducto}
@@ -1314,6 +1315,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
       {modalModo === 'casillero' && productoEnCasillero && (
         <DetallesProductoModal
           producto={productoEnCasillero}
+          productosAll={productos}
           onClose={() => setProductoEnCasillero(null)}
           onSaved={handleSavedEnCasillero}
           onSaveOutside={guardarDetalleProducto}
@@ -1334,7 +1336,6 @@ export default function Productos({ setVista, setAnalisisBack }) {
   );
 
 }
-
 
 
 

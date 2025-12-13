@@ -7,7 +7,7 @@ import FormProductoWatch from './formParts/FormProductoWatch';
 import FormProductoOtro from './formParts/FormProductoOtro';
 import api from '../api';
 
-export default function DetallesProductoModal({ producto, onClose, onSaved, onSaveOutside }) {
+export default function DetallesProductoModal({ producto, productosAll = [], onClose, onSaved, onSaveOutside }) {
   // ----- 1. Estado e inicialización -----
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState({
@@ -16,6 +16,13 @@ export default function DetallesProductoModal({ producto, onClose, onSaved, onSa
     accesorios: [],        // ['Caja','Cubo','Cable'] o ['Todos']
     detalle: {},           // dinámico según tipo
   });
+  const [linkerOpen, setLinkerOpen] = useState(false);
+  const [loadingLinker, setLoadingLinker] = useState(false);
+  const [linkables, setLinkables] = useState([]);
+  const [pendingLinkId, setPendingLinkId] = useState(null);
+  const [vincularCon, setVincularCon] = useState(null);
+  const [desvincularEnvio, setDesvincularEnvio] = useState(false);
+  const [vinculados, setVinculados] = useState([]);
 
   // ----- 2. Cargar datos al montar / cambiar producto -----
   useEffect(() => {
@@ -27,7 +34,26 @@ export default function DetallesProductoModal({ producto, onClose, onSaved, onSa
       detalle: { ...producto.detalle }, // viene con 'id' -> se filtrará en handleSave
     });
     setIsEditing(false);
-  }, [producto]);
+    setVincularCon(null);
+    setPendingLinkId(null);
+    setDesvincularEnvio(false);
+    setLinkerOpen(false);
+    // Construir lista de vinculados con los datos más frescos disponibles
+    const base = Array.isArray(productosAll)
+      ? productosAll.filter((p) => p.envioGrupoId && p.envioGrupoId === producto.envioGrupoId && p.id !== producto.id)
+      : [];
+    setVinculados(base);
+    // Si no tenemos otros datos y hay grupo, intentar refrescar
+    if ((!base.length || base.length === 1) && producto.envioGrupoId) {
+      api.get('/productos').then((res) => {
+        const data = res?.data || res || [];
+        if (Array.isArray(data)) {
+          const newer = data.filter((p) => p.envioGrupoId && p.envioGrupoId === producto.envioGrupoId && p.id !== producto.id);
+          if (newer.length) setVinculados(newer);
+        }
+      }).catch(() => {});
+    }
+  }, [producto, productosAll]);
 
   // ----- 3. Handlers genéricos -----
   const handleMainChange = (field, value) =>
@@ -50,6 +76,8 @@ export default function DetallesProductoModal({ producto, onClose, onSaved, onSa
     );
     // payload completo con todos los campos editables (sin 'detalle.id')
     const payload = { tipo: form.tipo, estado: form.estado, accesorios, detalle: cleanDetalle };
+    if (vincularCon) payload.vincularCon = Number(vincularCon);
+    if (desvincularEnvio) payload.desvincularEnvio = true;
 
     try {
       if (onSaveOutside) {
@@ -70,6 +98,29 @@ export default function DetallesProductoModal({ producto, onClose, onSaved, onSa
 
   // ----- 5. Renderizado -----
   if (!producto) return null;
+  const getLastTrackingEstado = (p) => {
+    const trk = Array.isArray(p?.tracking) ? [...p.tracking] : [];
+    if (!trk.length) return '';
+    trk.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      return (b.id || 0) - (a.id || 0);
+    });
+    return String(trk[0]?.estado || '').toLowerCase();
+  };
+
+  const getCasilleroActual = () => {
+    const trk = Array.isArray(producto?.tracking) ? [...producto.tracking] : [];
+    if (!trk.length) return '';
+    trk.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      return (b.id || 0) - (a.id || 0);
+    });
+    return trk[0]?.casillero || '';
+  };
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -85,22 +136,54 @@ export default function DetallesProductoModal({ producto, onClose, onSaved, onSa
             {/* --- Vista solo lectura --- */}
             <h2 className="text-2xl font-semibold mb-4">{producto.tipo}</h2>
 
-            <section className="mb-4">
-              <h3 className="font-medium mb-2">Especificaciones</h3>
-              <ul className="list-disc list-inside text-gray-700 space-y-1">
-                {Object
-                  .entries(producto.detalle)
-                  .filter(([k, v]) => k !== 'id' && v) // no mostrar 'id'
-                  .map(([k, v]) => (
-                    <li key={k}>
-                      <span className="capitalize">
-                        {k.replace(/([A-Z])/g, ' $1')}:
-                      </span>{' '}
-                      {v}
-                    </li>
-                  ))}
-              </ul>
-            </section>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <section>
+                <h3 className="font-medium mb-2">Especificaciones</h3>
+                <ul className="list-disc list-inside text-gray-700 space-y-1">
+                  {Object.entries(producto.detalle)
+                    .filter(([k, v]) => k !== 'id' && v) // no mostrar 'id'
+                    .map(([k, v]) => (
+                      <li key={k}>
+                        <span className="capitalize">
+                          {k.replace(/([A-Z])/g, ' $1')}:
+                        </span>{' '}
+                        {v}
+                      </li>
+                    ))}
+                </ul>
+              </section>
+
+              <section className="md:border-l md:pl-4">
+                <h3 className="font-medium mb-2">Envío compartido</h3>
+                {producto.envioGrupoId ? (
+                  <>
+                    <p className="text-sm text-gray-700">En grupo con {vinculados.length} producto(s)</p>
+                    {vinculados.length > 0 ? (
+                      <ul className="list-disc list-inside text-gray-700 space-y-2 mt-2">
+                        {vinculados.map((v) => {
+                          const d = v.detalle || {};
+                          const accesorios = Array.isArray(v.accesorios) ? v.accesorios.join(', ') : 'N/A';
+                          const specs = [d.gama, d.procesador, d.tamano, d.almacenamiento, d.ram, d.conexion]
+                            .filter(Boolean)
+                            .join(' · ');
+                          return (
+                            <li key={v.id}>
+                              <div className="text-sm font-medium">#{v.id} · {v.tipo}</div>
+                              <div className="text-xs text-gray-600">{specs || 'Sin especificaciones'}</div>
+                              <div className="text-xs text-gray-600">Accesorios: {accesorios || 'N/A'}</div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-gray-500 mt-1">Solo este producto está en el grupo.</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-500">Sin grupo de envío.</p>
+                )}
+              </section>
+            </div>
 
             <div className="flex justify-end space-x-2">
               <button
@@ -210,6 +293,142 @@ export default function DetallesProductoModal({ producto, onClose, onSaved, onSa
                   )}
                 </div>
               </div>
+
+              {/* Columna 2: Vinculación */}
+              <div className="space-y-4">
+                <div className="border rounded-lg p-3 bg-gray-50/70 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="font-medium">Vincular envío (mismo casillero)</span>
+                      {producto?.envioGrupoId && (
+                        <span className="text-xs text-gray-600">Grupo: {producto.envioGrupoId}</span>
+                      )}
+                      {vinculados.length > 0 && (
+                        <span className="text-xs text-gray-600">
+                          Vinculado con: {vinculados.map((v) => `#${v.id}`).join(', ')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="px-3 py-2 rounded border text-sm bg-white hover:bg-gray-100"
+                      onClick={async () => {
+                        if (!linkerOpen) {
+                          try {
+                            setLoadingLinker(true);
+                            const res = await api.get('/productos');
+                            const data = res?.data || res || [];
+                            const allowed = new Set(['comprado_sin_tracking','comprado_en_camino','en_eshopex']);
+                            const casActual = getCasilleroActual();
+                            const filtered = (Array.isArray(data) ? data : []).filter((p) => {
+                              if (!allowed.has(getLastTrackingEstado(p))) return false;
+                              const casP = Array.isArray(p?.tracking) && p.tracking[0]?.casillero ? p.tracking[0].casillero : '';
+                              if (casActual && casP && casActual !== casP) return false;
+                              if (p.id === producto.id) return false;
+                              return true;
+                            });
+                            setLinkables(filtered);
+                          } catch (err) {
+                            console.error('No se pudieron cargar productos para vincular', err);
+                            alert('No se pudieron cargar productos elegibles para vincular.');
+                          } finally {
+                            setLoadingLinker(false);
+                          }
+                        }
+                        setLinkerOpen((v) => !v);
+                      }}
+                    >
+                      {linkerOpen ? 'Cerrar lista' : (producto?.envioGrupoId ? 'Cambiar vínculo' : 'Vincular producto')}
+                    </button>
+                    {producto?.envioGrupoId && (
+                      <button
+                        type="button"
+                        className="px-3 py-2 rounded border text-sm bg-white hover:bg-gray-100 text-red-600 border-red-200"
+                        onClick={() => {
+                          setDesvincularEnvio(true);
+                          setVincularCon(null);
+                          setPendingLinkId(null);
+                          setLinkerOpen(false);
+                        }}
+                      >
+                        Desvincular
+                      </button>
+                    )}
+                    {vincularCon && !desvincularEnvio && (
+                      <span className="text-sm text-gray-700">Seleccionado: #{vincularCon}</span>
+                    )}
+                    {desvincularEnvio && (
+                      <span className="text-sm text-amber-600">Se desvinculará al guardar.</span>
+                    )}
+                  </div>
+
+                  {linkerOpen && (
+                    <div className="mt-2 border rounded bg-white p-2 space-y-2 max-h-56 overflow-auto">
+                      {loadingLinker && <div className="text-sm text-gray-500">Cargando opciones…</div>}
+                      {!loadingLinker && linkables.length === 0 && (
+                        <div className="text-sm text-gray-500">No hay productos elegibles.</div>
+                      )}
+                      {!loadingLinker && linkables.map((p) => {
+                        const d = p.detalle || {};
+                        const checked = pendingLinkId === p.id;
+                        const locked = producto?.envioGrupoId
+                          ? (p.envioGrupoId && p.envioGrupoId !== producto.envioGrupoId)
+                          : false;
+                        return (
+                          <label
+                            key={`link-${p.id}`}
+                            className={`flex flex-col gap-0.5 border rounded p-2 cursor-pointer ${checked ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'} ${locked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="font-medium text-sm">#{p.id} · {p.tipo}</div>
+                              <input
+                                type="radio"
+                                name="link-product"
+                                checked={checked}
+                                disabled={locked}
+                                onChange={() => {
+                                  if (locked) return;
+                                  setPendingLinkId(prev => prev === p.id ? null : p.id);
+                                }}
+                              />
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              {[d.gama, d.procesador, d.tamano, p.estado].filter(Boolean).join(' · ')}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              Casillero: {p.tracking?.[0]?.casillero || 'N/A'} · Tracking: {getLastTrackingEstado(p) || 'N/A'}
+                              {locked && <span className="ml-1 text-amber-600">(Ya en grupo)</span>}
+                            </div>
+                          </label>
+                        );
+                      })}
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded border text-sm bg-white hover:bg-gray-100"
+                          onClick={() => { setLinkerOpen(false); setPendingLinkId(null); }}
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded text-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+                          disabled={!pendingLinkId}
+                          onClick={() => {
+                            setVincularCon(pendingLinkId);
+                            setDesvincularEnvio(false);
+                            setLinkerOpen(false);
+                          }}
+                        >
+                          Aceptar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="text-right mt-6 space-x-2">
@@ -232,5 +451,3 @@ export default function DetallesProductoModal({ producto, onClose, onSaved, onSa
     </div>
   );
 }
-
-
