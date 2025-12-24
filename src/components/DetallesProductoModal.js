@@ -19,9 +19,10 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
   const [linkerOpen, setLinkerOpen] = useState(false);
   const [loadingLinker, setLoadingLinker] = useState(false);
   const [linkables, setLinkables] = useState([]);
-  const [pendingLinkId, setPendingLinkId] = useState(null);
-  const [vincularCon, setVincularCon] = useState(null);
+  const [pendingLinkIds, setPendingLinkIds] = useState([]);
+  const [vincularConList, setVincularConList] = useState([]);
   const [desvincularEnvio, setDesvincularEnvio] = useState(false);
+  const [unlinkTargets, setUnlinkTargets] = useState([]);
   const [vinculados, setVinculados] = useState([]);
 
   // ----- 2. Cargar datos al montar / cambiar producto -----
@@ -34,8 +35,9 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
       detalle: { ...producto.detalle }, // viene con 'id' -> se filtrará en handleSave
     });
     setIsEditing(false);
-    setVincularCon(null);
-    setPendingLinkId(null);
+    setVincularConList([]);
+    setPendingLinkIds([]);
+    setUnlinkTargets([]);
     setDesvincularEnvio(false);
     setLinkerOpen(false);
     // Construir lista de vinculados con los datos más frescos disponibles
@@ -76,18 +78,34 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
     );
     // payload completo con todos los campos editables (sin 'detalle.id')
     const payload = { tipo: form.tipo, estado: form.estado, accesorios, detalle: cleanDetalle };
-    if (vincularCon) payload.vincularCon = Number(vincularCon);
+    const primaryLink = Array.isArray(vincularConList) ? vincularConList[0] : null;
+    const extraLinks = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
+    const unlinkList = Array.isArray(unlinkTargets) ? unlinkTargets : [];
+    if (primaryLink) payload.vincularCon = Number(primaryLink);
     if (desvincularEnvio) payload.desvincularEnvio = true;
 
     try {
+      const runExtraOps = async (baseId) => {
+        if (baseId && extraLinks.length) {
+          const ops = extraLinks.map((id) => api.patch(`/productos/${id}`, { vincularCon: baseId }).catch(() => {}));
+          await Promise.allSettled(ops);
+        }
+        if (unlinkList.length) {
+          const opsUnlink = unlinkList.map((id) => api.patch(`/productos/${id}`, { desvincularEnvio: true }).catch(() => {}));
+          await Promise.allSettled(opsUnlink);
+        }
+      };
+
       if (onSaveOutside) {
         onSaveOutside(producto.id, payload); // Guardado gestionado por el padre para cerrar rapido el modal
+        await runExtraOps(producto.id);
         onClose?.();
         return;
       }
     
       const res = await api.patch('/productos/' + producto.id, payload);
       const updated = res?.data ?? res;
+      await runExtraOps(updated?.id || producto.id);
       onSaved(updated);
       setIsEditing(false);
     } catch (e) {
@@ -340,7 +358,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                         setLinkerOpen((v) => !v);
                       }}
                     >
-                      {linkerOpen ? 'Cerrar lista' : (producto?.envioGrupoId ? 'Cambiar vínculo' : 'Vincular producto')}
+                      {linkerOpen ? 'Cerrar lista' : (producto?.envioGrupoId ? 'Agregar vinculo' : 'Vincular producto')}
                     </button>
                     {producto?.envioGrupoId && (
                       <button
@@ -348,21 +366,53 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                         className="px-3 py-2 rounded border text-sm bg-white hover:bg-gray-100 text-red-600 border-red-200"
                         onClick={() => {
                           setDesvincularEnvio(true);
-                          setVincularCon(null);
-                          setPendingLinkId(null);
+                          setVincularConList([]);
+                          setPendingLinkIds([]);
+                          setUnlinkTargets(vinculados.map((v) => v.id));
                           setLinkerOpen(false);
                         }}
                       >
                         Desvincular
                       </button>
                     )}
-                    {vincularCon && !desvincularEnvio && (
-                      <span className="text-sm text-gray-700">Seleccionado: #{vincularCon}</span>
+                    {Array.isArray(vincularConList) && vincularConList.length > 0 && !desvincularEnvio && (
+                      <div className="flex flex-wrap gap-1">
+                        {vincularConList.map((id) => (
+                          <span key={id} className="text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 px-2 py-1 rounded">
+                            Seleccionado: #{id}
+                          </span>
+                        ))}
+                      </div>
                     )}
                     {desvincularEnvio && (
                       <span className="text-sm text-amber-600">Se desvinculará al guardar.</span>
                     )}
                   </div>
+                  {desvincularEnvio && vinculados.length > 0 && (
+                    <div className="mt-2 space-y-2">
+                      <p className="text-xs text-gray-600">Productos vinculados (X para marcar desvincular al guardar):</p>
+                      <div className="flex flex-wrap gap-2">
+                        {vinculados.map((v) => {
+                          const marked = unlinkTargets.includes(v.id);
+                          return (
+                            <button
+                              key={`unlink-${v.id}`}
+                              type="button"
+                              className={`flex items-center gap-1 px-3 py-1.5 rounded border text-xs ${marked ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-gray-200 text-gray-700'}`}
+                              onClick={() => {
+                                setUnlinkTargets((prev) =>
+                                  prev.includes(v.id) ? prev.filter((id) => id !== v.id) : [...prev, v.id]
+                                );
+                              }}
+                            >
+                              <span>#{v.id} ú {v.tipo}</span>
+                              <span className="text-lg leading-none">×</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {linkerOpen && (
                     <div className="mt-2 border rounded bg-white p-2 space-y-2 max-h-56 overflow-auto">
@@ -372,25 +422,27 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                       )}
                       {!loadingLinker && linkables.map((p) => {
                         const d = p.detalle || {};
-                        const checked = pendingLinkId === p.id;
-                        const locked = producto?.envioGrupoId
-                          ? (p.envioGrupoId && p.envioGrupoId !== producto.envioGrupoId)
-                          : false;
+                        const checked = pendingLinkIds.includes(p.id);
+                        const locked = producto?.envioGrupoId ? (p.envioGrupoId && p.envioGrupoId !== producto.envioGrupoId) : false;
+                        const inCurrentGroup = producto?.envioGrupoId && p.envioGrupoId === producto.envioGrupoId;
+                        const disabled = locked || inCurrentGroup;
                         return (
                           <label
                             key={`link-${p.id}`}
-                            className={`flex flex-col gap-0.5 border rounded p-2 cursor-pointer ${checked ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'} ${locked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`flex flex-col gap-0.5 border rounded p-2 cursor-pointer ${checked ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'} ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
                           >
                             <div className="flex items-center justify-between">
                               <div className="font-medium text-sm">#{p.id} · {p.tipo}</div>
                               <input
-                                type="radio"
+                                type="checkbox"
                                 name="link-product"
                                 checked={checked}
-                                disabled={locked}
+                                disabled={disabled}
                                 onChange={() => {
-                                  if (locked) return;
-                                  setPendingLinkId(prev => prev === p.id ? null : p.id);
+                                  if (disabled) return;
+                                  setPendingLinkIds((prev) =>
+                                    prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]
+                                  );
                                 }}
                               />
                             </div>
@@ -399,7 +451,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                             </div>
                             <div className="text-xs text-gray-500">
                               Casillero: {p.tracking?.[0]?.casillero || 'N/A'} · Tracking: {getLastTrackingEstado(p) || 'N/A'}
-                              {locked && <span className="ml-1 text-amber-600">(Ya en grupo)</span>}
+                              {inCurrentGroup && <span className="ml-1 text-gray-600">(Vinculado actual)</span>}{locked && <span className="ml-1 text-amber-600">(Ya en grupo)</span>}
                             </div>
                           </label>
                         );
@@ -408,16 +460,16 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                         <button
                           type="button"
                           className="px-3 py-1.5 rounded border text-sm bg-white hover:bg-gray-100"
-                          onClick={() => { setLinkerOpen(false); setPendingLinkId(null); }}
+                          onClick={() => { setLinkerOpen(false); setPendingLinkIds([]); }}
                         >
                           Cancelar
                         </button>
                         <button
                           type="button"
                           className="px-3 py-1.5 rounded text-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
-                          disabled={!pendingLinkId}
+                          disabled={!pendingLinkIds.length}
                           onClick={() => {
-                            setVincularCon(pendingLinkId);
+                            setVincularConList(pendingLinkIds);
                             setDesvincularEnvio(false);
                             setLinkerOpen(false);
                           }}
@@ -451,3 +503,5 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
     </div>
   );
 }
+
+

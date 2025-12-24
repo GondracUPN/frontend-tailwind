@@ -456,6 +456,21 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
   });
 
+  const monthStart = (monthStr = '') => {
+    if (!monthStr) return '';
+    const [y, m] = monthStr.split('-').map((v) => Number(v));
+    if (!y || !m) return '';
+    return `${y}-${String(m).padStart(2, '0')}-01`;
+  };
+
+  const monthEnd = (monthStr = '') => {
+    if (!monthStr) return '';
+    const [y, m] = monthStr.split('-').map((v) => Number(v));
+    if (!y || !m) return '';
+    const lastDay = new Date(y, m, 0).getDate();
+    return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  };
+
 
 
 
@@ -486,31 +501,23 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
-      if (appliedDates.from) {
+      const fromDate = monthStart(appliedDates.from);
 
 
 
-        q.set('fromVenta', appliedDates.from);
+      const toDate = monthEnd(appliedDates.to);
 
 
 
-        q.set('fromCompra', appliedDates.from);
+      if (fromDate) {
 
 
 
-      }
+        q.set('fromVenta', fromDate);
 
 
 
-      if (appliedDates.to) {
-
-
-
-        q.set('toVenta', appliedDates.to);
-
-
-
-        q.set('toCompra', appliedDates.to);
+        q.set('fromCompra', fromDate);
 
 
 
@@ -518,6 +525,19 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
+      if (toDate) {
+
+
+
+        q.set('toVenta', toDate);
+
+
+
+        q.set('toCompra', toDate);
+
+
+
+      }
       if (productFilters.tipo) q.set('tipo', productFilters.tipo);
 
 
@@ -690,7 +710,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
-              type="date"
+              type="month"
 
 
 
@@ -706,7 +726,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
-              placeholder="Fecha inicio"
+              placeholder="Mes inicio"
 
 
 
@@ -718,7 +738,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
-              type="date"
+              type="month"
 
 
 
@@ -734,7 +754,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
-              placeholder="Fecha fin"
+              placeholder="Mes fin"
 
 
 
@@ -3527,9 +3547,6 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 }
-
-
-
 
 
 
