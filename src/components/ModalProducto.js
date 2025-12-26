@@ -17,7 +17,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
   const [vincularConList, setVincularConList] = useState([]);
   const [desvincularEnvio, setDesvincularEnvio] = useState(false);
   const [currentGroup, setCurrentGroup] = useState([]);
-  const [unlinkTargets, setUnlinkTargets] = useState([]);
 
   const [form, setForm] = useState({
     tipo: '',
@@ -82,7 +81,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     });
     setVincularConList([]);
     setPendingLinkIds([]);
-    setUnlinkTargets([]);
     setDesvincularEnvio(false);
     setLinkerOpen(false);
   }, [isEdit, producto]);
@@ -141,10 +139,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       if (saved?.id && extras.length) {
         const ops = extras.map((id) => api.patch(`/productos/${id}`, { vincularCon: saved.id }).catch(() => {}));
         await Promise.allSettled(ops);
-      }
-      if (unlinkTargets.length) {
-        const opsUnlink = unlinkTargets.map((id) => api.patch(`/productos/${id}`, { desvincularEnvio: true }).catch(() => {}));
-        await Promise.allSettled(opsUnlink);
       }
 
       onSaved(saved);
@@ -380,7 +374,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                           setDesvincularEnvio(true);
                           setVincularConList([]);
                           setPendingLinkIds([]);
-                          setUnlinkTargets(currentGroup.map((p) => p.id));
                           setLinkerOpen(false);
                         }}
                       >
@@ -400,32 +393,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                       <span className="text-sm text-amber-600">Se desvinculara al guardar.</span>
                     )}
                   </div>
-
-                  {desvincularEnvio && currentGroup.length > 0 && (
-                    <div className="mt-2 space-y-2">
-                      <p className="text-xs text-gray-600">Productos vinculados (X para marcar desvincular al guardar):</p>
-                      <div className="flex flex-wrap gap-2">
-                        {currentGroup.map((p) => {
-                          const marked = unlinkTargets.includes(p.id);
-                          return (
-                            <button
-                              key={`unlink-${p.id}`}
-                              type="button"
-                              className={`flex items-center gap-1 px-3 py-1.5 rounded border text-xs ${marked ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-gray-200 text-gray-700'} shadow-sm`}
-                              onClick={() => {
-                                setUnlinkTargets((prev) =>
-                                  prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]
-                                );
-                              }}
-                            >
-                              <span>#{p.id} - {p.tipo}</span>
-                              <span className="text-lg leading-none">×</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
 
                   {linkerOpen && (
                     <div className="mt-3 border border-gray-200 rounded-xl bg-white p-3 space-y-3 max-h-56 overflow-auto shadow-sm">
@@ -514,3 +481,4 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     </div>
   );
 }
+

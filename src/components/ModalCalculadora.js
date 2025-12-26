@@ -1,4 +1,4 @@
-// src/components/ModalCalculadora.js
+﻿// src/components/ModalCalculadora.js
 // Calculadora simple: sugiere precios mínimos/medios y permite probar un precio personalizado.
 import React, { useMemo, useState } from 'react';
 import { TC_FIJO } from '../utils/tipoCambio';
@@ -49,13 +49,7 @@ export default function ModalCalculadora({ producto, onClose }) {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white w-full sm:max-w-lg rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-y-auto">
         {/* Cerrar */}
-        <button
-          className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center text-2xl font-bold text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-100"
-          onClick={onClose}
-          aria-label="Cerrar"
-        >
-          ×
-        </button>
+        <button className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center text-2xl font-bold text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-100" onClick={onClose} aria-label="Cerrar">&times;</button>
 
         <h2 className="text-xl font-semibold mb-1">Calculadora rápida</h2>
         <p className="text-sm text-gray-600 mb-4">
@@ -142,3 +136,4 @@ export default function ModalCalculadora({ producto, onClose }) {
     </div>
   );
 }
+

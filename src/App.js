@@ -6,6 +6,7 @@ import Calculadora from './pages/Calculadora';
 import Ganancias from './pages/Ganancias';
 import Analisis from './pages/Analisis';
 import GastosIndex from './pages/GastosIndex';
+import AnalisisGastos from './pages/AnalisisGastos';
 import api from './api';
 
 function App() {
@@ -35,6 +36,7 @@ function App() {
       {vista === 'ganancias'   && <Ganancias setVista={setVista} />}
       {vista === 'gastos'      && <GastosIndex setVista={setVista} />}
       {vista === 'analisis'    && <Analisis setVista={setVista} analisisBack={analisisBack} />}
+      {vista === 'analisisGastos' && <AnalisisGastos setVista={setVista} />}
     </>
   );
 }

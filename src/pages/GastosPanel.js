@@ -26,7 +26,7 @@ const CARD_LABEL = {
   saga: 'Saga',
 };
 
-export default function GastosPanel({ userId: externalUserId }) {
+export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [rows, setRows] = useState([]);
   const [cardsSummary, setCardsSummary] = useState([]);
   const [wallet, setWallet] = useState({ efectivoPen: 0, efectivoUsd: 0 });
@@ -361,6 +361,7 @@ export default function GastosPanel({ userId: externalUserId }) {
         <ModalAnalisisGastosMes
           rows={rows}
           onClose={() => setShowAnalisisMes(false)}
+          onFullAnalysis={setVista ? () => setVista('analisisGastos') : null}
         />
       )}
     </div>

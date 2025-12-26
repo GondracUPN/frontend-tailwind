@@ -99,10 +99,11 @@ export default function ModalFotos({ producto, onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         <button
-          className="absolute top-3 right-3 text-gray-500 hover:text-gray-800"
+          className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center text-2xl font-bold text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-100"
           onClick={onClose}
+          aria-label="Cerrar"
         >
-          x
+          &times;
         </button>
         <h3 className="text-lg font-semibold mb-3">
           Fotos Es - {producto?.tipo || ''}

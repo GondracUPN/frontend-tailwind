@@ -8,13 +8,13 @@ import FormProductoOtro from './formParts/FormProductoOtro';
 import api from '../api';
 
 export default function DetallesProductoModal({ producto, productosAll = [], onClose, onSaved, onSaveOutside }) {
-  // ----- 1. Estado e inicialización -----
+  // ----- 1. Estado e inicializacion -----
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState({
     tipo: '',
     estado: '',
     accesorios: [],        // ['Caja','Cubo','Cable'] o ['Todos']
-    detalle: {},           // dinámico según tipo
+    detalle: {},           // dinamico segun tipo
   });
   const [linkerOpen, setLinkerOpen] = useState(false);
   const [loadingLinker, setLoadingLinker] = useState(false);
@@ -22,7 +22,6 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
   const [pendingLinkIds, setPendingLinkIds] = useState([]);
   const [vincularConList, setVincularConList] = useState([]);
   const [desvincularEnvio, setDesvincularEnvio] = useState(false);
-  const [unlinkTargets, setUnlinkTargets] = useState([]);
   const [vinculados, setVinculados] = useState([]);
 
   // ----- 2. Cargar datos al montar / cambiar producto -----
@@ -32,15 +31,14 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
       tipo: producto.tipo,
       estado: producto.estado,
       accesorios: Array.isArray(producto.accesorios) ? producto.accesorios : [],
-      detalle: { ...producto.detalle }, // viene con 'id' -> se filtrará en handleSave
+      detalle: { ...producto.detalle }, // viene con 'id' -> se filtrar en handleSave
     });
     setIsEditing(false);
     setVincularConList([]);
     setPendingLinkIds([]);
-    setUnlinkTargets([]);
     setDesvincularEnvio(false);
     setLinkerOpen(false);
-    // Construir lista de vinculados con los datos más frescos disponibles
+    // Construir lista de vinculados con los datos mas frescos disponibles
     const base = Array.isArray(productosAll)
       ? productosAll.filter((p) => p.envioGrupoId && p.envioGrupoId === producto.envioGrupoId && p.id !== producto.id)
       : [];
@@ -57,7 +55,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
     }
   }, [producto, productosAll]);
 
-  // ----- 3. Handlers genéricos -----
+  // ----- 3. Handlers genericos -----
   const handleMainChange = (field, value) =>
     setForm(f => ({ ...f, [field]: value }));
 
@@ -80,7 +78,6 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
     const payload = { tipo: form.tipo, estado: form.estado, accesorios, detalle: cleanDetalle };
     const primaryLink = Array.isArray(vincularConList) ? vincularConList[0] : null;
     const extraLinks = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
-    const unlinkList = Array.isArray(unlinkTargets) ? unlinkTargets : [];
     if (primaryLink) payload.vincularCon = Number(primaryLink);
     if (desvincularEnvio) payload.desvincularEnvio = true;
 
@@ -89,10 +86,6 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
         if (baseId && extraLinks.length) {
           const ops = extraLinks.map((id) => api.patch(`/productos/${id}`, { vincularCon: baseId }).catch(() => {}));
           await Promise.allSettled(ops);
-        }
-        if (unlinkList.length) {
-          const opsUnlink = unlinkList.map((id) => api.patch(`/productos/${id}`, { desvincularEnvio: true }).catch(() => {}));
-          await Promise.allSettled(opsUnlink);
         }
       };
 
@@ -144,10 +137,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white w-full sm:max-w-3xl rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-y-auto">
         {/* Cerrar modal */}
-        <button
-          className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
-          onClick={onClose}
-        >✖</button>
+        <button className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center text-2xl font-bold text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-100" onClick={onClose} aria-label="Cerrar">&times;</button>
 
         {!isEditing ? (
           <>
@@ -172,7 +162,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
               </section>
 
               <section className="md:border-l md:pl-4">
-                <h3 className="font-medium mb-2">Envío compartido</h3>
+                <h3 className="font-medium mb-2">Envio compartido</h3>
                 {producto.envioGrupoId ? (
                   <>
                     <p className="text-sm text-gray-700">En grupo con {vinculados.length} producto(s)</p>
@@ -183,10 +173,10 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                           const accesorios = Array.isArray(v.accesorios) ? v.accesorios.join(', ') : 'N/A';
                           const specs = [d.gama, d.procesador, d.tamano, d.almacenamiento, d.ram, d.conexion]
                             .filter(Boolean)
-                            .join(' · ');
+                            .join(' | ');
                           return (
                             <li key={v.id}>
-                              <div className="text-sm font-medium">#{v.id} · {v.tipo}</div>
+                              <div className="text-sm font-medium">#{v.id} - {v.tipo}</div>
                               <div className="text-xs text-gray-600">{specs || 'Sin especificaciones'}</div>
                               <div className="text-xs text-gray-600">Accesorios: {accesorios || 'N/A'}</div>
                             </li>
@@ -194,11 +184,11 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                         })}
                       </ul>
                     ) : (
-                      <p className="text-sm text-gray-500 mt-1">Solo este producto está en el grupo.</p>
+                      <p className="text-sm text-gray-500 mt-1">Solo este producto esta en el grupo.</p>
                     )}
                   </>
                 ) : (
-                  <p className="text-sm text-gray-500">Sin grupo de envío.</p>
+                  <p className="text-sm text-gray-500">Sin grupo de envio.</p>
                 )}
               </section>
             </div>
@@ -220,7 +210,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
           </>
         ) : (
           <>
-            {/* --- Vista edición --- */}
+            {/* --- Vista edicion --- */}
             <h2 className="text-2xl font-semibold mb-4">Editar Producto</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -292,7 +282,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                                 setForm(f => {
                                   let next = Array.isArray(f.accesorios) ? [...f.accesorios] : [];
                                   if (opt==='Todos') {
-                                    // toggle 'Todos' únicamente; el resto se muestra marcado visualmente
+                                    // toggle 'Todos' unicamente; el resto se muestra marcado visualmente
                                     return { ...f, accesorios: checked ? Array.from(new Set([...next,'Todos'])) : next.filter(x=>x!=='Todos') };
                                   }
                                   if (checked) next = Array.from(new Set([...next, opt])); else next = next.filter(x=>x!==opt);
@@ -312,12 +302,12 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                 </div>
               </div>
 
-              {/* Columna 2: Vinculación */}
+              {/* Columna 2: Vinculacion */}
               <div className="space-y-4">
                 <div className="border rounded-lg p-3 bg-gray-50/70 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col">
-                      <span className="font-medium">Vincular envío (mismo casillero)</span>
+                      <span className="font-medium">Vincular envio (mismo casillero)</span>
                       {producto?.envioGrupoId && (
                         <span className="text-xs text-gray-600">Grupo: {producto.envioGrupoId}</span>
                       )}
@@ -368,7 +358,6 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                           setDesvincularEnvio(true);
                           setVincularConList([]);
                           setPendingLinkIds([]);
-                          setUnlinkTargets(vinculados.map((v) => v.id));
                           setLinkerOpen(false);
                         }}
                       >
@@ -385,38 +374,12 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                       </div>
                     )}
                     {desvincularEnvio && (
-                      <span className="text-sm text-amber-600">Se desvinculará al guardar.</span>
+                      <span className="text-sm text-amber-600">Se desvinculara al guardar.</span>
                     )}
                   </div>
-                  {desvincularEnvio && vinculados.length > 0 && (
-                    <div className="mt-2 space-y-2">
-                      <p className="text-xs text-gray-600">Productos vinculados (X para marcar desvincular al guardar):</p>
-                      <div className="flex flex-wrap gap-2">
-                        {vinculados.map((v) => {
-                          const marked = unlinkTargets.includes(v.id);
-                          return (
-                            <button
-                              key={`unlink-${v.id}`}
-                              type="button"
-                              className={`flex items-center gap-1 px-3 py-1.5 rounded border text-xs ${marked ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-gray-200 text-gray-700'}`}
-                              onClick={() => {
-                                setUnlinkTargets((prev) =>
-                                  prev.includes(v.id) ? prev.filter((id) => id !== v.id) : [...prev, v.id]
-                                );
-                              }}
-                            >
-                              <span>#{v.id} ú {v.tipo}</span>
-                              <span className="text-lg leading-none">×</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
                   {linkerOpen && (
                     <div className="mt-2 border rounded bg-white p-2 space-y-2 max-h-56 overflow-auto">
-                      {loadingLinker && <div className="text-sm text-gray-500">Cargando opciones…</div>}
+                      {loadingLinker && <div className="text-sm text-gray-500">Cargando opciones </div>}
                       {!loadingLinker && linkables.length === 0 && (
                         <div className="text-sm text-gray-500">No hay productos elegibles.</div>
                       )}
@@ -432,7 +395,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                             className={`flex flex-col gap-0.5 border rounded p-2 cursor-pointer ${checked ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'} ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
                           >
                             <div className="flex items-center justify-between">
-                              <div className="font-medium text-sm">#{p.id} · {p.tipo}</div>
+                              <div className="font-medium text-sm">#{p.id}   {p.tipo}</div>
                               <input
                                 type="checkbox"
                                 name="link-product"
@@ -447,10 +410,10 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                               />
                             </div>
                             <div className="text-xs text-gray-600">
-                              {[d.gama, d.procesador, d.tamano, p.estado].filter(Boolean).join(' · ')}
+                              {[d.gama, d.procesador, d.tamano, p.estado].filter(Boolean).join('   ')}
                             </div>
                             <div className="text-xs text-gray-500">
-                              Casillero: {p.tracking?.[0]?.casillero || 'N/A'} · Tracking: {getLastTrackingEstado(p) || 'N/A'}
+                              Casillero: {p.tracking?.[0]?.casillero || 'N/A'}   Tracking: {getLastTrackingEstado(p) || 'N/A'}
                               {inCurrentGroup && <span className="ml-1 text-gray-600">(Vinculado actual)</span>}{locked && <span className="ml-1 text-amber-600">(Ya en grupo)</span>}
                             </div>
                           </label>
@@ -503,5 +466,15 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
 
 

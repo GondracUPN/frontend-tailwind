@@ -193,7 +193,7 @@ export default function GastosIndex({ setVista }) {
       {mode === 'create' && isAdmin && <GastosCrearUsuario />}
 
       {mode === 'panel' && (
-        <GastosPanel userId={selectedUserId ?? user.id} />
+        <GastosPanel userId={selectedUserId ?? user.id} setVista={setVista} />
       )}
     </div>
   );
