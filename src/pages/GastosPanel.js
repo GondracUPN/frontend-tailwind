@@ -41,6 +41,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [showAnalisisMes, setShowAnalisisMes] = useState(false);
   const [showEfec, setShowEfec] = useState(false);
   const [editingGasto, setEditingGasto] = useState(null);
+  const [creditCardFilter, setCreditCardFilter] = useState('all');
 
   const token = localStorage.getItem('token');
   const user = useMemo(() => {
@@ -138,6 +139,16 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const openCG = () => setShowCG(true);
   const openEfec = () => setShowEfec(true);
   const openEdit = (g) => setEditingGasto(g);
+
+  const creditCardOptions = useMemo(() => {
+    const set = new Set();
+    rows.forEach((r) => {
+      if (r.metodoPago !== 'credito') return;
+      const card = r.tarjeta || r.tarjetaPago || 'N/A';
+      if (card) set.add(card);
+    });
+    return Array.from(set.values()).sort();
+  }, [rows]);
   const closeEdit = () => setEditingGasto(null);
   const onEdited = () => { setEditingGasto(null); reloadAll(); };
   const onDelete = async (g) => {
@@ -261,11 +272,26 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           )}
         </div>
 
-        {/* Crédito */}
+        {/* Credito */}
         <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-semibold">Crédito</h3>
-            <button onClick={openCre} className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 min-h-[44px]">Agregar gasto crédito</button>
+          <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+            <h3 className="text-lg font-semibold">Credito</h3>
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="text-sm text-gray-700 flex items-center gap-2">
+                Tarjeta
+                <select
+                  className="border rounded-lg px-3 py-2 text-sm"
+                  value={creditCardFilter}
+                  onChange={(e) => setCreditCardFilter(e.target.value)}
+                >
+                  <option value="all">Todas</option>
+                  {creditCardOptions.map((c) => (
+                    <option key={c} value={c}>{CARD_LABEL[c] || c}</option>
+                  ))}
+                </select>
+              </label>
+              <button onClick={openCre} className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 min-h-[44px]">Agregar gasto credito</button>
+            </div>
           </div>
 
           {loading ? (
@@ -286,7 +312,14 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.filter((g) => g.metodoPago === 'credito').map((g) => (
+                  {rows
+                    .filter((g) => g.metodoPago === 'credito')
+                    .filter((g) => {
+                      if (creditCardFilter === 'all') return true;
+                      const card = g.tarjeta || g.tarjetaPago || 'N/A';
+                      return card === creditCardFilter;
+                    })
+                    .map((g) => (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
                       <td className="p-2 align-top">{g.fecha}</td>
                       <td className="p-2 align-top capitalize">{displayConcepto(g.concepto)}</td>

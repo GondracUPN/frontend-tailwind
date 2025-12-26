@@ -15,6 +15,7 @@ const CONCEPTOS = [
   'Gusto',
   'Inversion',
   'Pago Envios',
+  'Transporte',
   'Deuda en cuotas',
   'Gastos mensuales',
   'Desgravamen',
@@ -65,7 +66,7 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
   const cardLabel = (c) => c?.label || c?.name || c?.tipo || c?.type || '';
   const cardValue = (c) => c?.type || c?.tipo || c?.label || c?.name || '';
 
-  const isCompra = ['Comida', 'Gusto', 'Inversion', 'Pago Envios', 'Deuda en cuotas', 'Gastos mensuales', 'Desgravamen'].includes(concepto);
+  const isCompra = ['Comida', 'Gusto', 'Inversion', 'Pago Envios', 'Transporte', 'Deuda en cuotas', 'Gastos mensuales', 'Desgravamen'].includes(concepto);
   const isCuotas = concepto === 'Deuda en cuotas';
   const [cuotas, setCuotas] = useState('3');
   const needDetalleGusto = concepto === 'Gusto';

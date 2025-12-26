@@ -59,6 +59,20 @@ export default function AnalisisGastos({ setVista }) {
     acc[key] = (acc[key] || 0) + toPen(r);
     return acc;
   }, {});
+  const byConceptCredito = gastosSolo
+    .filter((r) => r.metodoPago === 'credito')
+    .reduce((acc, r) => {
+      const key = displayConcepto(r.concepto || 'otros');
+      acc[key] = (acc[key] || 0) + toPen(r);
+      return acc;
+    }, {});
+  const byConceptDebito = gastosSolo
+    .filter((r) => r.metodoPago === 'debito')
+    .reduce((acc, r) => {
+      const key = displayConcepto(r.concepto || 'otros');
+      acc[key] = (acc[key] || 0) + toPen(r);
+      return acc;
+    }, {});
   const byMetodo = gastosSolo.reduce((acc, r) => {
     const key = r.metodoPago || 'otro';
     acc[key] = (acc[key] || 0) + toPen(r);
@@ -188,11 +202,6 @@ export default function AnalisisGastos({ setVista }) {
               <div className="text-xs text-gray-500 mt-1">{topGastos[0]?.detalle || 'Sin datos'}</div>
             </div>
             <div className="bg-white rounded-xl border shadow-sm p-4">
-              <div className="text-sm text-gray-500">Proyeccion cierre</div>
-              <div className="text-2xl font-semibold mt-1">S/ {projectedPen.toFixed(2)}</div>
-              <div className="text-xs text-gray-500 mt-1">{daysInMonth} dias en mes, {remainingDays} dias restantes</div>
-            </div>
-            <div className="bg-white rounded-xl border shadow-sm p-4">
               <div className="text-sm text-gray-500">Comparacion vs mes anterior</div>
               <div className="text-2xl font-semibold mt-1">
                 {prevTotalPen ? `${variationPct >= 0 ? '+' : ''}${variationPct.toFixed(1)}%` : 'Sin datos previos'}
@@ -216,23 +225,43 @@ export default function AnalisisGastos({ setVista }) {
           </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="bg-white rounded-xl border shadow-sm p-4">
-                <div className="flex items-center justify-between mb-3">
+              <div className="bg-white rounded-xl border shadow-sm p-4 space-y-4">
+                <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-gray-800">Gastos por concepto</h3>
-                  <span className="text-xs text-gray-500">Agrupado</span>
+                  <span className="text-xs text-gray-500">Credito y debito</span>
                 </div>
-                {sumValues(byConcept).length === 0 ? (
-                  <div className="text-sm text-gray-500">Sin datos en el mes.</div>
-                ) : (
-                  <ul className="space-y-2">
-                    {sumValues(byConcept).map(([k, v]) => (
-                      <li key={k} className="flex items-center justify-between text-sm">
-                        <span className="capitalize">{k}</span>
-                        <span className="font-semibold">S/ {v.toFixed(2)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-700 mb-2">Credito</div>
+                    {sumValues(byConceptCredito).length === 0 ? (
+                      <div className="text-sm text-gray-500">Sin datos.</div>
+                    ) : (
+                      <ul className="space-y-1">
+                        {sumValues(byConceptCredito).map(([k, v]) => (
+                          <li key={`c-${k}`} className="flex items-center justify-between text-sm">
+                            <span className="capitalize">{k}</span>
+                            <span className="font-semibold">S/ {v.toFixed(2)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-gray-700 mb-2">Debito</div>
+                    {sumValues(byConceptDebito).length === 0 ? (
+                      <div className="text-sm text-gray-500">Sin datos.</div>
+                    ) : (
+                      <ul className="space-y-1">
+                        {sumValues(byConceptDebito).map(([k, v]) => (
+                          <li key={`d-${k}`} className="flex items-center justify-between text-sm">
+                            <span className="capitalize">{k}</span>
+                            <span className="font-semibold">S/ {v.toFixed(2)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="bg-white rounded-xl border shadow-sm p-4">
