@@ -149,6 +149,15 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     });
     return Array.from(set.values()).sort();
   }, [rows]);
+  const [creditCardForCreate, setCreditCardForCreate] = useState('');
+
+  useEffect(() => {
+    if (creditCardFilter && creditCardFilter !== 'all') {
+      setCreditCardForCreate(creditCardFilter);
+    } else if (!creditCardForCreate && creditCardOptions[0]) {
+      setCreditCardForCreate(creditCardOptions[0]);
+    }
+  }, [creditCardFilter, creditCardOptions, creditCardForCreate]);
   const closeEdit = () => setEditingGasto(null);
   const onEdited = () => { setEditingGasto(null); reloadAll(); };
   const onDelete = async (g) => {
@@ -188,11 +197,19 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <button onClick={openCG} className="text-sm px-3 py-2 sm:py-1.5 rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-100 min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-300">Cuotas / Gastos mensuales</button>
-                <button onClick={() => setShowAnalisisMes(true)} className="text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Análisis de gastos</button>
-                <button onClick={openTar} className="text-sm px-3 py-2 sm:py-1.5 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 min-h-[40px]">Ingresar línea de crédito / Tarjeta</button>
-              </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={openCG} className="text-sm px-3 py-2 sm:py-1.5 rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-100 min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-300">Cuotas / Gastos mensuales</button>
+                  <button onClick={() => setShowAnalisisMes(true)} className="text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Análisis de gastos</button>
+                  {typeof setVista === 'function' && (
+                    <button
+                      onClick={() => setVista('presupuestoGastos')}
+                      className="text-sm px-3 py-2 sm:py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700 min-h-[40px]"
+                    >
+                      Presupuesto de gastos
+                    </button>
+                  )}
+                  <button onClick={openTar} className="text-sm px-3 py-2 sm:py-1.5 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 min-h-[40px]">Ingresar línea de crédito / Tarjeta</button>
+                </div>
             </div>
 
             {cardsSummary.length === 0 ? (
@@ -356,6 +373,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       {showCre && (
         <ModalGastoCredito
           userId={targetUserId}
+          defaultCard={creditCardForCreate}
           onClose={() => setShowCre(false)}
           onSaved={() => { setShowCre(false); reloadAll(); }}
         />

@@ -18,6 +18,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
   const [concepto, setConcepto] = useState(gasto?.concepto || '');
   const [tarjeta, setTarjeta] = useState(gasto?.tarjeta || '');
   const [tarjetaPago, setTarjetaPago] = useState(gasto?.tarjetaPago || '');
+  const [moneda, setMoneda] = useState(gasto?.moneda || 'PEN');
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(false);
 
@@ -50,6 +51,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
     setConcepto(gasto.concepto || '');
     setTarjeta(gasto.tarjeta || '');
     setTarjetaPago(gasto.tarjetaPago || '');
+    setMoneda(gasto.moneda || 'PEN');
   }, [gasto]);
 
   useEffect(() => {
@@ -84,7 +86,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
     if (!token) return setErr('No hay sesión.');
     setSaving(true);
     try {
-      const body = { monto: n, fecha, notas: notas || null };
+      const body = { monto: n, fecha, notas: notas || null, moneda };
       if (concepto) body.concepto = concepto;
       if (isCredito) {
         if (tarjeta) body.tarjeta = tarjeta;
@@ -163,10 +165,19 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
               </select>
             </label>
           )}
-          <label className="text-sm">
-            <span className="block text-gray-600 mb-1">Monto ({gasto.moneda === 'USD' ? '$' : 'S/'})</span>
-            <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={monto} onChange={(e)=>setMonto(e.target.value)} placeholder="0.00" required />
-          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="text-sm">
+              <span className="block text-gray-600 mb-1">Moneda</span>
+              <select className="w-full border rounded px-3 py-2" value={moneda} onChange={(e)=>setMoneda(e.target.value)}>
+                <option value="PEN">Soles (PEN)</option>
+                <option value="USD">Dólares (USD)</option>
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="block text-gray-600 mb-1">Monto ({moneda === 'USD' ? '$' : 'S/'})</span>
+              <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={monto} onChange={(e)=>setMonto(e.target.value)} placeholder="0.00" required />
+            </label>
+          </div>
 
           <label className="text-sm">
             <span className="block text-gray-600 mb-1">Fecha</span>

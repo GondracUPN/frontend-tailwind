@@ -6,10 +6,11 @@ import { API_URL } from '../api';
 import LoginGastos from './LoginGastos';
 
 export default function GastosIndex({ setVista }) {
-  const [mode, setMode] = useState(null); // 'create' | 'panel' | null
+  const [mode, setMode] = useState(null); // 'create' | null
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(null);
+  const [showUsersModal, setShowUsersModal] = useState(false);
 
   // Lee sesión desde localStorage al montar
   const [user, setUser] = useState(() => {
@@ -46,15 +47,23 @@ export default function GastosIndex({ setVista }) {
         if (alive) setLoadingUsers(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [isAdmin, token]);
+
+  // Seleccionar por defecto el usuario logueado al entrar
+  useEffect(() => {
+    if (isLogged && user?.id) {
+      setSelectedUserId(user.id);
+    }
+  }, [isLogged, user?.id]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setToken(null);
     setUser(null);
-    // Quedarse en esta vista: al no estar logueado, se muestra el Login
     setMode(null);
     setSelectedUserId(null);
   };
@@ -102,98 +111,97 @@ export default function GastosIndex({ setVista }) {
         </div>
       </header>
 
-      {/* Bloque principal */}
+      {/* Bloque de acciones */}
       <div className="bg-white border rounded-xl shadow p-5 mb-6">
-        <div className="text-lg font-semibold mb-2">Bienvenido a gastos</div>
+        <div className="text-lg font-semibold mb-3">Bienvenido a gastos</div>
 
-        {isAdmin ? (
-          <>
-            <div className="flex flex-wrap gap-3 mb-5">
+        <div className="flex flex-wrap gap-3 mb-3">
+          {isAdmin && (
+            <>
               <button
-                onClick={() => setMode('create')}
+                onClick={() => setMode(mode === 'create' ? null : 'create')}
                 className="px-5 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
               >
-                Crear usuario
+                {mode === 'create' ? 'Cerrar creación' : 'Crear usuario'}
               </button>
-
               <button
-                onClick={() => {
-                  setSelectedUserId(user.id);
-                  setMode('panel');
-                }}
-                className="px-5 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                onClick={() => setShowUsersModal(true)}
+                className="px-5 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700"
               >
-                Ver gastos (míos)
+                Usuarios
+              </button>
+            </>
+          )}
+        </div>
+
+        {mode === 'create' && isAdmin && <GastosCrearUsuario />}
+      </div>
+
+      {/* Panel siempre visible para el usuario seleccionado */}
+      <GastosPanel userId={selectedUserId ?? user.id} setVista={setVista} />
+
+      {/* Modal de usuarios (solo admin) */}
+      {showUsersModal && isAdmin && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-lg p-5 w-full max-w-3xl max-h-[80vh] overflow-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold">Usuarios disponibles</h3>
+              <button
+                onClick={() => setShowUsersModal(false)}
+                className="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300"
+              >
+                Cerrar
               </button>
             </div>
-
-            <div>
-              <div className="text-md font-semibold mb-2">Usuarios disponibles</div>
-              {loadingUsers ? (
-                <div className="text-sm text-gray-600">Cargando usuarios...</div>
-              ) : users.length === 0 ? (
-                <div className="text-sm text-gray-600">No hay usuarios aún.</div>
-              ) : (
-                <div className="overflow-auto border rounded">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="p-2">ID</th>
-                        <th className="p-2">Usuario</th>
-                        <th className="p-2">Rol</th>
-                        <th className="p-2">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {users.map((u) => (
+            {loadingUsers ? (
+              <div className="text-sm text-gray-600">Cargando usuarios...</div>
+            ) : users.length === 0 ? (
+              <div className="text-sm text-gray-600">No hay usuarios aún.</div>
+            ) : (
+              <div className="overflow-auto border rounded">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="p-2">ID</th>
+                      <th className="p-2">Usuario</th>
+                      <th className="p-2">Rol</th>
+                      <th className="p-2">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((u) => {
+                      const isViewing = u.id === (selectedUserId ?? user.id);
+                      return (
                         <tr key={u.id} className="border-t">
                           <td className="p-2">{u.id}</td>
                           <td className="p-2">{u.username}</td>
                           <td className="p-2 capitalize">{u.role}</td>
                           <td className="p-2">
                             <button
+                              disabled={isViewing}
                               onClick={() => {
                                 setSelectedUserId(u.id);
-                                setMode('panel');
+                                setShowUsersModal(false);
+                                setMode(null);
                               }}
-                              className="px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
+                              className={`px-3 py-1 rounded ${
+                                isViewing
+                                  ? 'bg-gray-200 text-gray-600 cursor-not-allowed'
+                                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                              }`}
                             >
-                              Ver gastos
+                              {isViewing ? 'Viendo' : 'Ver gastos'}
                             </button>
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </>
-        ) : (
-          <div>
-            <div className="mb-3 text-gray-700">
-              Usa "Ver mis gastos" para revisar y agregar desde el panel.
-            </div>
-            <div className="mt-2">
-              <button
-                onClick={() => {
-                  setSelectedUserId(user.id);
-                  setMode('panel');
-                }}
-                className="px-5 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-              >
-                Ver mis gastos
-              </button>
-            </div>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-
-      {/* Contenido según el modo */}
-      {mode === 'create' && isAdmin && <GastosCrearUsuario />}
-
-      {mode === 'panel' && (
-        <GastosPanel userId={selectedUserId ?? user.id} setVista={setVista} />
+        </div>
       )}
     </div>
   );

@@ -19,11 +19,12 @@ const CONCEPTOS = [
   'Deuda en cuotas',
   'Gastos mensuales',
   'Desgravamen',
+  'Cashback / Reembolso',
 ];
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'create', initial = null }) {
+export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'create', initial = null, defaultCard = '' }) {
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(true);
 
@@ -36,7 +37,7 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
 
   const [detalleGusto, setDetalleGusto] = useState(initial?.detalleGusto || '');
   const [detalleMensual, setDetalleMensual] = useState('');
-  const [tarjetaCompra, setTarjetaCompra] = useState(initial?.tarjeta || '');
+  const [tarjetaCompra, setTarjetaCompra] = useState(initial?.tarjeta || defaultCard || '');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -46,14 +47,14 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
     (async () => {
       try {
         const token = localStorage.getItem('token');
-        const url = `${API_URL}/cards${userId ? `?userId=${userId}` : ''}`;
-        const res = await fetch(url, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
-        const data = await res.json();
-        if (!alive) return;
-        const arr = Array.isArray(data) ? data : [];
-        setCards(arr);
-        const first = initial?.tarjeta || arr[0]?.tipo || arr[0]?.type || '';
-        setTarjetaCompra((prev) => prev || first);
+      const url = `${API_URL}/cards${userId ? `?userId=${userId}` : ''}`;
+      const res = await fetch(url, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (!alive) return;
+      const arr = Array.isArray(data) ? data : [];
+      setCards(arr);
+      const first = initial?.tarjeta || defaultCard || arr[0]?.tipo || arr[0]?.type || '';
+      setTarjetaCompra((prev) => prev || first);
       } catch {
         if (alive) setCards([]);
       } finally {
@@ -61,12 +62,12 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
       }
     })();
     return () => { alive = false; };
-  }, [userId, initial]);
+  }, [userId, initial, defaultCard]);
 
   const cardLabel = (c) => c?.label || c?.name || c?.tipo || c?.type || '';
   const cardValue = (c) => c?.type || c?.tipo || c?.label || c?.name || '';
 
-  const isCompra = ['Comida', 'Gusto', 'Inversion', 'Pago Envios', 'Transporte', 'Deuda en cuotas', 'Gastos mensuales', 'Desgravamen'].includes(concepto);
+  const isCompra = ['Comida', 'Gusto', 'Inversion', 'Pago Envios', 'Transporte', 'Deuda en cuotas', 'Gastos mensuales', 'Desgravamen', 'Cashback / Reembolso'].includes(concepto);
   const isCuotas = concepto === 'Deuda en cuotas';
   const [cuotas, setCuotas] = useState('3');
   const needDetalleGusto = concepto === 'Gusto';
@@ -91,8 +92,10 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
     if (!token) return setError('No hay sesión.');
     if (!cards.length) return setError('No tienes tarjetas registradas.');
 
+    const conceptoApi = concepto === 'Cashback / Reembolso' ? 'Cashback' : concepto;
+
     const body = {
-      concepto,
+      concepto: conceptoApi,
       metodoPago: 'credito',
       moneda,
       monto: n,
