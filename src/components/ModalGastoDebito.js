@@ -21,6 +21,62 @@ const CARD_FRIENDLY = {
   saga: 'Saga',
 };
 
+const BASE_CONCEPTOS_DEBITO = [
+  { value: 'comida', label: 'Comida' },
+  { value: 'gustos', label: 'Gustos' },
+  { value: 'ingresos', label: 'Ingresos' },
+  { value: 'transporte', label: 'Transporte' },
+  { value: 'pago_envios', label: 'Pago de envios' },
+  { value: 'retiro_agente', label: 'Retiro agente' },
+  { value: 'cashback', label: 'Cashback / Devolucion' },
+  { value: 'gastos_recurrentes', label: 'Gastos mensuales' },
+  { value: 'pago_tarjeta', label: 'Pago Tarjeta' },
+];
+
+const normConcept = (raw) => {
+  const s = String(raw || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const map = {
+    comida: 'comida',
+    gusto: 'gusto',
+    gustos: 'gusto',
+    ingreso: 'ingreso',
+    ingresos: 'ingreso',
+    transporte: 'transporte',
+    'pago envios': 'pago_envios',
+    pago_envios: 'pago_envios',
+    'retiro agente': 'retiro_agente',
+    retiro_agente: 'retiro_agente',
+    'gastos mensuales': 'gastos_recurrentes',
+    'gasto mensual': 'gastos_recurrentes',
+    gastos_recurrentes: 'gastos_recurrentes',
+    'pago tarjeta': 'pago_tarjeta',
+    pago_tarjeta: 'pago_tarjeta',
+    cashback: 'cashback',
+    'cashback / devolucion': 'cashback',
+    devolucion: 'cashback',
+  };
+  return map[s] || s.replace(/\s+/g, '_');
+};
+
+const isFlexibleMoneda = (c) => {
+  const n = normConcept(c);
+  return ['ingreso', 'gasto_recurrente', 'gastos_recurrentes', 'gusto', 'cashback'].some((k) => n.startsWith(k));
+};
+
+const orderByFrequency = (options, stats, cardKey) => {
+  const baseIndex = new Map(options.map((o, idx) => [o.value, idx]));
+  const cardStats = stats?.byCard?.[String(cardKey || 'default').toLowerCase()] || {};
+  const globalStats = stats?.global || {};
+  return [...options].sort((a, b) => {
+    const na = normConcept(a.value);
+    const nb = normConcept(b.value);
+    const ca = cardStats[na] ?? globalStats[na] ?? 0;
+    const cb = cardStats[nb] ?? globalStats[nb] ?? 0;
+    if (ca !== cb) return cb - ca;
+    return (baseIndex.get(a.value) ?? 0) - (baseIndex.get(b.value) ?? 0);
+  });
+};
+
 export default function ModalGastoDebito({ onClose, onSaved, userId }) {
   const [concepto, setConcepto] = useState('comida');
   const [moneda, setMoneda] = useState('PEN');
@@ -34,9 +90,11 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
   const [tarjetaPagar, setTarjetaPagar] = useState('');
   const [cardsErr, setCardsErr] = useState('');
 
+  const [conceptStats, setConceptStats] = useState({ global: {}, byCard: {} });
+  const [conceptFromAuto, setConceptFromAuto] = useState(true);
+
   const [nota, setNota] = useState('');
   const [detalleMensual, setDetalleMensual] = useState('');
-  const [detalleGusto, setDetalleGusto] = useState('');
   const [tcPago, setTcPago] = useState(TC_FIJO);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -65,9 +123,36 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     return () => { alive = false; };
   }, [userId]);
 
+  // Historial para ordenar conceptos segun frecuencia por banco
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const url = userId ? `${API_URL}/gastos/all?userId=${userId}` : `${API_URL}/gastos`;
+        const res = await fetch(url, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error('historial');
+        const data = await res.json();
+        const stats = { global: {}, byCard: {} };
+        (Array.isArray(data) ? data : []).forEach((g) => {
+          if (g.metodoPago !== 'debito') return;
+          const c = normConcept(g.concepto);
+          const card = String(g.tarjeta || '').toLowerCase() || 'default';
+          stats.global[c] = (stats.global[c] || 0) + 1;
+          stats.byCard[card] = stats.byCard[card] || {};
+          stats.byCard[card][c] = (stats.byCard[card][c] || 0) + 1;
+        });
+        if (alive) setConceptStats(stats);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId]);
+
   // En conceptos distintos a pago_tarjeta, forzar soles
   useEffect(() => {
-    if (concepto !== 'pago_tarjeta') {
+    if (concepto !== 'pago_tarjeta' && !isFlexibleMoneda(concepto)) {
       setMoneda('PEN');
       setPagoObjetivo('PEN');
     }
@@ -93,7 +178,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     }
     const isGusto = concepto === 'gustos' || concepto === 'gusto';
     const isMensual = concepto === 'gastos_recurrentes';
-    if (isGusto && !String(detalleGusto).trim()) {
+    if (isGusto && !String(nota).trim()) {
       return setError('Describe el gusto.');
     }
     if (isMensual && !String(detalleMensual).trim()) {
@@ -106,10 +191,9 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
       moneda,
       monto: n,
       fecha,
-      notas: isMensual ? String(detalleMensual).trim() : (nota || null),
+      notas: isMensual ? String(detalleMensual).trim() : (nota ? String(nota).trim() : null),
       tarjeta: banco,
       ...(concepto === 'pago_tarjeta' ? { tarjetaPago: tarjetaPagar } : {}),
-      ...(isGusto ? { detalleGusto: String(detalleGusto).trim() } : {}),
     };
 
     if (concepto === 'pago_tarjeta') {
@@ -144,6 +228,22 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
   const showPagoTarjeta = concepto === 'pago_tarjeta';
   const showTarjetaDestino = showPagoTarjeta;
+  const conceptosOrdenados = orderByFrequency(BASE_CONCEPTOS_DEBITO, conceptStats, banco);
+
+  useEffect(() => {
+    const first = conceptosOrdenados[0]?.value;
+    if (!first) return;
+    const currentExists = conceptosOrdenados.some((c) => c.value === concepto);
+    if (!currentExists || conceptFromAuto) {
+      setConcepto(first);
+      setConceptFromAuto(true);
+    }
+  }, [banco, conceptosOrdenados, concepto, conceptFromAuto]);
+
+  const handleConceptChange = (val) => {
+    setConceptFromAuto(false);
+    setConcepto(val);
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-neutral-900/50 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={(e)=>{ if(e.target===e.currentTarget) onClose?.(); }}>
@@ -155,16 +255,11 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
         <form className="grid gap-3" onSubmit={submit}>
           <label className="text-sm">
-            <span className="block text-gray-600 mb-1">Concepto</span>
-            <select className="w-full border rounded px-3 py-2" value={concepto} onChange={(e)=>setConcepto(e.target.value)}>
-              <option value="comida">Comida</option>
-              <option value="gustos">Gustos</option>
-              <option value="ingresos">Ingresos</option>
-              <option value="transporte">Transporte</option>
-              <option value="pago_envios">Pago de envíos</option>
-              <option value="retiro_agente">Retiro agente</option>
-              <option value="gastos_recurrentes">Gastos mensuales</option>
-              <option value="pago_tarjeta">Pago Tarjeta</option>
+                        <span className="block text-gray-600 mb-1">Concepto</span>
+            <select className="w-full border rounded px-3 py-2" value={concepto} onChange={(e)=>handleConceptChange(e.target.value)}>
+              {conceptosOrdenados.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
             </select>
           </label>
 
@@ -216,7 +311,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
               {(concepto === 'gustos' || concepto === 'gusto') && (
                 <label className="text-sm">
                   <span className="block text-gray-600 mb-1">Detalle del gusto</span>
-                  <input className="w-full border rounded px-3 py-2" value={detalleGusto} onChange={(e)=>setDetalleGusto(e.target.value)} placeholder="Ej. ropa, juego, accesorio" />
+                  <input className="w-full border rounded px-3 py-2" value={nota} onChange={(e)=>setNota(e.target.value)} placeholder="Ej. ropa, juego, accesorio" />
                 </label>
               )}
 
@@ -227,7 +322,17 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
                 </label>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div></div>
+                <div>
+                  {isFlexibleMoneda(concepto) && (
+                    <label className="text-sm">
+                      <span className="block text-gray-600 mb-1">Moneda</span>
+                      <select className="w-full border rounded px-3 py-2" value={moneda} onChange={(e)=>setMoneda(e.target.value)}>
+                        <option value="PEN">Soles (PEN)</option>
+                        <option value="USD">Dolares (USD)</option>
+                      </select>
+                    </label>
+                  )}
+                </div>
                 <label className="text-sm">
                   <span className="block text-gray-600 mb-1">Monto</span>
                   <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={monto} onChange={(e)=>setMonto(e.target.value)} placeholder="0.00" />
@@ -244,7 +349,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">{concepto === 'ingreso' ? 'Tarjeta (banco)' : 'Débito (banco)'}</span>
-              <select className="w-full border rounded px-3 py-2" value={banco} onChange={(e)=>setBanco(e.target.value)}>
+              <select className="w-full border rounded px-3 py-2" value={banco} onChange={(e)=>{ setConceptFromAuto(true); setBanco(e.target.value); }}>
                 {BANKS_DEBITO.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
               </select>
             </label>
@@ -269,7 +374,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
             </>
           )}
 
-          {concepto !== 'gastos_recurrentes' && (
+          {concepto !== 'gastos_recurrentes' && normConcept(concepto) !== 'gusto' && (
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Nota (opcional)</span>
               <input className="w-full border rounded px-3 py-2" value={nota} onChange={(e)=>setNota(e.target.value)} placeholder=""/>

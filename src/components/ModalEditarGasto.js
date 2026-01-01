@@ -30,8 +30,9 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
       return [
         { value: 'comida', label: 'Comida' },
         { value: 'gusto', label: 'Gusto' },
-        { value: 'inversion', label: 'Inversión' },
-        { value: 'pago_envios', label: 'Pago envíos' },
+        { value: 'inversion', label: 'Inversion' },
+        { value: 'transporte', label: 'Transporte' },
+        { value: 'pago_envios', label: 'Pago envios' },
         { value: 'deuda_cuotas', label: 'Deuda en cuotas' },
         { value: 'gastos_recurrentes', label: 'Gastos mensuales' },
         { value: 'desgravamen', label: 'Desgravamen' },
@@ -42,6 +43,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
       { value: 'gustos', label: 'Gustos' },
       { value: 'ingresos', label: 'Ingresos' },
       { value: 'retiro_agente', label: 'Retiro agente' },
+      { value: 'transporte', label: 'Transporte' },
       { value: 'gastos_recurrentes', label: 'Gastos mensuales' },
       { value: 'pago_tarjeta', label: 'Pago Tarjeta' },
     ];

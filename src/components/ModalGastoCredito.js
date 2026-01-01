@@ -10,17 +10,59 @@ const MONEDAS = [
   { value: 'USD', label: 'Dólares' },
 ];
 
-const CONCEPTOS = [
-  'Comida',
-  'Gusto',
-  'Inversion',
-  'Pago Envios',
-  'Transporte',
-  'Deuda en cuotas',
-  'Gastos mensuales',
-  'Desgravamen',
-  'Cashback / Reembolso',
+const CREDIT_CONCEPTS = [
+  { value: 'Comida', api: 'comida' },
+  { value: 'Gusto', api: 'gusto', needsDetalleGusto: true },
+  { value: 'Inversion', api: 'inversion' },
+  { value: 'Pago Envios', api: 'pago_envios' },
+  { value: 'Transporte', api: 'transporte' },
+  { value: 'Deuda en cuotas', api: 'deuda_cuotas', needsCuotas: true },
+  { value: 'Gastos mensuales', api: 'gastos_recurrentes', needsDetalleMensual: true },
+  { value: 'Desgravamen', api: 'desgravamen' },
+  { value: 'Cashback / Reembolso', api: 'cashback' },
 ];
+
+const normConcept = (raw) => {
+  const s = String(raw || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const map = {
+    comida: 'comida',
+    gusto: 'gusto',
+    inversion: 'inversion',
+    'pago envios': 'pago_envios',
+    pago_envios: 'pago_envios',
+    transporte: 'transporte',
+    'deuda en cuotas': 'deuda_cuotas',
+    deuda_cuotas: 'deuda_cuotas',
+    'gastos mensuales': 'gastos_recurrentes',
+    gastos_recurrentes: 'gastos_recurrentes',
+    desgravamen: 'desgravamen',
+    cashback: 'cashback',
+    'cashback / reembolso': 'cashback',
+  };
+  return map[s] || s.replace(/\s+/g, '_');
+};
+
+const findConcept = (apiValue) => {
+  const n = normConcept(apiValue);
+  return CREDIT_CONCEPTS.find((c) => c.api === n);
+};
+
+const toDisplayConcept = (apiValue) => findConcept(apiValue)?.value || 'Comida';
+const toApiConcept = (displayValue) => findConcept(displayValue)?.api || 'comida';
+
+const orderByFrequency = (options, stats, cardKey) => {
+  const baseIndex = new Map(options.map((o, idx) => [o.value, idx]));
+  const cardStats = stats?.byCard?.[String(cardKey || 'default').toLowerCase()] || {};
+  const globalStats = stats?.global || {};
+  return [...options].sort((a, b) => {
+    const na = a.api;
+    const nb = b.api;
+    const ca = cardStats[na] ?? globalStats[na] ?? 0;
+    const cb = cardStats[nb] ?? globalStats[nb] ?? 0;
+    if (ca !== cb) return cb - ca;
+    return (baseIndex.get(a.value) ?? 0) - (baseIndex.get(b.value) ?? 0);
+  });
+};
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -28,19 +70,20 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(true);
 
-  const [concepto, setConcepto] = useState(initial?.concepto || 'Comida');
-  const defaultMoneda = (() => (String(initial?.concepto || 'Comida').toLowerCase() === 'inversion' ? 'USD' : 'PEN'))();
+  const [concepto, setConcepto] = useState(toDisplayConcept(initial?.concepto) || 'Comida');
+  const defaultMoneda = (() => (normConcept(initial?.concepto) === 'inversion' ? 'USD' : 'PEN'))();
   const [moneda, setMoneda] = useState(initial?.moneda || defaultMoneda);
   const [monto, setMonto] = useState(initial?.monto != null ? String(initial.monto) : '');
   const [fecha, setFecha] = useState(initial?.fecha || today());
-  const [nota, setNota] = useState(initial?.notas || '');
+  const [nota, setNota] = useState(initial?.notas || initial?.detalleGusto || '');
 
-  const [detalleGusto, setDetalleGusto] = useState(initial?.detalleGusto || '');
   const [detalleMensual, setDetalleMensual] = useState('');
   const [tarjetaCompra, setTarjetaCompra] = useState(initial?.tarjeta || defaultCard || '');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [conceptStats, setConceptStats] = useState({ global: {}, byCard: {} });
+  const [conceptFromAuto, setConceptFromAuto] = useState(!initial?.concepto);
 
   useEffect(() => {
     let alive = true;
@@ -64,21 +107,73 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
     return () => { alive = false; };
   }, [userId, initial, defaultCard]);
 
+  // Historial para ordenar conceptos segun frecuencia por tarjeta
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const url = userId ? `${API_URL}/gastos/all?userId=${userId}` : `${API_URL}/gastos`;
+        const res = await fetch(url, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error('historial');
+        const data = await res.json();
+        const stats = { global: {}, byCard: {} };
+        (Array.isArray(data) ? data : []).forEach((g) => {
+          if (g.metodoPago !== 'credito') return;
+          const c = normConcept(g.concepto);
+          const card = String(g.tarjeta || '').toLowerCase() || 'default';
+          stats.global[c] = (stats.global[c] || 0) + 1;
+          stats.byCard[card] = stats.byCard[card] || {};
+          stats.byCard[card][c] = (stats.byCard[card][c] || 0) + 1;
+        });
+        if (alive) setConceptStats(stats);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId]);
+
   const cardLabel = (c) => c?.label || c?.name || c?.tipo || c?.type || '';
   const cardValue = (c) => c?.type || c?.tipo || c?.label || c?.name || '';
 
-  const isCompra = ['Comida', 'Gusto', 'Inversion', 'Pago Envios', 'Transporte', 'Deuda en cuotas', 'Gastos mensuales', 'Desgravamen', 'Cashback / Reembolso'].includes(concepto);
-  const isCuotas = concepto === 'Deuda en cuotas';
+  const selectedConcept = useMemo(
+    () => CREDIT_CONCEPTS.find((c) => c.value === concepto) || CREDIT_CONCEPTS.find((c) => c.api === normConcept(concepto)) || CREDIT_CONCEPTS[0],
+    [concepto],
+  );
+
+  const conceptosOrdenados = useMemo(
+    () => orderByFrequency(CREDIT_CONCEPTS, conceptStats, tarjetaCompra),
+    [conceptStats, tarjetaCompra],
+  );
+
+  useEffect(() => {
+    const first = conceptosOrdenados[0]?.value;
+    if (!first) return;
+    const exists = conceptosOrdenados.some((c) => c.value === concepto);
+    if (!exists || conceptFromAuto) {
+      setConcepto(first);
+      setConceptFromAuto(true);
+    }
+  }, [tarjetaCompra, conceptosOrdenados, concepto, conceptFromAuto]);
+
+  const handleConceptChange = (val) => {
+    setConceptFromAuto(false);
+    setConcepto(val);
+  };
+
+  const isCompra = true;
+  const isCuotas = !!selectedConcept?.needsCuotas;
   const [cuotas, setCuotas] = useState('3');
-  const needDetalleGusto = concepto === 'Gusto';
-  const needDetalleMensual = concepto === 'Gastos mensuales';
+  const needDetalleGusto = !!selectedConcept?.needsDetalleGusto;
+  const needDetalleMensual = !!selectedConcept?.needsDetalleMensual;
 
   const fechaLabel = useMemo(() => 'Fecha de compra', []);
 
   useEffect(() => {
-    const c = String(concepto || '').toLowerCase();
-    setMoneda(c === 'inversion' ? 'USD' : 'PEN');
-  }, [concepto]);
+    const api = selectedConcept?.api;
+    setMoneda(api === 'inversion' ? 'USD' : 'PEN');
+  }, [concepto, selectedConcept?.api]);
 
   const onSubmit = async (e) => {
     e?.preventDefault?.();
@@ -92,7 +187,7 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
     if (!token) return setError('No hay sesión.');
     if (!cards.length) return setError('No tienes tarjetas registradas.');
 
-    const conceptoApi = concepto === 'Cashback / Reembolso' ? 'Cashback' : concepto;
+    const conceptoApi = toApiConcept(concepto);
 
     const body = {
       concepto: conceptoApi,
@@ -106,8 +201,7 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
     if (isCompra) {
       if (!tarjetaCompra) return setError('Selecciona una tarjeta.');
       body.tarjeta = tarjetaCompra;
-      if (needDetalleGusto && !detalleGusto.trim()) return setError('Describe el gusto.');
-      if (needDetalleGusto) body.detalleGusto = detalleGusto.trim();
+      if (needDetalleGusto && !nota.trim()) return setError('Describe el gusto.');
       if (needDetalleMensual && !String(detalleMensual).trim()) return setError('Ingresa el detalle del gasto mensual.');
       if (needDetalleMensual) body.notas = String(detalleMensual).trim();
       if (isCuotas) body.cuotasMeses = Number(cuotas);
@@ -148,16 +242,16 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
 
         <form className="grid gap-3" onSubmit={onSubmit}>
           <label className="text-sm">
-            <span className="block text-gray-600 mb-1">Concepto</span>
-            <select className="w-full border rounded px-3 py-2" value={concepto} onChange={(e) => setConcepto(e.target.value)}>
-              {CONCEPTOS.map((c) => (<option key={c} value={c}>{c}</option>))}
+                        <span className="block text-gray-600 mb-1">Concepto</span>
+            <select className="w-full border rounded px-3 py-2" value={concepto} onChange={(e) => handleConceptChange(e.target.value)}>
+              {conceptosOrdenados.map((c) => (<option key={c.value} value={c.value}>{c.value}</option>))}
             </select>
           </label>
 
           {needDetalleGusto && (
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Detalle del gusto</span>
-              <input className="w-full border rounded px-3 py-2" value={detalleGusto} onChange={(e) => setDetalleGusto(e.target.value)} placeholder="Ej. Ropa, juego, accesorio…" />
+              <input className="w-full border rounded px-3 py-2" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Ej. Ropa, juego, accesorio…" />
             </label>
           )}
 
@@ -201,16 +295,18 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
           {(isCompra) && (
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Tarjeta</span>
-              <select className="w-full border rounded px-3 py-2" value={tarjetaCompra} onChange={(e) => setTarjetaCompra(e.target.value)} disabled={!cards.length}>
+              <select className="w-full border rounded px-3 py-2" value={tarjetaCompra} onChange={(e) => { setConceptFromAuto(true); setTarjetaCompra(e.target.value); }} disabled={!cards.length}>
                 {cards.map((c) => (<option key={cardValue(c)} value={cardValue(c)}>{cardLabel(c)}</option>))}
               </select>
             </label>
           )}
 
-          <label className="text-sm">
-            <span className="block text-gray-600 mb-1">Nota (opcional)</span>
-            <input className="w-full border rounded px-3 py-2" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Detalle adicional…" />
-          </label>
+          {!needDetalleGusto && (
+            <label className="text-sm">
+              <span className="block text-gray-600 mb-1">Nota (opcional)</span>
+              <input className="w-full border rounded px-3 py-2" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Detalle adicional�" />
+            </label>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className="px-4 py-2 rounded bg-gray-200 text-gray-800 hover:bg-gray-300" onClick={onClose}>Cancelar</button>

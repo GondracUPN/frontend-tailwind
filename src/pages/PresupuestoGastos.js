@@ -160,7 +160,7 @@ export default function PresupuestoGastos({ setVista }) {
                     <tr key={r.id || `${r.fecha}-${r.monto}`} className="border-t">
                       <td className="p-2">{(r.fecha || '').slice(0, 10)}</td>
                       <td className="p-2 capitalize">{String(r.concepto || '').replace(/_/g, ' ')}</td>
-                      <td className="p-2 text-gray-700">{r.detalleGusto || r.notas || '-'}</td>
+                      <td className="p-2 text-gray-700">{r.notas || '-'}</td>
                       <td className="p-2 text-right font-semibold">S/ {toPen(r).toFixed(2)}</td>
                     </tr>
                   ))}
