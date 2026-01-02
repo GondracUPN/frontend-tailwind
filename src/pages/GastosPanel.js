@@ -26,11 +26,15 @@ const CARD_LABEL = {
   saga: 'Saga',
 };
 
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos
+
 export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [rows, setRows] = useState([]);
   const [cardsSummary, setCardsSummary] = useState([]);
   const [wallet, setWallet] = useState({ efectivoPen: 0, efectivoUsd: 0 });
   const [loading, setLoading] = useState(true);
+  const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [err, setErr] = useState('');
 
   // Modales
@@ -50,6 +54,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   }, [localStorage.getItem('user')]);
   const isAdmin = user?.role === 'admin';
   const targetUserId = externalUserId ?? user?.id;
+  const cacheKey = useMemo(() => `gastos-panel-cache:${targetUserId ?? 'self'}`, [targetUserId]);
 
   const TIPO_CAMBIO = 3.7;
 
@@ -70,11 +75,47 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     };
   }, [cardsSummary]);
 
-  const reloadAll = async () => {
+  const readCache = () => {
+    if (!cacheKey) return null;
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed?.ts) return null;
+      if (Date.now() - parsed.ts > CACHE_TTL_MS) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  };
+
+  const writeCache = (data) => {
+    if (!cacheKey) return;
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify({ ...data, ts: Date.now() }));
+    } catch {
+      /* ignore cache write errors */
+    }
+  };
+
+  const reloadAll = async ({ forceSpinner = false, includeGastos = true, useCache = true } = {}) => {
     if (!token) return;
-    setLoading(true);
+    if (!isInitialLoadDone || forceSpinner) setLoading(true);
+    else setIsUpdating(true);
     setErr('');
     try {
+      const cached = useCache ? readCache() : null;
+      if (cached && !forceSpinner) {
+        if (includeGastos && Array.isArray(cached.rows)) setRows(sortRows(cached.rows));
+        if (Array.isArray(cached.cardsSummary)) setCardsSummary(cached.cardsSummary);
+        if (cached.wallet) setWallet(cached.wallet);
+        setIsInitialLoadDone(true);
+        setLoading(false);
+        setIsUpdating(false);
+        return;
+      }
+
+      const shouldLoadGastos = includeGastos || !isInitialLoadDone;
       const userIdParam = (isAdmin && targetUserId != null && /^\d+$/.test(String(targetUserId)))
         ? `?userId=${encodeURIComponent(String(targetUserId))}`
         : '';
@@ -83,61 +124,49 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       const cardsUrl = isAdmin && userIdParam ? `${API_URL}/cards/summary-by-user${userIdParam}` : `${API_URL}/cards/summary`;
       const walletUrl = `${API_URL}/wallet${userIdParam}`;
 
+      const gastosPromise = shouldLoadGastos
+        ? fetch(gastosUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
+        : Promise.resolve(null);
+
       const [gRes, cRes, wRes] = await Promise.all([
-        fetch(gastosUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
+        gastosPromise,
         fetch(cardsUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
         fetch(walletUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
       ]);
 
-      if (!gRes.ok) throw new Error(`GET ${gastosUrl} -> ${await gRes.text()}`);
+      if (shouldLoadGastos && gRes && !gRes.ok) throw new Error(`GET ${gastosUrl} -> ${await gRes.text()}`);
       if (!cRes.ok) throw new Error(`GET ${cardsUrl} -> ${await cRes.text()}`);
       if (!wRes.ok) throw new Error(`GET ${walletUrl} -> ${await wRes.text()}`);
 
-      const [gData, cData, wData] = await Promise.all([gRes.json(), cRes.json(), wRes.json()]);
-      setRows(sortRows(Array.isArray(gData) ? gData : []));
-      setCardsSummary(Array.isArray(cData) ? cData : []);
-      setWallet({
-        efectivoPen: Number(wData?.efectivoPen || 0),
-        efectivoUsd: Number(wData?.efectivoUsd || 0),
-      });
-    } catch (e) {
-      console.error('[GastosPanel] load error:', e);
-      setErr('No se pudo cargar la información.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const refreshBackground = async () => {
-    if (!token) return;
-    try {
-      const userIdParam = (isAdmin && targetUserId != null && /^\d+$/.test(String(targetUserId)))
-        ? `?userId=${encodeURIComponent(String(targetUserId))}`
-        : '';
-
-      const gastosUrl = isAdmin ? `${API_URL}/gastos/all${userIdParam}` : `${API_URL}/gastos`;
-      const cardsUrl = isAdmin && userIdParam ? `${API_URL}/cards/summary-by-user${userIdParam}` : `${API_URL}/cards/summary`;
-      const walletUrl = `${API_URL}/wallet${userIdParam}`;
-
-      const [gRes, cRes, wRes] = await Promise.all([
-        fetch(gastosUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
-        fetch(cardsUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
-        fetch(walletUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
+      const [gData, cData, wData] = await Promise.all([
+        shouldLoadGastos && gRes ? gRes.json() : Promise.resolve(null),
+        cRes.json(),
+        wRes.json(),
       ]);
 
-      if (!gRes.ok || !cRes.ok || !wRes.ok) return;
-
-      const [gData, cData, wData] = await Promise.all([gRes.json(), cRes.json(), wRes.json()]);
-      setRows(sortRows(Array.isArray(gData) ? gData : []));
+      const nextRows = shouldLoadGastos && gData ? sortRows(Array.isArray(gData) ? gData : []) : rows;
+      if (shouldLoadGastos && gData) setRows(nextRows);
       setCardsSummary(Array.isArray(cData) ? cData : []);
-      setWallet({
+      const nextWallet = {
         efectivoPen: Number(wData?.efectivoPen || 0),
         efectivoUsd: Number(wData?.efectivoUsd || 0),
+      };
+      setWallet(nextWallet);
+      writeCache({
+        rows: nextRows,
+        cardsSummary: Array.isArray(cData) ? cData : [],
+        wallet: nextWallet,
       });
+      setIsInitialLoadDone(true);
     } catch (e) {
-      console.warn('[GastosPanel] background refresh error:', e);
+      console.error('[GastosPanel] load error:', e);
+      setErr('No se pudo cargar la informacion.');
+    } finally {
+      setLoading(false);
+      setIsUpdating(false);
     }
   };
+  const refreshTotals = async () => reloadAll({ includeGastos: false, useCache: false });
 
   const displayConcepto = (c) => {
     const n = String(c || '').toLowerCase().replace(/\s+/g,'_');
@@ -145,7 +174,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     return String(c || '').replace(/_/g,' ');
   };
 
-  useEffect(() => { reloadAll(); /* eslint-disable-next-line */ }, [token, isAdmin, targetUserId]);
+  useEffect(() => { reloadAll({ forceSpinner: true }); /* eslint-disable-next-line */ }, [token, isAdmin, targetUserId]);
 
   // Efectivo calculado (PEN)
   const efectivoPenCalc = useMemo(() => {
@@ -192,20 +221,46 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     });
     return Array.from(set.values()).sort();
   }, [rows]);
+
+  const mostUsedCreditCard = useMemo(() => {
+    const counts = new Map();
+    rows.forEach((r) => {
+      if (r.metodoPago !== 'credito') return;
+      const card = r.tarjeta || r.tarjetaPago;
+      if (!card) return;
+      counts.set(card, (counts.get(card) || 0) + 1);
+    });
+    const sorted = Array.from(counts.entries()).sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return String(a[0] || '').localeCompare(String(b[0] || ''));
+    });
+    return sorted[0]?.[0] || '';
+  }, [rows]);
+
   const [creditCardForCreate, setCreditCardForCreate] = useState('');
 
   useEffect(() => {
     if (creditCardFilter && creditCardFilter !== 'all') {
       setCreditCardForCreate(creditCardFilter);
-    } else if (!creditCardForCreate && creditCardOptions[0]) {
-      setCreditCardForCreate(creditCardOptions[0]);
+      return;
     }
-  }, [creditCardFilter, creditCardOptions, creditCardForCreate]);
+
+    const preferred = mostUsedCreditCard || creditCardOptions[0] || '';
+    if (!preferred) return;
+
+    const shouldUsePreferred =
+      !creditCardForCreate ||
+      (creditCardFilter === 'all' && creditCardForCreate !== preferred && !creditCardOptions.includes(creditCardForCreate));
+
+    if (shouldUsePreferred) {
+      setCreditCardForCreate(preferred);
+    }
+  }, [creditCardFilter, creditCardOptions, creditCardForCreate, mostUsedCreditCard]);
   const closeEdit = () => setEditingGasto(null);
   const onEdited = (row) => {
     setEditingGasto(null);
     if (row) upsertRow(row);
-    refreshBackground();
+    refreshTotals();
   };
   const onDelete = async (g) => {
     if (!g?.id) return;
@@ -215,7 +270,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       const res = await fetch(`${API_URL}/gastos/${g.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` } });
       if (!res.ok) throw new Error(await res.text());
       setRows((prev) => prev.filter((r) => r.id !== g.id));
-      refreshBackground();
+      refreshTotals();
     } catch (e) {
       console.error('[GastosPanel] delete gasto:', e);
       alert('No se pudo eliminar.');
@@ -340,7 +395,10 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         {/* Credito */}
         <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
           <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-            <h3 className="text-lg font-semibold">Credito</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-semibold">Credito</h3>
+              {isUpdating && <span className="text-xs text-gray-500">Actualizando...</span>}
+            </div>
             <div className="flex items-center gap-3 flex-wrap">
               <label className="text-sm text-gray-700 flex items-center gap-2">
                 Tarjeta
@@ -420,7 +478,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           onSaved={(row) => {
             setShowDeb(false);
             if (row) upsertRow(row);
-            refreshBackground();
+            refreshTotals();
           }}
         />
       )}
@@ -432,7 +490,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           onSaved={(row) => {
             setShowCre(false);
             if (row) upsertRow(row);
-            refreshBackground();
+            refreshTotals();
           }}
         />
       )}
@@ -440,7 +498,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         <ModalTarjetas
           userId={targetUserId}
           onClose={() => setShowTar(false)}
-          onSaved={() => { setShowTar(false); reloadAll(); }}
+          onSaved={() => { setShowTar(false); reloadAll({ includeGastos: false, useCache: false }); }}
         />
       )}
       {showEfec && (
@@ -476,3 +534,6 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     </div>
   );
 }
+
+
+
