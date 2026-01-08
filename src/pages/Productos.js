@@ -1,5 +1,5 @@
-﻿// src/pages/Productos.js
-import React, { useState, useEffect, useCallback } from 'react';
+// src/pages/Productos.js
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ModalProducto from '../components/ModalProducto';
 import DetallesProductoModal from '../components/DetallesProductoModal';
 import ModalCostos from '../components/ModalCostos';
@@ -22,23 +22,63 @@ import {
 } from 'react-icons/fi';
 
 
+const CACHE_KEY = 'productos:cache:v2';
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos para revalidar
+
+const readCache = () => {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+  if (!raw) return null;
+  const parsed = JSON.parse(raw);
+  if (!parsed?.ts) return null;
+  if (Date.now() - parsed.ts > CACHE_TTL_MS) return null;
+  return {
+    productos: Array.isArray(parsed.productos) ? parsed.productos : [],
+    ventasMap: parsed.ventasMap && typeof parsed.ventasMap === 'object' ? parsed.ventasMap : {},
+    resumen: parsed.resumen || null,
+    ts: parsed.ts,
+  };
+  } catch {
+    return null;
+  }
+};
+
+const writeCache = (productos, ventasMap, resumen) => {
+  try {
+    localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({
+        productos,
+        ventasMap,
+        resumen,
+        ts: Date.now(),
+      }),
+    );
+  } catch {
+    /* ignore cache errors */
+  }
+};
+
 export default function Productos({ setVista, setAnalisisBack }) {
-  const cacheKey = 'productos:lastList:v1';
-  const [productos, setProductos] = useState(() => {
-    try {
-      const raw = localStorage.getItem(cacheKey);
-      const arr = raw ? JSON.parse(raw) : [];
-      return Array.isArray(arr) ? arr : [];
-    } catch {
-      return [];
-    }
-  });
+  const cached = readCache();
+  const [productos, setProductos] = useState(() => cached?.productos || []);
+  const [resumen, setResumen] = useState(() => cached?.resumen || null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
   const [modalModo, setModalModo] = useState(null); // 'crear'|'detalle'|'costos'|'track'|'fotosManual'
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   // Mapa: productoId -> última venta (o null)
-  const [ventasMap, setVentasMap] = useState({});
+  const [ventasMap, setVentasMap] = useState(() => cached?.ventasMap || {});
+  const ventasRef = useRef(ventasMap);
+  useEffect(() => { ventasRef.current = ventasMap; }, [ventasMap]);
+  const productosRef = useRef(productos);
+  useEffect(() => { productosRef.current = productos; }, [productos]);
+  const resumenRef = useRef(resumen);
+  useEffect(() => { resumenRef.current = resumen; }, [resumen]);
+
+  useEffect(() => {
+    writeCache(productos, ventasMap, resumen);
+  }, [productos, ventasMap, resumen]);
 
   // Abre modal de venta (creación o lectura)
   const abrirVenta = (p) => { setProductoSeleccionado(p); setModalModo('venta'); };
@@ -54,7 +94,12 @@ export default function Productos({ setVista, setAnalisisBack }) {
   };
   // Cuando se guarda una venta, refrescamos sólo ese producto en el mapa
   const handleVentaSaved = (ventaGuardada) => {
-    setVentasMap(prev => ({ ...prev, [ventaGuardada.productoId]: ventaGuardada }));
+    setVentasMap(prev => {
+      const next = { ...prev, [ventaGuardada.productoId]: ventaGuardada };
+      writeCache(productos, next, resumenRef.current);
+      return next;
+    });
+    fetchResumen({ refresh: true });
     cerrarModal();
   };
 
@@ -200,6 +245,18 @@ export default function Productos({ setVista, setAnalisisBack }) {
       return next;
     });
   };
+
+  const fetchResumen = useCallback(async ({ refresh = false } = {}) => {
+    try {
+      const data = await api.get(`/productos/resumen${refresh ? '?refresh=true' : ''}`);
+      if (data) {
+        setResumen(data);
+        writeCache(productosRef.current, ventasRef.current, data);
+      }
+    } catch (e) {
+      console.error('No se pudo cargar resumen de productos', e);
+    }
+  }, []);
 
   // Nombre del producto para el texto (iPad, Air, M2, 11) o "Otros" con descripción
   const buildNombreProducto = (p) => {
@@ -360,16 +417,20 @@ export default function Productos({ setVista, setAnalisisBack }) {
   };
 
   // SWR helpers: cache + refresh
-  // SWR helpers: cache + refresh
-  const saveCache = (lista) => {
-    try {
-      localStorage.setItem(cacheKey, JSON.stringify(lista));
-      localStorage.setItem(`${cacheKey}:ts`, String(Date.now()));
-    } catch {}
-  };
+  const refreshProductos = useCallback(async ({ force = false, useCache = true } = {}) => {
+    const cache = useCache ? readCache() : null;
+    const cacheFresh = cache && cache.ts && Date.now() - cache.ts <= CACHE_TTL_MS;
+    if (!force && cacheFresh) {
+      setProductos(cache.productos || []);
+      if (cache.ventasMap) setVentasMap(cache.ventasMap || {});
+      if (cache.resumen) setResumen(cache.resumen);
+      setCargando(false);
+      setError(null);
+      return cache.productos || [];
+    }
 
-  const refreshProductos = useCallback(async () => {
-    setCargando(productos.length === 0);
+    const showSpinner = productos.length === 0 || force || !cacheFresh;
+    if (showSpinner) setCargando(true);
     setError(null);
     try {
       const data = await api.get('/productos');
@@ -377,7 +438,9 @@ export default function Productos({ setVista, setAnalisisBack }) {
         ? data
         : (Array.isArray(data?.items) ? data.items : []);
       setProductos(lista);
-      saveCache(lista);
+      // Ventas se mantienen (se revalidan en otro efecto), pero el cache se pisa con ventas actuales ref
+      writeCache(lista, ventasRef.current, resumenRef.current);
+      fetchResumen({ refresh: false });
       return lista;
     } catch (e) {
       console.error('Error cargando /productos:', e);
@@ -387,43 +450,46 @@ export default function Productos({ setVista, setAnalisisBack }) {
     } finally {
       setCargando(false);
     }
-  }, [productos.length]);
+  }, [productos.length, fetchResumen]);
 
-  // Carga inicial con SWR: muestra snapshot y revalida en segundo plano
+  // Carga inicial: intenta cache, pero si no hay data hace fetch
   useEffect(() => {
     let mounted = true;
     (async () => {
       if (!mounted) return;
-      await refreshProductos();
+      await refreshProductos({ useCache: true, force: productos.length === 0 });
+      await fetchResumen({ refresh: false });
     })();
     return () => { mounted = false; };
-  }, [refreshProductos]);  // Cargar última venta por producto (si existe) cuando cambia la lista
+  }, []);  // no deps: solo una vez al montar
   useEffect(() => {
     let mounted = true;
     (async () => {
       if (!Array.isArray(productos) || productos.length === 0) return;
+      const cache = readCache();
+      const cacheFresh = cache && cache.ts && Date.now() - cache.ts <= CACHE_TTL_MS;
+      const cacheHasVentas = cacheFresh && cache?.ventasMap && Object.keys(cache.ventasMap).length > 0;
+      if (cacheHasVentas) {
+        setVentasMap(cache.ventasMap || {});
+        return;
+      }
       try {
-        const entries = await Promise.all(
-          productos.map(async (p) => {
-            try {
-              const data = await api.get(`/ventas/producto/${p.id}`);
-              // Normaliza: array directo | {items:[]} | {data:[]}
-              const arr = Array.isArray(data)
-                ? data
-                : (Array.isArray(data?.items) ? data.items
-                  : (Array.isArray(data?.data) ? data.data : []));
-              const ultima = arr.length > 0 ? arr[0] : null;
-              return [p.id, ultima];
-            } catch (err) {
-              console.warn('ventas/producto error', p.id, err);
-              return [p.id, null];
-            }
-          })
-        );
-        if (!mounted) return;
+        const ids = productos.map((p) => p.id).filter(Boolean);
+        const query = ids.length ? `?ids=${ids.join(',')}` : '';
+        const data = await api.get(`/ventas/ultimas${query}`);
+        // Normaliza: array directo | {items:[]} | {data:[]}
+        const arr = Array.isArray(data)
+          ? data
+          : (Array.isArray(data?.items) ? data.items
+            : (Array.isArray(data?.data) ? data.data : []));
         const map = {};
-        entries.forEach(([id, v]) => { map[id] = v; });
+        arr.forEach((v) => {
+          if (v && v.productoId != null) map[v.productoId] = v;
+        });
+        ids.forEach((id) => { if (map[id] === undefined) map[id] = null; });
+        if (!mounted) return;
         setVentasMap(map);
+        writeCache(productosRef.current, map, resumenRef.current);
       } catch (e) {
         console.error('Error cargando ventas:', e);
       }
@@ -553,11 +619,13 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const abrirCasillero = (cas) => { setSelectedCasillero(cas); setModalModo('casillero'); };
 
   const applyProductoUpdate = (updated, { isNuevo = false, closeModal = true } = {}) => {
-    setProductos(list =>
-      isNuevo
+    setProductos(list => {
+      const next = isNuevo
         ? [updated, ...list]
-        : list.map(p => (p.id === updated.id ? updated : p))
-    );
+        : list.map(p => (p.id === updated.id ? updated : p));
+      writeCache(next, ventasMap);
+      return next;
+    });
     if (closeModal) cerrarModal();
   };
 
@@ -605,6 +673,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     try {
       await api.del(`/productos/${id}`);
       setProductos(list => list.filter(p => p.id !== id));
+      fetchResumen({ refresh: true });
     } catch (e) {
       console.error(e);
       alert('Error al eliminar.');
@@ -613,6 +682,17 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
   // === CONTADORES ===
   const stats = React.useMemo(() => {
+    if (resumen) {
+      return {
+        total: resumen.total ?? 0,
+        sinTracking: resumen.sinTracking ?? 0,
+        enCamino: resumen.enCamino ?? 0,
+        enEshopex: resumen.enEshopex ?? 0,
+        disponible: resumen.disponible ?? 0,
+        vendido: resumen.vendido ?? 0,
+      };
+    }
+
     const total = productos.length;
     let sinTracking = 0;
     let enCamino = 0;
@@ -637,7 +717,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
 
     return { total, sinTracking, enCamino, enEshopex, disponible, vendido };
-  }, [productos, ventasMap]);
+  }, [productos, ventasMap, resumen]);
 
   // Convierte "S/ 1,234.50" o "$ 99" a número seguro
   const toNumber = (x) => {
@@ -690,6 +770,20 @@ export default function Productos({ setVista, setAnalisisBack }) {
   // === TOTALES DE MONTOS ===
   // Suma global de valorProducto ($), costoEnvio (S/), costoTotal (S/), total vendido (S/), y ganancia (S/)
   const totals = React.useMemo(() => {
+    if (resumen) {
+      const fmtS = (n) => `S/ ${Number(n).toFixed(2)}`;
+      const fmtU = (n) => `$ ${Number(n).toFixed(2)}`;
+      const toNum = (v) => Number(v ?? 0) || 0;
+      return {
+        totalGastadoUSD: fmtU(toNum(resumen.totalGastadoUsd)),
+        totalEnvioSoles: fmtS(toNum(resumen.totalEnvioPen)),
+        totalDecUSD: fmtU(toNum(resumen.totalDecUsd)),
+        totalCostoSoles: fmtS(toNum(resumen.totalCostoPen)),
+        totalVentaSoles: fmtS(toNum(resumen.totalVentaPen)),
+        gananciaSoles: fmtS(toNum(resumen.gananciaPen)),
+      };
+    }
+
     let totalGastadoUSD = 0;   // suma de valorProducto ($)
     let totalEnvioSoles = 0;   // suma de costoEnvio (S/)
     let totalDecUSD = 0;
@@ -741,7 +835,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
       totalVentaSoles: fmtSoles(totalVentaSoles),
       gananciaSoles: fmtSoles(gananciaSoles),
     };
-  }, [productos, ventasMap]);
+  }, [productos, ventasMap, resumen]);
 
 
 
@@ -1336,14 +1430,6 @@ export default function Productos({ setVista, setAnalisisBack }) {
   );
 
 }
-
-
-
-
-
-
-
-
 
 
 

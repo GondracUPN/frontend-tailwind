@@ -1,9 +1,9 @@
-﻿// src/components/ModalCasillero.js
+// src/components/ModalCasillero.js
 import React, { useMemo } from 'react';
 
 const fmtUSD = (v) => (isNaN(v) ? '-' : `$ ${Number(v).toFixed(2)}`);
 const fmtDate = (d) => {
-  if (!d) return '—';
+  if (!d) return '-';
   const date = new Date(d);
   if (isNaN(date.getTime())) return String(d);
   return date.toLocaleDateString('es-PE', { timeZone: 'UTC' });
@@ -28,6 +28,74 @@ function nextTueOrFri(fromDate) {
   }
 }
 
+// Carga analytics cacheados (prefiere v2, cae a v1 si no existe)
+function loadAnalyticsSnapshot() {
+  const keys = ['analytics:lastSummary:v2::', 'analytics:lastSummary:v1::'];
+  for (const k of keys) {
+    try {
+      const raw = localStorage.getItem(k);
+      if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+  }
+  return null;
+}
+
+// Rango estimado desde fecha de compra hasta llegada a Eshopex.
+// Usa el tiempo medio como inicio y suma dos semanas para el techo.
+function estimarRangoDesdeCompra(fechaCompra, analytics) {
+  if (!fechaCompra) return '-';
+  const base = new Date(fechaCompra);
+  if (isNaN(base.getTime())) return '-';
+
+  const tramo = analytics?.logistica?.compraARecepcion || {};
+  const median = Number(tramo.median || 0);
+  const mean = Number(tramo.mean || 0);
+  const medio = median > 0 ? median : (mean > 0 ? mean : 14); // medio
+  const lower = Math.max(1, medio);
+  const upper = lower + 14; // medio + 2 semanas
+
+  const rawMin = new Date(base.getFullYear(), base.getMonth(), base.getDate() + Math.round(lower));
+  const rawMax = new Date(base.getFullYear(), base.getMonth(), base.getDate() + Math.round(upper));
+  let d1 = nextTueOrFri(rawMin);
+  let d2 = nextTueOrFri(rawMax);
+  if (d1.getTime() === d2.getTime()) {
+    const bump = new Date(rawMax.getFullYear(), rawMax.getMonth(), rawMax.getDate() + 2);
+    d2 = nextTueOrFri(bump);
+  }
+
+  const fmt = (d) => d.toLocaleDateString('es-PE', { timeZone: 'UTC' });
+  return `${fmt(d1)} al ${fmt(d2)}`;
+}
+
+// Rango desde fecha de recepcion hasta entrega.
+// Usa un minimo (mas rapido) y el tiempo medio (mediana o mean).
+function estimarRangoDesdeRecepcion(fechaRecepcion, transportista, analytics) {
+  if (!fechaRecepcion) return '-';
+  const base = new Date(fechaRecepcion);
+  if (isNaN(base.getTime())) return '-';
+
+  const byCarrier = analytics?.logistica?.tardiasPorTransportista || [];
+  const row = byCarrier.find((r) => (r.transportista || '') === (transportista || ''));
+  const diasCarrier = row && Number(row.medianDays) > 0 ? Number(row.medianDays) : null;
+
+  const tramo = analytics?.logistica?.recepcionARecogido || {};
+  const medio = Math.max(diasCarrier || 0, Number(tramo.median || tramo.mean || 7), 7); // tiempo medio
+  const minimo = Math.max(2, medio); // inicio en el medio
+  const tope = minimo + 7; // medio + 1 semana
+
+  const rawMin = new Date(base.getFullYear(), base.getMonth(), base.getDate() + Math.round(minimo));
+  let rawMax = new Date(base.getFullYear(), base.getMonth(), base.getDate() + Math.round(tope));
+  let d1 = nextTueOrFri(rawMin);
+  let d2 = nextTueOrFri(rawMax);
+  if (d1.getTime() === d2.getTime()) {
+    rawMax = new Date(rawMax.getFullYear(), rawMax.getMonth(), rawMax.getDate() + 2);
+    d2 = nextTueOrFri(rawMax);
+  }
+
+  const fmt = (d) => d.toLocaleDateString('es-PE', { timeZone: 'UTC' });
+  return `${fmt(d1)} al ${fmt(d2)}`;
+}
+
 export default function ModalCasillero({ casillero, productos = [], onClose, onOpenProducto }) {
   const activos = useMemo(() => {
     return (productos || []).filter((p) => {
@@ -36,35 +104,10 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
     });
   }, [productos, casillero]);
 
-  const analytics = useMemo(() => {
-    try {
-      const raw = localStorage.getItem('analytics:lastSummary:v1::');
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  }, []);
+  const analytics = useMemo(loadAnalyticsSnapshot, []);
 
-  const estimarDias = (transportista) => {
-    const t = (transportista || '').toString();
-    const byCarrier = analytics?.logistica?.tardiasPorTransportista || [];
-    const row = byCarrier.find((r) => (r.transportista || '') === t);
-    if (row && Number(row.medianDays) > 0) return Number(row.medianDays);
-    const fallback = analytics?.logistica?.recepcionARecogido;
-    if (fallback?.median > 0) return Number(fallback.median);
-    if (fallback?.mean > 0) return Number(fallback.mean);
-    return 7;
-  };
-
-  const estimarFecha = (fechaRecepcion, transportista) => {
-    if (!fechaRecepcion) return '—';
-    try {
-      const base = new Date(fechaRecepcion);
-      if (isNaN(base.getTime())) return '—';
-      const dias = estimarDias(transportista);
-      const target = new Date(base.getFullYear(), base.getMonth(), base.getDate() + Math.round(dias));
-      const entrega = nextTueOrFri(target);
-      return entrega.toLocaleDateString('es-PE', { timeZone: 'UTC' });
-    } catch { return '—'; }
-  };
+  const estimarFecha = (fechaRecepcion, transportista) =>
+    estimarRangoDesdeRecepcion(fechaRecepcion, transportista, analytics);
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
@@ -76,7 +119,7 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
             onClick={onClose}
             aria-label="Cerrar"
           >
-            ×
+            x
           </button>
           <h2 className="text-xl font-semibold">Casillero: {casillero}</h2>
           <p className="text-sm text-gray-600 mt-1">Productos en camino (activos, no recogidos)</p>
@@ -102,9 +145,9 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
                     <th className="py-2 px-3">DEC ($)</th>
                     <th className="py-2 px-3">Estado</th>
                     <th className="py-2 px-3">Fecha compra</th>
-                    <th className="py-2 px-3">Fecha recepción</th>
+                    <th className="py-2 px-3">Fecha recepcion</th>
                     <th className="py-2 px-3">Transportista</th>
-                    <th className="py-2 px-3">ETA (si en Eshopex)</th>
+                    <th className="py-2 px-3">ETA</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -117,8 +160,10 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
                     const recep = t?.fechaRecepcion || '';
                     const compra = v?.fechaCompra || '';
                     const transp = t?.transportista || '';
-                    const isEshop = (estado || '').toLowerCase() === 'en_eshopex';
-                    const eta = isEshop ? estimarFecha(recep, transp) : '—';
+                    const eta = recep
+                      ? estimarFecha(recep, transp)
+                      : estimarRangoDesdeCompra(compra, analytics);
+
                     return (
                       <tr key={p.id} className={idx % 2 ? 'bg-white' : 'bg-gray-50/50'}>
                         <td className="py-2 px-3">
@@ -134,7 +179,7 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
                         <td className="py-2 px-3">{labelFromEstado(estado)}</td>
                         <td className="py-2 px-3">{compra ? fmtDate(compra) : (<span className="text-red-600">Sin fecha</span>)}</td>
                         <td className="py-2 px-3">{fmtDate(recep)}</td>
-                        <td className="py-2 px-3">{transp || '—'}</td>
+                        <td className="py-2 px-3">{transp || '-'}</td>
                         <td className="py-2 px-3">{eta}</td>
                       </tr>
                     );

@@ -86,10 +86,19 @@ function filtraPorRango(ventas, rango) {
   const f = new Date(from);
   const t = new Date(to);
   return ventas.filter(v => {
-    const d = new Date(v.fechaVenta || v.createdAt);
+    if (!v.fechaVenta) return false;
+    const d = new Date(v.fechaVenta);
     if (isNaN(d.getTime())) return false;
     return d >= f && d <= t;
   });
+}
+
+function formatDateLocal(dateStr) {
+  if (!dateStr) return '--';
+  const base = String(dateStr).split('T')[0];
+  const parts = base.split('-');
+  if (parts.length !== 3) return base;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
 function totales(ventasArr) {
@@ -340,17 +349,13 @@ export default function Ganancias({ setVista }) {
                       <td className="p-2">{nombreProducto(p) || '--'}</td>
                       <td className="p-2">{fmtSoles(costoTotal)}</td>
                       <td className="p-2">
-                        {val.fechaCompra
-                          ? new Date(val.fechaCompra).toLocaleDateString()
-                          : '--'}
+                      {val.fechaCompra ? formatDateLocal(val.fechaCompra) : '--'}
                       </td>
                       <td className="p-2">{fmtSoles(precioVenta)}</td>
                       <td className="p-2">{fmtSoles(ganancia)}</td>
                       <td className="p-2">{isFinite(pct) ? `${pct.toFixed(2)}%` : '--'}</td>
                       <td className="p-2">
-                        {v.fechaVenta
-                          ? new Date(v.fechaVenta).toLocaleDateString()
-                          : '--'}
+                      {v.fechaVenta ? formatDateLocal(v.fechaVenta) : '--'}
                       </td>
                       <td className="p-2">
                         <div className="flex flex-wrap gap-2">
@@ -571,17 +576,13 @@ function ColVendedor({
                     </td>
                     <td className="p-2">{fmtSoles(val.costoTotal)}</td>
                     <td className="p-2">
-                      {val.fechaCompra
-                        ? new Date(val.fechaCompra).toLocaleDateString()
-                        : '--'}
+                      {val.fechaCompra ? formatDateLocal(val.fechaCompra) : '--'}
                     </td>
                     <td className="p-2">{fmtSoles(v.precioVenta)}</td>
                     <td className="p-2">{fmtSoles(gananciaMostrada)}</td>
                     <td className="p-2">{isFinite(pct) ? `${pct.toFixed(2)}%` : '--'}</td>
                     <td className="p-2">
-                      {v.fechaVenta
-                        ? new Date(v.fechaVenta).toLocaleDateString()
-                        : '--'}
+                      {v.fechaVenta ? formatDateLocal(v.fechaVenta) : '--'}
                     </td>
                     <td className="p-2">
                       <button
@@ -777,7 +778,7 @@ function ModalSunat({ seller, onClose, ventas }) {
                     <td className="p-2">{fmtSoles(f.costoBase)}</td>
                     <td className="p-2">{fmtSoles(f.gananciaNeta)}</td>
                     <td className="p-2">
-                      {f.fechaVenta ? new Date(f.fechaVenta).toLocaleDateString() : '—'}
+                      {f.fechaVenta ? formatDateLocal(f.fechaVenta) : '—'}
                     </td>
                   </tr>
                 ))}
