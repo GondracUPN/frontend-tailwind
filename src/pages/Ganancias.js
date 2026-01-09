@@ -17,6 +17,33 @@ const SELLER_SLUGS = ['gonzalo', 'renato'];
 const SPLIT_VENDOR = 'ambos';
 const SPLIT_SHARE = 0.5;
 
+const CACHE_KEY = 'ganancias:cache:v1';
+const CACHE_TTL_MS = 2 * 60 * 1000;
+
+const readCache = () => {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.ts) return null;
+    if (Date.now() - parsed.ts > CACHE_TTL_MS) return null;
+    return Array.isArray(parsed.ventas) ? parsed.ventas : [];
+  } catch {
+    return null;
+  }
+};
+
+const writeCache = (ventas) => {
+  try {
+    localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({ ts: Date.now(), ventas: Array.isArray(ventas) ? ventas : [] }),
+    );
+  } catch {
+    /* ignore cache errors */
+  }
+};
+
 const shareForSeller = (venta, seller) => {
   const vend = normalizeVendedor(venta?.vendedor);
   const target = normalizeVendedor(seller);
@@ -140,8 +167,8 @@ export default function Ganancias({ setVista }) {
   const [sellerSunat, setSellerSunat] = useState(null);   // 'Gonzalo' | 'Renato' | null
 
   // Carga TODAS las ventas
-  const loadVentas = async () => {
-    setLoading(true);
+  const fetchVentas = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       const data = await api.get('/ventas'); // idealmente con producto + valor
       const list = Array.isArray(data) ? data : [];
@@ -151,11 +178,12 @@ export default function Ganancias({ setVista }) {
           new Date(a.fechaVenta || a.createdAt || 0)
       );
       setVentas(list);
+      writeCache(list);
     } catch (e) {
       console.error('[Ganancias] Error cargando ventas:', e);
-      setVentas([]);
+      if (!silent) setVentas([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -164,7 +192,10 @@ export default function Ganancias({ setVista }) {
     try {
       setAssigningVenta(`${ventaId}-${vendedor}`);
       await api.patch(`/ventas/${ventaId}`, { vendedor });
-      await loadVentas();
+      setVentas((prev) =>
+        prev.map((v) => (v.id === ventaId ? { ...v, vendedor } : v)),
+      );
+      fetchVentas({ silent: true });
     } catch (e) {
       console.error('[Ganancias] Error asignando vendedor:', e);
       alert('No se pudo asignar el vendedor.');
@@ -173,7 +204,16 @@ export default function Ganancias({ setVista }) {
     }
   };
 
-  useEffect(() => { loadVentas(); }, []);
+  useEffect(() => {
+    const cached = readCache();
+    if (cached && cached.length) {
+      setVentas(cached);
+      setLoading(false);
+      fetchVentas({ silent: true });
+    } else {
+      fetchVentas();
+    }
+  }, []);
 
   // Global
   const rangoGlobal = useMemo(
@@ -190,28 +230,19 @@ export default function Ganancias({ setVista }) {
   );
 
   // Por vendedor (incluye ventas divididas 50/50)
-  const ventasGonzalo = useMemo(
-    () =>
-      ventas
-        .map((v) => {
-          const share = shareForSeller(v, 'gonzalo');
-          if (!share) return null;
-          return { ...v, __share: share, __split: share !== 1 };
-        })
-        .filter(Boolean),
-    [ventas],
-  );
-  const ventasRenato = useMemo(
-    () =>
-      ventas
-        .map((v) => {
-          const share = shareForSeller(v, 'renato');
-          if (!share) return null;
-          return { ...v, __share: share, __split: share !== 1 };
-        })
-        .filter(Boolean),
-    [ventas],
-  );
+  const ventasPorSeller = useMemo(() => {
+    const g = [];
+    const r = [];
+    const sin = [];
+    for (const v of ventas) {
+      if (!normalizeVendedor(v.vendedor)) sin.push(v);
+      const shareG = shareForSeller(v, 'gonzalo');
+      if (shareG) g.push({ ...v, __share: shareG, __split: shareG !== 1 });
+      const shareR = shareForSeller(v, 'renato');
+      if (shareR) r.push({ ...v, __share: shareR, __split: shareR !== 1 });
+    }
+    return { g, r, sin };
+  }, [ventas]);
 
   const rangoGonzalo = useMemo(
     () => rangoFromMesAnio(mesGonzalo, anioGonzalo),
@@ -223,26 +254,17 @@ export default function Ganancias({ setVista }) {
   );
 
   const ventasGonzaloFiltradas = useMemo(
-    () => filtraPorRango(ventasGonzalo, rangoGonzalo),
-    [ventasGonzalo, rangoGonzalo]
+    () => filtraPorRango(ventasPorSeller.g, rangoGonzalo),
+    [ventasPorSeller.g, rangoGonzalo]
   );
   const ventasRenatoFiltradas = useMemo(
-    () => filtraPorRango(ventasRenato, rangoRenato),
-    [ventasRenato, rangoRenato]
+    () => filtraPorRango(ventasPorSeller.r, rangoRenato),
+    [ventasPorSeller.r, rangoRenato]
   );
 
   const tG = useMemo(() => totales(ventasGonzaloFiltradas), [ventasGonzaloFiltradas]);
   const tR = useMemo(() => totales(ventasRenatoFiltradas), [ventasRenatoFiltradas]);
-  const ventasSinVendedor = useMemo(() => {
-    return ventas
-      .filter((v) => !normalizeVendedor(v.vendedor))
-      .slice()
-      .sort(
-        (a, b) =>
-          new Date(b.fechaVenta || b.createdAt || 0) -
-          new Date(a.fechaVenta || a.createdAt || 0),
-      );
-  }, [ventas]);
+  const ventasSinVendedor = useMemo(() => ventasPorSeller.sin, [ventasPorSeller.sin]);
 
   return (
     <div className="min-h-screen p-8 bg-macGray text-macDark">
@@ -402,7 +424,7 @@ export default function Ganancias({ setVista }) {
           setMes={setMesGonzalo}
           setAnio={setAnioGonzalo}
           onSunat={() => setSellerSunat('Gonzalo')}
-          reloadVentas={loadVentas}
+          reloadVentas={fetchVentas}
         />
         <ColVendedor
           titulo="Renato"
@@ -413,7 +435,7 @@ export default function Ganancias({ setVista }) {
           setMes={setMesRenato}
           setAnio={setAnioRenato}
           onSunat={() => setSellerSunat('Renato')}
-          reloadVentas={loadVentas}
+          reloadVentas={fetchVentas}
         />
       </div>
 
@@ -459,7 +481,7 @@ function ColVendedor({
     try {
       setUnassigningId(ventaId);
       await api.patch(`/ventas/${ventaId}`, { vendedor: null });
-      await reloadVentas();
+      await reloadVentas({ silent: true });
     } catch (e) {
       console.error('[ColVendedor] Error al quitar venta:', e);
       alert('No se pudo quitar la venta.');

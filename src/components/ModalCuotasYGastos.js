@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+﻿﻿import React, { useEffect, useMemo, useState } from 'react';
 import CloseX from './CloseX';
 import { API_URL } from '../api';
 
@@ -289,7 +289,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
                       {mensualesGroups.map((g) => (
                         <tr key={g.key} className="border-t">
                           <td className="p-2 align-top"><input type="checkbox" checked={!!selKeys[g.key]} onChange={()=>toggleSel(g.key)} /></td>
-                          <td className="p-2 align-top">{g.notas || '(Sin detalle)'} {g.tarjeta && g.tarjeta !== '-' ? `�?� ${g.tarjeta}` : ''}</td>
+                          <td className="p-2 align-top">{g.notas || '(Sin detalle)'} {g.tarjeta && g.tarjeta !== '-' ? `- ${g.tarjeta}` : ''}</td>
                           <td className="p-2 align-top capitalize">{g.metodoPago}</td>
                           <td className="p-2 align-top">{g.moneda}</td>
                           <td className="p-2 align-top font-semibold">{fmtMoney(g.moneda, g.monto)}</td>
@@ -328,6 +328,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
     </div>
   );
 }
+
 
 
 

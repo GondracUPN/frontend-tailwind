@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 
 
 
@@ -869,7 +869,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- ? Volver
+ &larr; Volver
 
 
 

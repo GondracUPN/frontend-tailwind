@@ -98,11 +98,13 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     }
   };
 
-  const reloadAll = async ({ forceSpinner = false, includeGastos = true, useCache = true } = {}) => {
+  const reloadAll = async ({ forceSpinner = false, includeGastos = true, useCache = true, silent = false } = {}) => {
     if (!token) return;
-    if (!isInitialLoadDone || forceSpinner) setLoading(true);
-    else setIsUpdating(true);
-    setErr('');
+    if (!silent) {
+      if (!isInitialLoadDone || forceSpinner) setLoading(true);
+      else setIsUpdating(true);
+      setErr('');
+    }
     try {
       const cached = useCache ? readCache() : null;
       if (cached && !forceSpinner) {
@@ -110,8 +112,10 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         if (Array.isArray(cached.cardsSummary)) setCardsSummary(cached.cardsSummary);
         if (cached.wallet) setWallet(cached.wallet);
         setIsInitialLoadDone(true);
-        setLoading(false);
-        setIsUpdating(false);
+        if (!silent) {
+          setLoading(false);
+          setIsUpdating(false);
+        }
         return;
       }
 
@@ -160,13 +164,15 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       setIsInitialLoadDone(true);
     } catch (e) {
       console.error('[GastosPanel] load error:', e);
-      setErr('No se pudo cargar la informacion.');
+      if (!silent) setErr('No se pudo cargar la informacion.');
     } finally {
-      setLoading(false);
-      setIsUpdating(false);
+      if (!silent) {
+        setLoading(false);
+        setIsUpdating(false);
+      }
     }
   };
-  const refreshTotals = async () => reloadAll({ includeGastos: false, useCache: false });
+  const refreshTotals = async () => reloadAll({ includeGastos: false, useCache: false, silent: true });
 
   const displayConcepto = (c) => {
     const n = String(c || '').toLowerCase().replace(/\s+/g,'_');
@@ -174,7 +180,20 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     return String(c || '').replace(/_/g,' ');
   };
 
-  useEffect(() => { reloadAll({ forceSpinner: true }); /* eslint-disable-next-line */ }, [token, isAdmin, targetUserId]);
+  useEffect(() => {
+    const cached = readCache();
+    if (cached) {
+      if (Array.isArray(cached.rows)) setRows(sortRows(cached.rows));
+      if (Array.isArray(cached.cardsSummary)) setCardsSummary(cached.cardsSummary);
+      if (cached.wallet) setWallet(cached.wallet);
+      setIsInitialLoadDone(true);
+      setLoading(false);
+      reloadAll({ includeGastos: true, useCache: false, silent: true });
+      return;
+    }
+    reloadAll({ forceSpinner: true });
+    /* eslint-disable-next-line */
+  }, [token, isAdmin, targetUserId]);
 
   // Efectivo calculado (PEN)
   const efectivoPenCalc = useMemo(() => {
@@ -212,20 +231,34 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     setRows((prev) => sortRows([row, ...prev.filter((r) => r.id !== row.id)]));
   };
 
+  const debitRows = useMemo(
+    () => rows.filter((g) => g.metodoPago === 'debito'),
+    [rows],
+  );
+  const creditRows = useMemo(
+    () => rows.filter((g) => g.metodoPago === 'credito'),
+    [rows],
+  );
+  const creditRowsFiltered = useMemo(() => {
+    if (creditCardFilter === 'all') return creditRows;
+    return creditRows.filter((g) => {
+      const card = g.tarjeta || g.tarjetaPago || 'N/A';
+      return card === creditCardFilter;
+    });
+  }, [creditRows, creditCardFilter]);
+
   const creditCardOptions = useMemo(() => {
     const set = new Set();
-    rows.forEach((r) => {
-      if (r.metodoPago !== 'credito') return;
+    creditRows.forEach((r) => {
       const card = r.tarjeta || r.tarjetaPago || 'N/A';
       if (card) set.add(card);
     });
     return Array.from(set.values()).sort();
-  }, [rows]);
+  }, [creditRows]);
 
   const mostUsedCreditCard = useMemo(() => {
     const counts = new Map();
-    rows.forEach((r) => {
-      if (r.metodoPago !== 'credito') return;
+    creditRows.forEach((r) => {
       const card = r.tarjeta || r.tarjetaPago;
       if (!card) return;
       counts.set(card, (counts.get(card) || 0) + 1);
@@ -235,7 +268,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       return String(a[0] || '').localeCompare(String(b[0] || ''));
     });
     return sorted[0]?.[0] || '';
-  }, [rows]);
+  }, [creditRows]);
 
   const [creditCardForCreate, setCreditCardForCreate] = useState('');
 
@@ -361,7 +394,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.filter((g) => g.metodoPago === 'debito').map((g) => {
+                  {debitRows.map((g) => {
                     const conceptoCell = g.concepto === 'pago_tarjeta'
                       ? `Pago Tarjeta · ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
                       : (g.concepto || '').replace(/_/g, ' ');
@@ -435,14 +468,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows
-                    .filter((g) => g.metodoPago === 'credito')
-                    .filter((g) => {
-                      if (creditCardFilter === 'all') return true;
-                      const card = g.tarjeta || g.tarjetaPago || 'N/A';
-                      return card === creditCardFilter;
-                    })
-                    .map((g) => {
+                  {creditRowsFiltered.map((g) => {
                     const detalle = g.notas || '-';
                       return (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">

@@ -1,11 +1,11 @@
-// src/components/formParts/FormProductoIpad.js
+﻿﻿// src/components/formParts/FormProductoIpad.js
 export default function FormProductoIpad({ detalle, onChange }) {
   const { gama, procesador, generacion, almacenamiento, conexion } = detalle;
   const tamano = detalle.tamano || '';
 
   const generacionesNormales = ['8', '9', '10', '11'];
   const procesadoresAir = ['M1', 'M2', 'M3'];
-  const procesadoresPro = ['M1', 'M2', 'M4'];
+  const procesadoresPro = ['M1', 'M2', 'M4', 'M5'];
 
   const getProcesadores = () => {
     if (gama === 'Air') return procesadoresAir;
@@ -17,7 +17,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
     if (gama === 'Air' && ['M2', 'M3'].includes(procesador)) return ['11', '13'];
     if (gama === 'Pro') {
       if (['M1', 'M2'].includes(procesador)) return ['11', '12.9'];
-      if (procesador === 'M4') return ['11', '13'];
+      if (['M4', 'M5'].includes(procesador)) return ['11', '13'];
     }
     return [];
   };
@@ -30,7 +30,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
     }
     if (gama === 'Pro') {
       if (['M1', 'M2'].includes(procesador)) return ['128', '256', '512', '1TB', '2TB'];
-      if (procesador === 'M4') return ['256', '512', '1TB', '2TB'];
+      if (['M4', 'M5'].includes(procesador)) return ['256', '512', '1TB', '2TB'];
     }
     return [];
   };
@@ -50,7 +50,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
             onChange('generacion', '');
             onChange('tamano', '');        // reset tamano en ASCII
             onChange('almacenamiento', '');
-            // Si quieres resetear conexiÃ³n, descomenta:
+            // Si quieres resetear conexión, descomenta:
             // onChange('conexion', '');
           }}
         >
@@ -61,10 +61,10 @@ export default function FormProductoIpad({ detalle, onChange }) {
         </select>
       </div>
 
-      {/* GeneraciÃ³n para Normal */}
+      {/* Generación para Normal */}
       {gama === 'Normal' && (
         <div>
-          <label className="block font-medium">GeneraciÃ³n</label>
+          <label className="block font-medium">Generación</label>
           <select
             className="w-full border p-2 rounded"
             value={generacion || ''}
@@ -117,7 +117,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
             </div>
           )}
 
-          {/* Almacenamiento dinÃ¡mico */}
+          {/* Almacenamiento dinámico */}
           {getAlmacenamiento().length > 0 && (
             <div>
               <label className="block font-medium">Almacenamiento</label>
@@ -136,10 +136,10 @@ export default function FormProductoIpad({ detalle, onChange }) {
         </>
       )}
 
-      {/* ConexiÃ³n */}
+      {/* Conexión */}
       {gama && (
         <div>
-          <label className="block font-medium">ConexiÃ³n</label>
+          <label className="block font-medium">Conexión</label>
           <select
             className="w-full border p-2 rounded"
             value={conexion || ''}

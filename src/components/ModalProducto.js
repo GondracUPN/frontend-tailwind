@@ -1,5 +1,5 @@
 // src/components/ModalProducto.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import FormProductoMacbook from './formParts/FormProductoMacbook';
 import FormProductoIpad from './formParts/FormProductoIpad';
 import FormProductoIphone from './formParts/FormProductoIphone';
@@ -10,6 +10,7 @@ import api from '../api';
 export default function ModalProducto({ producto, onClose, onSaved }) {
   const isEdit = Boolean(producto);
   const [saving, setSaving] = useState(false);
+  const mountedRef = useRef(true);
   const [linkerOpen, setLinkerOpen] = useState(false);
   const [loadingLinker, setLoadingLinker] = useState(false);
   const [linkables, setLinkables] = useState([]);
@@ -86,6 +87,10 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
   }, [isEdit, producto]);
 
   useEffect(() => {
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
     if (!producto?.envioGrupoId) {
       setCurrentGroup([]);
       return;
@@ -131,6 +136,8 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     if (primaryLink) payload.vincularCon = Number(primaryLink);
     if (desvincularEnvio) payload.desvincularEnvio = true;
 
+    if (!isEdit) onClose();
+
     try {
       const res = await api[method](url, payload);
       const saved = res?.data ?? res;
@@ -141,20 +148,25 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
         await Promise.allSettled(ops);
       }
 
-      onSaved(saved);
-      onClose();
-
       if (form.casillero) {
+        const optimisticTracking = { casillero: form.casillero, estado: 'comprado_sin_tracking' };
+        onSaved(saved, optimisticTracking);
         api.put(`/tracking/producto/${saved.id}`, {
           casillero: form.casillero,
           estado: 'comprado_sin_tracking',
+        }).then((trk) => {
+          if (trk) onSaved(saved, trk);
         }).catch((err) => console.error('Error al asignar casillero:', err));
+      } else {
+        onSaved(saved);
       }
+
+      if (isEdit) onClose();
     } catch (err) {
       console.error('Error al guardar:', err);
       alert('No se pudo guardar el producto.');
     } finally {
-      setSaving(false);
+      if (mountedRef.current) setSaving(false);
     }
   };
 

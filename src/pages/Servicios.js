@@ -122,49 +122,73 @@ function InventarioAdmin({ onIrProductos }) {
   };
 
   useEffect(() => { load(); }, []);
-
-  // Cargar estado de venta por producto (última venta si existe)
+  // Cargar estado de venta por producto (ultima venta) en batch
   useEffect(() => {
     let alive = true;
     (async () => {
-      if (!Array.isArray(productos) || productos.length === 0) return;
+      if (!Array.isArray(productos) || productos.length === 0) {
+        if (alive) setVentasMap({});
+        return;
+      }
       try {
-        const entries = await Promise.all(
-          productos.map(async (p) => {
-            try {
-              const data = await api.get(`/ventas/producto/${p.id}`);
-              const arr = Array.isArray(data)
-                ? data
-                : (Array.isArray(data?.items) ? data.items : []);
-              const ultima = arr.length > 0 ? arr[0] : null;
-              return [p.id, ultima];
-            } catch {
-              return [p.id, null];
-            }
-          })
-        );
-        if (alive) setVentasMap(Object.fromEntries(entries));
-      } catch {}
+        const ids = productos.map((p) => p.id).filter(Boolean);
+        const query = ids.length ? `?ids=${ids.join(',')}` : '';
+        const data = await api.get(`/ventas/ultimas${query}`);
+        const arr = Array.isArray(data)
+          ? data
+          : (Array.isArray(data?.items) ? data.items
+            : (Array.isArray(data?.data) ? data.data : []));
+        const map = {};
+        arr.forEach((v) => {
+          if (v && v.productoId != null) map[v.productoId] = v;
+        });
+        ids.forEach((id) => { if (map[id] === undefined) map[id] = null; });
+        if (alive) setVentasMap(map);
+      } catch {
+        if (alive) setVentasMap({});
+      }
     })();
     return () => { alive = false; };
   }, [productos]);
 
-  const getVentaStatus = (p) => {
-    const venta = ventasMap[p.id] || null;
-    // Ordenar tracking por fecha/ID descendente
-    const trk = Array.isArray(p.tracking) ? [...p.tracking] : [];
-    trk.sort((a, b) => {
-      if (a.createdAt && b.createdAt) {
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  const lastTrackingById = React.useMemo(() => {
+    const map = {};
+    for (const p of productos || []) {
+      const trk = Array.isArray(p.tracking) ? p.tracking : [];
+      let best = null;
+      for (const t of trk) {
+        if (!t) continue;
+        if (!best) { best = t; continue; }
+        const ta = t.createdAt ? Date.parse(t.createdAt) : 0;
+        const ba = best.createdAt ? Date.parse(best.createdAt) : 0;
+        if (ta && ba) {
+          if (ta > ba) best = t;
+        } else if ((t.id || 0) > (best.id || 0)) {
+          best = t;
+        }
       }
-      return (b.id || 0) - (a.id || 0);
-    });
-    const last = trk[0];
+      map[p.id] = best;
+    }
+    return map;
+  }, [productos]);
 
-    if (venta) return { label: 'Vendido', cls: 'bg-green-100 text-green-800 border border-green-300' };
-    if ((last?.estado || '').toLowerCase() === 'recogido') return { label: 'Disponible', cls: 'bg-yellow-100 text-yellow-800 border border-yellow-300' };
-    return { label: 'En espera', cls: 'bg-gray-100 text-gray-700 border border-gray-300' };
-  };
+  const statusById = React.useMemo(() => {
+    const map = {};
+    for (const p of productos || []) {
+      const venta = ventasMap[p.id] || null;
+      const last = lastTrackingById[p.id];
+      if (venta) {
+        map[p.id] = { label: 'Vendido', cls: 'bg-green-100 text-green-800 border border-green-300' };
+      } else if ((last?.estado || '').toLowerCase() === 'recogido') {
+        map[p.id] = { label: 'Disponible', cls: 'bg-yellow-100 text-yellow-800 border border-yellow-300' };
+      } else {
+        map[p.id] = { label: 'En espera', cls: 'bg-gray-100 text-gray-700 border border-gray-300' };
+      }
+    }
+    return map;
+  }, [productos, ventasMap, lastTrackingById]);
+
+  const getVentaStatus = (p) => statusById[p.id] || { label: 'En espera', cls: 'bg-gray-100 text-gray-700 border border-gray-300' };
 
   const enviarDisponiblesAlCatalogo = async () => {
     try {
@@ -183,7 +207,7 @@ function InventarioAdmin({ onIrProductos }) {
   // Derivar lista visible: solo 'Disponible'
   const visibles = React.useMemo(() => {
     return (productos || []).filter((p) => getVentaStatus(p).label === 'Disponible');
-  }, [productos, ventasMap]);
+  }, [productos, statusById]);
 
   return (
     <div className="bg-white rounded-2xl p-4 shadow">
@@ -248,3 +272,4 @@ export default function Servicios({ setVista }) {
     </div>
   );
 }
+

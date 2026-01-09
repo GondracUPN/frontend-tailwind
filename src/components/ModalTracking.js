@@ -72,11 +72,12 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
     setEditMode(false);
   };
 
-  const normalizeBody = (body = {}) => {
+  const normalizeBody = (body = {}, { allowEmpty = false } = {}) => {
     const cleanText = (v) => {
       if (v == null) return undefined;
       const s = String(v).trim();
-      return s.length ? s : undefined;
+      if (!s.length) return allowEmpty ? '' : undefined;
+      return s;
     };
     const fecha = (v) => {
       if (!v) return null;
@@ -95,7 +96,7 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
 
   const guardar = async (body) => {
     try {
-      const payload = normalizeBody(body);
+    const payload = normalizeBody(body, { allowEmpty: Boolean(body?.__allowEmpty) });
       const exists = !!trackRec?.id;
       const saved = exists
         ? await api.patch(`/tracking/${trackRec.id}`, payload)
@@ -128,6 +129,7 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
       trackingEshop,
       fechaRecepcion,
       fechaRecogido,
+      __allowEmpty: true,
     });
     await afterSave(saved);
   };
@@ -160,11 +162,10 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
     const saved = await guardar({
       trackingUsa: '',
       transportista: '',
-      casillero: '',
       trackingEshop: '',
       fechaRecepcion: null,
       fechaRecogido: null,
-      estado: 'comprado_sin_tracking',
+      __allowEmpty: true,
     });
     setEditMode(false);
     await afterSave(saved);

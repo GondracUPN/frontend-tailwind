@@ -1,4 +1,4 @@
-// src/pages/Productos.js
+﻿﻿﻿﻿﻿﻿﻿﻿﻿// src/pages/Productos.js
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ModalProducto from '../components/ModalProducto';
 import DetallesProductoModal from '../components/DetallesProductoModal';
@@ -110,12 +110,20 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [selectAction, setSelectAction] = useState(null); // 'whatsapp' | 'pickup' | 'adelantar'
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [pickupDate, setPickupDate] = useState(''); // YYYY-MM-DD
+  const [recojoOpen, setRecojoOpen] = useState(false);
+  const [recojoSelected, setRecojoSelected] = useState(new Set());
+  const [recojoDate, setRecojoDate] = useState('');
+  const [recojoStatusMap, setRecojoStatusMap] = useState({});
+  const [eshopexCargaOpen, setEshopexCargaOpen] = useState(false);
+  const [eshopexCargaRows, setEshopexCargaRows] = useState([]);
+  const [eshopexCargaLoading, setEshopexCargaLoading] = useState(false);
+  const [eshopexCargaError, setEshopexCargaError] = useState(null);
   const [soloDisponibles, setSoloDisponibles] = useState(false);
   const [selectedCasillero, setSelectedCasillero] = useState(null);
   const [productoEnCasillero, setProductoEnCasillero] = useState(null);
   const [savingProductos, setSavingProductos] = useState(() => new Set());
   // Filtros adicionales
-  const [filtroTipo, setFiltroTipo] = useState('todos'); // 'todos' | 'macbook' | 'ipad' | 'pantalla' | 'otro'
+  const [filtroTipo, setFiltroTipo] = useState('todos'); // 'todos' | 'macbook' | 'ipad' | 'iphone' | 'pantalla' | 'otro'
   const [filtroProc, setFiltroProc] = useState('todos'); // procesador o pantalla (texto libre)
   const [filtroTam, setFiltroTam] = useState('todos');   // tamano adicional para macbook/ipad
   const [trackingQuery, setTrackingQuery] = useState('');
@@ -198,7 +206,9 @@ export default function Productos({ setVista, setAnalisisBack }) {
     if (tipo !== 'todos') {
       for (const p of productos || []) {
         if (String(p.tipo || '').toLowerCase() !== tipo) continue;
-        const val = String(p.detalle?.gama || p.gama || '').trim();
+        const val = tipo === 'iphone'
+          ? String(p.detalle?.modelo || '').trim()
+          : String(p.detalle?.gama || p.gama || '').trim();
         if (val) set.add(val);
       }
     }
@@ -217,10 +227,12 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
   // Reemplaza ambos startImport() / startMassPickup() por:
   const startRecojo = () => {
-    setSelectMode(true);
-    setSelectAction('recojo'); // flujo único
-    setSelectedIds(new Set());
-    setPickupDate('');
+    setRecojoOpen(true);
+    setRecojoSelected(new Set());
+    setRecojoDate('');
+  };
+  const startEshopexPendientes = () => {
+    setEshopexCargaOpen(true);
   };
 
 
@@ -272,50 +284,20 @@ export default function Productos({ setVista, setAnalisisBack }) {
   };
 
   // Acción ACEPTAR (flujo único: marcar recogidos + WhatsApp)
-  const confirmAction = async () => {
+  const labelFromEstado = (estado) => {
+    switch (estado) {
+      case 'comprado_sin_tracking': return 'Sin Tracking';
+      case 'comprado_en_camino': return 'En Camino';
+      case 'en_eshopex': return 'Eshopex';
+      case 'recogido': return 'Recogido';
+      default: return '-';
+    }
+  };
+
+const confirmAction = async () => {
     const items = productos.filter(p => selectedIds.has(p.id));
     if (items.length === 0) { alert('Selecciona al menos un producto.'); return; }
 
-    if (selectAction === 'recojo') {
-      if (!pickupDate) { alert('Elige una fecha de recojo.'); return; }
-
-      try {
-        // 1) Marca todos como 'recogido' con la misma fecha
-        await Promise.all(items.map(p =>
-          api.put(`/tracking/producto/${p.id}`, {
-            estado: 'recogido',
-            fechaRecogido: pickupDate,
-          })
-        ));
-
-        // 2) Genera texto para WhatsApp
-        const lineas = items.map(p => {
-          const t = p.tracking?.[0] || {};
-          const esh = (t.trackingEshop || '').trim(); // puede ser vacío
-          const cas = t.casillero || '';
-          const nombre = buildNombreProducto(p);
-          return `${esh} | ${nombre} | Casillero: ${cas}`;
-        });
-
-        const url = `https://wa.me/+51938597478?text=${encodeURIComponent(lineas.join('\n'))}`;
-
-        // 3) Refresca productos
-        await refreshProductos();
-
-        // 4) Abre WhatsApp
-        window.open(url, '_blank', 'noopener,noreferrer');
-
-        // 5) Salir del modo selección
-        cancelSelect();
-        return;
-      } catch (e) {
-        console.error(e);
-        alert('No se pudo completar el recojo de algunos productos.');
-        return;
-      }
-    }
-
-    // (se mantiene el caso 'adelantar' tal cual ya lo tienes)
     if (selectAction === 'adelantar') {
       const itemsSel = productos.filter(p => selectedIds.has(p.id));
       if (itemsSel.length !== 1) { alert('Selecciona exactamente un producto.'); return; }
@@ -327,19 +309,191 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
   };
 
+  const getLastTracking = (p) => {
+    const trk = Array.isArray(p?.tracking) ? [...p.tracking] : [];
+    if (!trk.length) return null;
+    trk.sort((a, b) => {
+      if (a.createdAt && b.createdAt) return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return (b.id || 0) - (a.id || 0);
+    });
+    return trk[0] || null;
+  };
 
+  const recojoList = React.useMemo(() => {
+    return (productos || []).filter((p) => {
+      const t = getLastTracking(p);
+      const estado = String(t?.estado || '').toLowerCase();
+      return estado === 'en_eshopex';
+    }).sort((a, b) => {
+      const fa = getLastTracking(a)?.fechaRecepcion || '';
+      const fb = getLastTracking(b)?.fechaRecepcion || '';
+      const ta = fa ? Date.parse(fa) : 0;
+      const tb = fb ? Date.parse(fb) : 0;
+      if (ta && tb) return ta - tb;
+      return ta - tb;
+    });
+  }, [productos]);
 
-
-
-  // ===== Helpers de Tracking (sin heurística) =====
-  const labelFromEstado = (estado) => {
-    switch (estado) {
-      case 'comprado_sin_tracking': return 'Sin Tracking';
-      case 'comprado_en_camino': return 'En Camino';
-      case 'en_eshopex': return 'Eshopex';
-      case 'recogido': return 'Recogido';
-      default: return '-';
+  const getEshopexCode = (p) => (getLastTracking(p)?.trackingEshop || '').trim();
+  const productosByEshopex = React.useMemo(() => {
+    const map = {};
+    for (const p of productos || []) {
+      const code = getEshopexCode(p);
+      if (code) map[code] = p;
     }
+    return map;
+  }, [productos]);
+  const normalizeEshopexStatus = (status) => {
+    const s = String(status || '').toUpperCase();
+    if (s.includes('CONFIRMACION DE EMBARQUE CONSOLIDADO')) return { key: 'confirmacion', label: 'Confirmacion consolidado' };
+    if (s.includes('EN RUTA')) return { key: 'en_ruta', label: 'En ruta' };
+    if (s.includes('ENTREGADO A CLIENTE FINAL')) return { key: 'entregado', label: 'Entregado' };
+    if (!s) return { key: 'none', label: 'No hay informacion' };
+    return { key: 'otro', label: s };
+  };
+  const readEshopexCache = () => {
+    try {
+      const raw = localStorage.getItem('eshopex-status-cache');
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+  const writeEshopexCache = (next) => {
+    try {
+      localStorage.setItem('eshopex-status-cache', JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  };
+  const isRecojoReady = (p) => {
+    const code = getEshopexCode(p);
+    if (!code) return false;
+    const statusInfo = recojoStatusMap[code];
+    if (!statusInfo || statusInfo.loading) return false;
+    return normalizeEshopexStatus(statusInfo.status).key === 'entregado';
+  };
+
+  useEffect(() => {
+    if (!recojoOpen) return;
+    const cached = readEshopexCache();
+    if (cached && typeof cached === 'object') {
+      setRecojoStatusMap((prev) => ({ ...cached, ...prev }));
+    }
+    const codes = recojoList
+      .map((p) => (getLastTracking(p)?.trackingEshop || '').trim())
+      .filter(Boolean);
+    if (!codes.length) return;
+    const missing = codes.filter((c) => !recojoStatusMap[c]);
+    if (!missing.length) return;
+    let alive = true;
+    (async () => {
+      setRecojoStatusMap((prev) => {
+        const next = { ...prev };
+        missing.forEach((code) => { next[code] = { loading: true }; });
+        return next;
+      });
+      const entries = await Promise.all(
+        missing.map(async (code) => {
+          try {
+            const data = await api.get(`/tracking/eshopex-status/${encodeURIComponent(code)}`);
+            return [code, { ...data, loading: false }];
+          } catch {
+            return [code, { status: null, date: null, time: null, loading: false }];
+          }
+        }),
+      );
+      if (!alive) return;
+      setRecojoStatusMap((prev) => {
+        const next = { ...prev };
+        entries.forEach(([code, data]) => { next[code] = data; });
+        writeEshopexCache(next);
+        return next;
+      });
+    })();
+    return () => { alive = false; };
+  }, [recojoOpen, recojoList]);
+
+  useEffect(() => {
+    if (!eshopexCargaOpen) return;
+    let alive = true;
+    setEshopexCargaLoading(true);
+    setEshopexCargaError(null);
+    (async () => {
+      try {
+        const data = await api.get('/tracking/eshopex-carga');
+        if (!alive) return;
+        const rows = Array.isArray(data) ? data : (data?.data || []);
+        setEshopexCargaRows(rows);
+      } catch (e) {
+        if (!alive) return;
+        setEshopexCargaError('No se pudo cargar la informacion de Eshopex.');
+      } finally {
+        if (alive) setEshopexCargaLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [eshopexCargaOpen]);
+
+  const eshopexPendientes = React.useMemo(() => {
+    return (eshopexCargaRows || []).filter((row) => {
+      const estado = String(row?.estado || '').trim().toUpperCase();
+      return estado !== 'ENTREGADO';
+    });
+  }, [eshopexCargaRows]);
+
+  const toggleRecojoSelect = (id) => {
+    setRecojoSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleRecojoWhatsapp = async () => {
+    const items = recojoList.filter((p) => recojoSelected.has(p.id) && isRecojoReady(p));
+    if (!items.length) { alert('Selecciona al menos un producto.'); return; }
+    if (!recojoDate) { alert('Elige una fecha de recojo.'); return; }
+    try {
+      await Promise.all(items.map(p =>
+        api.put(`/tracking/producto/${p.id}`, {
+          estado: 'recogido',
+          fechaRecogido: recojoDate,
+        })
+      ));
+
+      const lineas = items.map(p => {
+        const t = getLastTracking(p) || {};
+        const esh = (t.trackingEshop || '').trim();
+        const cas = t.casillero || '';
+        const nombre = buildNombreProducto(p);
+        return `${esh} | ${nombre} | Casillero: ${cas}`;
+      });
+
+      const url = `https://wa.me/+51938597478?text=${encodeURIComponent(lineas.join('\n'))}`;
+      await refreshProductos();
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setRecojoOpen(false);
+      setRecojoSelected(new Set());
+      setRecojoDate('');
+    } catch (e) {
+      console.error(e);
+      alert('No se pudo completar el recojo de algunos productos.');
+    }
+  };
+
+  const handleRecojoTrackingLinks = () => {
+    const items = recojoList.filter((p) => recojoSelected.has(p.id));
+    if (!items.length) { alert('Selecciona al menos un producto.'); return; }
+    items.forEach((p) => {
+      const t = getLastTracking(p);
+      const esh = (t?.trackingEshop || '').trim();
+      if (!esh) return;
+      const href = URLS.eshopex(esh);
+      window.open(href, '_blank', 'noopener,noreferrer');
+    });
   };
 
   // Colores Tailwind por estado
@@ -417,21 +571,23 @@ export default function Productos({ setVista, setAnalisisBack }) {
   };
 
   // SWR helpers: cache + refresh
-  const refreshProductos = useCallback(async ({ force = false, useCache = true } = {}) => {
+  const refreshProductos = useCallback(async ({ force = false, useCache = true, silent = false } = {}) => {
     const cache = useCache ? readCache() : null;
     const cacheFresh = cache && cache.ts && Date.now() - cache.ts <= CACHE_TTL_MS;
     if (!force && cacheFresh) {
       setProductos(cache.productos || []);
       if (cache.ventasMap) setVentasMap(cache.ventasMap || {});
       if (cache.resumen) setResumen(cache.resumen);
-      setCargando(false);
-      setError(null);
+      if (!silent) {
+        setCargando(false);
+        setError(null);
+      }
       return cache.productos || [];
     }
 
-    const showSpinner = productos.length === 0 || force || !cacheFresh;
+    const showSpinner = !silent && (productos.length === 0 || force || !cacheFresh);
     if (showSpinner) setCargando(true);
-    setError(null);
+    if (!silent) setError(null);
     try {
       const data = await api.get('/productos');
       const lista = Array.isArray(data)
@@ -448,7 +604,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
       setError(`No se pudieron cargar los productos. ${msg}`);
       return null;
     } finally {
-      setCargando(false);
+      if (!silent) setCargando(false);
     }
   }, [productos.length, fetchResumen]);
 
@@ -547,7 +703,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
       const matchTipo = (tipo) => {
         const t = String(tipo || '').toLowerCase().trim();
         if (filtroTipo === 'otro') {
-          return t !== 'macbook' && t !== 'ipad';
+          return t !== 'macbook' && t !== 'ipad' && t !== 'iphone';
           // Si NO quieres incluir "pantalla" dentro de "otros", usa:
           // return t !== 'macbook' && t !== 'ipad' && t !== 'pantalla';
         }
@@ -578,6 +734,14 @@ export default function Productos({ setVista, setAnalisisBack }) {
           if (tamTerm !== 'todos') {
             const tam = String(getTam(d) || '').toLowerCase();
             if (tam !== tamTerm) return false;
+          }
+          return true;
+        }
+
+        if (tipo === 'iphone') {
+          if (gamaTerm !== 'todos') {
+            const modelo = String(d.modelo || '').toLowerCase();
+            return modelo === gamaTerm;
           }
           return true;
         }
@@ -629,6 +793,20 @@ export default function Productos({ setVista, setAnalisisBack }) {
     if (closeModal) cerrarModal();
   };
 
+  const applyTrackingUpdate = (productoId, tracking) => {
+    if (!productoId || !tracking) return;
+    setProductos(list => {
+      const next = list.map(p => {
+        if (p.id !== productoId) return p;
+        const prev = Array.isArray(p.tracking) ? p.tracking : [];
+        const merged = [tracking, ...prev.filter(t => t && t.id !== tracking.id)];
+        return { ...p, tracking: merged };
+      });
+      writeCache(next, ventasMap, resumenRef.current);
+      return next;
+    });
+  };
+
   const guardarDetalleProducto = async (id, payload) => {
     let yaGuardando = false;
     setSavingProductos((prev) => {
@@ -659,8 +837,12 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
   };
 
-  const handleSaved = (updated) => {
+  const handleSaved = (updated, trackingUpdate) => {
     applyProductoUpdate(updated, { isNuevo: modalModo === 'crear' });
+    if (trackingUpdate && updated?.id) {
+      applyTrackingUpdate(updated.id, trackingUpdate);
+    }
+    refreshProductos({ force: true, useCache: false, silent: true });
   };
 
   const handleSavedEnCasillero = (updated) => {
@@ -944,19 +1126,20 @@ export default function Productos({ setVista, setAnalisisBack }) {
                   {tiposDisponibles.includes('macbook') && <option value="macbook">MacBook</option>}
                   {tiposDisponibles.includes('ipad') && <option value="ipad">iPad</option>}
                   {tiposDisponibles.includes('pantalla') && <option value="pantalla">Pantalla</option>}
+                  {tiposDisponibles.includes('iphone') && <option value="iphone">iPhone</option>}
                   {tiposDisponibles.includes('otro') && <option value="otro">Otros</option>}
                 </select>
               </label>
 
               {(filtroTipo !== 'todos' && opcionesGama.length > 0) && (
                 <label className="text-sm inline-flex items-center gap-2">
-                  <span>Gama</span>
+                  <span>{filtroTipo === 'iphone' ? 'Modelo' : 'Gama'}</span>
                   <select
                     className="border rounded px-2 py-1"
                     value={filtroGama}
                     onChange={(e) => setFiltroGama(e.target.value)}
                   >
-                    <option value="todos">Todas</option>
+                    <option value="todos">{filtroTipo === 'iphone' ? 'Todos' : 'Todas'}</option>
                     {opcionesGama.map((opt) => (
                       <option key={opt} value={String(opt).toLowerCase()}>{opt}</option>
                     ))}
@@ -1032,6 +1215,13 @@ export default function Productos({ setVista, setAnalisisBack }) {
                 title="Selecciona varios y marcar como recogidos + generar texto para WhatsApp"
               >
                 Recojo
+              </button>
+              <button
+                onClick={startEshopexPendientes}
+                className="bg-sky-700 text-white px-5 py-2 rounded hover:bg-sky-800"
+                title="Ver cargas Eshopex no entregadas"
+              >
+                Pendientes Eshopex
               </button>
 
               <button
@@ -1357,6 +1547,205 @@ export default function Productos({ setVista, setAnalisisBack }) {
       )}
 
       
+      {recojoOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-4xl rounded-xl shadow-lg p-6 relative mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <button
+                  className="px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                  onClick={handleRecojoWhatsapp}
+                >
+                  Marcar recogido
+                </button>
+                <button
+                  className="px-3 py-2 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                  onClick={handleRecojoTrackingLinks}
+                >
+                  Abrir tracking
+                </button>
+              </div>
+              <h2 className="text-lg font-semibold">Recojo Eshopex</h2>
+              <button
+                className="w-9 h-9 flex items-center justify-center text-xl font-bold rounded-full hover:bg-gray-100"
+                onClick={() => setRecojoOpen(false)}
+                aria-label="Cerrar"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-end gap-3 mb-4">
+              <div className="flex items-end gap-2">
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
+                  onClick={() => {
+                    const allIds = recojoList.filter((p) => isRecojoReady(p)).map((p) => p.id);
+                    const allSelected = recojoSelected.size === allIds.length && allIds.length > 0;
+                    setRecojoSelected(allSelected ? new Set() : new Set(allIds));
+                  }}
+                >
+                  {recojoSelected.size === recojoList.filter((p) => isRecojoReady(p)).length && recojoList.some((p) => isRecojoReady(p))
+                    ? 'Deseleccionar'
+                    : 'Seleccionar todos'}
+                </button>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Fecha de recojo</label>
+                  <input
+                    type="date"
+                    className="border rounded px-3 py-2"
+                    value={recojoDate}
+                    onChange={(e) => setRecojoDate(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="text-sm text-gray-500">
+                Productos en Eshopex: {recojoList.length}
+              </div>
+            </div>
+
+            {recojoList.length === 0 ? (
+              <div className="text-sm text-gray-500">No hay productos en Eshopex.</div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm max-h-[60vh] overflow-y-auto">
+                <table className="min-w-[720px] w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="p-2 text-left">Sel.</th>
+                      <th className="p-2 text-left">Producto</th>
+                      <th className="p-2 text-left">Tracking Eshopex</th>
+                      <th className="p-2 text-left">Estatus</th>
+                      <th className="p-2 text-left">Fecha recepcion</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recojoList.map((p) => {
+                      const t = getLastTracking(p);
+                      const esh = (t?.trackingEshop || '').trim();
+                      const fecha = t?.fechaRecepcion
+                        ? new Date(t.fechaRecepcion).toLocaleDateString('es-PE', { timeZone: 'UTC' })
+                        : '-';
+                      const statusInfo = recojoStatusMap[esh] || {};
+                      const statusNorm = normalizeEshopexStatus(statusInfo.status);
+                      const isReady = isRecojoReady(p);
+                      const checked = recojoSelected.has(p.id);
+                      return (
+                        <tr key={p.id} className="border-t">
+                          <td className="p-2">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={!isReady}
+                              title={isReady ? '' : 'Solo disponible cuando esta entregado'}
+                              onChange={() => toggleRecojoSelect(p.id)}
+                            />
+                          </td>
+                          <td className="p-2">{buildNombreProducto(p) || p.tipo}</td>
+                          <td className="p-2">
+                            {esh ? (
+                              <a
+                                href={URLS.eshopex(esh)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                Ver tracking
+                              </a>
+                            ) : (
+                              <span className="text-gray-500">-</span>
+                            )}
+                            <div className="text-sm">{esh || '-'}</div>
+                          </td>
+                          <td className="p-2">
+                            <div className="text-sm font-medium">
+                              {statusInfo.loading ? 'Cargando' : (statusInfo.status ? statusNorm.label : 'No hay informacion')}
+                            </div>
+                            {(statusInfo.date || statusInfo.time) && (
+                              <div className="text-xs text-gray-500">
+                                {(statusInfo.date || '')} {(statusInfo.time || '')}
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-2">
+                            <div className="text-sm">{fecha}</div>
+                            {isReady && (
+                              <div className="text-xs text-emerald-600 font-semibold">Listo para Recoger</div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {eshopexCargaOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-5xl rounded-xl shadow-lg p-6 relative mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Pendientes Eshopex</h2>
+              <button
+                className="w-9 h-9 flex items-center justify-center text-xl font-bold rounded-full hover:bg-gray-100"
+                onClick={() => setEshopexCargaOpen(false)}
+                aria-label="Cerrar"
+              >
+                ž
+              </button>
+            </div>
+            {eshopexCargaLoading && (
+              <div className="text-sm text-gray-600">Cargando...</div>
+            )}
+            {eshopexCargaError && (
+              <div className="text-sm text-red-600">{eshopexCargaError}</div>
+            )}
+            {!eshopexCargaLoading && !eshopexCargaError && (
+              eshopexPendientes.length === 0 ? (
+                <div className="text-sm text-gray-500">No hay cargas pendientes.</div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm max-h-[60vh] overflow-y-auto">
+                  <table className="min-w-[900px] w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="p-2 text-left">Producto</th>
+                        <th className="p-2 text-left">Tracking Eshopex</th>
+                        <th className="p-2 text-left">Peso</th>
+                        <th className="p-2 text-left">Valor DEC</th>
+                        <th className="p-2 text-left">Estatus</th>
+                        <th className="p-2 text-left">Fecha recepcion MIAMI</th>
+                        <th className="p-2 text-left">Casillero</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {eshopexPendientes.map((row) => {
+                        const code = String(row?.guia || '').trim();
+                        const producto = productosByEshopex[code];
+                        const t = producto ? getLastTracking(producto) : null;
+                        const cas = t?.casillero || '-';
+                        return (
+                          <tr key={`${code}-${row?.account || ''}`} className="border-t">
+                            <td className="p-2">{producto ? (buildNombreProducto(producto) || producto.tipo) : '-'}</td>
+                            <td className="p-2">{code || '-'}</td>
+                            <td className="p-2">{row?.peso || '-'}</td>
+                            <td className="p-2">{row?.valor || '-'}</td>
+                            <td className="p-2">{row?.estado || '-'}</td>
+                            <td className="p-2">{row?.fechaRecepcion || '-'}</td>
+                            <td className="p-2">{cas}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modales */}
       {modalModo === 'crear' && <ModalProducto onClose={cerrarModal} onSaved={handleSaved} />}
@@ -1376,11 +1765,9 @@ export default function Productos({ setVista, setAnalisisBack }) {
         <ModalTracking
           producto={productoSeleccionado}
           onClose={cerrarModal}
-          onSaved={async () => {
-            try {
-              await refreshProductos();
-            } catch { }
-            cerrarModal();
+          onSaved={(savedTracking) => {
+            applyTrackingUpdate(productoSeleccionado?.id, savedTracking);
+            refreshProductos({ force: true, useCache: false, silent: true });
           }}
         />
       )}
