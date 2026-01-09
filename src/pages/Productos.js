@@ -457,12 +457,19 @@ const confirmAction = async () => {
     if (!items.length) { alert('Selecciona al menos un producto.'); return; }
     if (!recojoDate) { alert('Elige una fecha de recojo.'); return; }
     try {
-      await Promise.all(items.map(p =>
-        api.put(`/tracking/producto/${p.id}`, {
+      const results = await Promise.allSettled(items.map(async (p) => {
+        const res = await api.put(`/tracking/producto/${p.id}`, {
           estado: 'recogido',
           fechaRecogido: recojoDate,
-        })
-      ));
+        });
+        return { productoId: p.id, tracking: res?.data ?? res };
+      }));
+      const updated = results
+        .filter((r) => r.status === 'fulfilled')
+        .map((r) => r.value);
+      updated.forEach(({ productoId, tracking }) => {
+        applyTrackingUpdate(productoId, tracking);
+      });
 
       const lineas = items.map(p => {
         const t = getLastTracking(p) || {};
@@ -473,11 +480,14 @@ const confirmAction = async () => {
       });
 
       const url = `https://wa.me/+51938597478?text=${encodeURIComponent(lineas.join('\n'))}`;
-      await refreshProductos();
+      refreshProductos({ force: true, useCache: false, silent: true });
       window.open(url, '_blank', 'noopener,noreferrer');
       setRecojoOpen(false);
       setRecojoSelected(new Set());
       setRecojoDate('');
+      if (updated.length !== items.length) {
+        alert('Algunos productos no se pudieron marcar como recogidos.');
+      }
     } catch (e) {
       console.error(e);
       alert('No se pudo completar el recojo de algunos productos.');
