@@ -5,8 +5,6 @@ export default function useProfitData(params) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const key = JSON.stringify(params || {});
-
   const load = useCallback(async () => {
     setLoading(true);
     setError('');

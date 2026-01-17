@@ -18,10 +18,11 @@ export default function IncomeCostProfitChart({ from, to, filters }) {
   const groupBy = inferGroupBy(from, to);
   const { data, loading, error, retry } = useProfitData({ ...filters, from, to, groupBy });
 
-  const displayRows = useMemo(() => {
-    const rows = data?.rows || [];
-    return rows.length ? rows : (showMock ? mockRows(groupBy) : []);
-  }, [data, showMock, groupBy]);
+  const rows = useMemo(() => (Array.isArray(data?.rows) ? data.rows : []), [data]);
+  const displayRows = useMemo(
+    () => (rows.length ? rows : (showMock ? mockRows(groupBy) : [])),
+    [rows, showMock, groupBy],
+  );
   const labels = useMemo(() => displayRows.map((r) => r.period), [displayRows]);
 
   const chartData = useMemo(
@@ -97,3 +98,5 @@ export default function IncomeCostProfitChart({ from, to, filters }) {
     </ChartShell>
   );
 }
+
+

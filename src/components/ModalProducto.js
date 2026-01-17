@@ -92,8 +92,9 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     }
     api.get('/productos').then((res) => {
       const data = res?.data || res || [];
-      const group = (Array.isArray(data) ? data : []).filter(
-        (p) => p.envioGrupoId && p.envioGrupoId === producto.envioGrupoId && p.id !== producto.id
+      // precarga para evitar llamada extra cuando se abre el vinculado
+      void (Array.isArray(data) ? data : []).filter(
+        (p) => p.envioGrupoId && p.envioGrupoId === producto.envioGrupoId && p.id !== producto.id,
       );
     }).catch(() => {});
   }, [producto?.envioGrupoId, producto?.id]);
@@ -482,6 +483,8 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     </div>
   );
 }
+
+
 
 
 
