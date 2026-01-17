@@ -95,12 +95,10 @@ export default function ProfitTimeSeries({ from, to, filters }) {
     to: range.to,
     groupBy,
   });
-  const rows = data?.rows || [];
-
-  const displayRows = useMemo(
-    () => (rows.length ? rows : (showMock ? mockRows(groupBy) : [])),
-    [rows, showMock, groupBy],
-  );
+  const displayRows = useMemo(() => {
+    const rows = data?.rows || [];
+    return rows.length ? rows : (showMock ? mockRows(groupBy) : []);
+  }, [data, showMock, groupBy]);
   const labels = useMemo(() => displayRows.map((r) => r.period), [displayRows]);
   const profits = useMemo(() => displayRows.map((r) => r.profit), [displayRows]);
 

@@ -17,12 +17,11 @@ export default function IncomeCostProfitChart({ from, to, filters }) {
   const [showMock, setShowMock] = useState(false);
   const groupBy = inferGroupBy(from, to);
   const { data, loading, error, retry } = useProfitData({ ...filters, from, to, groupBy });
-  const rows = data?.rows || [];
 
-  const displayRows = useMemo(
-    () => (rows.length ? rows : (showMock ? mockRows(groupBy) : [])),
-    [rows, showMock, groupBy],
-  );
+  const displayRows = useMemo(() => {
+    const rows = data?.rows || [];
+    return rows.length ? rows : (showMock ? mockRows(groupBy) : []);
+  }, [data, showMock, groupBy]);
   const labels = useMemo(() => displayRows.map((r) => r.period), [displayRows]);
 
   const chartData = useMemo(
