@@ -210,7 +210,7 @@ function InventarioAdmin({ onIrProductos }) {
   // Derivar lista visible: solo 'Disponible'
   const visibles = React.useMemo(() => {
     return (productos || []).filter((p) => getVentaStatus(p).label === 'Disponible');
-  }, [productos, statusById, getVentaStatus]);
+  }, [productos, getVentaStatus]);
 
   return (
     <div className="bg-white rounded-2xl p-4 shadow">

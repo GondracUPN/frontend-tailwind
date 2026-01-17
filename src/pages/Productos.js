@@ -16,13 +16,7 @@ import ModalAdelantarTipo from '../components/ModalAdelantarTipo';
 import ModalAdelantoCreate from '../components/ModalAdelantoCreate';
 import ModalAdelantoDetalle from '../components/ModalAdelantoDetalle';
 import ModalAdelantoCompletar from '../components/ModalAdelantoCompletar';
-import {
-  FiFileText,
-  FiPackage,        // comprado_sin_tracking
-  FiTruck,          // comprado_en_camino
-  FiMapPin,         // en_eshopex
-  FiCheckSquare     // recogido
-} from 'react-icons/fi';
+import { FiFileText } from 'react-icons/fi';
 
 
 const CACHE_KEY = 'productos:cache:v2';
@@ -156,6 +150,10 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [recojoSelected, setRecojoSelected] = useState(new Set());
   const [recojoDate, setRecojoDate] = useState('');
   const [recojoStatusMap, setRecojoStatusMap] = useState({});
+  const recojoStatusRef = useRef({});
+  useEffect(() => {
+    recojoStatusRef.current = recojoStatusMap;
+  }, [recojoStatusMap]);
   const [eshopexCargaOpen, setEshopexCargaOpen] = useState(false);
   const [eshopexCargaRows, setEshopexCargaRows] = useState([]);
   const [eshopexCargaLoading, setEshopexCargaLoading] = useState(false);
@@ -543,19 +541,28 @@ const confirmAction = async () => {
     if (!recojoOpen) return;
     const cached = readEshopexCache();
     if (cached && typeof cached === 'object') {
-      setRecojoStatusMap((prev) => ({ ...cached, ...prev }));
+      setRecojoStatusMap((prev) => {
+        const merged = { ...cached, ...prev };
+        recojoStatusRef.current = merged;
+        return merged;
+      });
     }
     const codes = recojoList
       .map((p) => (getLastTracking(p)?.trackingEshop || '').trim())
       .filter(Boolean);
     if (!codes.length) return;
-    const missing = codes.filter((c) => !recojoStatusMap[c]);
+    const currentMap = recojoStatusRef.current || {};
+    const missing = codes.filter((c) => {
+      const entry = currentMap[c];
+      return !entry || entry.loading;
+    });
     if (!missing.length) return;
     let alive = true;
     (async () => {
       setRecojoStatusMap((prev) => {
         const next = { ...prev };
         missing.forEach((code) => { next[code] = { loading: true }; });
+        recojoStatusRef.current = next;
         return next;
       });
       const entries = await Promise.all(
@@ -573,11 +580,12 @@ const confirmAction = async () => {
         const next = { ...prev };
         entries.forEach(([code, data]) => { next[code] = data; });
         writeEshopexCache(next);
+        recojoStatusRef.current = next;
         return next;
       });
     })();
     return () => { alive = false; };
-  }, [recojoOpen, recojoList, recojoStatusMap, readEshopexCache, writeEshopexCache, getLastTracking]);
+  }, [recojoOpen, recojoList, readEshopexCache, writeEshopexCache, getLastTracking]);
 
   const eshopexPendientes = React.useMemo(() => {
     const filtered = (eshopexCargaRows || []).filter((row) => {
@@ -793,7 +801,7 @@ const confirmAction = async () => {
       }
     }
     return Object.values(map).sort((a, b) => a.casLabel.localeCompare(b.casLabel));
-  }, [recojoList, eshopexCargaByGuia, accountByCasillero, casilleroByAccount]);
+  }, [recojoList, eshopexCargaByGuia, accountByCasillero, casilleroByAccount, getLastTracking]);
 
   const handleEshopexVincular = async (row, producto) => {
     const code = String(row?.guia || '').trim();
@@ -1286,7 +1294,7 @@ const confirmAction = async () => {
   }, [productos, ventasMap, adelantosMap, resumen]);
 
   // Convierte "S/ 1,234.50" o "$ 99" a nfmero seguro
-  const toNumber = (x) => {
+  const toNumber = useCallback((x) => {
     if (x == null || x === '') return 0;
     if (typeof x === 'number') return x;
     if (typeof x === 'string') {
@@ -1295,9 +1303,9 @@ const confirmAction = async () => {
       return isNaN(n) ? 0 : n;
     }
     return 0;
-  };
+  }, []);
   // Lee el monto de la venta en S/ sin importar el nombre/caso/anidacifn
-  const getMontoVentaSoles = (venta) => {
+  const getMontoVentaSoles = useCallback((venta) => {
     if (!venta) return 0;
 
     // posibles claves planas
@@ -1329,7 +1337,7 @@ const confirmAction = async () => {
     }
 
     return 0;
-  };
+  }, [toNumber]);
 
 
 
@@ -1733,29 +1741,20 @@ const confirmAction = async () => {
 
                     {selectMode && (
                       <td className="p-2">
-                        {(() => {
-                          const venta = ventasMap[p.id] || null;
-                          const adelanto = adelantosMap[p.id] || null;
-                          const isAdelantar = selectAction === 'adelantar';
-                          return (
-                            <input
-                              type="checkbox"
-                              disabled={disabledSel}
-                              title={
-                                disabledSel
-                                  ? (selectAction === 'recojo'
-                                    ? 'Solo se pueden seleccionar productos en Eshopex'
-                                    : 'No disponible para adelantar')
-                                  : ''
-                              }
-                              checked={isSelected}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={() => toggleSelect(p.id)}
-                            />
-
-
-                          );
-                        })()}
+                        <input
+                          type="checkbox"
+                          disabled={disabledSel}
+                          title={
+                            disabledSel
+                              ? (selectAction === 'recojo'
+                                ? 'Solo se pueden seleccionar productos en Eshopex'
+                                : 'No disponible para adelantar')
+                              : ''
+                          }
+                          checked={isSelected}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => toggleSelect(p.id)}
+                        />
                       </td>
                     )}
 
@@ -2049,7 +2048,6 @@ const confirmAction = async () => {
                       const statusNorm = normalizeEshopexStatus(statusInfo.status);
                       const estatusEsho = normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
                       const cas = String(t?.casillero || '').trim().toLowerCase();
-                      const accountFromCas = cas ? accountByCasillero[cas] : '';
                       const isReady = isRecojoReady(p);
                       const checked = recojoSelected.has(p.id);
                       return (
