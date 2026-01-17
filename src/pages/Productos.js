@@ -1409,7 +1409,7 @@ const confirmAction = async () => {
       totalVentaSoles: fmtSoles(totalVentaSoles),
       gananciaSoles: fmtSoles(gananciaSoles),
     };
-  }, [productos, ventasMap, resumen, getMontoVentaSoles]);
+  }, [productos, ventasMap, resumen, getMontoVentaSoles, toNumber]);
 
 
 

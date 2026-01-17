@@ -1,4 +1,4 @@
-﻿// src/pages/Calculadora.jsx
+// src/pages/Calculadora.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 /* =========================

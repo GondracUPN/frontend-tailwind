@@ -1,4 +1,4 @@
-﻿// src/pages/Ganancias.js
+// src/pages/Ganancias.js
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api';
 
