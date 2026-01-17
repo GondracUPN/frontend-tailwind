@@ -741,7 +741,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <div className="min-h-screen p-6 bg-gray-50">
+ <div className="min-h-screen px-4 py-6 sm:px-6 lg:px-8 bg-gray-50">
 
 
 
@@ -749,15 +749,15 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <div className="flex items-center gap-2 mb-3">
- <button className={`px-3 py-1.5 rounded border text-sm ${tab==='economico'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('economico')}>Analisis economico</button>
- <button className={`px-3 py-1.5 rounded border text-sm ${tab==='productos'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('productos')}>Analisis de productos</button>
- <button className={`px-3 py-1.5 rounded border text-sm ${tab==='ganancias'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('ganancias')}>Analisis de ganancias</button>
+ <div className="flex flex-wrap gap-2 mb-3">
+ <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='economico'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('economico')}>Analisis economico</button>
+ <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='productos'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('productos')}>Analisis de productos</button>
+ <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='ganancias'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('ganancias')}>Analisis de ganancias</button>
  </div>
 
 
 
- <div className="flex items-center justify-between mb-6">
+ <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
 
 
 
@@ -765,12 +765,12 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <div className="flex items-center gap-2">
+ <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
 
 
 
  <select
- className="border rounded px-2 py-1 text-sm"
+ className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
  value={sellerFilter}
  onChange={(e) => setSellerFilter(e.target.value)}
  >
@@ -780,50 +780,17 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
  </select>
 
  <input
-
-
-
  type="month"
-
-
-
- className="border rounded px-2 py-1 text-sm"
-
-
-
+ className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
  value={appliedDates.from}
-
-
-
  onChange={(e) => {
-
-
-
  const v = e.target.value;
-
-
-
  setAppliedDates({ from: v, to: v });
-
-
-
  }}
-
-
-
  placeholder="Mes"
-
-
-
  />
  <button
-
-
-
- className="px-3 py-1.5 rounded border text-sm bg-white hover:bg-gray-50"
-
-
-
+ className="w-full sm:w-auto px-3 py-1.5 rounded border text-sm bg-white hover:bg-gray-50"
  onClick={() => {
 
 
@@ -854,17 +821,8 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
  <button
-
-
-
  onClick={() => (typeof setVista === 'function' ? setVista(analisisBack) : window.history.back())}
-
-
-
- className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
-
-
-
+ className="w-full sm:w-auto px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
  >
 
 
@@ -933,7 +891,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <div className={`${tab !== 'economico' ? 'hidden ' : ''}grid grid-cols-1 md:grid-cols-5 gap-4 mb-6`}>
+ <div className={`${tab !== 'economico' ? 'hidden ' : ''}grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6`}>
 
 
 
@@ -970,7 +928,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <Card title={isGeneral ? "Margen % promedio (ult. mes)" : "Margen % promedio (mes)"} value={(() => { const rows = data.sales?.perMonth || []; const row = rows[rows.length - 1]; return row ? <Percent v={row.margenPromedio} /> : '-'; })()} sub={(() => { const rows = data.sales?.perMonth || []; const row = rows[rows.length - 1]; return row ? (<span>Ganancia: <Currency v={row.ganancia} /></span>) : null; })()} />
+ <Card title={isGeneral ? "Margenes promedio (ult. mes)" : "Margenes promedio (mes)"} value={(() => { const rows = data.sales?.perMonth || []; const row = rows[rows.length - 1]; if (!row) return '-'; const ingresos = Number(row.ingresos || 0); const ganancia = Number(row.ganancia || 0); const costo = ingresos - ganancia; const utilidad = ingresos > 0 ? (ganancia / ingresos) * 100 : 0; const markup = costo > 0 ? (ganancia / costo) * 100 : 0; return (<span className="flex items-center gap-2"><Percent v={utilidad} /><span className="text-gray-400">/</span><Percent v={markup} /></span>); })()} sub={(() => { const rows = data.sales?.perMonth || []; const row = rows[rows.length - 1]; return row ? (<span>Ganancia: <Currency v={row.ganancia} /></span>) : null; })()} />
 
 
 
@@ -1034,11 +992,8 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <div>
-
-
-
- <table className="w-full text-sm">
+ <div className="overflow-x-auto">
+ <table className="min-w-[420px] w-full text-sm">
 
 
 
@@ -1186,7 +1141,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <table className="w-full text-sm">
+ <table className="min-w-[520px] w-full text-sm">
 
 
 
@@ -1326,7 +1281,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <table className="w-full text-sm">
+ <table className="min-w-[520px] w-full text-sm">
 
 
 
@@ -1526,7 +1481,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <table className="w-full text-sm">
+ <table className="min-w-[560px] w-full text-sm">
 
 
 
@@ -1662,7 +1617,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <table className="w-full text-sm">
+ <table className="min-w-[520px] w-full text-sm">
 
 
 
@@ -1959,10 +1914,8 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
  <h2 className="text-lg font-semibold mb-3">Ventas y margen por mes</h2>
-
-
-
- <table className="w-full text-sm">
+ <div className="overflow-x-auto">
+ <table className="min-w-[520px] w-full text-sm">
 
 
 
@@ -1986,7 +1939,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <th className="py-1">Margen % prom.</th>
+ <th className="py-1">Margenes (Utilidad / Markup)</th>
 
 
 
@@ -2022,7 +1975,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <td className="py-1"><Percent v={m.margenPromedio} /></td>
+ <td className="py-1">{(() => { const ingresos = Number(m.ingresos || 0); const ganancia = Number(m.ganancia || 0); const costo = ingresos - ganancia; const utilidad = ingresos > 0 ? (ganancia / ingresos) * 100 : 0; const markup = costo > 0 ? (ganancia / costo) * 100 : 0; return (<span className="flex items-center gap-2"><Percent v={utilidad} /><span className="text-gray-400">/</span><Percent v={markup} /></span>); })()}</td>
 
 
 
@@ -2039,6 +1992,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
  </table>
+ </div>
 
 
 
@@ -2058,11 +2012,15 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
  const perYear = perYearMonth.filter((m) => String(m.month || '').startsWith(`${yearKey}-`));
  const totalIngresos = perYear.reduce((s, m) => s + (Number(m.ingresos) || 0), 0);
  const totalGanancia = perYear.reduce((s, m) => s + (Number(m.ganancia) || 0), 0);
- const totalMargen = totalIngresos > 0 ? (totalGanancia / totalIngresos) * 100 : 0;
+ const totalCosto = totalIngresos - totalGanancia;
+ const totalUtilidad = totalIngresos > 0 ? (totalGanancia / totalIngresos) * 100 : 0;
+ const totalMarkup = totalCosto > 0 ? (totalGanancia / totalCosto) * 100 : 0;
  const monthRow = monthKey ? perMonth.find((m) => m.month === monthKey) : null;
  const monthIngresos = monthRow ? Number(monthRow.ingresos || 0) : null;
  const monthGanancia = monthRow ? Number(monthRow.ganancia || 0) : null;
- const monthMargen = monthRow ? Number(monthRow.margenPromedio || 0) : null;
+ const monthCosto = monthIngresos != null && monthGanancia != null ? (monthIngresos - monthGanancia) : null;
+ const monthUtilidad = monthRow && monthIngresos ? (monthGanancia / monthIngresos) * 100 : null;
+ const monthMarkup = monthRow && monthCosto ? (monthGanancia / monthCosto) * 100 : null;
  return (
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
  <Card
@@ -2071,7 +2029,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
  sub={
  yearlyError
  ? <span className="text-red-600">{yearlyError}</span>
- : <span>Ingresos: <Currency v={totalIngresos} /> - Margen: <Percent v={totalMargen} /></span>
+ : <span>Ingresos: <Currency v={totalIngresos} /> - Utilidad: <Percent v={totalUtilidad} /> - Markup: <Percent v={totalMarkup} /></span>
  }
  />
  <Card
@@ -2079,7 +2037,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
  value={monthRow ? <Currency v={monthGanancia} /> : '-'}
  sub={
  monthRow
- ? <span>Ingresos: <Currency v={monthIngresos} /> - Margen: <Percent v={monthMargen} /></span>
+ ? <span>Ingresos: <Currency v={monthIngresos} /> - Utilidad: <Percent v={monthUtilidad} /> - Markup: <Percent v={monthMarkup} /></span>
  : <span>Usa el filtro de mes para ver el detalle.</span>
  }
  />
@@ -2243,7 +2201,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <table className="w-full text-sm">
+ <table className="min-w-[680px] w-full text-sm">
 
 
 
@@ -2363,7 +2321,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <table className="w-full text-sm">
+ <table className="min-w-[420px] w-full text-sm">
 
 
 
@@ -2455,7 +2413,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <table className="w-full text-sm">
+ <table className="min-w-[420px] w-full text-sm">
 
 
 
@@ -2731,30 +2689,12 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <div className="flex flex-wrap gap-3 mb-4">
-
-
-
- <label className="text-sm">Tipo
-
-
-
+ <div className="flex flex-wrap gap-3 mb-4 items-end">
+ <label className="text-sm flex flex-col gap-1 w-full sm:w-auto">Tipo
  <select
-
-
-
- className="ml-2 border rounded px-2 py-1 text-sm"
-
-
-
+ className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
  value={productFilters.tipo}
-
-
-
  onChange={(e)=> setProductFilters((s)=>({ ...s, tipo: e.target.value, gama: '', proc: '', pantalla: '' }))}
-
-
-
  >
 
 
@@ -2775,7 +2715,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <option value="watch">Watch</option>
+ <option value="watch">Apple Watch</option>
 
 
 
@@ -2784,33 +2724,13 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
  </select>
-
-
-
  </label>
 
-
-
- <label className="text-sm">Gama
-
-
-
+ <label className="text-sm flex flex-col gap-1 w-full sm:w-auto">Gama
  <select
-
-
-
- className="ml-2 border rounded px-2 py-1 text-sm"
-
-
-
+ className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
  value={productFilters.gama}
-
-
-
  onChange={(e)=> setProductFilters((s)=>({ ...s, gama: e.target.value }))}
-
-
-
  >
 
 
@@ -2824,33 +2744,13 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
  </select>
-
-
-
  </label>
 
-
-
- <label className="text-sm">Procesador
-
-
-
+ <label className="text-sm flex flex-col gap-1 w-full sm:w-auto">Procesador
  <select
-
-
-
- className="ml-2 border rounded px-2 py-1 text-sm"
-
-
-
+ className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
  value={productFilters.proc}
-
-
-
  onChange={(e)=> setProductFilters((s)=>({ ...s, proc: e.target.value }))}
-
-
-
  >
 
 
@@ -2864,33 +2764,13 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
  </select>
-
-
-
  </label>
 
-
-
- <label className="text-sm">Pantalla
-
-
-
+ <label className="text-sm flex flex-col gap-1 w-full sm:w-auto">Pantalla
  <select
-
-
-
- className="ml-2 border rounded px-2 py-1 text-sm"
-
-
-
+ className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
  value={productFilters.pantalla}
-
-
-
  onChange={(e)=> setProductFilters((s)=>({ ...s, pantalla: e.target.value }))}
-
-
-
  >
 
 
@@ -2904,9 +2784,6 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
  </select>
-
-
-
  </label>
 
 
@@ -2923,27 +2800,20 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- const comprasDetalle = [...(g.comprasDetalle || [])].sort(
+const comprasDetalle = [...(g.comprasDetalle || [])].sort(
+ (a, b) => {
+   const ta = a?.fechaCompra ? Date.parse(a.fechaCompra) : 0;
+   const tb = b?.fechaCompra ? Date.parse(b.fechaCompra) : 0;
+   if (ta && tb) return ta - tb;
+   return ta - tb;
+ },
+);
 
 
 
- (a, b) => (Number(a?.costoTotal || 0) - Number(b?.costoTotal || 0)),
-
-
-
- );
-
-
-
- const ventasDetalle = [...(g.ventasDetalle || [])].sort(
-
-
-
- (a, b) => (Number(a?.precioVenta || 0) - Number(b?.precioVenta || 0)),
-
-
-
- );
+ const ventasDetalleRaw = [...(g.ventasDetalle || [])];
+ const ventasByProducto = new Map(ventasDetalleRaw.map((v) => [v.productoId, v]));
+ const ventasDetalle = comprasDetalle.map((c) => ventasByProducto.get(c.productoId) || null);
 
 
 
@@ -2951,7 +2821,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- const precios = ventasDetalle.map((v) => Number(v?.precioVenta || 0)).filter((n) => isFinite(n) && n > 0);
+ const precios = ventasDetalleRaw.map((v) => Number(v?.precioVenta || 0)).filter((n) => isFinite(n) && n > 0);
 
 
 
@@ -2991,7 +2861,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- const ventaPromedio = avgLocal(ventasDetalle.map((v) => Number(v?.precioVenta || 0)).filter((n) => isFinite(n) && n > 0));
+ const ventaPromedio = avgLocal(ventasDetalleRaw.map((v) => Number(v?.precioVenta || 0)).filter((n) => isFinite(n) && n > 0));
 
 
 
@@ -3335,266 +3205,57 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-
-
  <div>
-
-
-
- <div className="text-sm font-semibold mb-1">Compras del modelo</div>
-
-
-
- <div className="text-xs text-gray-500 mb-2">Fechas, precio en USD y costo total (S/) ordenados del menor al mayor.</div>
-
-
-
- {comprasDetalle.length ? (
-
-
-
- <div className="max-h-52 overflow-auto rounded border">
-
-
-
- <table className="w-full text-xs text-gray-700">
-
-
-
+ <div className="text-sm font-semibold mb-1">Compras y ventas del modelo</div>
+<div className="text-xs text-gray-500 mb-2">Compras ordenadas por fecha y su venta correspondiente en la misma fila.</div>
+ {(comprasDetalle.length || ventasDetalle.length) ? (
+ <div className="max-h-64 overflow-auto rounded border">
+ <table className="min-w-[900px] w-full text-xs text-gray-700">
  <thead className="bg-gray-50 text-gray-500">
-
-
-
  <tr>
-
-
-
+ <th className="py-1 px-2 text-left" colSpan={4}>Compras</th>
+ <th className="py-1 px-2 text-left" colSpan={5}>Ventas</th>
+ </tr>
+ <tr>
  <th className="py-1 px-2 text-left">Fecha</th>
-
-
-
  <th className="py-1 px-2 text-left">Estado</th>
-
-
-
  <th className="py-1 px-2 text-left">Precio (USD)</th>
-
-
-
  <th className="py-1 px-2 text-left">Costo total (S/)</th>
-
-
-
- </tr>
-
-
-
- </thead>
-
-
-
- <tbody>
-
-
-
- {comprasDetalle.map((row) => (
-
-
-
- <tr key={`compra-${g.label}-${row.productoId}`} className="border-t">
-
-
-
- <td className="py-1 px-2">{fmtDate(row.fechaCompra)}</td>
-
-
-
- <td className="py-1 px-2 capitalize">{row.estado || '-'}</td>
-
-
-
- <td className="py-1 px-2">{fmtUSD(row.precioUSD)}</td>
-
-
-
- <td className="py-1 px-2 font-semibold">{fmtSolesLocal(row.costoTotal)}</td>
-
-
-
- </tr>
-
-
-
- ))}
-
-
-
- </tbody>
-
-
-
- </table>
-
-
-
- </div>
-
-
-
- ) : (
-
-
-
- <div className="text-xs text-gray-500">No hay compras registradas para este grupo.</div>
-
-
-
- )}
-
-
-
- </div>
-
-
-
- <div>
-
-
-
- <div className="text-sm font-semibold mb-1">Ventas del modelo</div>
-
-
-
- <div className="text-xs text-gray-500 mb-2">Precio en S/, ganancia, % y dias desde la recogida hasta la venta.</div>
-
-
-
- {ventasDetalle.length ? (
-
-
-
- <div className="max-h-52 overflow-auto rounded border">
-
-
-
- <table className="w-full text-xs text-gray-700">
-
-
-
- <thead className="bg-gray-50 text-gray-500">
-
-
-
- <tr>
-
-
-
  <th className="py-1 px-2 text-left">Fecha venta</th>
-
-
-
  <th className="py-1 px-2 text-left">Precio (S/)</th>
-
-
-
  <th className="py-1 px-2 text-left">Ganancia</th>
-
-
-
  <th className="py-1 px-2 text-left">% margen</th>
-
-
-
  <th className="py-1 px-2 text-left">Dias</th>
-
-
-
  </tr>
-
-
-
  </thead>
-
-
-
  <tbody>
-
-
-
- {ventasDetalle.map((row) => (
-
-
-
- <tr key={`venta-${g.label}-${row.ventaId}`} className="border-t">
-
-
-
- <td className="py-1 px-2">{fmtDate(row.fechaVenta)}</td>
-
-
-
- <td className="py-1 px-2">{fmtSolesLocal(row.precioVenta)}</td>
-
-
-
- <td className="py-1 px-2">{fmtSolesLocal(row.ganancia)}</td>
-
-
-
- <td className="py-1 px-2">
-
-
-
- {isFinite(Number(row.porcentaje)) ? `${Number(row.porcentaje).toFixed(2)} %` : '-'}
-
-
-
- </td>
-
-
-
- <td className="py-1 px-2">{row.dias != null ? `${row.dias} d` : '-'}</td>
-
-
-
+ {comprasDetalle.map((row, rowIdx) => {
+ const venta = ventasDetalle[rowIdx];
+ return (
+ <tr key={`compra-venta-${g.label}-${row.productoId}`} className="border-t">
+ <td className="py-1 px-2">{fmtDate(row.fechaCompra)}</td>
+ <td className="py-1 px-2 capitalize">{row.estado || '-'}</td>
+ <td className="py-1 px-2">{fmtUSD(row.precioUSD)}</td>
+ <td className="py-1 px-2 font-semibold">{fmtSolesLocal(row.costoTotal)}</td>
+ <td className="py-1 px-2">{venta ? fmtDate(venta.fechaVenta) : '-'}</td>
+ <td className="py-1 px-2">{venta ? fmtSolesLocal(venta.precioVenta) : '-'}</td>
+ <td className="py-1 px-2">{venta ? fmtSolesLocal(venta.ganancia) : '-'}</td>
+ <td className="py-1 px-2">{venta && isFinite(Number(venta.porcentaje)) ? `${Number(venta.porcentaje).toFixed(2)} %` : '-'}</td>
+ <td className="py-1 px-2">{venta && venta.dias != null ? `${venta.dias} d` : '-'}</td>
  </tr>
-
-
-
- ))}
-
-
-
+ );
+ })}
+ {!comprasDetalle.length && ventasDetalle.length ? (
+ <tr className="border-t">
+ <td className="py-2 px-2 text-center text-gray-500" colSpan={9}>No hay compras registradas para este grupo.</td>
+ </tr>
+ ) : null}
  </tbody>
-
-
-
  </table>
-
-
-
  </div>
-
-
-
  ) : (
-
-
-
- <div className="text-xs text-gray-500">Sin ventas historicas para este grupo.</div>
-
-
-
+ <div className="text-xs text-gray-500">No hay compras ni ventas registradas para este grupo.</div>
  )}
-
-
-
- </div>
-
-
-
  </div>
 
 

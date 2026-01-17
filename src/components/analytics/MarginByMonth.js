@@ -14,23 +14,32 @@ export default function MarginByMonth({ from, to, filters }) {
 
   const displayRows = rows.length ? rows : (showMock ? mockRows(groupBy) : []);
   const labels = displayRows.map((r) => r.period);
-  const margins = displayRows.map((r) => r.margin);
+  const utilidad = displayRows.map((r) => (r.income > 0 ? (r.profit / r.income) * 100 : 0));
+  const markup = displayRows.map((r) => (r.cost > 0 ? (r.profit / r.cost) * 100 : 0));
 
   const chartData = useMemo(
     () => ({
       labels,
       datasets: [
         {
-          label: 'Margen',
-          data: margins,
+          label: 'Utilidad',
+          data: utilidad,
           borderColor: '#f59e0b',
           backgroundColor: 'rgba(245, 158, 11, 0.2)',
           tension: 0.3,
           pointRadius: 3,
         },
+        {
+          label: 'Markup',
+          data: markup,
+          borderColor: '#10b981',
+          backgroundColor: 'rgba(16, 185, 129, 0.2)',
+          tension: 0.3,
+          pointRadius: 3,
+        },
       ],
     }),
-    [labels, margins],
+    [labels, utilidad, markup],
   );
 
   const options = useMemo(
@@ -45,11 +54,14 @@ export default function MarginByMonth({ from, to, filters }) {
             label: (ctx) => {
               const row = displayRows[ctx.dataIndex];
               if (!row) return '';
+              const util = row.income > 0 ? (row.profit / row.income) * 100 : 0;
+              const mark = row.cost > 0 ? (row.profit / row.cost) * 100 : 0;
               return [
                 `Ingresos: ${formatCurrency(row.income)}`,
                 `Costos: ${formatCurrency(row.cost)}`,
                 `Ganancia: ${formatCurrency(row.profit)}`,
-                `Margen: ${formatPercent(row.margin)}`,
+                `Utilidad: ${formatPercent(util)}`,
+                `Markup: ${formatPercent(mark)}`,
               ];
             },
           },
@@ -69,7 +81,7 @@ export default function MarginByMonth({ from, to, filters }) {
 
   return (
     <ChartShell
-      title="Margen de ganancia por mes"
+      title="Margenes de ganancia por mes"
       loading={loading}
       error={error}
       empty={!loading && !error && displayRows.length === 0}

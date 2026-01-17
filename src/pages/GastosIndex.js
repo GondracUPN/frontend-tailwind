@@ -83,10 +83,10 @@ export default function GastosIndex({ setVista }) {
   }
 
   return (
-    <div className="min-h-screen p-8 bg-gray-50">
+    <div className="min-h-screen px-4 py-6 sm:px-6 lg:px-8 bg-gray-50">
       {/* Header */}
-      <header className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
           <h2 className="text-2xl font-semibold">
             Hola {user?.username}! — <span className="font-normal">sesión iniciada</span>
           </h2>
@@ -98,13 +98,13 @@ export default function GastosIndex({ setVista }) {
           </span>
           <button
             onClick={handleLogout}
-            className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900"
+            className="w-full sm:w-auto px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900"
           >
             Cerrar sesión
           </button>
           <button
             onClick={() => setVista('home')}
-            className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
+            className="w-full sm:w-auto px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
           >
             ← Volver
           </button>
@@ -120,13 +120,13 @@ export default function GastosIndex({ setVista }) {
             <>
               <button
                 onClick={() => setMode(mode === 'create' ? null : 'create')}
-                className="px-5 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+                className="w-full sm:w-auto px-5 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
               >
                 {mode === 'create' ? 'Cerrar creación' : 'Crear usuario'}
               </button>
               <button
                 onClick={() => setShowUsersModal(true)}
-                className="px-5 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700"
+                className="w-full sm:w-auto px-5 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700"
               >
                 Usuarios
               </button>
@@ -158,8 +158,8 @@ export default function GastosIndex({ setVista }) {
             ) : users.length === 0 ? (
               <div className="text-sm text-gray-600">No hay usuarios aún.</div>
             ) : (
-              <div className="overflow-auto border rounded">
-                <table className="w-full text-left text-sm">
+              <div className="overflow-x-auto border rounded">
+                <table className="min-w-[520px] w-full text-left text-sm">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="p-2">ID</th>

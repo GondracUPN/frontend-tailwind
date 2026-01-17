@@ -4,7 +4,46 @@ import React from 'react';
 
 function toMMDDYYYY(dateStr) {
   if (!dateStr) return '';
-  const s = String(dateStr);
+  const s = String(dateStr).trim();
+  const compact = s.replace(/[^A-Za-z0-9]/g, '');
+  const monthMap = {
+    jan: '01', ene: '01',
+    feb: '02',
+    mar: '03',
+    apr: '04', abr: '04',
+    may: '05',
+    jun: '06',
+    jul: '07',
+    aug: '08', ago: '08',
+    sep: '09', set: '09',
+    oct: '10',
+    nov: '11',
+    dec: '12', dic: '12',
+  };
+  const compactMatch = compact.match(/^(\d{1,2})([A-Za-z]{3,})(\d{4})$/);
+  if (compactMatch) {
+    const dd = String(compactMatch[1]).padStart(2, '0');
+    const monToken = compactMatch[2].slice(0, 3).toLowerCase();
+    const mm = monthMap[monToken] || '';
+    const yyyy = compactMatch[3];
+    if (mm) return `${mm}${dd}${yyyy}`;
+  }
+  const monFirst = s.match(/^([A-Za-z]{3,})\s*[-/ ]?\s*(\d{1,2})\s*[-/ ]?\s*(\d{4})$/);
+  if (monFirst) {
+    const monToken = monFirst[1].slice(0, 3).toLowerCase();
+    const mm = monthMap[monToken] || '';
+    const dd = String(monFirst[2]).padStart(2, '0');
+    const yyyy = monFirst[3];
+    if (mm) return `${mm}${dd}${yyyy}`;
+  }
+  const monMatch = s.match(/^(\d{1,2})\s*[-/ ]?\s*([A-Za-z]{3,})\s*[-/ ]?\s*(\d{4})$/);
+  if (monMatch) {
+    const dd = String(monMatch[1]).padStart(2, '0');
+    const monToken = monMatch[2].slice(0, 3).toLowerCase();
+    const mm = monthMap[monToken] || '';
+    const yyyy = monMatch[3];
+    if (mm) return `${mm}${dd}${yyyy}`;
+  }
   // d/m/yyyy o dd/mm/yyyy
   if (s.includes('/')) {
     const parts = s.split('/');
@@ -91,11 +130,11 @@ export default function ModalFotos({ producto, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-2 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white w-full sm:max-w-3xl rounded-xl shadow-lg p-4 relative mx-4"
+        className="bg-white w-full max-w-3xl max-h-[92vh] sm:max-h-[90vh] rounded-xl shadow-lg p-4 sm:p-6 relative mx-auto flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -105,27 +144,27 @@ export default function ModalFotos({ producto, onClose }) {
         >
           &times;
         </button>
-        <h3 className="text-lg font-semibold mb-3">
+        <h3 className="text-lg font-semibold mb-3 pr-10">
           Fotos Es - {producto?.tipo || ''}
         </h3>
 
         {!ready ? (
           <div className="text-center py-16 text-gray-500">Cargando...</div>
         ) : hasCurrent ? (
-          <>
-            <div className="mb-2 text-xs text-gray-600">
+          <div className="flex flex-col gap-3 flex-1 min-h-0">
+            <div className="text-xs sm:text-sm text-gray-600">
               <span className="font-semibold">Mostrando:</span>{' '}
               <a
                 href={currentUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="text-blue-600 underline"
+                className="text-blue-600 underline break-all"
               >
                 {currentUrl}
               </a>
             </div>
 
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex flex-wrap items-center gap-2">
               {indices.map((i) => (
                 <button
                   key={i}
@@ -141,19 +180,19 @@ export default function ModalFotos({ producto, onClose }) {
               ))}
             </div>
 
-            <div className="w-full max-h-[70vh] overflow-auto flex items-center justify-center border rounded">
+            <div className="w-full flex-1 min-h-0 overflow-auto flex items-center justify-center border rounded bg-gray-50">
               <img
                 src={currentUrl}
                 alt={`Foto ${current}`}
-                className="max-w-full max-h-[70vh] object-contain"
+                className="max-w-full max-h-full object-contain"
               />
             </div>
-          </>
+          </div>
         ) : (
           <>
-            <div className="mt-3 text-xs text-gray-600">
+            <div className="mt-3 text-xs sm:text-sm text-gray-600">
               <div className="font-semibold">Mostrando:</div>
-              <div className="truncate">
+              <div className="break-all">
                 <a
                   href={currentUrl}
                   target="_blank"

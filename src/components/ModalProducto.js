@@ -181,9 +181,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
           disabled={saving}
           aria-disabled={saving}
           aria-label="Cerrar"
-        >
-          ×
-        </button>
+        >x</button>
 
         <h2 className="text-2xl font-semibold mb-4">
           {isEdit ? 'Editar Producto' : 'Agregar Producto'}
@@ -424,7 +422,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                             className={`flex flex-col gap-1 border rounded-lg p-3 cursor-pointer transition shadow-sm ${checked ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'} ${disabled ? 'opacity-60 cursor-not-allowed bg-gray-50' : ''}`}
                           >
                             <div className="flex items-center justify-between">
-                              <div className="font-medium text-sm text-gray-900">#{p.id} — {p.tipo}</div>
+                              <div className="font-medium text-sm text-gray-900">#{p.id} - {p.tipo}</div>
                               <input
                                 type="checkbox"
                                 name="link-product"
@@ -440,10 +438,10 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                               />
                             </div>
                             <div className="text-xs text-gray-700">
-                              {[d.gama, d.procesador, d.tamano, p.estado].filter(Boolean).join(' — ')}
+                              {[d.gama, d.procesador, d.tamano, p.estado].filter(Boolean).join(' - ')}
                             </div>
                             <div className="text-xs text-gray-600">
-                              Casillero: {p.tracking?.[0]?.casillero || 'N/A'} — Tracking: {getLastTrackingEstado(p) || 'N/A'}
+                              Casillero: {p.tracking?.[0]?.casillero || 'N/A'} - Tracking: {getLastTrackingEstado(p) || 'N/A'}
                               {inCurrentGroup && <span className="ml-1 text-gray-600">(Vinculado actual)</span>}
                               {locked && <span className="ml-1 text-amber-600">(Ya en grupo)</span>}
                             </div>
@@ -493,4 +491,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     </div>
   );
 }
+
+
 

@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
 
 import ModalGastoDebito from '../components/ModalGastoDebito';
@@ -297,7 +297,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   };
   const onDelete = async (g) => {
     if (!g?.id) return;
-    if (!window.confirm('¿Eliminar este gasto?')) return;
+    if (!window.confirm('Eliminar este gasto?')) return;
     try {
       const t = localStorage.getItem('token');
       const res = await fetch(`${API_URL}/gastos/${g.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` } });
@@ -315,48 +315,48 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
 
       {/* Cabecera */}
       <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="text-sm text-gray-500">Efectivo para invertir</div>
             <div className="text-3xl font-semibold">S/ {efectivoPenCalc}</div>
             <div className="text-xs text-gray-600 mt-0.5">$ {efectivoUsdCalc}</div>
-            <button onClick={openEfec} className="mt-2 text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-white hover:bg-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-700">Editar efectivo</button>
+            <button onClick={openEfec} className="mt-2 w-full sm:w-auto text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-white hover:bg-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-700">Editar efectivo</button>
           </div>
 
           <div className="flex-1 min-w-[260px]">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-2">
               <div>
                 <div className="text-sm font-semibold">Saldo de tarjetas</div>
                 {cardsSummary.length > 0 && (
                   <div className="text-xs text-gray-600 mt-0.5">
-                    Gastado total: <b>S/ {cardsTotals.pen}</b> · <b>$ {cardsTotals.usd}</b> · En soles: <b>S/ {cardsTotals.totalPen}</b>
+                    Gastado total: <b>S/ {cardsTotals.pen}</b>  <b>$ {cardsTotals.usd}</b>  En soles: <b>S/ {cardsTotals.totalPen}</b>
                   </div>
                 )}
               </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={openCG} className="text-sm px-3 py-2 sm:py-1.5 rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-100 min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-300">Cuotas / Gastos mensuales</button>
-                  <button onClick={() => setShowAnalisisMes(true)} className="text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Análisis de gastos</button>
-                  {typeof setVista === 'function' && (
-                    <button
-                      onClick={() => setVista('presupuestoGastos')}
-                      className="text-sm px-3 py-2 sm:py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700 min-h-[40px]"
-                    >
-                      Presupuesto de gastos
-                    </button>
-                  )}
-                  <button onClick={openTar} className="text-sm px-3 py-2 sm:py-1.5 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 min-h-[40px]">Ingresar línea de crédito / Tarjeta</button>
-                </div>
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <button onClick={openCG} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-100 min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-300">Cuotas / Gastos mensuales</button>
+                <button onClick={() => setShowAnalisisMes(true)} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Analisis de gastos</button>
+                {typeof setVista === 'function' && (
+                  <button
+                    onClick={() => setVista('presupuestoGastos')}
+                    className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700 min-h-[40px]"
+                  >
+                    Presupuesto de gastos
+                  </button>
+                )}
+                <button onClick={openTar} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 min-h-[40px]">Ingresar lnea de crdito / Tarjeta</button>
+              </div>
             </div>
 
             {cardsSummary.length === 0 ? (
-              <div className="text-sm text-gray-600">Aún no has agregado tarjetas.</div>
+              <div className="text-sm text-gray-600">Aun no has agregado tarjetas.</div>
             ) : (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {cardsSummary.map((c) => (
                   <div key={c.id} className="rounded-xl ring-1 ring-gray-200 bg-white p-4 hover:shadow-sm transition">
                     <div className="text-sm text-gray-600">{CARD_LABEL[c.tipo] || c.tipo}</div>
-                    <div className="mt-1 text-xs text-gray-500">Línea: S/ {Number(c.creditLine).toFixed(2)}</div>
-                    <div className="text-xs text-gray-500">Usado: S/ {Number(c.usedPen ?? 0).toFixed(2)} · $ {Number(c.usedUsd ?? 0).toFixed(2)}</div>
+                    <div className="mt-1 text-xs text-gray-500">Lnea: S/ {Number(c.creditLine).toFixed(2)}</div>
+                    <div className="text-xs text-gray-500">Usado: S/ {Number(c.usedPen ?? 0).toFixed(2)}  $ {Number(c.usedUsd ?? 0).toFixed(2)}</div>
                     <div className="text-sm font-semibold mt-1">Disponible: S/ {Number(c.available).toFixed(2)}</div>
                     <div className="text-xs text-gray-500 mt-0.5">Consumido en soles: S/ {(Number(c.usedPen || 0) + Number(c.usedUsd || 0) * TIPO_CAMBIO).toFixed(2)}</div>
                   </div>
@@ -367,17 +367,17 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         </div>
       </div>
 
-      {/* Débito y Crédito */}
+      {/* Dbito y Crdito */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Débito */}
+        {/* Dbito */}
         <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-semibold">Débito</h3>
-            <button onClick={openDeb} className="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[44px]">Agregar gasto débito</button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
+            <h3 className="text-lg font-semibold">Dbito</h3>
+            <button onClick={openDeb} className="w-full sm:w-auto px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[44px]">Agregar gasto dbito</button>
           </div>
 
           {loading ? (
-            <div className="text-gray-600">Cargando…</div>
+            <div className="text-gray-600">Cargando...</div>
           ) : err ? (
             <div className="text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</div>
           ) : (
@@ -396,7 +396,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                 <tbody>
                   {debitRows.map((g) => {
                     const conceptoCell = g.concepto === 'pago_tarjeta'
-                      ? `Pago Tarjeta · ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
+                      ? `Pago Tarjeta  ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
                       : (g.concepto || '').replace(/_/g, ' ');
                     const detalle = g.notas || '-';
                     return (
@@ -427,16 +427,16 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
 
         {/* Credito */}
         <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
-          <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
             <div className="flex items-center gap-2">
               <h3 className="text-lg font-semibold">Credito</h3>
               {isUpdating && <span className="text-xs text-gray-500">Actualizando...</span>}
             </div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <label className="text-sm text-gray-700 flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+              <label className="text-sm text-gray-700 flex items-center gap-2 w-full sm:w-auto">
                 Tarjeta
                 <select
-                  className="border rounded-lg px-3 py-2 text-sm"
+                  className="border rounded-lg px-3 py-2 text-sm w-full sm:w-auto"
                   value={creditCardFilter}
                   onChange={(e) => setCreditCardFilter(e.target.value)}
                 >
@@ -446,12 +446,12 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   ))}
                 </select>
               </label>
-              <button onClick={openCre} className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 min-h-[44px]">Agregar gasto credito</button>
+              <button onClick={openCre} className="w-full sm:w-auto px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 min-h-[44px]">Agregar gasto credito</button>
             </div>
           </div>
 
           {loading ? (
-            <div className="text-gray-600">Cargando…</div>
+            <div className="text-gray-600">Cargando...</div>
           ) : err ? (
             <div className="text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</div>
           ) : (
@@ -560,6 +560,8 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     </div>
   );
 }
+
+
 
 
 

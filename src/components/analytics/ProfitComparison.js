@@ -29,6 +29,42 @@ function SummaryCard({ title, current, previous, deltaAbs, deltaPct, isPercent }
   );
 }
 
+function MarginSummaryCard({
+  title,
+  utilidad,
+  utilidadPrev,
+  utilidadDelta,
+  markup,
+  markupPrev,
+  markupDelta,
+}) {
+  const trendU = trendMeta(utilidadDelta);
+  const trendM = trendMeta(markupDelta);
+  return (
+    <div className="border rounded-lg p-3 bg-gray-50">
+      <div className="text-xs text-gray-500">{title}</div>
+      <div className="grid grid-cols-2 gap-3 mt-2">
+        <div>
+          <div className="text-xs text-gray-500">Utilidad</div>
+          <div className="text-lg font-semibold">{formatPercent(utilidad)}</div>
+          <div className="text-xs text-gray-500">Anterior: {formatPercent(utilidadPrev)}</div>
+          <div className={`text-xs font-medium mt-1 ${trendU.cls}`}>
+            {trendU.arrow} {formatDelta(utilidadDelta, ' pp')}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500">Markup</div>
+          <div className="text-lg font-semibold">{formatPercent(markup)}</div>
+          <div className="text-xs text-gray-500">Anterior: {formatPercent(markupPrev)}</div>
+          <div className={`text-xs font-medium mt-1 ${trendM.cls}`}>
+            {trendM.arrow} {formatDelta(markupDelta, ' pp')}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProfitComparison({ from, to, filters, mode = 'month', onModeChange }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -96,6 +132,14 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
 
   const { current, previous, delta, insights, previousRange } = data;
   const isYearMode = mode === 'year';
+  const calcUtilidad = (m) => (m.income > 0 ? (m.profit / m.income) * 100 : 0);
+  const calcMarkup = (m) => (m.cost > 0 ? (m.profit / m.cost) * 100 : 0);
+  const utilidadCurr = calcUtilidad(current);
+  const utilidadPrev = calcUtilidad(previous);
+  const utilidadPp = +(utilidadCurr - utilidadPrev).toFixed(2);
+  const markupCurr = calcMarkup(current);
+  const markupPrev = calcMarkup(previous);
+  const markupPp = +(markupCurr - markupPrev).toFixed(2);
 
   return (
     <div className="bg-white rounded-xl border shadow-sm p-5">
@@ -146,13 +190,14 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
           deltaAbs={delta.profitAbs}
           deltaPct={delta.profitPct}
         />
-        <SummaryCard
-          title="Margen"
-          current={formatPercent(current.margin)}
-          previous={formatPercent(previous.margin)}
-          deltaAbs={delta.marginPp}
-          deltaPct={null}
-          isPercent
+        <MarginSummaryCard
+          title="Margenes"
+          utilidad={utilidadCurr}
+          utilidadPrev={utilidadPrev}
+          utilidadDelta={utilidadPp}
+          markup={markupCurr}
+          markupPrev={markupPrev}
+          markupDelta={markupPp}
         />
         {current.orders != null ? (
           <SummaryCard
@@ -223,10 +268,17 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
                 <td className="py-2 px-3">{formatDelta(delta.profitPct, '%')}</td>
               </tr>
               <tr className="border-t">
-                <td className="py-2 px-3">Margen</td>
-                <td className="py-2 px-3">{formatPercent(current.margin)}</td>
-                <td className="py-2 px-3">{formatPercent(previous.margin)}</td>
-                <td className="py-2 px-3">{formatDelta(delta.marginPp, ' pp')}</td>
+                <td className="py-2 px-3">Utilidad</td>
+                <td className="py-2 px-3">{formatPercent(utilidadCurr)}</td>
+                <td className="py-2 px-3">{formatPercent(utilidadPrev)}</td>
+                <td className="py-2 px-3">{formatDelta(utilidadPp, ' pp')}</td>
+                <td className="py-2 px-3">--</td>
+              </tr>
+              <tr className="border-t">
+                <td className="py-2 px-3">Markup</td>
+                <td className="py-2 px-3">{formatPercent(markupCurr)}</td>
+                <td className="py-2 px-3">{formatPercent(markupPrev)}</td>
+                <td className="py-2 px-3">{formatDelta(markupPp, ' pp')}</td>
                 <td className="py-2 px-3">--</td>
               </tr>
               {current.orders != null ? (

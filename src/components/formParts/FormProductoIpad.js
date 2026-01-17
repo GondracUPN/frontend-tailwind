@@ -1,9 +1,10 @@
-﻿﻿// src/components/formParts/FormProductoIpad.js
+// src/components/formParts/FormProductoIpad.js
 export default function FormProductoIpad({ detalle, onChange }) {
   const { gama, procesador, generacion, almacenamiento, conexion } = detalle;
   const tamano = detalle.tamano || '';
 
   const generacionesNormales = ['8', '9', '10', '11'];
+  const generacionesMini = ['6', '7'];
   const procesadoresAir = ['M1', 'M2', 'M3'];
   const procesadoresPro = ['M1', 'M2', 'M4', 'M5'];
 
@@ -24,6 +25,11 @@ export default function FormProductoIpad({ detalle, onChange }) {
 
   const getAlmacenamiento = () => {
     if (gama === 'Normal') return [];
+    if (gama === 'Mini') {
+      if (generacion === '6') return ['64', '256'];
+      if (generacion === '7') return ['128', '256', '512'];
+      return [];
+    }
     if (gama === 'Air') {
       if (procesador === 'M1') return ['64', '128', '256'];
       if (['M2', 'M3'].includes(procesador)) return ['128', '256', '512'];
@@ -50,28 +56,29 @@ export default function FormProductoIpad({ detalle, onChange }) {
             onChange('generacion', '');
             onChange('tamano', '');        // reset tamano en ASCII
             onChange('almacenamiento', '');
-            // Si quieres resetear conexión, descomenta:
+            // Si quieres resetear conexion, descomenta:
             // onChange('conexion', '');
           }}
         >
           <option value="">Seleccione</option>
           <option value="Normal">Normal</option>
+          <option value="Mini">Mini</option>
           <option value="Air">Air</option>
           <option value="Pro">Pro</option>
         </select>
       </div>
 
-      {/* Generación para Normal */}
-      {gama === 'Normal' && (
+      {/* Generacion para Normal/Mini */}
+      {(gama === 'Normal' || gama === 'Mini') && (
         <div>
-          <label className="block font-medium">Generación</label>
+          <label className="block font-medium">Generacion</label>
           <select
             className="w-full border p-2 rounded"
             value={generacion || ''}
             onChange={e => onChange('generacion', e.target.value)}
           >
             <option value="">Seleccione</option>
-            {generacionesNormales.map(g => (
+            {(gama === 'Normal' ? generacionesNormales : generacionesMini).map(g => (
               <option key={g} value={g}>{g}</option>
             ))}
           </select>
@@ -100,10 +107,10 @@ export default function FormProductoIpad({ detalle, onChange }) {
             </select>
           </div>
 
-          {/* tamaño dinámico (label con ñ, campo 'tamano') */}
+          {/* tamano dinamico (label con n, campo 'tamano') */}
           {getTamanos().length > 0 && (
             <div>
-              <label className="block font-medium">tamaño</label>
+              <label className="block font-medium">tamano</label>
               <select
                 className="w-full border p-2 rounded"
                 value={tamano}
@@ -116,30 +123,30 @@ export default function FormProductoIpad({ detalle, onChange }) {
               </select>
             </div>
           )}
-
-          {/* Almacenamiento dinámico */}
-          {getAlmacenamiento().length > 0 && (
-            <div>
-              <label className="block font-medium">Almacenamiento</label>
-              <select
-                className="w-full border p-2 rounded"
-                value={almacenamiento || ''}
-                onChange={e => onChange('almacenamiento', e.target.value)}
-              >
-                <option value="">Seleccione</option>
-                {getAlmacenamiento().map(a => (
-                  <option key={a} value={a}>{a} GB</option>
-                ))}
-              </select>
-            </div>
-          )}
         </>
       )}
 
-      {/* Conexión */}
+      {/* Almacenamiento dinamico (Air/Pro/Mini) */}
+      {getAlmacenamiento().length > 0 && (
+        <div>
+          <label className="block font-medium">Almacenamiento</label>
+          <select
+            className="w-full border p-2 rounded"
+            value={almacenamiento || ''}
+            onChange={e => onChange('almacenamiento', e.target.value)}
+          >
+            <option value="">Seleccione</option>
+            {getAlmacenamiento().map(a => (
+              <option key={a} value={a}>{a} GB</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Conexion */}
       {gama && (
         <div>
-          <label className="block font-medium">Conexión</label>
+          <label className="block font-medium">Conexion</label>
           <select
             className="w-full border p-2 rounded"
             value={conexion || ''}

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿// src/pages/Productos.js
+// src/pages/Productos.js
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ModalProducto from '../components/ModalProducto';
 import DetallesProductoModal from '../components/DetallesProductoModal';
@@ -12,12 +12,16 @@ import ModalFotos from '../components/ModalFotos';
 import ModalFotosManual from '../components/ModalFotosManual';
 import ModalCalculadora from '../components/ModalCalculadora';
 import ModalDec from '../components/ModalDec';
+import ModalAdelantarTipo from '../components/ModalAdelantarTipo';
+import ModalAdelantoCreate from '../components/ModalAdelantoCreate';
+import ModalAdelantoDetalle from '../components/ModalAdelantoDetalle';
+import ModalAdelantoCompletar from '../components/ModalAdelantoCompletar';
 import {
   FiFileText,
   FiPackage,        // comprado_sin_tracking
   FiTruck,          // comprado_en_camino
   FiMapPin,         // en_eshopex
-  FiCheckCircle,    // recogido
+  FiCheckSquare,    // recogido
   FiHelpCircle      // default / desconocido
 } from 'react-icons/fi';
 
@@ -35,6 +39,7 @@ const readCache = () => {
   return {
     productos: Array.isArray(parsed.productos) ? parsed.productos : [],
     ventasMap: parsed.ventasMap && typeof parsed.ventasMap === 'object' ? parsed.ventasMap : {},
+    adelantosMap: parsed.adelantosMap && typeof parsed.adelantosMap === 'object' ? parsed.adelantosMap : {},
     resumen: parsed.resumen || null,
     ts: parsed.ts,
   };
@@ -43,13 +48,14 @@ const readCache = () => {
   }
 };
 
-const writeCache = (productos, ventasMap, resumen) => {
+const writeCache = (productos, ventasMap, resumen, adelantosMap) => {
   try {
     localStorage.setItem(
       CACHE_KEY,
       JSON.stringify({
         productos,
         ventasMap,
+        adelantosMap,
         resumen,
         ts: Date.now(),
       }),
@@ -67,45 +73,81 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [error, setError] = useState(null);
   const [modalModo, setModalModo] = useState(null); // 'crear'|'detalle'|'costos'|'track'|'fotosManual'
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
-  // Mapa: productoId -> última venta (o null)
+  // Mapa: productoId -> fltima venta (o null)
   const [ventasMap, setVentasMap] = useState(() => cached?.ventasMap || {});
+  const [adelantosMap, setAdelantosMap] = useState(() => cached?.adelantosMap || {});
   const ventasRef = useRef(ventasMap);
   useEffect(() => { ventasRef.current = ventasMap; }, [ventasMap]);
+  const adelantosRef = useRef(adelantosMap);
+  useEffect(() => { adelantosRef.current = adelantosMap; }, [adelantosMap]);
   const productosRef = useRef(productos);
   useEffect(() => { productosRef.current = productos; }, [productos]);
   const resumenRef = useRef(resumen);
   useEffect(() => { resumenRef.current = resumen; }, [resumen]);
 
   useEffect(() => {
-    writeCache(productos, ventasMap, resumen);
-  }, [productos, ventasMap, resumen]);
+    writeCache(productos, ventasMap, resumen, adelantosMap);
+  }, [productos, ventasMap, resumen, adelantosMap]);
 
-  // Abre modal de venta (creación o lectura)
+  // Abre modal de venta (creacifn o lectura)
   const abrirVenta = (p) => { setProductoSeleccionado(p); setModalModo('venta'); };
   const abrirCalculadora = (p) => { setProductoSeleccionado(p); setModalModo('calc'); };
 
   const abrirFotos = (p) => {
-    // Log de depuración al abrir el modal de fotos
+    // Log de depuracifn al abrir el modal de fotos
     const fecha = p?.valor?.fechaCompra || '';
     const trackingEshop = (p?.tracking || []).map(t => t?.trackingEshop).find(v => v && String(v).trim()) || '';
     console.log('[Productos] Ver foto ->', { id: p?.id, fechaCompra: fecha, trackingEshop });
     setProductoSeleccionado(p);
     setModalModo('fotos');
   };
-  // Cuando se guarda una venta, refrescamos sólo ese producto en el mapa
+  // Cuando se guarda una venta, refrescamos sflo ese producto en el mapa
   const handleVentaSaved = (ventaGuardada) => {
     setVentasMap(prev => {
       const next = { ...prev, [ventaGuardada.productoId]: ventaGuardada };
-      writeCache(productos, next, resumenRef.current);
+      writeCache(productos, next, resumenRef.current, adelantosRef.current);
+      return next;
+    });
+    setAdelantosMap(prev => {
+      if (!ventaGuardada?.productoId) return prev;
+      const next = { ...prev, [ventaGuardada.productoId]: null };
+      writeCache(productosRef.current, ventasRef.current, resumenRef.current, next);
       return next;
     });
     fetchResumen({ refresh: true });
     cerrarModal();
   };
 
+  const handleAdelantoSaved = (adelanto) => {
+    if (!adelanto?.productoId) return;
+    setAdelantosMap(prev => {
+      const next = { ...prev, [adelanto.productoId]: adelanto };
+      writeCache(productosRef.current, ventasRef.current, resumenRef.current, next);
+      return next;
+    });
+    cerrarAdelanto();
+  };
+
+  const handleAdelantoCompleto = (ventaGuardada, productoId) => {
+    if (ventaGuardada?.productoId == null && productoId == null) return;
+    const pid = ventaGuardada?.productoId ?? productoId;
+    setVentasMap(prev => {
+      const next = { ...prev, [pid]: ventaGuardada || prev[pid] || null };
+      writeCache(productosRef.current, next, resumenRef.current, adelantosRef.current);
+      return next;
+    });
+    setAdelantosMap(prev => {
+      const next = { ...prev, [pid]: null };
+      writeCache(productosRef.current, ventasRef.current, resumenRef.current, next);
+      return next;
+    });
+    fetchResumen({ refresh: true });
+    cerrarAdelanto();
+  };
+
   const fmtSoles = (v) => (v != null ? `S/ ${parseFloat(v).toFixed(2)}` : '-');
 
-  // === Selección (Importar recojo / Recojo masivo) ===
+  // === Seleccifn (Importar recojo / Recojo masivo) ===
   const [selectMode, setSelectMode] = useState(false);
   const [selectAction, setSelectAction] = useState(null); // 'whatsapp' | 'pickup' | 'adelantar'
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -118,10 +160,19 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [eshopexCargaRows, setEshopexCargaRows] = useState([]);
   const [eshopexCargaLoading, setEshopexCargaLoading] = useState(false);
   const [eshopexCargaError, setEshopexCargaError] = useState(null);
+  const [eshopexCargaRefreshKey, setEshopexCargaRefreshKey] = useState(0);
+  const [eshopexPagoLoading, setEshopexPagoLoading] = useState(() => new Set());
+  const [eshopexVincularLoading, setEshopexVincularLoading] = useState(() => new Set());
+  const [eshopexVincularOpen, setEshopexVincularOpen] = useState(false);
+  const [eshopexVincularRow, setEshopexVincularRow] = useState(null);
   const [soloDisponibles, setSoloDisponibles] = useState(false);
   const [selectedCasillero, setSelectedCasillero] = useState(null);
   const [productoEnCasillero, setProductoEnCasillero] = useState(null);
+  const [fotosManualSeed, setFotosManualSeed] = useState({ trackingEshop: '', fechaRecepcion: '' });
   const [savingProductos, setSavingProductos] = useState(() => new Set());
+  const [adelantoModo, setAdelantoModo] = useState(null); // 'select' | 'create' | 'detail' | 'complete'
+  const [adelantoProducto, setAdelantoProducto] = useState(null);
+  const [adelantoActivo, setAdelantoActivo] = useState(null);
   // Filtros adicionales
   const [filtroTipo, setFiltroTipo] = useState('todos'); // 'todos' | 'macbook' | 'ipad' | 'iphone' | 'pantalla' | 'otro'
   const [filtroProc, setFiltroProc] = useState('todos'); // procesador o pantalla (texto libre)
@@ -129,12 +180,13 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [trackingQuery, setTrackingQuery] = useState('');
   const [filtroGama, setFiltroGama] = useState('todos'); // gama (Pro, Air, etc)
 
+  const keyTamano = 'tama\u00f1o';
   // Helper: lee tamano desde detalle (normaliza a 'tamano' ASCII) y ajusta a enteros para macbooks
   const getTam = (d) => {
     if (!d) return '';
-    const raw = (d.tamano ?? d.tamanio ?? d['tamaño'] ?? '').toString().trim();
+    const raw = (d.tamano ?? d.tamanio ?? d[keyTamano] ?? d['tamao'] ?? '').toString().trim();
     if (!raw) return '';
-    // Normaliza tamaños decimales de MacBook (13.6 -> 13, 15.3 -> 15)
+    // Normaliza tamanos decimales de MacBook (13.6 -> 13, 15.3 -> 15)
     const n = Number(raw.replace(',', '.'));
     if (!Number.isNaN(n)) {
       if (n >= 15 && n < 15.6) return '15';
@@ -153,7 +205,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     return Array.from(set);
   }, [productos]);
 
-  // Opciones disponibles de procesador (macbook/ipad) o tamaño (pantalla)
+  // Opciones disponibles de procesador (macbook/ipad) o tamano (pantalla)
   const opcionesProc = React.useMemo(() => {
     const tipo = String(filtroTipo || '').toLowerCase();
     const gamaSel = String(filtroGama || '').toLowerCase();
@@ -179,7 +231,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     return Array.from(set);
   }, [productos, filtroTipo, filtroGama, filtroTam]);
 
-  // Opciones de tamaño para macbook/ipad
+  // Opciones de tamano para macbook/ipad
   const opcionesTam = React.useMemo(() => {
     const tipo = String(filtroTipo || '').toLowerCase();
     const proc = String(filtroProc || '').toLowerCase();
@@ -263,14 +315,14 @@ export default function Productos({ setVista, setAnalisisBack }) {
       const data = await api.get(`/productos/resumen${refresh ? '?refresh=true' : ''}`);
       if (data) {
         setResumen(data);
-        writeCache(productosRef.current, ventasRef.current, data);
+        writeCache(productosRef.current, ventasRef.current, data, adelantosRef.current);
       }
     } catch (e) {
       console.error('No se pudo cargar resumen de productos', e);
     }
   }, []);
 
-  // Nombre del producto para el texto (iPad, Air, M2, 11) o "Otros" con descripción
+  // Nombre del producto para el texto (iPad, Air, M2, 11) o "Otros" con descripcion
   const buildNombreProducto = (p) => {
     if (!p) return '';
     if (p.tipo === 'otro') return (p.detalle?.descripcionOtro || '').trim() || 'Otros';
@@ -278,14 +330,15 @@ export default function Productos({ setVista, setAnalisisBack }) {
       p.tipo,
       p.detalle?.gama,
       p.detalle?.procesador,
-        (p.detalle || {})['tamano'] || (p.detalle || {})['tamaño'] || (p.detalle || {})['tamanio']
+        (p.detalle || {})['tamano'] || (p.detalle || {})[keyTamano] || (p.detalle || {})['tamanio']
     ].filter(Boolean);
     return parts.join(' ');
   };
 
-  // Acción ACEPTAR (flujo único: marcar recogidos + WhatsApp)
+  // Accion ACEPTAR (flujo unico: marcar recogidos + WhatsApp)
+  const normalizeEstado = (estado) => String(estado || '').toLowerCase().trim();
   const labelFromEstado = (estado) => {
-    switch (estado) {
+    switch (normalizeEstado(estado)) {
       case 'comprado_sin_tracking': return 'Sin Tracking';
       case 'comprado_en_camino': return 'En Camino';
       case 'en_eshopex': return 'Eshopex';
@@ -303,7 +356,7 @@ const confirmAction = async () => {
       if (itemsSel.length !== 1) { alert('Selecciona exactamente un producto.'); return; }
       const p = itemsSel[0];
       setProductoSeleccionado(p);
-      setModalModo('venta');
+      abrirAdelantoSelect(p);
       cancelSelect();
       return;
     }
@@ -335,6 +388,7 @@ const confirmAction = async () => {
   }, [productos]);
 
   const getEshopexCode = (p) => (getLastTracking(p)?.trackingEshop || '').trim();
+  const getUsaCode = (p) => (getLastTracking(p)?.trackingUsa || '').trim();
   const productosByEshopex = React.useMemo(() => {
     const map = {};
     for (const p of productos || []) {
@@ -342,6 +396,35 @@ const confirmAction = async () => {
       if (code) map[code] = p;
     }
     return map;
+  }, [productos]);
+  const productosByTrackingUsa = React.useMemo(() => {
+    const map = {};
+    for (const p of productos || []) {
+      const code = getUsaCode(p);
+      if (code) map[code] = p;
+    }
+    return map;
+  }, [productos]);
+  const trackingUsaEnEshopex = React.useMemo(() => {
+    const set = new Set();
+    for (const p of productos || []) {
+      const t = getLastTracking(p);
+      if (String(t?.estado || '').toLowerCase() !== 'en_eshopex') continue;
+      const code = getUsaCode(p);
+      const digits = code.replace(/\D+/g, '');
+      if (digits) set.add(digits);
+    }
+    return set;
+  }, [productos]);
+  const casillerosEnCamino = React.useMemo(() => {
+    const set = new Set();
+    for (const p of productos || []) {
+      const t = getLastTracking(p);
+      if (String(t?.estado || '').toLowerCase() !== 'comprado_en_camino') continue;
+      const cas = String(t?.casillero || '').trim().toLowerCase();
+      if (cas) set.add(cas);
+    }
+    return set;
   }, [productos]);
   const normalizeEshopexStatus = (status) => {
     const s = String(status || '').toUpperCase();
@@ -368,13 +451,101 @@ const confirmAction = async () => {
       /* ignore */
     }
   };
+  const eshopexCargaByGuia = React.useMemo(() => {
+    const map = {};
+    for (const row of eshopexCargaRows || []) {
+      const guia = String(row?.guia || '').trim();
+      if (guia) map[guia] = row;
+    }
+    return map;
+  }, [eshopexCargaRows]);
+  const normalizeCargaStatus = (status) => String(status || '').trim();
+  const isEnSucursal = (status) => /EN\s*SUCURSAL/i.test(String(status || ''));
+  const isEntregado = (status) => /ENTREGADO/i.test(String(status || ''));
+  const isPagado = (status) => /PAGADO/i.test(String(status || ''));
   const isRecojoReady = (p) => {
     const code = getEshopexCode(p);
     if (!code) return false;
-    const statusInfo = recojoStatusMap[code];
-    if (!statusInfo || statusInfo.loading) return false;
-    return normalizeEshopexStatus(statusInfo.status).key === 'entregado';
+    const row = eshopexCargaByGuia[code];
+    const status = row?.estado || getLastTracking(p)?.estatusEsho || '';
+    return isEnSucursal(status) || isPagado(status) || isEntregado(status);
   };
+
+  const ESHOPEX_CARGA_CACHE_KEY = 'eshopex-carga-cache';
+  const ESHOPEX_CARGA_CACHE_TTL_MS = 5 * 60 * 1000;
+  const readEshopexCargaCache = () => {
+    try {
+      const raw = localStorage.getItem(ESHOPEX_CARGA_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed?.ts || !Array.isArray(parsed.rows)) return null;
+      if (Date.now() - parsed.ts > ESHOPEX_CARGA_CACHE_TTL_MS) return null;
+      return parsed.rows;
+    } catch {
+      return null;
+    }
+  };
+  const writeEshopexCargaCache = (rows) => {
+    try {
+      localStorage.setItem(
+        ESHOPEX_CARGA_CACHE_KEY,
+        JSON.stringify({ ts: Date.now(), rows }),
+      );
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // Reutiliza eshopex-carga para estatus/pagos y evita consultas externas.
+
+  useEffect(() => {
+    if (!eshopexCargaOpen && !recojoOpen) return;
+    const cachedRows = readEshopexCargaCache();
+    if (cachedRows && cachedRows.length) {
+      setEshopexCargaRows(cachedRows);
+      setEshopexCargaLoading(false);
+      setEshopexCargaError(null);
+    }
+    if (cachedRows && cachedRows.length && eshopexCargaRefreshKey === 0) {
+      return () => {};
+    }
+    let alive = true;
+    setEshopexCargaLoading(true);
+    setEshopexCargaError(null);
+    (async () => {
+      try {
+        const data = await api.get('/tracking/eshopex-carga');
+        if (!alive) return;
+        const rows = Array.isArray(data) ? data : (data?.data || []);
+        setEshopexCargaRows(rows);
+        writeEshopexCargaCache(rows);
+      } catch (e) {
+        if (!alive) return;
+        setEshopexCargaError('No se pudo cargar la informacion de Eshopex.');
+      } finally {
+        if (alive) setEshopexCargaLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [eshopexCargaOpen, recojoOpen, eshopexCargaRefreshKey]);
+
+  const casilleroByAccount = React.useMemo(() => ({
+    'gongarc2001@gmail.com': 'Walter',
+    'renato1carbajal@gmail.com': 'Renato',
+    'limonimofelip@gmail.com': 'Christian',
+    'dracgonic12@gmail.com': 'Alex',
+    'renato1carbajal@outlook.com': 'MamaRen',
+    'goneba2526@gmail.com': 'Jorge',
+    'gondrac10@gmail.com': 'Kenny',
+  }), []);
+  const accountByCasillero = React.useMemo(() => {
+    const map = {};
+    Object.entries(casilleroByAccount).forEach(([account, cas]) => {
+      const key = String(cas || '').trim().toLowerCase();
+      if (key) map[key] = account;
+    });
+    return map;
+  }, [casilleroByAccount]);
 
   useEffect(() => {
     if (!recojoOpen) return;
@@ -416,33 +587,31 @@ const confirmAction = async () => {
     return () => { alive = false; };
   }, [recojoOpen, recojoList]);
 
-  useEffect(() => {
-    if (!eshopexCargaOpen) return;
-    let alive = true;
-    setEshopexCargaLoading(true);
-    setEshopexCargaError(null);
-    (async () => {
-      try {
-        const data = await api.get('/tracking/eshopex-carga');
-        if (!alive) return;
-        const rows = Array.isArray(data) ? data : (data?.data || []);
-        setEshopexCargaRows(rows);
-      } catch (e) {
-        if (!alive) return;
-        setEshopexCargaError('No se pudo cargar la informacion de Eshopex.');
-      } finally {
-        if (alive) setEshopexCargaLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [eshopexCargaOpen]);
-
   const eshopexPendientes = React.useMemo(() => {
-    return (eshopexCargaRows || []).filter((row) => {
+    const filtered = (eshopexCargaRows || []).filter((row) => {
       const estado = String(row?.estado || '').trim().toUpperCase();
+      const guiaRaw = String(row?.guia || '').trim();
+      const guiaDigits = guiaRaw.replace(/\D+/g, '');
+      if (guiaDigits.length < 6) return false;
+      if (productosByEshopex[guiaRaw]) return false;
+      if (guiaDigits && trackingUsaEnEshopex.has(guiaDigits)) return false;
+      if (estado.includes('PAGADO')) return false;
       return estado !== 'ENTREGADO';
     });
-  }, [eshopexCargaRows]);
+    return filtered
+      .map((row, idx) => ({ row, idx }))
+      .sort((a, b) => {
+        const accountA = String(a.row?.account || '').trim().toLowerCase();
+        const accountB = String(b.row?.account || '').trim().toLowerCase();
+        const casA = String(casilleroByAccount[accountA] || '').trim().toLowerCase();
+        const casB = String(casilleroByAccount[accountB] || '').trim().toLowerCase();
+        const priA = casA && casillerosEnCamino.has(casA) ? 0 : 1;
+        const priB = casB && casillerosEnCamino.has(casB) ? 0 : 1;
+        if (priA !== priB) return priA - priB;
+        return a.idx - b.idx;
+      })
+      .map((item) => item.row);
+  }, [eshopexCargaRows, productosByEshopex, trackingUsaEnEshopex, casilleroByAccount, casillerosEnCamino]);
 
   const toggleRecojoSelect = (id) => {
     setRecojoSelected((prev) => {
@@ -506,9 +675,164 @@ const confirmAction = async () => {
     });
   };
 
+  const markPagoLoading = (key, on) => {
+    setEshopexPagoLoading((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const markVincularLoading = (key, on) => {
+    setEshopexVincularLoading((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const openEshopexVincularModal = (row) => {
+    setEshopexVincularRow(row || null);
+    setEshopexVincularOpen(true);
+  };
+
+  const parseEshopexFecha = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (/^null$/i.test(raw)) return '';
+    const monthMap = {
+      jan: '01',
+      feb: '02',
+      mar: '03',
+      apr: '04',
+      may: '05',
+      jun: '06',
+      jul: '07',
+      aug: '08',
+      sep: '09',
+      oct: '10',
+      nov: '11',
+      dec: '12',
+    };
+    const monMatch = raw.match(/([A-Za-z]{3,})\s*[-/ ]?\s*(\d{1,2})\s*[-/ ]?\s*(\d{4})/);
+    if (monMatch) {
+      const monToken = monMatch[1].slice(0, 3).toLowerCase();
+      const mm = monthMap[monToken] || '';
+      const dd = String(monMatch[2]).padStart(2, '0');
+      const yyyy = monMatch[3];
+      if (mm) return `${yyyy}-${mm}-${dd}`;
+    }
+    const parts = raw.match(/\d+/g) || [];
+    if (parts.length < 3) return '';
+    let year = '';
+    let month = '';
+    let day = '';
+    if (parts[0].length === 4) {
+      year = parts[0];
+      month = parts[1];
+      day = parts[2];
+    } else if (parts[2] && parts[2].length === 4) {
+      day = parts[0];
+      month = parts[1];
+      year = parts[2];
+    } else {
+      day = parts[0];
+      month = parts[1];
+      year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+    }
+    if (!year || !month || !day) return '';
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  };
+
+  const handleEshopexPrepago = async (row) => {
+    const accountKey = String(row?.account || '').trim().toLowerCase();
+    const code = String(row?.guia || '').trim();
+    const key = `${code}-${accountKey}`;
+    if (!accountKey) {
+      alert('No se encontro la cuenta de Eshopex para este registro.');
+      return;
+    }
+    if (eshopexPagoLoading.has(key)) return;
+    markPagoLoading(key, true);
+    try {
+      const res = await api.post('/tracking/eshopex-prepago', { account: accountKey });
+      const url = res?.url || res?.confirmUrl || '';
+      if (!url) throw new Error('Sin URL de confirmacion');
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo iniciar el pago en Eshopex.');
+    } finally {
+      markPagoLoading(key, false);
+    }
+  };
+
+  const recojoCasilleros = React.useMemo(() => {
+    const map = {};
+    for (const p of recojoList || []) {
+      const t = getLastTracking(p);
+      const esh = (t?.trackingEshop || '').trim();
+      const cargaRow = eshopexCargaByGuia[esh];
+      const estatusEsho = normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
+      const casRaw = String(t?.casillero || '').trim();
+      const casKey = casRaw.toLowerCase();
+      const accountFromCas = casKey ? accountByCasillero[casKey] : '';
+      const accountKey = String(cargaRow?.account || accountFromCas || '').trim().toLowerCase();
+      const casLabel = casRaw || (accountKey ? casilleroByAccount[accountKey] : '') || '';
+      if (!casLabel) continue;
+      const key = casLabel.toLowerCase();
+      if (!map[key]) {
+        map[key] = {
+          casKey: key,
+          casLabel,
+          accountKey: accountKey || '',
+          total: 0,
+          payable: 0,
+        };
+      }
+      map[key].total += 1;
+      if (!map[key].accountKey && accountKey) {
+        map[key].accountKey = accountKey;
+      }
+      if (cargaRow && accountKey && isEnSucursal(estatusEsho)) {
+        map[key].payable += 1;
+      }
+    }
+    return Object.values(map).sort((a, b) => a.casLabel.localeCompare(b.casLabel));
+  }, [recojoList, eshopexCargaByGuia, accountByCasillero, casilleroByAccount]);
+
+  const handleEshopexVincular = async (row, producto) => {
+    const code = String(row?.guia || '').trim();
+    const productoId = producto?.id;
+    const key = `${code}-vincular-${productoId || 'na'}`;
+    if (!code) return;
+    if (eshopexVincularLoading.has(key)) return;
+    if (!productoId) return;
+    markVincularLoading(key, true);
+    try {
+      const fecha = parseEshopexFecha(row?.fechaRecepcion || '');
+      const payload = {
+        trackingEshop: code,
+        estatusEsho: normalizeCargaStatus(row?.estado || ''),
+      };
+      if (fecha) payload.fechaRecepcion = fecha;
+      const res = await api.put(`/tracking/producto/${productoId}`, payload);
+      const updated = res?.data ?? res;
+      applyTrackingUpdate(productoId, updated);
+      setEshopexVincularOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo vincular el tracking Eshopex.');
+    } finally {
+      markVincularLoading(key, false);
+    }
+  };
+
   // Colores Tailwind por estado
   const badgeClasses = (estado) => {
-    switch (estado) {
+    switch (normalizeEstado(estado)) {
       case 'comprado_sin_tracking':
         return 'bg-slate-100 text-slate-700 border border-slate-300';
       case 'comprado_en_camino':
@@ -523,18 +847,18 @@ const confirmAction = async () => {
   };
 
   // Reemplaza tu helper por emojis:
-  const emojiFromEstado = (estado) => {
-    switch (estado) {
+  const iconFromEstado = (estado) => {
+    switch (normalizeEstado(estado)) {
       case 'comprado_sin_tracking':
-        return <span role="img" aria-label="Paquete" className="text-xl">📦</span>;
+        return <span role="img" aria-label="Paquete" className="text-lg">📦</span>;
       case 'comprado_en_camino':
-        return <span role="img" aria-label="Camión" className="text-xl">🚚</span>;
+        return <span role="img" aria-label="Camion" className="text-lg">🚚</span>;
       case 'en_eshopex':
-        return <span role="img" aria-label="Pin" className="text-xl">📍</span>;
+        return <span role="img" aria-label="Pin" className="text-lg">📍</span>;
       case 'recogido':
-        return <span role="img" aria-label="Check" className="text-xl">✅</span>;
+        return <span role="img" aria-label="Check" className="text-lg">✅</span>;
       default:
-        return <span role="img" aria-label="Desconocido" className="text-xl">❔</span>;
+        return <span role="img" aria-label="Desconocido" className="text-lg">❓</span>;
     }
   };
 
@@ -551,7 +875,7 @@ const confirmAction = async () => {
     eshopex: (code) => `https://usamybox.com/internacional/tracking_box.php?nrotrack=${encodeURIComponent(code)}`,
   };
 
-  // Construye el link según estado y datos
+  // Construye el link segun estado y datos
   const buildTrackingLink = (t) => {
     if (!t) return null;
 
@@ -587,6 +911,7 @@ const confirmAction = async () => {
     if (!force && cacheFresh) {
       setProductos(cache.productos || []);
       if (cache.ventasMap) setVentasMap(cache.ventasMap || {});
+      if (cache.adelantosMap) setAdelantosMap(cache.adelantosMap || {});
       if (cache.resumen) setResumen(cache.resumen);
       if (!silent) {
         setCargando(false);
@@ -605,7 +930,7 @@ const confirmAction = async () => {
         : (Array.isArray(data?.items) ? data.items : []);
       setProductos(lista);
       // Ventas se mantienen (se revalidan en otro efecto), pero el cache se pisa con ventas actuales ref
-      writeCache(lista, ventasRef.current, resumenRef.current);
+      writeCache(lista, ventasRef.current, resumenRef.current, adelantosRef.current);
       fetchResumen({ refresh: false });
       return lista;
     } catch (e) {
@@ -635,27 +960,45 @@ const confirmAction = async () => {
       const cache = readCache();
       const cacheFresh = cache && cache.ts && Date.now() - cache.ts <= CACHE_TTL_MS;
       const cacheHasVentas = cacheFresh && cache?.ventasMap && Object.keys(cache.ventasMap).length > 0;
+      const cacheHasAdelantos = cacheFresh && cache?.adelantosMap && Object.keys(cache.adelantosMap).length > 0;
       if (cacheHasVentas) {
         setVentasMap(cache.ventasMap || {});
-        return;
       }
+      if (cacheHasAdelantos) {
+        setAdelantosMap(cache.adelantosMap || {});
+      }
+      if (cacheHasVentas && cacheHasAdelantos) return;
       try {
         const ids = productos.map((p) => p.id).filter(Boolean);
         const query = ids.length ? `?ids=${ids.join(',')}` : '';
-        const data = await api.get(`/ventas/ultimas${query}`);
-        // Normaliza: array directo | {items:[]} | {data:[]}
-        const arr = Array.isArray(data)
-          ? data
-          : (Array.isArray(data?.items) ? data.items
-            : (Array.isArray(data?.data) ? data.data : []));
+        const [ventasData, adelantosData] = await Promise.all([
+          api.get(`/ventas/ultimas${query}`),
+          api.get(`/ventas/adelantos/ultimos${query}`),
+        ]);
+        const ventasArr = Array.isArray(ventasData)
+          ? ventasData
+          : (Array.isArray(ventasData?.items) ? ventasData.items
+            : (Array.isArray(ventasData?.data) ? ventasData.data : []));
+        const adelantosArr = Array.isArray(adelantosData)
+          ? adelantosData
+          : (Array.isArray(adelantosData?.items) ? adelantosData.items
+            : (Array.isArray(adelantosData?.data) ? adelantosData.data : []));
         const map = {};
-        arr.forEach((v) => {
+        const adelantos = {};
+        ventasArr.forEach((v) => {
           if (v && v.productoId != null) map[v.productoId] = v;
         });
-        ids.forEach((id) => { if (map[id] === undefined) map[id] = null; });
+        adelantosArr.forEach((a) => {
+          if (a && a.productoId != null) adelantos[a.productoId] = a;
+        });
+        ids.forEach((id) => {
+          if (map[id] === undefined) map[id] = null;
+          if (adelantos[id] === undefined) adelantos[id] = null;
+        });
         if (!mounted) return;
         setVentasMap(map);
-        writeCache(productosRef.current, map, resumenRef.current);
+        setAdelantosMap(adelantos);
+        writeCache(productosRef.current, map, resumenRef.current, adelantos);
       } catch (e) {
         console.error('Error cargando ventas:', e);
       }
@@ -675,7 +1018,7 @@ const confirmAction = async () => {
     // --- Filtro por tracking (USA / Eshopex) ---
     const q = String(trackingQuery || '').trim().toLowerCase();
     if (q) {
-      // versión solo-dígitos para casos donde pegas un código largo que contiene el real
+      // versifn solo-dfgitos para casos donde pegas un cfdigo largo que contiene el real
       const qDigits = q.replace(/\D+/g, '');
 
       list = list.filter((p) => {
@@ -688,7 +1031,7 @@ const confirmAction = async () => {
 
         // Coincidencias en ambos sentidos:
         // - normal: usa/esh contienen q  O q contiene usa/esh
-        // - solo-dígitos: usaDigits/eshDigits contienen qDigits  O qDigits contiene usaDigits/eshDigits
+        // - solo-dfgitos: usaDigits/eshDigits contienen qDigits  O qDigits contiene usaDigits/eshDigits
         const match =
           (usa && (usa.includes(q) || q.includes(usa))) ||
           (esh && (esh.includes(q) || q.includes(esh))) ||
@@ -704,7 +1047,8 @@ const confirmAction = async () => {
       list = list.filter((p) => {
         const t = p.tracking?.[0];
         const venta = ventasMap[p.id] || null;
-        return t?.estado === 'recogido' && !venta;
+        const adelanto = adelantosMap[p.id] || null;
+        return t?.estado === 'recogido' && !venta && !adelanto;
       });
     }
 
@@ -722,7 +1066,7 @@ const confirmAction = async () => {
       list = list.filter((p) => matchTipo(p.tipo));
     }
 
-    // Subfiltros por procesador y tamaño (según tipo)
+    // Subfiltros por procesador y tamano (segun tipo)
     if (filtroTipo !== 'todos') {
       const procTerm = String(filtroProc || '').toLowerCase();
       const tamTerm = String(filtroTam || '').toLowerCase();
@@ -740,7 +1084,7 @@ const confirmAction = async () => {
             if (proc !== procTerm) return false;
           }
           if (gamaTerm !== 'todos' && gamaP !== gamaTerm) return false;
-          // Filtro por tamaño (si aplica)
+          // Filtro por tamano (si aplica)
           if (tamTerm !== 'todos') {
             const tam = String(getTam(d) || '').toLowerCase();
             if (tam !== tamTerm) return false;
@@ -757,7 +1101,7 @@ const confirmAction = async () => {
         }
 
         if (tipo === 'pantalla') {
-          // Para Pantalla, el selector "Procesador" es en realidad el tamaño
+          // Para Pantalla, el selector "Procesador" es en realidad el tamano
           if (procTerm !== 'todos') {
             const tam = String(getTam(d) || '').toLowerCase();
             return tam === procTerm;
@@ -775,9 +1119,9 @@ const confirmAction = async () => {
     }
 
 
-    list.sort((a, b) => ts(b) - ts(a)); // más nuevos arriba
+    list.sort((a, b) => ts(b) - ts(a)); // mfs nuevos arriba
     return list;
-  }, [productos, ventasMap, soloDisponibles, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery]);
+  }, [productos, ventasMap, adelantosMap, soloDisponibles, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery]);
 
 
 
@@ -788,16 +1132,51 @@ const confirmAction = async () => {
   const abrirCostos = (p) => { setProductoSeleccionado(p); setModalModo('costos'); };
   const abrirTrack = (p) => { setProductoSeleccionado(p); setModalModo('track'); };
   const abrirDec = (p) => { setProductoSeleccionado(p); setModalModo('dec'); };
-  const abrirFotosManual = () => { setModalModo('fotosManual'); };
+  const abrirFotosManual = (seed = null) => {
+    if (seed) {
+      setFotosManualSeed({
+        trackingEshop: seed.trackingEshop || '',
+        fechaRecepcion: seed.fechaRecepcion || '',
+      });
+    } else {
+      setFotosManualSeed({ trackingEshop: '', fechaRecepcion: '' });
+    }
+    setModalModo('fotosManual');
+  };
   const cerrarModal = () => { setModalModo(null); setProductoSeleccionado(null); setProductoEnCasillero(null); };
   const abrirCasillero = (cas) => { setSelectedCasillero(cas); setModalModo('casillero'); };
+  const abrirAdelantoSelect = (p) => {
+    setAdelantoProducto(p || null);
+    setAdelantoActivo(null);
+    setAdelantoModo('select');
+  };
+  const abrirAdelantoCreate = (p) => {
+    setAdelantoProducto(p || null);
+    setAdelantoActivo(null);
+    setAdelantoModo('create');
+  };
+  const abrirAdelantoDetalle = (p, adelanto) => {
+    setAdelantoProducto(p || null);
+    setAdelantoActivo(adelanto || null);
+    setAdelantoModo('detail');
+  };
+  const abrirAdelantoCompletar = (p, adelanto) => {
+    setAdelantoProducto(p || null);
+    setAdelantoActivo(adelanto || null);
+    setAdelantoModo('complete');
+  };
+  const cerrarAdelanto = () => {
+    setAdelantoModo(null);
+    setAdelantoProducto(null);
+    setAdelantoActivo(null);
+  };
 
   const applyProductoUpdate = (updated, { isNuevo = false, closeModal = true } = {}) => {
     setProductos(list => {
       const next = isNuevo
         ? [updated, ...list]
         : list.map(p => (p.id === updated.id ? updated : p));
-      writeCache(next, ventasMap);
+      writeCache(next, ventasMap, resumenRef.current, adelantosRef.current);
       return next;
     });
     if (closeModal) cerrarModal();
@@ -812,7 +1191,7 @@ const confirmAction = async () => {
         const merged = [tracking, ...prev.filter(t => t && t.id !== tracking.id)];
         return { ...p, tracking: merged };
       });
-      writeCache(next, ventasMap, resumenRef.current);
+      writeCache(next, ventasMap, resumenRef.current, adelantosRef.current);
       return next;
     });
   };
@@ -861,7 +1240,7 @@ const confirmAction = async () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('¿Eliminar este producto?')) return;
+    if (!window.confirm(',Eliminar este producto?')) return;
     try {
       await api.del(`/productos/${id}`);
       setProductos(list => list.filter(p => p.id !== id));
@@ -896,6 +1275,7 @@ const confirmAction = async () => {
       const t = p.tracking?.[0];
       const estado = t?.estado || null;
       const venta = ventasMap[p.id] || null;
+      const adelanto = adelantosMap[p.id] || null;
 
       if (!t || estado === 'comprado_sin_tracking') sinTracking++;
       if (estado === 'comprado_en_camino') enCamino++;
@@ -903,15 +1283,15 @@ const confirmAction = async () => {
 
       if (venta) {
         vendido++;
-      } else if (estado === 'recogido') {
+      } else if (estado === 'recogido' && !adelanto) {
         disponible++;
       }
     }
 
     return { total, sinTracking, enCamino, enEshopex, disponible, vendido };
-  }, [productos, ventasMap, resumen]);
+  }, [productos, ventasMap, adelantosMap, resumen]);
 
-  // Convierte "S/ 1,234.50" o "$ 99" a número seguro
+  // Convierte "S/ 1,234.50" o "$ 99" a nfmero seguro
   const toNumber = (x) => {
     if (x == null || x === '') return 0;
     if (typeof x === 'number') return x;
@@ -922,7 +1302,7 @@ const confirmAction = async () => {
     }
     return 0;
   };
-  // Lee el monto de la venta en S/ sin importar el nombre/caso/anidación
+  // Lee el monto de la venta en S/ sin importar el nombre/caso/anidacifn
   const getMontoVentaSoles = (venta) => {
     if (!venta) return 0;
 
@@ -980,7 +1360,7 @@ const confirmAction = async () => {
     let totalEnvioSoles = 0;   // suma de costoEnvio (S/)
     let totalDecUSD = 0;
     let totalCostoSoles = 0;   // suma de costoTotal (S/)
-    let totalVentaSoles = 0;   // suma de venta (S/) sólo si existe registro de venta
+    let totalVentaSoles = 0;   // suma de venta (S/) sflo si existe registro de venta
     let gananciaSoles = 0;     // totalVentaSoles - totalCostoSoles (por producto vendido)
 
     for (const p of productos) {
@@ -1032,17 +1412,17 @@ const confirmAction = async () => {
 
 
   return (
-    <div className="min-h-screen p-8 bg-macGray text-macDark">
+    <div className="min-h-screen px-4 py-6 sm:px-6 lg:px-8 bg-macGray text-macDark">
       {/* Header */}
-      <header className="flex justify-between items-center mb-8">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8">
         <h2 className="text-3xl font-semibold">Gesti&oacute;n de Productos</h2>
-        <button onClick={() => setVista('home')} className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100">
+        <button onClick={() => setVista('home')} className="w-full sm:w-auto px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100">
           &larr; Volver
         </button>
       </header>
 
       {/* Resumen de conteos */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
         <div className="bg-white border rounded-xl p-4 shadow-sm">
           <div className="text-sm text-gray-500">Totales</div>
           <div className="text-2xl font-semibold">{stats.total}</div>
@@ -1071,7 +1451,7 @@ const confirmAction = async () => {
       <ResumenCasilleros productos={productos} onCasilleroClick={abrirCasillero} />
 
       {/* Totales de montos */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
         <div className="bg-white border rounded-xl p-4 shadow-sm">
           <div className="text-sm text-gray-500">Total gastado ($)</div>
           <div className="text-2xl font-semibold">{totals.totalGastadoUSD}</div>
@@ -1079,7 +1459,7 @@ const confirmAction = async () => {
         <div className="bg-white border rounded-xl p-4 shadow-sm">
           <div className="text-sm text-gray-500">Total env&iacute;o (S/)</div>
           <div className="text-2xl font-semibold">{totals.totalEnvioSoles}</div>
-        </div> {/* ? cierre agregado aquí */}
+        </div> {/* ? cierre agregado aquf */}
         <div className="bg-white border rounded-xl p-4 shadow-sm">
           <div className="text-sm text-gray-500">Total DEC ($)</div>
           <div className="text-2xl font-semibold">{totals.totalDecUSD}</div>
@@ -1104,8 +1484,8 @@ const confirmAction = async () => {
         {!selectMode ? (
           <>
             {/* Filtro a la izquierda */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <label className="inline-flex items-center gap-2 text-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap w-full">
+              <label className="inline-flex items-center gap-2 text-sm w-full sm:w-auto">
                 <input
                   type="checkbox"
                   className="h-4 w-4"
@@ -1117,7 +1497,7 @@ const confirmAction = async () => {
 
               <input
                 type="text"
-                className="border rounded px-2 py-1"
+                className="border rounded px-2 py-1 w-full sm:w-60"
                 placeholder="Buscar tracking (USA/Eshopex)"
                 value={trackingQuery}
                 onChange={(e) => setTrackingQuery(e.target.value)}
@@ -1125,10 +1505,10 @@ const confirmAction = async () => {
 
 
 
-              <label className="text-sm inline-flex items-center gap-2">
+              <label className="text-sm inline-flex items-center gap-2 w-full sm:w-auto">
                 <span>Tipo</span>
                 <select
-                  className="border rounded px-2 py-1"
+                  className="border rounded px-2 py-1 w-full sm:w-auto"
                   value={filtroTipo}
                   onChange={(e) => { setFiltroTipo(e.target.value); setFiltroProc('todos'); setFiltroGama('todos'); setFiltroTam('todos'); }}
                 >
@@ -1142,10 +1522,10 @@ const confirmAction = async () => {
               </label>
 
               {(filtroTipo !== 'todos' && opcionesGama.length > 0) && (
-                <label className="text-sm inline-flex items-center gap-2">
+                <label className="text-sm inline-flex items-center gap-2 w-full sm:w-auto">
                   <span>{filtroTipo === 'iphone' ? 'Modelo' : 'Gama'}</span>
                   <select
-                    className="border rounded px-2 py-1"
+                    className="border rounded px-2 py-1 w-full sm:w-auto"
                     value={filtroGama}
                     onChange={(e) => setFiltroGama(e.target.value)}
                   >
@@ -1158,10 +1538,10 @@ const confirmAction = async () => {
               )}
 
               {(filtroTipo === 'macbook' || filtroTipo === 'ipad' || filtroTipo === 'pantalla') && (
-                <label className="text-sm inline-flex items-center gap-2">
+                <label className="text-sm inline-flex items-center gap-2 w-full sm:w-auto">
                   <span>{filtroTipo === 'pantalla' ? 'Pantalla' : 'Procesador'}</span>
                   <select
-                    className="border rounded px-2 py-1"
+                    className="border rounded px-2 py-1 w-full sm:w-auto"
                     value={filtroProc}
                     onChange={(e) => { setFiltroProc(e.target.value); setFiltroTam('todos'); }}
 
@@ -1180,10 +1560,10 @@ const confirmAction = async () => {
               )}
 
               {(filtroTipo === 'macbook' || filtroTipo === 'ipad') && (
-                <label className="text-sm inline-flex items-center gap-2">
-                  <span>Tamaño</span>
+                <label className="text-sm inline-flex items-center gap-2 w-full sm:w-auto">
+                  <span>Tamafo</span>
                   <select
-                    className="border rounded px-2 py-1"
+                    className="border rounded px-2 py-1 w-full sm:w-auto"
                     value={filtroTam}
                     onChange={(e) => setFiltroTam(e.target.value)}
                   >
@@ -1197,38 +1577,38 @@ const confirmAction = async () => {
             </div>
 
             {/* Acciones a la derecha */}
-            <div className="flex gap-2 justify-end">
-              {/* Análisis a la izquierda, con m\u00e1s separaci\u00f3n del siguiente */}
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-start sm:justify-end">
+              {/* Analisis a la izquierda, con m\u00e1s separaci\u00f3n del siguiente */}
               <button
                 onClick={() => { setAnalisisBack('productos'); setVista('analisis'); }}
-                className="bg-slate-600 text-white px-5 py-2 rounded hover:bg-slate-700 mr-6"
-                title="Ir al m\u00f3dulo de Análisis"
+                className="w-full sm:w-auto bg-slate-600 text-white px-5 py-2 rounded hover:bg-slate-700 sm:mr-6"
+                title="Ir al m\u00f3dulo de Analisis"
               >
-                Análisis
+                Analisis
               </button>
               <button
                 onClick={startAdelantarVenta}
-                className="bg-amber-600 text-white px-5 py-2 rounded hover:bg-amber-700"
+                className="w-full sm:w-auto bg-amber-600 text-white px-5 py-2 rounded hover:bg-amber-700"
                 title="Selecciona 1 producto no vendido para registrar la venta"
               >
                 Adelantar venta
               </button>
               <button
                 onClick={abrirCrear}
-                className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700"
+                className="w-full sm:w-auto bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700"
               >
                 Agregar Producto
               </button>
               <button
                 onClick={startRecojo}
-                className="bg-purple-600 text-white px-5 py-2 rounded hover:bg-purple-700"
+                className="w-full sm:w-auto bg-purple-600 text-white px-5 py-2 rounded hover:bg-purple-700"
                 title="Selecciona varios y marcar como recogidos + generar texto para WhatsApp"
               >
                 Recojo
               </button>
               <button
                 onClick={startEshopexPendientes}
-                className="bg-sky-700 text-white px-5 py-2 rounded hover:bg-sky-800"
+                className="w-full sm:w-auto bg-sky-700 text-white px-5 py-2 rounded hover:bg-sky-800"
                 title="Ver cargas Eshopex no entregadas"
               >
                 Pendientes Eshopex
@@ -1236,14 +1616,14 @@ const confirmAction = async () => {
 
               <button
                 onClick={abrirFotosManual}
-                className="bg-teal-600 text-white px-5 py-2 rounded hover:bg-teal-700"
+                className="w-full sm:w-auto bg-teal-600 text-white px-5 py-2 rounded hover:bg-teal-700"
                 title="Ingresar tracking y fecha para consultar fotos en Eshopex"
               >
                 Fotos
               </button>
               <button
                 onClick={abrirDec}
-                className="bg-gray-800 text-white px-5 py-2 rounded hover:bg-gray-900 inline-flex items-center gap-2"
+                className="w-full sm:w-auto bg-gray-800 text-white px-5 py-2 rounded hover:bg-gray-900 inline-flex items-center gap-2"
                 title="Generar DEC / Comprobante"
               >
                 <FiFileText className="text-lg" />
@@ -1252,7 +1632,7 @@ const confirmAction = async () => {
             </div>
           </>
         ) : (
-          // ??? tu bloque existente de selección (pickup/whatsapp) se mantiene igual
+          // ??? tu bloque existente de seleccifn (pickup/whatsapp) se mantiene igual
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 w-full">
             <div className="flex-1">
               {selectAction === 'recojo' && (
@@ -1265,12 +1645,12 @@ const confirmAction = async () => {
                     onChange={(e) => setPickupDate(e.target.value)}
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Al aceptar: marcará como <b>Recogido</b> y abrirá WhatsApp con el listado.
+                    Al aceptar: marcarf como <b>Recogido</b> y abrirf WhatsApp con el listado.
                   </p>
                 </div>
               )}
             </div>
-            <div className="flex gap-2 justify-end">
+            <div className="flex flex-wrap gap-2 justify-start sm:justify-end w-full">
               <button
                 onClick={confirmAction}
                 className="bg-indigo-600 text-white px-5 py-2 rounded hover:bg-indigo-700 disabled:opacity-50"
@@ -1302,74 +1682,77 @@ const confirmAction = async () => {
       {/* Tabla */}
       {!cargando && !error && (
         displayedProductos.length > 0 ? (
-          <table className="w-full text-left border">
-            <thead className="bg-gray-100">
-              <tr>
-                {selectMode && <th className="p-2">Sel.</th>}
-                <th className="p-2">Tipo</th>
-                <th className="p-2">Estado</th>
-                <th className="p-2">Accesorios</th>
-                <th className="p-2">Valor $</th>
-                <th className="p-2">Valor S/</th>
-                <th className="p-2">Envío S/</th>
-                <th className="p-2">Total S/</th>
-                <th className="p-2">Calculadora</th>
-                <th className="p-2">F. Compra</th>
-                <th className="p-2">Tracking</th>
-                <th className="p-2">Fotos Es</th>
-                <th className="p-2">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayedProductos.map((p) => {
-                const v = p.valor || {};
-                const t = p.tracking?.[0]; // Primer tracking (si existe)
-                const label = labelFromEstado(t?.estado);
-                const link = buildTrackingLink(t);
-                const estado = t?.estado || '';
-                const venta = ventasMap[p.id] || null;
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
+            <table className="min-w-[1100px] w-full text-left border text-xs sm:text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  {selectMode && <th className="p-2">Sel.</th>}
+                  <th className="p-2">Tipo</th>
+                  <th className="p-2">Estado</th>
+                  <th className="p-2">Accesorios</th>
+                  <th className="p-2">Valor $</th>
+                  <th className="p-2">Valor S/</th>
+                  <th className="p-2">Envfo S/</th>
+                  <th className="p-2">Total S/</th>
+                  <th className="p-2">Calculadora</th>
+                  <th className="p-2">F. Compra</th>
+                  <th className="p-2">Tracking</th>
+                  <th className="p-2">Fotos Es</th>
+                  <th className="p-2">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayedProductos.map((p) => {
+                  const v = p.valor || {};
+                  const t = getLastTracking(p); // Ultimo tracking (si existe)
+                  const label = labelFromEstado(t?.estado);
+                  const link = buildTrackingLink(t);
+                  const estado = t?.estado || '';
+                  const venta = ventasMap[p.id] || null;
+                  const adelanto = adelantosMap[p.id] || null;
 
-                // Solo seleccionable en Recojo si está en Eshopex
-                const canSelectRecojo = selectAction === 'recojo' ? estado === 'en_eshopex' : true;
+                  // Solo seleccionable en Recojo si estf en Eshopex
+                  const canSelectRecojo = selectAction === 'recojo' ? estado === 'en_eshopex' : true;
 
-                // En adelantar, tu regla de 1 y no vendido; en recojo, bloquear si no es Eshopex
-                const disabledSel = selectAction === 'adelantar'
-                  ? (!!venta || (selectedIds.size >= 1 && !selectedIds.has(p.id)))
-                  : !canSelectRecojo;
+                  // En adelantar, tu regla de 1 y no vendido; en recojo, bloquear si no es Eshopex
+                  const disabledSel = selectAction === 'adelantar'
+                    ? (!!venta || !!adelanto || (selectedIds.size >= 1 && !selectedIds.has(p.id)))
+                    : !canSelectRecojo;
 
-                const isSelected = selectedIds.has(p.id);
-                const guardando = savingProductos.has(p.id);
+                  const isSelected = selectedIds.has(p.id);
+                  const guardando = savingProductos.has(p.id);
 
 
 
-                const tRow = t;
+                  const tRow = t;
 
-                const esh = (tRow?.trackingEshop || '').trim();
+                  const esh = (tRow?.trackingEshop || '').trim();
 
-                // Selección deshabilitada solo para 'adelantar' (ya vendido o ya hay otro marcado)
+                  // Seleccifn deshabilitada solo para 'adelantar' (ya vendido o ya hay otro marcado)
 
-                return (
-                  <tr
-                    key={p.id}
-                    className={`border-t hover:bg-gray-50 ${selectMode ? 'cursor-pointer' : ''} ${isSelected ? 'bg-indigo-50' : ''} ${(selectMode && disabledSel) ? 'opacity-60 cursor-not-allowed' : ''}`}
-                    onClick={() => {
-                      if (!selectMode) return;
-                      if (disabledSel) return;
-                      toggleSelect(p.id);
-                    }}
-                  >
+                  return (
+                    <tr
+                      key={p.id}
+                      className={`border-t hover:bg-gray-50 ${selectMode ? 'cursor-pointer' : ''} ${isSelected ? 'bg-indigo-50' : ''} ${(selectMode && disabledSel) ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      onClick={() => {
+                        if (!selectMode) return;
+                        if (disabledSel) return;
+                        toggleSelect(p.id);
+                      }}
+                    >
 
                     {selectMode && (
                       <td className="p-2">
                         {(() => {
                           const esh = p.tracking?.[0]?.trackingEshop?.trim() || '';
                           const venta = ventasMap[p.id] || null;
+                          const adelanto = adelantosMap[p.id] || null;
                           const isAdelantar = selectAction === 'adelantar';
                           // Reglas:
                           // - whatsapp/pickup: requiere tracking eshopex
-                          // - adelantar: no permite productos ya vendidos y restringe a 1 selección
+                          // - adelantar: no permite productos ya vendidos y restringe a 1 seleccifn
                           const disabled = isAdelantar
-                            ? (!!venta || (selectedIds.size >= 1 && !selectedIds.has(p.id)))
+                            ? (!!venta || !!adelanto || (selectedIds.size >= 1 && !selectedIds.has(p.id)))
                             : (!esh);
 
                           return (
@@ -1426,24 +1809,24 @@ const confirmAction = async () => {
                       {v.fechaCompra ? new Date(v.fechaCompra).toLocaleDateString('es-PE', { timeZone: 'UTC' }) : '-'}
                     </td>
                     <td className="p-2">
-                      {/* Pill/ botón de estado: más grande, negrita y ??oclickable??? */}
+                      {/* Pill/ botfn de estado: mfs grande, negrita y ??oclickable??? */}
                       <button
                         onClick={(e) => { e.stopPropagation(); abrirTrack(p); }}
                         className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${badgeClasses(t?.estado)}`}
                         title="Abrir tracking"
                       >
-                        {emojiFromEstado(t?.estado)}
+                        {iconFromEstado(t?.estado)}
                         {label}
                       </button>
 
 
 
-                      {/* Casillero más visible (más grande + negrita) */}
+                      {/* Casillero mfs visible (mfs grande + negrita) */}
                       <div className="mt-1 text-sm font-semibold text-gray-800">
                         {t?.casillero ? `Casillero: ${t.casillero}` : 'Casillero: N/A'}
                       </div>
 
-                      {/* Enlace dinámico debajo */}
+                      {/* Enlace dinfmico debajo */}
                       {link && (
                         <div className="mt-1 text-xs">
                           <a
@@ -1459,7 +1842,7 @@ const confirmAction = async () => {
                         </div>
                       )}
 
-                      {/* Transportista + tracking USA, separados para copiar fácilmente */}
+                      {/* Transportista + tracking USA, separados para copiar ffcilmente */}
                       {(() => {
                         const carrier = (t?.transportista || '').toString().trim();
                         const trackUsa = (t?.trackingUsa || '').toString().trim();
@@ -1500,15 +1883,21 @@ const confirmAction = async () => {
                       {(() => {
                         const t = p.tracking?.[0];
                         const venta = ventasMap[p.id] || null;
+                        const adelanto = adelantosMap[p.id] || null;
                         const recogido = t?.estado === 'recogido';
 
                         let text = 'En espera';
                         let className = 'bg-gray-300 text-gray-600 cursor-not-allowed opacity-60';
                         let disabled = true;
 
-                        if (recogido && !venta) {
+                        if (recogido && !venta && !adelanto) {
                           text = 'Disponible';
                           className = 'bg-yellow-500 text-white hover:bg-yellow-600';
+                          disabled = false;
+                        }
+                        if (adelanto && !venta) {
+                          text = 'Adelanto';
+                          className = 'bg-amber-600 text-white hover:bg-amber-700';
                           disabled = false;
                         }
                         if (venta) {
@@ -1519,7 +1908,18 @@ const confirmAction = async () => {
 
                         return (
                           <button
-                            onClick={() => { if (!disabled) abrirVenta(p); }}
+                            onClick={() => {
+                              if (disabled) return;
+                              if (venta) {
+                                abrirVenta(p);
+                                return;
+                              }
+                              if (adelanto) {
+                                abrirAdelantoDetalle(p, adelanto);
+                                return;
+                              }
+                              abrirVenta(p);
+                            }}
                             className={`${className} px-3 py-1 rounded`}
                             disabled={disabled}
                             title={disabled ? 'A\u00fan no est\u00e1 recogido' : ''}
@@ -1547,10 +1947,11 @@ const confirmAction = async () => {
 
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <p>{soloDisponibles ? 'No hay productos disponibles para venta.' : 'No hay productos a\u00fan.'}</p>
         )
@@ -1580,9 +1981,7 @@ const confirmAction = async () => {
                 className="w-9 h-9 flex items-center justify-center text-xl font-bold rounded-full hover:bg-gray-100"
                 onClick={() => setRecojoOpen(false)}
                 aria-label="Cerrar"
-              >
-                ×
-              </button>
+              >x</button>
             </div>
 
             <div className="flex flex-wrap items-end gap-3 mb-4">
@@ -1610,6 +2009,31 @@ const confirmAction = async () => {
                   />
                 </div>
               </div>
+              <div className="flex flex-col gap-2 flex-1">
+                <div className="flex flex-wrap gap-2 items-center">
+                  {recojoCasilleros.map((c) => {
+                    const accountKey = String(c.accountKey || '').trim().toLowerCase();
+                    const pagoKey = `cas-${c.casKey}-${accountKey}`;
+                    const pagoLoading = eshopexPagoLoading.has(pagoKey);
+                    const canPay = c.payable > 0 && accountKey;
+                    return (
+                      <button
+                        key={`${c.casKey}-pago`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!canPay) return;
+                          handleEshopexPrepago({ account: accountKey, guia: `cas-${c.casKey}` });
+                        }}
+                        disabled={!canPay || pagoLoading}
+                        className={`${(!canPay || pagoLoading) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-2 py-1 rounded`}
+                        title={!canPay ? 'Sin paquetes disponibles para pagar' : `Pagar casillero ${c.casLabel}`}
+                      >
+                        {pagoLoading ? 'Procesando...' : `Pagar ${c.casLabel}`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <div className="text-sm text-gray-500">
                 Productos en Eshopex: {recojoList.length}
               </div>
@@ -1619,14 +2043,16 @@ const confirmAction = async () => {
               <div className="text-sm text-gray-500">No hay productos en Eshopex.</div>
             ) : (
               <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm max-h-[60vh] overflow-y-auto">
-                <table className="min-w-[720px] w-full text-sm">
+                <table className="min-w-[900px] w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="p-2 text-left">Sel.</th>
                       <th className="p-2 text-left">Producto</th>
-                      <th className="p-2 text-left">Tracking Eshopex</th>
                       <th className="p-2 text-left">Estatus</th>
+                      <th className="p-2 text-left">Tracking Eshopex</th>
+                      <th className="p-2 text-left">EstatusEsho</th>
                       <th className="p-2 text-left">Fecha recepcion</th>
+                      <th className="p-2 text-left">Casillero</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1636,8 +2062,13 @@ const confirmAction = async () => {
                       const fecha = t?.fechaRecepcion
                         ? new Date(t.fechaRecepcion).toLocaleDateString('es-PE', { timeZone: 'UTC' })
                         : '-';
+                      const cargaRow = eshopexCargaByGuia[esh];
                       const statusInfo = recojoStatusMap[esh] || {};
                       const statusNorm = normalizeEshopexStatus(statusInfo.status);
+                      const estatusEsho = normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
+                      const cas = String(t?.casillero || '').trim().toLowerCase();
+                      const accountFromCas = cas ? accountByCasillero[cas] : '';
+                      const accountKey = String(cargaRow?.account || accountFromCas || '').trim().toLowerCase();
                       const isReady = isRecojoReady(p);
                       const checked = recojoSelected.has(p.id);
                       return (
@@ -1647,11 +2078,21 @@ const confirmAction = async () => {
                               type="checkbox"
                               checked={checked}
                               disabled={!isReady}
-                              title={isReady ? '' : 'Solo disponible cuando esta entregado'}
+                              title={isReady ? '' : 'Solo disponible cuando esta Pagado o En Sucursal'}
                               onChange={() => toggleRecojoSelect(p.id)}
                             />
                           </td>
                           <td className="p-2">{buildNombreProducto(p) || p.tipo}</td>
+                          <td className="p-2">
+                            <div className="text-sm font-medium">
+                              {statusInfo.loading ? 'Cargando' : (statusInfo.status ? statusNorm.label : 'No hay informacion')}
+                            </div>
+                            {(statusInfo.date || statusInfo.time) && (
+                              <div className="text-xs text-gray-500">
+                                {(statusInfo.date || '')} {(statusInfo.time || '')}
+                              </div>
+                            )}
+                          </td>
                           <td className="p-2">
                             {esh ? (
                               <a
@@ -1670,19 +2111,17 @@ const confirmAction = async () => {
                           </td>
                           <td className="p-2">
                             <div className="text-sm font-medium">
-                              {statusInfo.loading ? 'Cargando' : (statusInfo.status ? statusNorm.label : 'No hay informacion')}
+                              {estatusEsho || 'No hay informacion'}
                             </div>
-                            {(statusInfo.date || statusInfo.time) && (
-                              <div className="text-xs text-gray-500">
-                                {(statusInfo.date || '')} {(statusInfo.time || '')}
-                              </div>
-                            )}
                           </td>
                           <td className="p-2">
                             <div className="text-sm">{fecha}</div>
                             {isReady && (
                               <div className="text-xs text-emerald-600 font-semibold">Listo para Recoger</div>
                             )}
+                          </td>
+                          <td className="p-2">
+                            <div className="text-sm">{cas || '-'}</div>
                           </td>
                         </tr>
                       );
@@ -1699,13 +2138,23 @@ const confirmAction = async () => {
           <div className="bg-white w-full max-w-5xl rounded-xl shadow-lg p-6 relative mx-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">Pendientes Eshopex</h2>
-              <button
-                className="w-9 h-9 flex items-center justify-center text-xl font-bold rounded-full hover:bg-gray-100"
-                onClick={() => setEshopexCargaOpen(false)}
-                aria-label="Cerrar"
-              >
-                ž
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  className="px-3 py-2 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                  onClick={() => setEshopexCargaRefreshKey((v) => v + 1)}
+                  disabled={eshopexCargaLoading}
+                  title="Actualizar pendientes"
+                >
+                  Actualizar
+                </button>
+                <button
+                  className="w-9 h-9 flex items-center justify-center text-xl font-bold rounded-full hover:bg-gray-100"
+                  onClick={() => setEshopexCargaOpen(false)}
+                  aria-label="Cerrar"
+                >
+                  x
+                </button>
+              </div>
             </div>
             {eshopexCargaLoading && (
               <div className="text-sm text-gray-600">Cargando...</div>
@@ -1718,16 +2167,20 @@ const confirmAction = async () => {
                 <div className="text-sm text-gray-500">No hay cargas pendientes.</div>
               ) : (
                 <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm max-h-[60vh] overflow-y-auto">
-                  <table className="min-w-[900px] w-full text-sm">
+                  <table className="min-w-[1100px] w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="p-2 text-left">Producto</th>
                         <th className="p-2 text-left">Tracking Eshopex</th>
+                        <th className="p-2 text-left">Descripcion</th>
                         <th className="p-2 text-left">Peso</th>
                         <th className="p-2 text-left">Valor DEC</th>
-                        <th className="p-2 text-left">Estatus</th>
+                        <th className="p-2 text-left">EstatusEsho</th>
                         <th className="p-2 text-left">Fecha recepcion MIAMI</th>
+                        <th className="p-2 text-left">Ver foto</th>
                         <th className="p-2 text-left">Casillero</th>
+                        <th className="p-2 text-left">Vincular</th>
+                        <th className="p-2 text-left">Pago</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1735,16 +2188,66 @@ const confirmAction = async () => {
                         const code = String(row?.guia || '').trim();
                         const producto = productosByEshopex[code];
                         const t = producto ? getLastTracking(producto) : null;
-                        const cas = t?.casillero || '-';
+                        const accountKey = String(row?.account || '').trim().toLowerCase();
+                        const pagoKey = `${code}-${accountKey}`;
+                        const pagoLoading = eshopexPagoLoading.has(pagoKey);
+                        const casilleroFromAccount = accountKey ? casilleroByAccount[accountKey] : '';
+                        const cas = t?.casillero || casilleroFromAccount || '-';
+                        const estadoProducto = String(t?.estado || '').toLowerCase();
+                        const puedeVer = producto
+                          ? (estadoProducto === 'en_eshopex' || estadoProducto === 'recogido')
+                          : Boolean(code && row?.fechaRecepcion);
                         return (
                           <tr key={`${code}-${row?.account || ''}`} className="border-t">
                             <td className="p-2">{producto ? (buildNombreProducto(producto) || producto.tipo) : '-'}</td>
                             <td className="p-2">{code || '-'}</td>
+                            <td className="p-2">{row?.descripcion || '-'}</td>
                             <td className="p-2">{row?.peso || '-'}</td>
                             <td className="p-2">{row?.valor || '-'}</td>
-                            <td className="p-2">{row?.estado || '-'}</td>
+                            <td className="p-2">{normalizeCargaStatus(row?.estado) || '-'}</td>
                             <td className="p-2">{row?.fechaRecepcion || '-'}</td>
+                            <td className="p-2">
+                              <button
+                                onClick={(e) => {
+                                  if (!puedeVer) return;
+                                  e.stopPropagation();
+                                  if (producto) {
+                                    abrirFotos(producto);
+                                  } else {
+                                    abrirFotosManual({ trackingEshop: code, fechaRecepcion: row?.fechaRecepcion || '' });
+                                  }
+                                }}
+                                disabled={!puedeVer}
+                                className={`${puedeVer ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-300 text-gray-600 cursor-not-allowed'} px-2 py-1 rounded`}
+                                title={puedeVer ? 'Ver fotos Eshopex' : 'Fotos no disponibles para este estado'}
+                              >
+                                Ver foto
+                              </button>
+                            </td>
                             <td className="p-2">{cas}</td>
+                            <td className="p-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEshopexVincularModal(row);
+                                }}
+                                className="bg-blue-600 text-white hover:bg-blue-700 px-2 py-1 rounded"
+                              >
+                                Vincular
+                              </button>
+                            </td>
+                            <td className="p-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEshopexPrepago(row);
+                                }}
+                                disabled={!accountKey || pagoLoading}
+                                className={`${!accountKey || pagoLoading ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-2 py-1 rounded`}
+                              >
+                                {pagoLoading ? 'Procesando...' : 'Pagar'}
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}
@@ -1753,6 +2256,87 @@ const confirmAction = async () => {
                 </div>
               )
             )}
+          </div>
+        </div>
+      )}
+      {eshopexVincularOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-3xl rounded-xl shadow-lg p-6 relative mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Vincular con producto</h2>
+              <button
+                className="w-9 h-9 flex items-center justify-center text-xl font-bold rounded-full hover:bg-gray-100"
+                onClick={() => setEshopexVincularOpen(false)}
+                aria-label="Cerrar"
+              >
+                x
+              </button>
+            </div>
+            {(() => {
+              const row = eshopexVincularRow || {};
+              const accountKey = String(row?.account || '').trim().toLowerCase();
+              const cas = String(casilleroByAccount[accountKey] || '').trim().toLowerCase();
+              const candidates = (productos || []).filter((p) => {
+                const t = getLastTracking(p);
+                if (String(t?.estado || '').toLowerCase() !== 'comprado_en_camino') return false;
+                if (!cas) return false;
+                return String(t?.casillero || '').trim().toLowerCase() === cas;
+              });
+              if (!candidates.length) {
+                return (
+                  <div className="text-sm text-gray-500">
+                    No hay productos en camino para ese casillero.
+                  </div>
+                );
+              }
+              return (
+                <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm max-h-[60vh] overflow-y-auto">
+                  <table className="min-w-[700px] w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="p-2 text-left">Producto</th>
+                        <th className="p-2 text-left">Tracking USA</th>
+                        <th className="p-2 text-left">Casillero</th>
+                        <th className="p-2 text-left">Accion</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {candidates.map((p) => {
+                        const t = getLastTracking(p);
+                        const key = `${row?.guia || ''}-vincular-${p.id}`;
+                        const loading = eshopexVincularLoading.has(key);
+                        return (
+                          <tr key={p.id} className="border-t">
+                            <td className="p-2">
+                              <button
+                                className="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 border"
+                                onClick={() => {
+                                  abrirDetalle(p);
+                                }}
+                                title="Ver detalles del producto"
+                              >
+                                {p?.tipo || 'Producto'}
+                              </button>
+                            </td>
+                            <td className="p-2">{(t?.trackingUsa || '').trim() || '-'}</td>
+                            <td className="p-2">{t?.casillero || '-'}</td>
+                            <td className="p-2">
+                              <button
+                                onClick={() => handleEshopexVincular(row, p)}
+                                disabled={loading}
+                                className={`${loading ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-2 py-1 rounded`}
+                              >
+                                {loading ? 'Vinculando...' : 'Vincular'}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -1769,7 +2353,13 @@ const confirmAction = async () => {
         />
       )}
       {modalModo === 'fotos' && (<ModalFotos producto={productoSeleccionado} onClose={cerrarModal} />)}
-      {modalModo === 'fotosManual' && (<ModalFotosManual onClose={cerrarModal} />)}
+      {modalModo === 'fotosManual' && (
+        <ModalFotosManual
+          onClose={cerrarModal}
+          initialTrackingEshop={fotosManualSeed.trackingEshop}
+          initialFechaRecepcion={fotosManualSeed.fechaRecepcion}
+        />
+      )}
       {modalModo === 'costos' && <ModalCostos producto={productoSeleccionado} onClose={cerrarModal} onSaved={handleSaved} />}
       {modalModo === 'track' && (
         <ModalTracking
@@ -1795,6 +2385,40 @@ const confirmAction = async () => {
           venta={ventasMap[productoSeleccionado?.id] || null}
           onClose={cerrarModal}
           onSaved={handleVentaSaved}
+        />
+      )}
+      {adelantoModo === 'select' && (
+        <ModalAdelantarTipo
+          producto={adelantoProducto}
+          onClose={cerrarAdelanto}
+          onVentaCompleta={() => {
+            cerrarAdelanto();
+            setModalModo('venta');
+          }}
+          onAdelanto={() => abrirAdelantoCreate(adelantoProducto)}
+        />
+      )}
+      {adelantoModo === 'create' && (
+        <ModalAdelantoCreate
+          producto={adelantoProducto}
+          onClose={cerrarAdelanto}
+          onSaved={handleAdelantoSaved}
+        />
+      )}
+      {adelantoModo === 'detail' && (
+        <ModalAdelantoDetalle
+          producto={adelantoProducto}
+          adelanto={adelantoActivo}
+          onClose={cerrarAdelanto}
+          onCompletar={() => abrirAdelantoCompletar(adelantoProducto, adelantoActivo)}
+        />
+      )}
+      {adelantoModo === 'complete' && (
+        <ModalAdelantoCompletar
+          producto={adelantoProducto}
+          adelanto={adelantoActivo}
+          onClose={cerrarAdelanto}
+          onSaved={(venta) => handleAdelantoCompleto(venta, adelantoProducto?.id)}
         />
       )}
       {modalModo === 'calc' && (
@@ -1827,6 +2451,14 @@ const confirmAction = async () => {
   );
 
 }
+
+
+
+
+
+
+
+
 
 
 

@@ -1,4 +1,4 @@
-// src/pages/Ganancias.js
+﻿// src/pages/Ganancias.js
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api';
 
@@ -59,21 +59,21 @@ function nombreProducto(p) {
   const tipoRaw = (p.tipo || '').toString().trim();
   const tipoKey = tipoRaw.toLowerCase().replace(/\s+/g, ''); // ej. "applewatch"
 
-  // iPad: incluir Generación, Tamaño (pulgadas) y Conexión
+  // iPad: incluir Generacion, Tamano (pulgadas) y Conexion
   if (tipoKey.includes('ipad')) {
     const gen = d.generacion ? String(d.generacion).trim() : null;
-    const sizeVal = d.tamano ?? d.tamanio ?? d['tamaño'];
+    const sizeVal = d.tamano ?? d.tamanio ?? d['tamano'];
     const size = sizeVal ? `${sizeVal}"` : null; // pulgadas
     const conn = (d.conexion ?? d.conectividad) ? String(d.conexion ?? d.conectividad).trim() : null;
 
     return ['iPad', gen, size, conn].filter(Boolean).join(' ');
   }
 
-  // Apple Watch: incluir Generación, Tamaño (mm) y Conexión
+  // Apple Watch: incluir Generacion, Tamano (mm) y Conexion
   if (tipoKey.includes('applewatch') || tipoKey === 'watch') {
     const gen = d.generacion ? String(d.generacion).trim() : null;
-    const sizeVal = d.tamano ?? d.tamanio ?? d['tamaño'];
-    const size = sizeVal ? `${sizeVal}mm` : null; // milímetros
+    const sizeVal = d.tamano ?? d.tamanio ?? d['tamano'];
+    const size = sizeVal ? `${sizeVal}mm` : null; // milimetros
     const conn = (d.conexion ?? d.conectividad) ? String(d.conexion ?? d.conectividad).trim() : null;
 
     return ['Apple Watch', gen, size, conn].filter(Boolean).join(' ');
@@ -88,12 +88,11 @@ function nombreProducto(p) {
     tipoRaw,
     d.gama,
     d.procesador,
-    d.tamano || d.tamanio || d['tamaño'], // deja tal cual para los demás
+    d.tamano || d.tamanio || d['tamano'],
   ].filter(Boolean);
 
   return parts.join(' ');
 }
-
 
 function lastDayOfMonth(year, month1to12) {
   return new Date(year, month1to12, 0).getDate();
@@ -144,7 +143,7 @@ function totales(ventasArr) {
 }
 
 /* =========================
-   Página principal
+   Pagina principal
    ========================= */
 export default function Ganancias({ setVista }) {
   const [ventas, setVentas] = useState([]);
@@ -153,11 +152,11 @@ export default function Ganancias({ setVista }) {
 
   const currentYear = String(new Date().getFullYear());
 
-  // Filtros globales (por defecto año actual)
+  // Filtros globales (por defecto anio actual)
   const [mesGlobal, setMesGlobal] = useState('');
   const [anioGlobal, setAnioGlobal] = useState(currentYear);
 
-  // Filtros por vendedor (por defecto año actual)
+  // Filtros por vendedor (por defecto anio actual)
   const [mesGonzalo, setMesGonzalo] = useState('');
   const [anioGonzalo, setAnioGonzalo] = useState(currentYear);
   const [mesRenato, setMesRenato] = useState('');
@@ -267,15 +266,15 @@ export default function Ganancias({ setVista }) {
   const ventasSinVendedor = useMemo(() => ventasPorSeller.sin, [ventasPorSeller.sin]);
 
   return (
-    <div className="min-h-screen p-8 bg-macGray text-macDark">
+    <div className="min-h-screen px-4 py-6 sm:px-6 lg:px-8 bg-macGray text-macDark">
       {/* Header */}
-      <header className="flex justify-between items-center mb-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <h2 className="text-3xl font-semibold">Ganancias</h2>
         <button
           onClick={() => setVista && setVista('home')}
-          className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
+          className="w-full sm:w-auto px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
         >
-          ← Volver
+          &larr; Volver
         </button>
       </header>
 
@@ -288,11 +287,11 @@ export default function Ganancias({ setVista }) {
             <Kpi titulo="Ganancia neta total" valor={fmtSoles(totalesGlobales.netaSoles)} />
           </div>
 
-          <div className="flex gap-3 w-full lg:w-auto">
+          <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
             <div>
               <label className="block text-sm text-gray-600 mb-1">Mes (global)</label>
               <select
-                className="border rounded px-3 py-2"
+                className="border rounded px-3 py-2 w-full sm:w-auto"
                 value={mesGlobal}
                 onChange={e => setMesGlobal(e.target.value)}
               >
@@ -303,10 +302,10 @@ export default function Ganancias({ setVista }) {
               </select>
             </div>
             <div>
-              <label className="block text-sm text-gray-600 mb-1">Año (global)</label>
+              <label className="block text-sm text-gray-600 mb-1">Anio (global)</label>
               <input
                 type="number"
-                className="border rounded px-3 py-2 w-28"
+                className="border rounded px-3 py-2 w-full sm:w-28"
                 placeholder="YYYY"
                 value={anioGlobal}
                 onChange={e => setAnioGlobal(e.target.value)}
@@ -314,7 +313,7 @@ export default function Ganancias({ setVista }) {
             </div>
             <div className="flex items-end">
               <button
-                className="px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
+                className="w-full sm:w-auto px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
                 onClick={() => { setMesGlobal(''); setAnioGlobal(currentYear); }}
               >
                 Limpiar
@@ -344,8 +343,8 @@ export default function Ganancias({ setVista }) {
         {ventasSinVendedor.length === 0 ? (
           <div className="text-sm text-gray-500">Sin ventas pendientes de asignar.</div>
         ) : (
-          <div className="overflow-auto border rounded max-h-[60vh]">
-            <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto border rounded max-h-[60vh]">
+            <table className="min-w-[980px] w-full text-left text-sm">
               <thead className="bg-gray-100 sticky top-0">
                 <tr>
                   <th className="p-2">Nombre</th>
@@ -391,7 +390,7 @@ export default function Ganancias({ setVista }) {
                                 className="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 text-xs"
                                 disabled={busy}
                               >
-                                {busy ? 'Asignando…' : `Asignar a ${vend}`}
+                                {busy ? 'Asignando...' : `Asignar a ${vend}`}
                               </button>
                             );
                           })}
@@ -400,7 +399,7 @@ export default function Ganancias({ setVista }) {
                             className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 text-xs"
                             disabled={assigningVenta === `${v.id}-${SPLIT_VENDOR}`}
                           >
-                            {assigningVenta === `${v.id}-${SPLIT_VENDOR}` ? 'Dividiendo…' : 'Dividir 50/50'}
+                            {assigningVenta === `${v.id}-${SPLIT_VENDOR}` ? 'Dividiendo...' : 'Dividir 50/50'}
                           </button>
                         </div>
                       </td>
@@ -439,7 +438,7 @@ export default function Ganancias({ setVista }) {
         />
       </div>
 
-      {loading && <p className="mt-4 text-gray-500">Cargando ventas…</p>}
+      {loading && <p className="mt-4 text-gray-500">Cargando ventas...</p>}
 
       {/* Modal: Sunat */}
       {sellerSunat && (
@@ -477,7 +476,7 @@ function ColVendedor({
   const [unassigningId, setUnassigningId] = useState(null);
 
   const handleQuitar = async (ventaId) => {
-    if (!window.confirm('¿Quitar esta venta del vendedor?')) return;
+    if (!window.confirm('Quitar esta venta del vendedor?')) return;
     try {
       setUnassigningId(ventaId);
       await api.patch(`/ventas/${ventaId}`, { vendedor: null });
@@ -493,15 +492,15 @@ function ColVendedor({
   return (
     <div className="bg-white border rounded-2xl shadow-sm p-5">
       {/* Cabecera vendedor + botones */}
-      <div className="flex items-center justify-between mb-4 gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <div>
           <div className="text-sm text-gray-500">Vendedor</div>
           <div className="text-xl font-semibold">{titulo}</div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full sm:w-auto gap-2">
           <button
             onClick={onSunat}
-            className="bg-amber-600 text-white px-4 py-2 rounded-xl hover:bg-amber-700"
+            className="w-full sm:w-auto bg-amber-600 text-white px-4 py-2 rounded-xl hover:bg-amber-700"
           >
             Calcular Sunat
           </button>
@@ -516,11 +515,11 @@ function ColVendedor({
           <Kpi titulo="Neta" valor={fmtSoles(totales.netaSoles)} />
         </div>
 
-        <div className="flex gap-3 w-full lg:w-auto">
+        <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
           <div>
             <label className="block text-sm text-gray-600 mb-1">Mes</label>
             <select
-              className="border rounded px-3 py-2"
+              className="border rounded px-3 py-2 w-full sm:w-auto"
               value={mes}
               onChange={e => setMes(e.target.value)}
             >
@@ -531,10 +530,10 @@ function ColVendedor({
             </select>
           </div>
           <div>
-            <label className="block text-sm text-gray-600 mb-1">Año</label>
+            <label className="block text-sm text-gray-600 mb-1">Anio</label>
             <input
               type="number"
-              className="border rounded px-3 py-2 w-28"
+              className="border rounded px-3 py-2 w-full sm:w-28"
               placeholder="YYYY"
               value={anio}
               onChange={e => setAnio(e.target.value)}
@@ -542,7 +541,7 @@ function ColVendedor({
           </div>
           <div className="flex items-end">
             <button
-              className="px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
+              className="w-full sm:w-auto px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
               onClick={() => { setMes(''); setAnio(currentYear); }}
             >
               Limpiar
@@ -552,8 +551,8 @@ function ColVendedor({
       </div>
 
       {/* Tabla de ventas del vendedor (sin Precio DEC) */}
-      <div className="overflow-auto max-h-[60vh] border rounded">
-        <table className="w-full text-left">
+      <div className="overflow-x-auto max-h-[60vh] border rounded">
+        <table className="min-w-[980px] w-full text-left text-sm">
           <thead className="bg-gray-100 sticky top-0">
             <tr>
               <th className="p-2">Nombre</th>
@@ -613,7 +612,7 @@ function ColVendedor({
                         disabled={unassigningId === v.id}
                         title="Quitar esta venta del vendedor"
                       >
-                        {unassigningId === v.id ? 'Quitando…' : 'Quitar'}
+                        {unassigningId === v.id ? 'Quitando...' : 'Quitar'}
                       </button>
                     </td>
                   </tr>
@@ -708,22 +707,33 @@ function ModalSunat({ seller, onClose, ventas }) {
   }, [filas]);
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white w-full max-w-6xl rounded-2xl shadow-lg p-6 relative">
-        <button
-          className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
-          onClick={onClose}
-        >
-          ✖
-        </button>
-        <h2 className="text-2xl font-semibold mb-4">Calcular Ganancia Sunat — {seller}</h2>
+    <div
+      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full max-w-6xl rounded-2xl shadow-lg p-4 sm:p-6 relative max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-white pt-1 pb-3 z-10">
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-2xl font-semibold">Calcular Ganancia Sunat - {seller}</h2>
+            <button
+              className="text-gray-500 hover:text-gray-800 px-2 py-1"
+              onClick={onClose}
+              aria-label="Cerrar"
+            >
+              x
+            </button>
+          </div>
+        </div>
 
-        {/* Filtros Mes/Año */}
+        {/* Filtros Mes/Anio */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
-          <div>
+          <div className="w-full sm:w-auto">
             <label className="block text-sm text-gray-700 mb-1">Mes</label>
             <select
-              className="border rounded px-3 py-2"
+              className="border rounded px-3 py-2 w-full sm:w-auto"
               value={mes}
               onChange={e => setMes(e.target.value)}
             >
@@ -733,19 +743,19 @@ function ModalSunat({ seller, onClose, ventas }) {
               ))}
             </select>
           </div>
-          <div>
-            <label className="block text-sm text-gray-700 mb-1">Año</label>
+          <div className="w-full sm:w-auto">
+            <label className="block text-sm text-gray-700 mb-1">Anio</label>
             <input
               type="number"
-              className="border rounded px-3 py-2 w-28"
+              className="border rounded px-3 py-2 w-full sm:w-28"
               placeholder="YYYY"
               value={anio}
               onChange={e => setAnio(e.target.value)}
             />
           </div>
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 w-full sm:w-auto">
             <button
-              className="px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
+              className="w-full sm:w-auto px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
               onClick={() => { setMes(''); setAnio(currentYear); }}
             >
               Limpiar
@@ -754,8 +764,8 @@ function ModalSunat({ seller, onClose, ventas }) {
         </div>
 
         {/* KPIs superiores */}
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 mb-4">
-          <Kpi titulo="Envío total" valor={fmtSoles(kpis.envioTotal)} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+          <Kpi titulo="Envio total" valor={fmtSoles(kpis.envioTotal)} />
           <Kpi titulo="DEC total (S/)" valor={fmtSoles(kpis.decTotalS)} />
           <Kpi titulo="Costo base (S/)" valor={fmtSoles(kpis.baseTotal)} />
           <Kpi titulo="Venta total (S/)" valor={fmtSoles(kpis.ventaTotal)} />
@@ -766,14 +776,14 @@ function ModalSunat({ seller, onClose, ventas }) {
         {filas.length === 0 ? (
           <p>No hay ventas en ese rango.</p>
         ) : (
-          <div className="overflow-auto max-h-[60vh] border rounded">
-            <table className="w-full text-left">
+          <div className="overflow-x-auto max-h-[60vh] border rounded">
+            <table className="min-w-[980px] w-full text-left text-sm">
               <thead className="bg-gray-100 sticky top-0">
                 <tr>
                   <th className="p-2">Nombre</th>
                   <th className="p-2">DEC ($)</th>
                   <th className="p-2">DEC (S/)</th>
-                  <th className="p-2">Envío (S/)</th>
+                  <th className="p-2">Envio (S/)</th>
                   <th className="p-2">Precio venta (S/)</th>
                   <th className="p-2">Costo base (S/)</th>
                   <th className="p-2">Ganancia neta (S/)</th>
@@ -785,7 +795,7 @@ function ModalSunat({ seller, onClose, ventas }) {
                   <tr key={f.id} className="border-t">
                     <td className="p-2">
                       <div className="flex flex-col">
-                        <span>{f.nombre || '—'}</span>
+                        <span>{f.nombre || '--'}</span>
                         {f.split && (
                           <span className="text-[10px] uppercase text-gray-500">
                             50% compartido
@@ -800,7 +810,7 @@ function ModalSunat({ seller, onClose, ventas }) {
                     <td className="p-2">{fmtSoles(f.costoBase)}</td>
                     <td className="p-2">{fmtSoles(f.gananciaNeta)}</td>
                     <td className="p-2">
-                      {f.fechaVenta ? formatDateLocal(f.fechaVenta) : '—'}
+                      {f.fechaVenta ? formatDateLocal(f.fechaVenta) : '--'}
                     </td>
                   </tr>
                 ))}
@@ -811,7 +821,7 @@ function ModalSunat({ seller, onClose, ventas }) {
 
         <div className="flex justify-end gap-2 mt-4">
           <button
-            className="bg-gray-300 text-gray-800 px-5 py-2 rounded hover:bg-gray-400"
+            className="w-full sm:w-auto bg-gray-300 text-gray-800 px-5 py-2 rounded hover:bg-gray-400"
             onClick={onClose}
           >
             Cerrar

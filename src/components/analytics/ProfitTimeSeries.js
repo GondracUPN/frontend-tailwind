@@ -130,11 +130,14 @@ export default function ProfitTimeSeries({ from, to, filters }) {
             label: (ctx) => {
               const row = displayRows[ctx.dataIndex];
               if (!row) return '';
+              const util = row.income > 0 ? (row.profit / row.income) * 100 : 0;
+              const mark = row.cost > 0 ? (row.profit / row.cost) * 100 : 0;
               return [
                 `Ingresos: ${formatCurrency(row.income)}`,
                 `Costos: ${formatCurrency(row.cost)}`,
                 `Ganancia: ${formatCurrency(row.profit)}`,
-                `Margen: ${formatPercent(row.margin)}`,
+                `Utilidad: ${formatPercent(util)}`,
+                `Markup: ${formatPercent(mark)}`,
               ];
             },
           },

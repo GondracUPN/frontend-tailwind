@@ -4,7 +4,46 @@ import React from 'react';
 
 function toMMDDYYYY(dateStr) {
   if (!dateStr) return '';
-  const s = String(dateStr);
+  const s = String(dateStr).trim();
+  const compact = s.replace(/[^A-Za-z0-9]/g, '');
+  const monthMap = {
+    jan: '01', ene: '01',
+    feb: '02',
+    mar: '03',
+    apr: '04', abr: '04',
+    may: '05',
+    jun: '06',
+    jul: '07',
+    aug: '08', ago: '08',
+    sep: '09', set: '09',
+    oct: '10',
+    nov: '11',
+    dec: '12', dic: '12',
+  };
+  const compactMatch = compact.match(/^(\d{1,2})([A-Za-z]{3,})(\d{4})$/);
+  if (compactMatch) {
+    const dd = String(compactMatch[1]).padStart(2, '0');
+    const monToken = compactMatch[2].slice(0, 3).toLowerCase();
+    const mm = monthMap[monToken] || '';
+    const yyyy = compactMatch[3];
+    if (mm) return `${mm}${dd}${yyyy}`;
+  }
+  const monFirst = s.match(/^([A-Za-z]{3,})\s*[-/ ]?\s*(\d{1,2})\s*[-/ ]?\s*(\d{4})$/);
+  if (monFirst) {
+    const monToken = monFirst[1].slice(0, 3).toLowerCase();
+    const mm = monthMap[monToken] || '';
+    const dd = String(monFirst[2]).padStart(2, '0');
+    const yyyy = monFirst[3];
+    if (mm) return `${mm}${dd}${yyyy}`;
+  }
+  const monMatch = s.match(/^(\d{1,2})\s*[-/ ]?\s*([A-Za-z]{3,})\s*[-/ ]?\s*(\d{4})$/);
+  if (monMatch) {
+    const dd = String(monMatch[1]).padStart(2, '0');
+    const monToken = monMatch[2].slice(0, 3).toLowerCase();
+    const mm = monthMap[monToken] || '';
+    const yyyy = monMatch[3];
+    if (mm) return `${mm}${dd}${yyyy}`;
+  }
   if (s.includes('/')) {
     const parts = s.split('/');
     if (parts.length >= 3) {
@@ -29,9 +68,13 @@ function toMMDDYYYY(dateStr) {
   return '';
 }
 
-export default function ModalFotosManual({ onClose }) {
-  const [trackingEshop, setTrackingEshop] = React.useState('');
-  const [fechaRecepcion, setFechaRecepcion] = React.useState('');
+export default function ModalFotosManual({
+  onClose,
+  initialTrackingEshop = '',
+  initialFechaRecepcion = '',
+}) {
+  const [trackingEshop, setTrackingEshop] = React.useState(initialTrackingEshop);
+  const [fechaRecepcion, setFechaRecepcion] = React.useState(initialFechaRecepcion);
   const [urls, setUrls] = React.useState([]);
   const [current, setCurrent] = React.useState(1);
   const [attempts, setAttempts] = React.useState([]);
@@ -39,11 +82,23 @@ export default function ModalFotosManual({ onClose }) {
   const [ready, setReady] = React.useState(true);
   const [searched, setSearched] = React.useState(false);
 
-  const handleBuscar = React.useCallback(() => {
+  React.useEffect(() => {
+    setTrackingEshop(initialTrackingEshop || '');
+    setFechaRecepcion(initialFechaRecepcion || '');
+    setUrls([]);
+    setAttempts([]);
+    setCurrent(1);
+    setReady(true);
+    setLoading(false);
+    setSearched(false);
+  }, [initialTrackingEshop, initialFechaRecepcion]);
+
+  const handleBuscar = React.useCallback((opts = null) => {
+    const trackValue = (opts?.tracking ?? trackingEshop).trim();
+    const fechaValue = opts?.fechaRecepcion ?? fechaRecepcion;
     setSearched(true);
-    const track = trackingEshop.trim();
-    const folder = toMMDDYYYY(fechaRecepcion);
-    if (!track || !folder) {
+    const folder = toMMDDYYYY(fechaValue);
+    if (!trackValue || !folder) {
       setUrls([]);
       setAttempts([]);
       setCurrent(1);
@@ -55,7 +110,7 @@ export default function ModalFotosManual({ onClose }) {
     setLoading(true);
     setReady(false);
     const makeUrl = (i) =>
-      `https://correoscostarica.eshopex.com/appdocs/ImageProducts/PCT_ESHOPEX/${folder}/${track}_${i}.jpg`;
+      `https://correoscostarica.eshopex.com/appdocs/ImageProducts/PCT_ESHOPEX/${folder}/${trackValue}_${i}.jpg`;
     const candidates = [1, 2, 3, 4];
     setAttempts(candidates.map((i) => makeUrl(i)));
     setUrls([]);
@@ -83,6 +138,12 @@ export default function ModalFotosManual({ onClose }) {
       img.src = makeUrl(i);
     });
   }, [trackingEshop, fechaRecepcion]);
+
+  React.useEffect(() => {
+    if (initialTrackingEshop && initialFechaRecepcion) {
+      handleBuscar({ tracking: initialTrackingEshop, fechaRecepcion: initialFechaRecepcion });
+    }
+  }, [initialTrackingEshop, initialFechaRecepcion, handleBuscar]);
 
   const currentUrl = urls.find((u) => u.i === current)?.url || '';
   const hasCurrent = Boolean(currentUrl);

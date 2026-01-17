@@ -40,7 +40,7 @@ export default function ResumenCasilleros({ productos = [], loading = false, onC
   if (loading) {
     return (
       <div className="mb-4 -mx-2 px-2 flex items-stretch gap-2 overflow-x-auto snap-x snap-mandatory flex-nowrap">
-        {CASILLEROS.slice(0,4).map((k) => (
+        {CASILLEROS.slice(0, 4).map((k) => (
           <div key={k} className="snap-start flex-[1_1_12rem] min-w-[10.5rem] p-3 rounded-md border bg-white">
             <div className="h-4 w-24 mb-2 bg-gray-200 rounded animate-pulse" />
             <div className="h-3 w-full bg-gray-100 rounded overflow-hidden">
@@ -71,13 +71,13 @@ export default function ResumenCasilleros({ productos = [], loading = false, onC
               <span className="text-sm font-semibold">{cas}</span>
               <span
                 className={`text-[11px] px-2 py-[2px] rounded-full ${habilitado ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
-                title={habilitado ? 'Menos de 2 paquetes' : 'Tiene 2 o más paquetes'}
+                title={habilitado ? 'Menos de 2 paquetes' : 'Tiene 2 o mas paquetes'}
               >
                 {habilitado ? 'Habilitado' : 'No disponible'}
               </span>
             </div>
 
-            {/* Barra de ocupación */}
+            {/* Barra de ocupacion */}
             <div className="h-2 w-full bg-gray-100 rounded overflow-hidden">
               <div className={`h-2 ${habilitado ? 'bg-green-500' : 'bg-red-500'}`} style={{ width: `${pct}%` }} />
             </div>

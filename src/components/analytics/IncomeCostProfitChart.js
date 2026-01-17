@@ -57,11 +57,12 @@ export default function IncomeCostProfitChart({ from, to, filters }) {
             label: (ctx) => {
               const row = displayRows[ctx.dataIndex];
               if (!row) return '';
+              const markup = row.cost > 0 ? (row.profit / row.cost) * 100 : 0;
               return [
                 `Ingresos: ${formatCurrency(row.income)}`,
                 `Costos: ${formatCurrency(row.cost)}`,
                 `Ganancia: ${formatCurrency(row.profit)}`,
-                `Margen: ${formatPercent(row.margin)}`,
+                `Markup: ${formatPercent(markup)}`,
               ];
             },
           },
