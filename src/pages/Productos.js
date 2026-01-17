@@ -21,8 +21,7 @@ import {
   FiPackage,        // comprado_sin_tracking
   FiTruck,          // comprado_en_camino
   FiMapPin,         // en_eshopex
-  FiCheckSquare,    // recogido
-  FiHelpCircle      // default / desconocido
+  FiCheckSquare     // recogido
 } from 'react-icons/fi';
 
 
@@ -84,6 +83,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   useEffect(() => { productosRef.current = productos; }, [productos]);
   const resumenRef = useRef(resumen);
   useEffect(() => { resumenRef.current = resumen; }, [resumen]);
+  const didInitRef = useRef(false);
 
   useEffect(() => {
     writeCache(productos, ventasMap, resumen, adelantosMap);
@@ -362,7 +362,7 @@ const confirmAction = async () => {
     }
   };
 
-  const getLastTracking = (p) => {
+  const getLastTracking = useCallback((p) => {
     const trk = Array.isArray(p?.tracking) ? [...p.tracking] : [];
     if (!trk.length) return null;
     trk.sort((a, b) => {
@@ -370,7 +370,7 @@ const confirmAction = async () => {
       return (b.id || 0) - (a.id || 0);
     });
     return trk[0] || null;
-  };
+  }, []);
 
   const recojoList = React.useMemo(() => {
     return (productos || []).filter((p) => {
@@ -385,10 +385,10 @@ const confirmAction = async () => {
       if (ta && tb) return ta - tb;
       return ta - tb;
     });
-  }, [productos]);
+  }, [productos, getLastTracking]);
 
-  const getEshopexCode = (p) => (getLastTracking(p)?.trackingEshop || '').trim();
-  const getUsaCode = (p) => (getLastTracking(p)?.trackingUsa || '').trim();
+  const getEshopexCode = useCallback((p) => (getLastTracking(p)?.trackingEshop || '').trim(), [getLastTracking]);
+  const getUsaCode = useCallback((p) => (getLastTracking(p)?.trackingUsa || '').trim(), [getLastTracking]);
   const productosByEshopex = React.useMemo(() => {
     const map = {};
     for (const p of productos || []) {
@@ -396,15 +396,7 @@ const confirmAction = async () => {
       if (code) map[code] = p;
     }
     return map;
-  }, [productos]);
-  const productosByTrackingUsa = React.useMemo(() => {
-    const map = {};
-    for (const p of productos || []) {
-      const code = getUsaCode(p);
-      if (code) map[code] = p;
-    }
-    return map;
-  }, [productos]);
+  }, [productos, getEshopexCode]);
   const trackingUsaEnEshopex = React.useMemo(() => {
     const set = new Set();
     for (const p of productos || []) {
@@ -415,7 +407,7 @@ const confirmAction = async () => {
       if (digits) set.add(digits);
     }
     return set;
-  }, [productos]);
+  }, [productos, getLastTracking, getUsaCode]);
   const casillerosEnCamino = React.useMemo(() => {
     const set = new Set();
     for (const p of productos || []) {
@@ -425,7 +417,7 @@ const confirmAction = async () => {
       if (cas) set.add(cas);
     }
     return set;
-  }, [productos]);
+  }, [productos, getLastTracking]);
   const normalizeEshopexStatus = (status) => {
     const s = String(status || '').toUpperCase();
     if (s.includes('CONFIRMACION DE EMBARQUE CONSOLIDADO')) return { key: 'confirmacion', label: 'Confirmacion consolidado' };
@@ -434,7 +426,7 @@ const confirmAction = async () => {
     if (!s) return { key: 'none', label: 'No hay informacion' };
     return { key: 'otro', label: s };
   };
-  const readEshopexCache = () => {
+  const readEshopexCache = useCallback(() => {
     try {
       const raw = localStorage.getItem('eshopex-status-cache');
       if (!raw) return {};
@@ -443,14 +435,14 @@ const confirmAction = async () => {
     } catch {
       return {};
     }
-  };
-  const writeEshopexCache = (next) => {
+  }, []);
+  const writeEshopexCache = useCallback((next) => {
     try {
       localStorage.setItem('eshopex-status-cache', JSON.stringify(next));
     } catch {
       /* ignore */
     }
-  };
+  }, []);
   const eshopexCargaByGuia = React.useMemo(() => {
     const map = {};
     for (const row of eshopexCargaRows || []) {
@@ -473,7 +465,7 @@ const confirmAction = async () => {
 
   const ESHOPEX_CARGA_CACHE_KEY = 'eshopex-carga-cache';
   const ESHOPEX_CARGA_CACHE_TTL_MS = 5 * 60 * 1000;
-  const readEshopexCargaCache = () => {
+  const readEshopexCargaCache = useCallback(() => {
     try {
       const raw = localStorage.getItem(ESHOPEX_CARGA_CACHE_KEY);
       if (!raw) return null;
@@ -484,8 +476,8 @@ const confirmAction = async () => {
     } catch {
       return null;
     }
-  };
-  const writeEshopexCargaCache = (rows) => {
+  }, [ESHOPEX_CARGA_CACHE_KEY, ESHOPEX_CARGA_CACHE_TTL_MS]);
+  const writeEshopexCargaCache = useCallback((rows) => {
     try {
       localStorage.setItem(
         ESHOPEX_CARGA_CACHE_KEY,
@@ -494,7 +486,7 @@ const confirmAction = async () => {
     } catch {
       /* ignore */
     }
-  };
+  }, [ESHOPEX_CARGA_CACHE_KEY]);
 
   // Reutiliza eshopex-carga para estatus/pagos y evita consultas externas.
 
@@ -527,7 +519,7 @@ const confirmAction = async () => {
       }
     })();
     return () => { alive = false; };
-  }, [eshopexCargaOpen, recojoOpen, eshopexCargaRefreshKey]);
+  }, [eshopexCargaOpen, recojoOpen, eshopexCargaRefreshKey, readEshopexCargaCache, writeEshopexCargaCache]);
 
   const casilleroByAccount = React.useMemo(() => ({
     'gongarc2001@gmail.com': 'Walter',
@@ -585,7 +577,7 @@ const confirmAction = async () => {
       });
     })();
     return () => { alive = false; };
-  }, [recojoOpen, recojoList]);
+  }, [recojoOpen, recojoList, recojoStatusMap, readEshopexCache, writeEshopexCache, getLastTracking]);
 
   const eshopexPendientes = React.useMemo(() => {
     const filtered = (eshopexCargaRows || []).filter((row) => {
@@ -945,6 +937,8 @@ const confirmAction = async () => {
 
   // Carga inicial: intenta cache, pero si no hay data hace fetch
   useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
     let mounted = true;
     (async () => {
       if (!mounted) return;
@@ -952,7 +946,7 @@ const confirmAction = async () => {
       await fetchResumen({ refresh: false });
     })();
     return () => { mounted = false; };
-  }, []);  // no deps: solo una vez al montar
+  }, [fetchResumen, refreshProductos, productos.length]);
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -1407,7 +1401,7 @@ const confirmAction = async () => {
       totalVentaSoles: fmtSoles(totalVentaSoles),
       gananciaSoles: fmtSoles(gananciaSoles),
     };
-  }, [productos, ventasMap, resumen]);
+  }, [productos, ventasMap, resumen, getMontoVentaSoles]);
 
 
 
@@ -1724,10 +1718,6 @@ const confirmAction = async () => {
 
 
 
-                  const tRow = t;
-
-                  const esh = (tRow?.trackingEshop || '').trim();
-
                   // Seleccifn deshabilitada solo para 'adelantar' (ya vendido o ya hay otro marcado)
 
                   return (
@@ -1744,17 +1734,9 @@ const confirmAction = async () => {
                     {selectMode && (
                       <td className="p-2">
                         {(() => {
-                          const esh = p.tracking?.[0]?.trackingEshop?.trim() || '';
                           const venta = ventasMap[p.id] || null;
                           const adelanto = adelantosMap[p.id] || null;
                           const isAdelantar = selectAction === 'adelantar';
-                          // Reglas:
-                          // - whatsapp/pickup: requiere tracking eshopex
-                          // - adelantar: no permite productos ya vendidos y restringe a 1 seleccifn
-                          const disabled = isAdelantar
-                            ? (!!venta || !!adelanto || (selectedIds.size >= 1 && !selectedIds.has(p.id)))
-                            : (!esh);
-
                           return (
                             <input
                               type="checkbox"
@@ -2068,7 +2050,6 @@ const confirmAction = async () => {
                       const estatusEsho = normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
                       const cas = String(t?.casillero || '').trim().toLowerCase();
                       const accountFromCas = cas ? accountByCasillero[cas] : '';
-                      const accountKey = String(cargaRow?.account || accountFromCas || '').trim().toLowerCase();
                       const isReady = isRecojoReady(p);
                       const checked = recojoSelected.has(p.id);
                       return (

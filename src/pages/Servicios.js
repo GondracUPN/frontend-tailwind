@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import api from '../api';
 import ModalProducto from '../components/ModalProducto';
 
@@ -188,7 +188,10 @@ function InventarioAdmin({ onIrProductos }) {
     return map;
   }, [productos, ventasMap, lastTrackingById]);
 
-  const getVentaStatus = (p) => statusById[p.id] || { label: 'En espera', cls: 'bg-gray-100 text-gray-700 border border-gray-300' };
+  const getVentaStatus = useCallback(
+    (p) => statusById[p.id] || { label: 'En espera', cls: 'bg-gray-100 text-gray-700 border border-gray-300' },
+    [statusById],
+  );
 
   const enviarDisponiblesAlCatalogo = async () => {
     try {
@@ -207,7 +210,7 @@ function InventarioAdmin({ onIrProductos }) {
   // Derivar lista visible: solo 'Disponible'
   const visibles = React.useMemo(() => {
     return (productos || []).filter((p) => getVentaStatus(p).label === 'Disponible');
-  }, [productos, statusById]);
+  }, [productos, statusById, getVentaStatus]);
 
   return (
     <div className="bg-white rounded-2xl p-4 shadow">
