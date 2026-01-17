@@ -18,7 +18,7 @@ export default function useProfitData(params) {
     } finally {
       setLoading(false);
     }
-  }, [key]);
+  }, [key, params]);
 
   useEffect(() => {
     load();

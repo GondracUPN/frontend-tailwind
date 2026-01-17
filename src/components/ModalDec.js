@@ -1,4 +1,4 @@
-﻿// src/components/ModalDec.js
+// src/components/ModalDec.js
 import React, { useMemo, useState, useEffect } from "react";
 import api from "../api";
 import { FaDice } from "react-icons/fa";

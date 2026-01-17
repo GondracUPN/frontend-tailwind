@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 
 
@@ -417,11 +417,14 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- });
+});
 
+const dataRef = useRef(data);
+useEffect(() => {
+dataRef.current = data;
+}, [data]);
 
-
- const [isStale, setIsStale] = useState(false);
+const [isStale, setIsStale] = useState(false);
 
 
 
@@ -510,7 +513,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
  }),
  [productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter],
  );
- const loadYearly = async () => {
+ const loadYearly = useCallback(async () => {
  setYearlyError('');
  try {
  const q = new URLSearchParams();
@@ -534,7 +537,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
  } catch (e) {
  setYearlyError(e.message || 'Error');
  }
- };
+ }, [yearKey, productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter]);
 
 
 
@@ -542,15 +545,15 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- const load = async () => {
+ const load = useCallback(async () => {
 
 
 
- setLoading(!data); // si hay snapshot, no bloquear todo el layout
+ setLoading(!dataRef.current); // si hay snapshot, no bloquear todo el layout
 
 
 
- setIsStale(!!data);
+ setIsStale(!!dataRef.current);
 
 
 
@@ -676,7 +679,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- };
+ }, [appliedDates.from, appliedDates.to, productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter, cacheKey]);
 
 
 
@@ -685,23 +688,12 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
  useEffect(() => {
-
-
-
  load();
-
-
-
- // eslint-disable-next-line react-hooks/exhaustive-deps
-
-
-
- }, [appliedDates.from, appliedDates.to, productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter]);
+ }, [load]);
 
  useEffect(() => {
  loadYearly();
- // eslint-disable-next-line react-hooks/exhaustive-deps
- }, [yearKey, productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter]);
+ }, [loadYearly]);
 
 
 

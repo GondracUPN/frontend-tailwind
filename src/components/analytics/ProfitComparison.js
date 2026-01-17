@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { getProfitComparison } from '../../services/analytics';
 import { formatCurrency, formatPercent } from './format';
 
@@ -73,7 +73,7 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
 
   const params = useMemo(() => ({ ...filters, from, to }), [filters, from, to]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!from || !to) {
       setData(null);
       setLoading(false);
@@ -89,11 +89,11 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
     } finally {
       setLoading(false);
     }
-  };
+  }, [from, to, params]);
 
   useEffect(() => {
     load();
-  }, [params]);
+  }, [load]);
 
   if (!from || !to) {
     return (

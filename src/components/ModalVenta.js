@@ -1,4 +1,4 @@
-﻿// src/components/ModalVenta.jsx
+// src/components/ModalVenta.jsx
 import React, { useEffect, useState } from 'react';
 import api from '../api';
 

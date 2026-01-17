@@ -1,4 +1,4 @@
-﻿// src/components/DetallesProductoModal.js
+// src/components/DetallesProductoModal.js
 import React, { useState, useEffect } from 'react';
 import FormProductoMacbook from './formParts/FormProductoMacbook';
 import FormProductoIpad from './formParts/FormProductoIpad';

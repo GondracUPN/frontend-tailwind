@@ -1,4 +1,4 @@
-﻿﻿// src/components/formParts/FormProductoWatch.js
+﻿// src/components/formParts/FormProductoWatch.js
 export default function FormProductoWatch({ detalle, onChange }) {
   const { generacion, conexion, tamano } = detalle;
   const generaciones = ['6', '7', '8', '9', '10', '11', 'SE 2', 'SE 3', 'Ultra 1', 'Ultra 2', 'Ultra 3'];

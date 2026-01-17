@@ -60,7 +60,7 @@ export default function ModalTarjetas({ onClose, onSaved, userId }) {
       }
     })();
     return () => { alive = false; };
-  }, [token, userId]);
+  }, [API_URL, token, userId, cardId]);
 
   const existingTypes = useMemo(() => new Set(cards.map(c => String(c.tipo || c.type || '').toLowerCase())), [cards]);
   const duplicatedType = existingTypes.has(String(tipo).toLowerCase());

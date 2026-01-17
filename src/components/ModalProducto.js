@@ -17,7 +17,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
   const [pendingLinkIds, setPendingLinkIds] = useState([]);
   const [vincularConList, setVincularConList] = useState([]);
   const [desvincularEnvio, setDesvincularEnvio] = useState(false);
-  const [currentGroup, setCurrentGroup] = useState([]);
 
   const [form, setForm] = useState({
     tipo: '',
@@ -60,9 +59,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
   useEffect(() => {
     if (!isEdit) return;
     const detalle = { ...(producto.detalle || {}) };
-    if (detalle.tamano && !detalle.tamano) {
-      detalle.tamano = detalle.tamano;
-    }
     if (detalle.tamanio && !detalle.tamano) {
       detalle.tamano = detalle.tamanio;
       delete detalle.tamanio;
@@ -92,7 +88,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
 
   useEffect(() => {
     if (!producto?.envioGrupoId) {
-      setCurrentGroup([]);
       return;
     }
     api.get('/productos').then((res) => {
@@ -100,7 +95,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       const group = (Array.isArray(data) ? data : []).filter(
         (p) => p.envioGrupoId && p.envioGrupoId === producto.envioGrupoId && p.id !== producto.id
       );
-      setCurrentGroup(group);
     }).catch(() => {});
   }, [producto?.envioGrupoId, producto?.id]);
 
@@ -361,9 +355,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                               return true;
                             });
                             setLinkables(filtered);
-                            if (producto?.envioGrupoId) {
-                              setCurrentGroup(filtered.filter((p) => p.envioGrupoId === producto.envioGrupoId));
-                            }
                           } catch (err) {
                             console.error('No se pudieron cargar productos para vincular', err);
                             alert('No se pudieron cargar productos elegibles para vincular.');

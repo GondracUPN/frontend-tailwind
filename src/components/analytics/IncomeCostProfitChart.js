@@ -19,8 +19,11 @@ export default function IncomeCostProfitChart({ from, to, filters }) {
   const { data, loading, error, retry } = useProfitData({ ...filters, from, to, groupBy });
   const rows = data?.rows || [];
 
-  const displayRows = rows.length ? rows : (showMock ? mockRows(groupBy) : []);
-  const labels = displayRows.map((r) => r.period);
+  const displayRows = useMemo(
+    () => (rows.length ? rows : (showMock ? mockRows(groupBy) : [])),
+    [rows, showMock, groupBy],
+  );
+  const labels = useMemo(() => displayRows.map((r) => r.period), [displayRows]);
 
   const chartData = useMemo(
     () => ({

@@ -87,11 +87,6 @@ export default function AnalisisGastos({ setVista }) {
     () => gastosSolo.filter((r) => r.metodoPago === 'credito').reduce((s, r) => s + toPen(r), 0),
     [gastosSolo],
   );
-  const byConcept = gastosSolo.reduce((acc, r) => {
-    const key = displayConcepto(r.concepto || 'otros');
-    acc[key] = (acc[key] || 0) + toPen(r);
-    return acc;
-  }, {});
   const byConceptCredito = gastosSolo
     .filter((r) => r.metodoPago === 'credito')
     .reduce((acc, r) => {

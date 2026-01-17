@@ -12,10 +12,19 @@ export default function MarginByMonth({ from, to, filters }) {
   const { data, loading, error, retry } = useProfitData({ ...filters, from, to, groupBy });
   const rows = data?.rows || [];
 
-  const displayRows = rows.length ? rows : (showMock ? mockRows(groupBy) : []);
-  const labels = displayRows.map((r) => r.period);
-  const utilidad = displayRows.map((r) => (r.income > 0 ? (r.profit / r.income) * 100 : 0));
-  const markup = displayRows.map((r) => (r.cost > 0 ? (r.profit / r.cost) * 100 : 0));
+  const displayRows = useMemo(
+    () => (rows.length ? rows : (showMock ? mockRows(groupBy) : [])),
+    [rows, showMock, groupBy],
+  );
+  const labels = useMemo(() => displayRows.map((r) => r.period), [displayRows]);
+  const utilidad = useMemo(
+    () => displayRows.map((r) => (r.income > 0 ? (r.profit / r.income) * 100 : 0)),
+    [displayRows],
+  );
+  const markup = useMemo(
+    () => displayRows.map((r) => (r.cost > 0 ? (r.profit / r.cost) * 100 : 0)),
+    [displayRows],
+  );
 
   const chartData = useMemo(
     () => ({

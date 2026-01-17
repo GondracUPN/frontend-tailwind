@@ -1,4 +1,4 @@
-﻿// src/components/ModalCalculadora.js
+// src/components/ModalCalculadora.js
 // Calculadora simple: sugiere precios mínimos/medios y permite probar un precio personalizado.
 import React, { useMemo, useState } from 'react';
 import { TC_FIJO } from '../utils/tipoCambio';
