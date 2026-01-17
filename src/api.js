@@ -9,6 +9,7 @@ async function request(path, opts = {}) {
     ...(token ? { Authorization: `Bearer ${token}` } : {}), // 👈 agrega Bearer
   };
 
+  
   const res = await fetch(`${API_URL}${path}`, {
     method: opts.method || 'GET',
     headers,
