@@ -683,7 +683,7 @@ const [isStale, setIsStale] = useState(false);
 
 
 
- }, [appliedDates.from, appliedDates.to, productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter, cacheKey]);
+ }, [appliedDates.from, appliedDates.to, dateMode, yearKey, productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter, cacheKey]);
 
 
 

@@ -159,7 +159,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
   const [ebayPrice, setEbayPrice] = useState(null);
   const [ebayShipping, setEbayShipping] = useState(null);
   const [ebayConditionRaw, setEbayConditionRaw] = useState('');
-  const [ebaySource, setEbaySource] = useState('');
   const [linkerOpen, setLinkerOpen] = useState(false);
   const [loadingLinker, setLoadingLinker] = useState(false);
   const [linkables, setLinkables] = useState([]);
@@ -293,7 +292,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       const title = String(data?.title || '');
       const parsed = data?.titleParsed || {};
       const condition = String(data?.condition || '');
-      const source = String(data?.source || '');
 
       const tipoInfer = normalizeText(parsed?.tipo || inferTipo(title));
       const tipo = tipoInfer || 'otro';
@@ -309,8 +307,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       setEbayTitle(title);
       setEbayPrice(price);
       setEbayShipping(ship);
-      setEbayConditionRaw(condition || (source === 'amazon' ? 'new' : ''));
-      setEbaySource(source);
+      setEbayConditionRaw(condition || 'used');
 
       setForm((f) => {
         const nextDetalle = { ...f.detalle };
@@ -340,7 +337,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
         return {
           ...f,
           tipo: tipo || f.tipo,
-          estado: mapEbayConditionToEstado(source === 'amazon' ? 'new' : (condition || 'used')),
+          estado: mapEbayConditionToEstado(condition || 'used'),
           detalle: nextDetalle,
           valor: { ...f.valor, valorProducto: Number.isFinite(total) && total > 0 ? String(total) : f.valor.valorProducto },
         };

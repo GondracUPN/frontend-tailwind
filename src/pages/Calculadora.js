@@ -1,4 +1,4 @@
-﻿// src/pages/Calculadora.jsx
+// src/pages/Calculadora.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import api, { API_URL } from "../api";
 
@@ -170,8 +170,6 @@ const getMacbookConfig = (gama, procesador) => {
   }
   return { sizes, rams, ssds };
 };
-const IPAD_GENERACIONES_NORMALES = ['8', '9', '10', '11'];
-const IPAD_GENERACIONES_MINI = ['6', '7'];
 const IPAD_PROCESADORES_AIR = ['M1', 'M2', 'M3'];
 const IPAD_PROCESADORES_PRO = ['M1', 'M2', 'M4', 'M5'];
 const getIpadProcesadores = (gama) => {
