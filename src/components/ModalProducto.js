@@ -239,7 +239,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     setEbayPrice(null);
     setEbayShipping(null);
     setEbayConditionRaw('');
-    setEbaySource('');
   }, [isEdit]);
 
   useEffect(() => {
