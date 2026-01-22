@@ -7,10 +7,159 @@ import FormProductoWatch from './formParts/FormProductoWatch';
 import FormProductoOtro from './formParts/FormProductoOtro';
 import api from '../api';
 
+const normalizeText = (val) =>
+  String(val || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const mapEbayConditionToEstado = (condition) => {
+  const c = normalizeText(condition);
+  if (c === 'new') return 'nuevo';
+  if (c === 'used') return 'usado';
+  if (c.includes('for parts')) return 'usado';
+  return 'usado';
+};
+
+const labelFromCondition = (condition) => {
+  const c = normalizeText(condition);
+  if (c === 'new') return 'Nuevo';
+  if (c === 'used') return 'Usado';
+  if (c.includes('for parts')) return 'Para piezas';
+  if (!c) return '-';
+  return condition;
+};
+
+const inferTipo = (title) => {
+  const t = normalizeText(title);
+  if (t.includes('macbook')) return 'macbook';
+  if (t.includes('iphone')) return 'iphone';
+  if (t.includes('ipad')) return 'ipad';
+  if (t.includes('watch')) return 'watch';
+  return '';
+};
+
+const inferGama = (title) => {
+  const t = normalizeText(title);
+  if (/\bpro max\b/.test(t)) return 'Pro Max';
+  if (/\bpro\b/.test(t)) return 'Pro';
+  if (/\bair\b/.test(t)) return 'Air';
+  if (/\bmini\b/.test(t)) return 'Mini';
+  if (/\bplus\b/.test(t)) return 'Plus';
+  if (/\bultra\b/.test(t)) return 'Ultra';
+  return '';
+};
+
+const inferIphoneMeta = (title) => {
+  const t = normalizeText(title);
+  const numero = (t.match(/\biphone\s*(\d{2})\b/) || t.match(/\b(\d{2})\b/))?.[1] || '';
+  let modelo = '';
+  if (/\bpro max\b/.test(t)) modelo = 'Pro Max';
+  else if (/\bpro\b/.test(t)) modelo = 'Pro';
+  else if (/\bplus\b/.test(t)) modelo = 'Plus';
+  else if (/\bmini\b/.test(t)) modelo = 'Mini';
+  else if (/\bair\b/.test(t)) modelo = 'Air';
+  else if (t.includes('iphone')) modelo = 'Normal';
+  return { numero, modelo };
+};
+
+const inferWatchMeta = (title) => {
+  const t = normalizeText(title);
+  let generacion = '';
+  let conexion = '';
+  const serie = t.match(/\bseries\s*(\d{1,2})\b/);
+  const ultra = t.match(/\bultra\s*(\d{1,2})\b/);
+  const se = t.match(/\bse\s*(\d)?\b/);
+  if (ultra) generacion = `Ultra ${ultra[1]}`;
+  else if (serie) generacion = serie[1];
+  else if (se) generacion = `SE${se[1] ? ` ${se[1]}` : ''}`.trim();
+  if (t.includes('cellular') || t.includes('gps + cel') || t.includes('gps+cel')) {
+    conexion = 'GPS + Cel';
+  } else if (t.includes('gps')) {
+    conexion = 'GPS';
+  }
+  const size = t.match(/\b(40|41|42|44|45|46|49)\s*mm\b/);
+  const tamano = size ? `${size[1]} mm` : '';
+  return { generacion, conexion, tamano };
+};
+
+const inferProcesador = (title) => {
+  const t = normalizeText(title);
+  const m = t.match(/\b(m[1-5])\s*(pro|max|ultra)?\b/);
+  if (m) return `${m[1].toUpperCase()}${m[2] ? ` ${m[2].toUpperCase()}` : ''}`.trim();
+  const intel = t.match(/\b(i[3579])\b/);
+  if (intel) return intel[1].toUpperCase();
+  return '';
+};
+
+const inferPantalla = (title) => {
+  const t = normalizeText(title);
+  const m = t.match(/\b(10\.2|10\.9|11|12\.9|13\.3|13\.5|13\.6|13|14|15\.3|15|16)\b/);
+  if (!m) return '';
+  const rawSize = Number(m[1]);
+  if (Number.isNaN(rawSize)) return '';
+  if (rawSize >= 13 && rawSize < 14) return '13';
+  if (rawSize >= 14 && rawSize < 15) return '14';
+  if (rawSize >= 15 && rawSize < 16) return '15';
+  if (rawSize >= 16 && rawSize < 17) return '16';
+  return String(m[1]);
+};
+
+const inferIpadConexion = (title) => {
+  const t = normalizeText(title);
+  if (t.includes('cellular')) return 'Wifi + Cel';
+  if (t.includes('wi-fi') || t.includes('wifi')) return 'Wifi';
+  return '';
+};
+
+const inferRamFromTitle = (title) => {
+  const t = normalizeText(title);
+  const m =
+    t.match(/(\d+)\s*gb[^a-z0-9]{0,6}ram\b/i) ||
+    t.match(/(\d+)\s*gb[^a-z0-9]{0,6}unified memory\b/i) ||
+    t.match(/(\d+)\s*gb\b/);
+  return m ? m[1] : '';
+};
+
+const inferStorageFromTitle = (title) => {
+  const t = normalizeText(title);
+  const m =
+    t.match(/(\d+)\s*tb[^a-z0-9]{0,8}(ssd|storage|rom)?/i) ||
+    t.match(/(\d+)\s*gb[^a-z0-9]{0,8}(ssd|storage|rom)?/i);
+  if (!m) return '';
+  const val = m[1];
+  return t.includes('tb') ? `${val}TB` : val;
+};
+
+const extractStorageValue = (val) => {
+  const raw = String(val || '').toUpperCase().replace(/\s+/g, '');
+  if (!raw) return '';
+  if (raw.includes('TB')) {
+    const n = raw.match(/(\d+(?:\.\d+)?)/)?.[1] || '';
+    return n ? `${n}TB` : '';
+  }
+  const gb = raw.match(/(\d+)\s*GB/)?.[1] || raw.match(/(\d+)/)?.[1] || '';
+  return gb ? String(gb) : '';
+};
+
+const extractRamValue = (val) => {
+  const raw = String(val || '').toUpperCase();
+  const m = raw.match(/(\d+)\s*GB/);
+  return m ? m[1] : '';
+};
+
 export default function ModalProducto({ producto, onClose, onSaved }) {
   const isEdit = Boolean(producto);
   const [saving, setSaving] = useState(false);
   const mountedRef = useRef(true);
+  const [ebayUrl, setEbayUrl] = useState('');
+  const [ebayLoading, setEbayLoading] = useState(false);
+  const [ebayError, setEbayError] = useState('');
+  const [ebayTitle, setEbayTitle] = useState('');
+  const [ebayPrice, setEbayPrice] = useState(null);
+  const [ebayShipping, setEbayShipping] = useState(null);
+  const [ebayConditionRaw, setEbayConditionRaw] = useState('');
+  const [ebaySource, setEbaySource] = useState('');
   const [linkerOpen, setLinkerOpen] = useState(false);
   const [loadingLinker, setLoadingLinker] = useState(false);
   const [linkables, setLinkables] = useState([]);
@@ -83,6 +232,27 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
   }, [isEdit, producto]);
 
   useEffect(() => {
+    if (isEdit) return;
+    setEbayUrl('');
+    setEbayLoading(false);
+    setEbayError('');
+    setEbayTitle('');
+    setEbayPrice(null);
+    setEbayShipping(null);
+    setEbayConditionRaw('');
+    setEbaySource('');
+  }, [isEdit]);
+
+  useEffect(() => {
+    if (form.tipo === 'otro' && ebayTitle) {
+      setForm((f) => ({
+        ...f,
+        detalle: { ...f.detalle, descripcionOtro: ebayTitle },
+      }));
+    }
+  }, [form.tipo, ebayTitle]);
+
+  useEffect(() => {
     return () => { mountedRef.current = false; };
   }, []);
 
@@ -104,6 +274,81 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       setForm((f) => ({ ...f, [field]: value }));
     } else {
       setForm((f) => ({ ...f, [section]: { ...f[section], [field]: value } }));
+    }
+  };
+
+  const fetchEbay = async () => {
+    const url = String(ebayUrl || '').trim();
+    if (!url) {
+      setEbayError('Ingresa un URL de eBay.');
+      return;
+    }
+    setEbayLoading(true);
+    setEbayError('');
+    try {
+      const data = await api.get(`/utils/ebay?url=${encodeURIComponent(url)}`);
+      const price = Number.isFinite(data?.priceUSD) ? data.priceUSD : 0;
+      const ship = Number.isFinite(data?.shippingUSD) ? data.shippingUSD : 0;
+      const total = price + ship;
+      const title = String(data?.title || '');
+      const parsed = data?.titleParsed || {};
+      const condition = String(data?.condition || '');
+      const source = String(data?.source || '');
+
+      const tipoInfer = normalizeText(parsed?.tipo || inferTipo(title));
+      const tipo = tipoInfer || 'otro';
+      const gama = parsed?.gama || inferGama(title);
+      const proc = parsed?.proc || inferProcesador(title);
+      const pantalla = parsed?.pantalla || inferPantalla(title);
+      const ram = extractRamValue(parsed?.ram || '') || inferRamFromTitle(title);
+      const ssd = extractStorageValue(parsed?.ssd || '') || inferStorageFromTitle(title);
+      const iphoneMeta = inferIphoneMeta(title);
+      const watchMeta = inferWatchMeta(title);
+      const ipadConexion = inferIpadConexion(title);
+
+      setEbayTitle(title);
+      setEbayPrice(price);
+      setEbayShipping(ship);
+      setEbayConditionRaw(condition || (source === 'amazon' ? 'new' : ''));
+      setEbaySource(source);
+
+      setForm((f) => {
+        const nextDetalle = { ...f.detalle };
+        if (tipo === 'macbook') {
+          nextDetalle.gama = gama || nextDetalle.gama;
+          nextDetalle.procesador = proc || nextDetalle.procesador;
+          nextDetalle.tamano = pantalla || nextDetalle.tamano;
+          nextDetalle.ram = ram || nextDetalle.ram;
+          nextDetalle.almacenamiento = ssd || nextDetalle.almacenamiento;
+        } else if (tipo === 'ipad') {
+          nextDetalle.gama = gama || nextDetalle.gama;
+          nextDetalle.procesador = proc || nextDetalle.procesador;
+          nextDetalle.tamano = pantalla || nextDetalle.tamano;
+          nextDetalle.almacenamiento = ssd || nextDetalle.almacenamiento;
+          nextDetalle.conexion = ipadConexion || nextDetalle.conexion;
+        } else if (tipo === 'iphone') {
+          nextDetalle.numero = iphoneMeta.numero || nextDetalle.numero;
+          nextDetalle.modelo = iphoneMeta.modelo || nextDetalle.modelo;
+          nextDetalle.almacenamiento = ssd || nextDetalle.almacenamiento;
+        } else if (tipo === 'watch') {
+          nextDetalle.generacion = watchMeta.generacion || nextDetalle.generacion;
+          nextDetalle.tamano = watchMeta.tamano || nextDetalle.tamano;
+          nextDetalle.conexion = watchMeta.conexion || nextDetalle.conexion;
+        } else if (tipo === 'otro') {
+          nextDetalle.descripcionOtro = title || nextDetalle.descripcionOtro;
+        }
+        return {
+          ...f,
+          tipo: tipo || f.tipo,
+          estado: mapEbayConditionToEstado(source === 'amazon' ? 'new' : (condition || 'used')),
+          detalle: nextDetalle,
+          valor: { ...f.valor, valorProducto: Number.isFinite(total) && total > 0 ? String(total) : f.valor.valorProducto },
+        };
+      });
+    } catch {
+      setEbayError('No se pudo leer el URL. Verifica que sea un enlace de eBay.');
+    } finally {
+      setEbayLoading(false);
     }
   };
 
@@ -186,6 +431,43 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
           <fieldset disabled={saving} className={saving ? 'opacity-60 pointer-events-none' : ''}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-4">
+                {!isEdit && (
+                  <div className="border rounded-lg p-4 bg-gray-50/70">
+                    <div className="text-sm font-semibold mb-2">Agregar Producto Ebay</div>
+                    <label className="block text-sm font-medium mb-2">URL de eBay</label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        className="w-full border rounded-lg p-2"
+                        placeholder="https://www.ebay.com/itm/..."
+                        value={ebayUrl}
+                        onChange={(e) => setEbayUrl(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={fetchEbay}
+                        disabled={ebayLoading}
+                        className={`${ebayLoading ? 'bg-gray-300 text-gray-600' : 'bg-indigo-600 text-white hover:bg-indigo-700'} px-4 py-2 rounded-lg`}
+                      >
+                        {ebayLoading ? 'Cargando...' : 'Buscar'}
+                      </button>
+                    </div>
+                    {ebayError && <div className="text-sm text-red-600 mt-2">{ebayError}</div>}
+                    <div className="text-xs text-gray-600 mt-2 space-y-1">
+                      <div>
+                        Precio: <strong>${Number(ebayPrice || 0).toFixed(2)}</strong> | Envio: <strong>${Number(ebayShipping || 0).toFixed(2)}</strong>
+                      </div>
+                      <div>
+                        Condition: <strong>{labelFromCondition(ebayConditionRaw)}</strong>
+                      </div>
+                    </div>
+                    {ebayTitle && (
+                      <div className="text-xs text-gray-700 mt-2 border rounded bg-white p-2">
+                        {ebayTitle}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div>
                   <label className="block font-medium">Tipo de Producto</label>
                   <select

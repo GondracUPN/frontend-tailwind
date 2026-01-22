@@ -17,7 +17,7 @@ const fmtUSD = (v) => {
 export default function ResumenCasilleros({ productos = [], loading = false, onCasilleroClick }) {
   const stats = useMemo(() => {
     const base = CASILLEROS.reduce((acc, c) => {
-      acc[c] = { total: 0, actuales: 0, decActualUSD: 0 };
+      acc[c] = { total: 0, actuales: 0, decActualUSD: 0, seenDec: new Set() };
       return acc;
     }, {});
 
@@ -31,10 +31,19 @@ export default function ResumenCasilleros({ productos = [], loading = false, onC
       if (estado !== 'recogido') {
         base[cas].actuales += 1;
         const decUSD = Number(p?.valor?.valorDec ?? 0);
-        if (isFinite(decUSD)) base[cas].decActualUSD += decUSD;
+        const groupKeyRaw = p?.envioGrupoId ?? p?.envioGrupo ?? p?.envioGrupoID ?? p?.id;
+        const groupKey = String(groupKeyRaw ?? p?.id ?? '');
+        if (isFinite(decUSD) && groupKey && !base[cas].seenDec.has(groupKey)) {
+          base[cas].decActualUSD += decUSD;
+          base[cas].seenDec.add(groupKey);
+        }
       }
     }
-    return base;
+    return CASILLEROS.reduce((acc, cas) => {
+      const { total, actuales, decActualUSD } = base[cas] || { total: 0, actuales: 0, decActualUSD: 0 };
+      acc[cas] = { total, actuales, decActualUSD };
+      return acc;
+    }, {});
   }, [productos]);
 
   if (loading) {
@@ -57,29 +66,32 @@ export default function ResumenCasilleros({ productos = [], loading = false, onC
     <div className="mb-4 -mx-2 px-2 flex items-stretch gap-2 overflow-x-auto snap-x snap-mandatory flex-nowrap">
       {CASILLEROS.map((cas) => {
         const { total, actuales, decActualUSD } = stats[cas] || { total: 0, actuales: 0, decActualUSD: 0 };
-        const capacidadMax = 2;                     // regla: < 2 habilitado
-        const habilitado = actuales < capacidadMax; // 0 o 1 => OK; 2+ => NO
-        const pct = Math.min((actuales / capacidadMax) * 100, 100);
+        const overDec = decActualUSD > 199;
+        const badgeClass = overDec ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700';
+        const badgeLabel = overDec ? 'No disponible' : 'Habilitado';
+        const barClass = overDec ? 'bg-red-500' : 'bg-green-500';
+        const buttonClass = overDec ? 'bg-red-600 text-white' : 'bg-green-600 text-white';
+        const pct = Math.min((decActualUSD / 199) * 100, 100);
 
         return (
           <div
             key={cas}
-            className={`snap-start flex-[1_1_12rem] min-w-[10.5rem] p-3 rounded-md border bg-white ${onCasilleroClick ? 'cursor-pointer hover:shadow' : ''}`}
+            className={`snap-start flex-[1_1_12rem] min-w-[10.5rem] p-3 rounded-md border bg-white ${overDec ? 'border-red-200' : ''} ${onCasilleroClick ? 'cursor-pointer hover:shadow' : ''}`}
             onClick={() => { if (onCasilleroClick) onCasilleroClick(cas); }}
           >
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-semibold">{cas}</span>
               <span
-                className={`text-[11px] px-2 py-[2px] rounded-full ${habilitado ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
-                title={habilitado ? 'Menos de 2 paquetes' : 'Tiene 2 o mas paquetes'}
+                className={`text-[11px] px-2 py-[2px] rounded-full ${badgeClass}`}
+                title={overDec ? 'DEC total mayor a $199' : 'DEC total menor o igual a $199'}
               >
-                {habilitado ? 'Habilitado' : 'No disponible'}
+                {badgeLabel}
               </span>
             </div>
 
             {/* Barra de ocupacion */}
             <div className="h-2 w-full bg-gray-100 rounded overflow-hidden">
-              <div className={`h-2 ${habilitado ? 'bg-green-500' : 'bg-red-500'}`} style={{ width: `${pct}%` }} />
+              <div className={`h-2 ${barClass}`} style={{ width: `${pct}%` }} />
             </div>
 
             <div className="mt-2 flex justify-between text-[12px] text-gray-600">
@@ -94,9 +106,9 @@ export default function ResumenCasilleros({ productos = [], loading = false, onC
             <button
               type="button"
               disabled
-              className={`mt-2 w-full text-[11px] py-1 rounded cursor-not-allowed ${habilitado ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}
+              className={`mt-2 w-full text-[11px] py-1 rounded cursor-not-allowed ${buttonClass}`}
             >
-              {habilitado ? 'Disponible' : 'Ocupado'}
+              {overDec ? 'No disponible' : 'Disponible'}
             </button>
           </div>
         );

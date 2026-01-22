@@ -65,6 +65,45 @@ function MarginSummaryCard({
   );
 }
 
+function ProfitSummaryCard({
+  title,
+  normal,
+  normalPrev,
+  normalDeltaAbs,
+  normalDeltaPct,
+  real,
+  realPrev,
+  realDeltaAbs,
+  realDeltaPct,
+}) {
+  const trendN = trendMeta(normalDeltaAbs);
+  const trendR = trendMeta(realDeltaAbs);
+  const formatPct = (v) => (v == null ? '--' : `${formatDelta(v, '%')}`);
+  return (
+    <div className="border rounded-lg p-3 bg-gray-50">
+      <div className="text-xs text-gray-500">{title}</div>
+      <div className="grid grid-cols-2 gap-3 mt-2">
+        <div>
+          <div className="text-xs text-gray-500">Normal</div>
+          <div className="text-lg font-semibold">{formatCurrency(normal)}</div>
+          <div className="text-xs text-gray-500">Anterior: {formatCurrency(normalPrev)}</div>
+          <div className={`text-xs font-medium mt-1 ${trendN.cls}`}>
+            {trendN.arrow} {formatDelta(normalDeltaAbs)} ({formatPct(normalDeltaPct)})
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500">Real</div>
+          <div className="text-lg font-semibold">{formatCurrency(real)}</div>
+          <div className="text-xs text-gray-500">Anterior: {formatCurrency(realPrev)}</div>
+          <div className={`text-xs font-medium mt-1 ${trendR.cls}`}>
+            {trendR.arrow} {formatDelta(realDeltaAbs)} ({formatPct(realDeltaPct)})
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProfitComparison({ from, to, filters, mode = 'month', onModeChange }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -140,6 +179,12 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
   const markupCurr = calcMarkup(current);
   const markupPrev = calcMarkup(previous);
   const markupPp = +(markupCurr - markupPrev).toFixed(2);
+  const purchasesCurr = Number(current.purchases || 0);
+  const purchasesPrev = Number(previous.purchases || 0);
+  const realProfitCurr = +(current.income - purchasesCurr).toFixed(2);
+  const realProfitPrev = +(previous.income - purchasesPrev).toFixed(2);
+  const realProfitAbs = +(realProfitCurr - realProfitPrev).toFixed(2);
+  const realProfitPct = realProfitPrev === 0 ? (realProfitCurr === 0 ? 0 : null) : +(((realProfitCurr - realProfitPrev) / realProfitPrev) * 100).toFixed(2);
 
   return (
     <div className="bg-white rounded-xl border shadow-sm p-5">
@@ -183,12 +228,16 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
           deltaAbs={delta.costAbs}
           deltaPct={delta.costPct}
         />
-        <SummaryCard
+        <ProfitSummaryCard
           title="Ganancia"
-          current={formatCurrency(current.profit)}
-          previous={formatCurrency(previous.profit)}
-          deltaAbs={delta.profitAbs}
-          deltaPct={delta.profitPct}
+          normal={current.profit}
+          normalPrev={previous.profit}
+          normalDeltaAbs={delta.profitAbs}
+          normalDeltaPct={delta.profitPct}
+          real={realProfitCurr}
+          realPrev={realProfitPrev}
+          realDeltaAbs={realProfitAbs}
+          realDeltaPct={realProfitPct}
         />
         <MarginSummaryCard
           title="Margenes"
@@ -266,6 +315,13 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
                 <td className="py-2 px-3">{formatCurrency(previous.profit)}</td>
                 <td className="py-2 px-3">{formatDelta(delta.profitAbs)}</td>
                 <td className="py-2 px-3">{formatDelta(delta.profitPct, '%')}</td>
+              </tr>
+              <tr className="border-t">
+                <td className="py-2 px-3">Ganancia real</td>
+                <td className="py-2 px-3">{formatCurrency(realProfitCurr)}</td>
+                <td className="py-2 px-3">{formatCurrency(realProfitPrev)}</td>
+                <td className="py-2 px-3">{formatDelta(realProfitAbs)}</td>
+                <td className="py-2 px-3">{realProfitPct == null ? '--' : formatDelta(realProfitPct, '%')}</td>
               </tr>
               <tr className="border-t">
                 <td className="py-2 px-3">Utilidad</td>

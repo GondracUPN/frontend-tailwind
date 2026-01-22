@@ -114,6 +114,9 @@ function getGama(p) {
 function getProcesador(p) { return get(p?.detalle, ["procesador"]) || p?.procesador || ""; }
 function getRam(p) { return get(p?.detalle, ["ram", "memoriaRam", "memoria"]) || p?.ram || ""; }
 function getStorage(p) { return get(p?.detalle, ["almacenamiento", "storage", "capacidad", "gb"]) || p?.almacenamiento || ""; }
+function getNumero(p) { return get(p?.detalle, ["numero"]) || p?.numero || ""; }
+function getModelo(p) { return get(p?.detalle, ["modelo"]) || p?.modelo || ""; }
+function getDescripcionOtro(p) { return get(p?.detalle, ["descripcionOtro", "descripcion"]) || p?.descripcion || ""; }
 
 /* Limpia a string $ con 2 decimales */
 function cleanMoneyToString(x) {
@@ -146,6 +149,17 @@ function labelForDropdown(p) {
   const proc = deriveProc(p);
   const ram = getRam(p);
   const sto = getStorage(p);
+
+  if (tipo.toLowerCase().includes("iphone")) {
+    const numero = String(getNumero(p) || "").trim();
+    const modelo = String(getModelo(p) || getGama(p) || "").trim();
+    const baseIphone = ["iPhone", numero, modelo].filter(Boolean).join(" ").trim();
+    return [baseIphone || "iPhone", sto && `${sto} GB`].filter(Boolean).join(" ");
+  }
+  if (tipo.toLowerCase().includes("otro")) {
+    const desc = String(getDescripcionOtro(p) || "").trim();
+    return desc || "Otro";
+  }
 
   const base = [tipo, gama, size && `${size}"`].filter(Boolean).join(" ");
   const extras = [proc, ram && `${ram} RAM`, sto && `${sto} GB`]
@@ -192,8 +206,37 @@ function buildCoreName(p, cpuOverride = "") {
   }
 
   if (tipo.includes("iphone")) {
-    const modelo = getGama(p) || p?.modelo || "";
-    return [`iPhone ${modelo}`.trim(), sto && `${sto}GB`].filter(Boolean).join(" ");
+    const numero = String(getNumero(p) || "").trim();
+    const modeloDetalle = String(getModelo(p) || "").trim();
+    const gamaIphone = String(getGama(p) || "").trim();
+    if (numero || modeloDetalle || gamaIphone) {
+      const modelo = modeloDetalle || gamaIphone;
+      return ["iPhone", numero, modelo, sto && `${sto}GB`].filter(Boolean).join(" ");
+    }
+    const tipoRest = tipoRaw.replace(/iphone\s*/i, "").trim();
+    const gamaRaw = (getGama(p) || "").trim();
+    const modeloRaw = String(p?.modelo || "").trim();
+    let modelo = "";
+    if (tipoRest) {
+      modelo = tipoRest;
+      const hasSuffix = /pro|max|plus|mini|se/i.test(modelo);
+      if (gamaRaw && !modelo.toLowerCase().includes(gamaRaw.toLowerCase())) {
+        if (hasSuffix || /pro|max|plus|mini|se/i.test(gamaRaw)) {
+          modelo = `${modelo} ${gamaRaw}`.trim();
+        }
+      }
+    } else if (gamaRaw) {
+      modelo = gamaRaw;
+    } else if (modeloRaw) {
+      modelo = modeloRaw;
+    }
+    const title = modelo ? `iPhone ${modelo}`.trim() : "iPhone";
+    return [title, sto && `${sto}GB`].filter(Boolean).join(" ");
+  }
+
+  if (tipo.includes("otro")) {
+    const desc = String(getDescripcionOtro(p) || "").trim();
+    return desc || "Producto";
   }
 
   return [p.tipo, gama, sizeNorm && `${sizeNorm}"`, getProcesador(p), ram && `${ram} RAM`, sto && `${sto}GB`]
@@ -279,6 +322,9 @@ function getCarrierTracking(p) {
     ""
   ).toString().trim();
 }
+function getGroupKey(p) {
+  return p?.envioGrupoId ?? p?.envioGrupo ?? p?.envioGrupoID ?? null;
+}
 
 /* --------- HTML builder (Shipping siempre Free con clase POSITIVE) --------- */
 function buildModalContentHTML({
@@ -290,16 +336,19 @@ function buildModalContentHTML({
   price,        // ? DEC (unit price)
   itemName,
   shippingSvc,
+  items,
 }) {
   const paidOn = placedOn;
   const placedOnTxt = fmtDateUS(placedOn);
   const paidOnTxt = fmtDateUS(paidOn);
 
-  const qtyNum = Math.max(1, Number(qty) || 1);
-  const unitPrice = Number(price) || 0;
-  const subtotal = qtyNum * unitPrice;
-  const orderTotal = subtotal; // envío Free y Tax 0
-  const itemsLabel = `${qtyNum} item${qtyNum === 1 ? "" : "s"}`;
+  const safeItems = Array.isArray(items) && items.length
+    ? items
+    : [{ qty: Math.max(1, Number(qty) || 1), name: itemName || "", price: Number(price) || 0, shippingSvc }];
+  const itemsCount = safeItems.reduce((s, it) => s + (Number(it.qty) || 1), 0);
+  const subtotal = safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1), 0);
+  const orderTotal = subtotal; // envio Free y Tax 0
+  const itemsLabel = `${itemsCount} item${itemsCount === 1 ? "" : "s"}`;
   const shipName = CASILLEROS[casilleroKey] || "";
 
   return `
@@ -484,12 +533,14 @@ function buildModalContentHTML({
                           </tr>
                         </thead>
                         <tbody>
+${safeItems.map((it) => `
                           <tr>
-                            <td><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>${qtyNum}</span></span></span></span></td>
-                            <td><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>${itemName || ""}</span></span></span></span></td>
-                            <td><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>${shippingSvc || "Standard Shipping"}</span></span></span></span></td>
-                            <td><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>${fmtUSD(unitPrice)}</span></span></span></span></td>
+                            <td><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>${Math.max(1, Number(it.qty) || 1)}</span></span></span></span></td>
+                            <td><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>${it.name || ""}</span></span></span></span></td>
+                            <td><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>${it.shippingSvc || "Standard Shipping"}</span></span></span></span></td>
+                            <td><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>${fmtUSD(Number(it.price) || 0)}</span></span></span></span></td>
                           </tr>
+`).join("")}
                         </tbody>
                       </table>
                     </div>
@@ -534,6 +585,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [itemName, setItemName] = useState("");
   const [shippingSvc, setShippingSvc] = useState("Standard Shipping");
   const [savingFactura, setSavingFactura] = useState(false);
+  const [randomNames, setRandomNames] = useState({});
+  const [linkedItemNames, setLinkedItemNames] = useState({});
   const resetSeleccion = () => {
     setProductoSel(null);
     setNameCore("");
@@ -591,6 +644,11 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     if (p?.valor?.valorDec != null) return p.valor.valorDec;
     return 0;
   };
+  const pickValorProducto = (p) => {
+    if (p?.valor?.valorProducto != null) return p.valor.valorProducto;
+    if (p?.valorProducto != null) return p.valorProducto;
+    return 0;
+  };
 
   // Al elegir un producto
   const onPickProducto = (idStr) => {
@@ -619,6 +677,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
 
     setNameCore(core);
     setProblemSuffix("");               // limpia el problema al cambiar de producto
+    setRandomNames({});
+    setLinkedItemNames({});
     setPrice(decClean);
     setPlacedOn(toYYYYMMDD(fechaCompra));
     if (autoKey) setCasilleroKey(autoKey);
@@ -635,15 +695,36 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const rollName = () => {
     if (!productoSel) return;
     const tipo = normalize(productoSel?.tipo);
-    let core = nameCore;
+    let core = buildCoreName(productoSel);
     if (tipo.includes("macbook")) {
       const opts = cpuOptionsForMac(productoSel);
       const cpu = pickOne(opts);
-      core = buildCoreName(productoSel, cpu); // fuerza CPU nueva
-      setNameCore(core);
+      core = buildCoreName(productoSel, cpu);
     }
     const prob = randomProblemForProduct(productoSel);
-    setProblemSuffix(prob);
+    const full = core + (prob ? ` ${prob}` : "");
+    setNameCore(core);
+    setProblemSuffix(prob || "");
+    setRandomNames((prev) => ({ ...prev, [productoSel.id]: { core, problem: prob, full } }));
+  };
+
+  const rollLinkedName = (p) => {
+    if (!p) return;
+    const tipo = normalize(p?.tipo);
+    let core = buildCoreName(p);
+    if (tipo.includes("macbook")) {
+      const opts = cpuOptionsForMac(p);
+      const cpu = pickOne(opts);
+      core = buildCoreName(p, cpu);
+    }
+    const prob = randomProblemForProduct(p);
+    const full = core + (prob ? ` ${prob}` : "");
+    setRandomNames((prev) => ({ ...prev, [p.id]: { core, problem: prob, full } }));
+    setLinkedItemNames((prev) => ({ ...prev, [p.id]: full }));
+    if (p?.id === productoSel?.id) {
+      setNameCore(core);
+      setProblemSuffix(prob || "");
+    }
   };
 
   // itemName = core + (opcional) problema
@@ -656,11 +737,50 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setItemName(val);
     setNameCore(val);
     setProblemSuffix("");
+    if (productoSel?.id != null) {
+      setLinkedItemNames((prev) => ({ ...prev, [productoSel.id]: val }));
+    }
   };
 
   // Derivados de tracking SOLO para mostrar en UI (no van al HTML)
   const carrier = getCarrier(productoSel);
   const carrierTracking = getCarrierTracking(productoSel);
+
+  const linkedGroup = useMemo(() => {
+    const groupKey = getGroupKey(productoSel);
+    if (!groupKey) return [];
+    return (productosAll || []).filter((p) => getGroupKey(p) === groupKey);
+  }, [productoSel, productosAll]);
+
+  const linkedItems = useMemo(() => {
+    if (!productoSel) return null;
+    const group = linkedGroup.length > 1 ? linkedGroup : [];
+    if (group.length <= 1) return null;
+    const totalReal = group.reduce((s, p) => s + (Number(pickValorProducto(p)) || 0), 0);
+    const totalDec = group.reduce((s, p) => s + (Number(pickDec(p)) || 0), 0);
+    const baseDec = (Number(pickDec(productoSel)) || 0) || totalDec;
+    const fallbackShare = group.length ? 1 / group.length : 1;
+    let used = 0;
+    return group.map((p, idx) => {
+      const real = Number(pickValorProducto(p)) || 0;
+      const share = totalReal > 0 ? (real / totalReal) : fallbackShare;
+      const isLast = idx === group.length - 1;
+      const price = isLast
+        ? +(baseDec - used).toFixed(2)
+        : +((baseDec * share).toFixed(2));
+      used += price;
+      const override = linkedItemNames[p.id];
+      const name = p?.id === productoSel?.id
+        ? (itemName || override || buildCoreName(p))
+        : (override || randomNames[p.id]?.full || buildCoreName(p));
+      return {
+        qty: 1,
+        name,
+        price,
+        shippingSvc,
+      };
+    });
+  }, [productoSel, linkedGroup, shippingSvc, itemName, randomNames, linkedItemNames]);
 
   const html = useMemo(
     () =>
@@ -673,8 +793,9 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         price,       // ? DEC
         itemName,
         shippingSvc,
+        items: linkedItems,
       }),
-    [seller, placedOn, orderNumber, casilleroKey, qty, price, itemName, shippingSvc]
+    [seller, placedOn, orderNumber, casilleroKey, qty, price, itemName, shippingSvc, linkedItems]
   );
 
   // Cerrar con ESC
@@ -854,6 +975,36 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
               <input value={shippingSvc} onChange={(e) => setShippingSvc(e.target.value)} className="input" placeholder="Standard Shipping" />
             </label>
           </div>
+
+          {linkedGroup.length > 1 ? (
+            <div className="grid sm:grid-cols-2 gap-3">
+              {linkedGroup.filter((p) => p?.id !== productoSel?.id).map((p) => {
+                const value = linkedItemNames[p.id] || randomNames[p.id]?.full || buildCoreName(p);
+                return (
+                  <label key={p.id} className="text-[11px] text-gray-600">
+                    <span className="block mb-1">Item name vinculado #{p.id}</span>
+                    <div className="flex gap-2">
+                      <input
+                        className="input text-xs py-1.5 flex-1"
+                        value={value}
+                        onChange={(e) =>
+                          setLinkedItemNames((prev) => ({ ...prev, [p.id]: e.target.value }))
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={() => rollLinkedName(p)}
+                        title="Generar item name"
+                        className="px-2 rounded-lg bg-indigo-600 text-white text-xs hover:bg-indigo-700"
+                      >
+                        <FaDice className="text-sm" />
+                      </button>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
 
         {/* Resultado HTML */}
@@ -884,7 +1035,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             </div>
           </div>
 
-          <textarea id="dec-html-ta" className="w-full h-[360px] border rounded p-3 font-mono text-xs resize-y" readOnly value={html} />
+          <textarea id="dec-html-ta" className="w-full max-w-md h-[200px] border rounded p-3 font-mono text-xs resize-none" readOnly value={html} />
           <p className="text-xs text-gray-500 mt-2">
             Copia este bloque y reemplaza en el DOM únicamente la parte <code>&lt;div class="modal-content"&gt;...&lt;/div&gt;</code>.
           </p>
@@ -899,3 +1050,5 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     </div>
   );
 }
+
+

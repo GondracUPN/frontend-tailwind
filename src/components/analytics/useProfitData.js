@@ -1,26 +1,32 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getProfitSeries } from '../../services/analytics';
 
 export default function useProfitData(params) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const load = useCallback(async () => {
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+  const paramsKey = useMemo(() => JSON.stringify(params || {}), [params]);
+
+  const load = useCallback(async (nextParams) => {
     setLoading(true);
     setError('');
     try {
-      const res = await getProfitSeries(params);
+      const res = await getProfitSeries(nextParams);
       setData(res);
     } catch (e) {
       setError(e.message || 'Error');
     } finally {
       setLoading(false);
     }
-  }, [params]);
+  }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    load(paramsRef.current);
+  }, [load, paramsKey]);
 
-  return { data, loading, error, retry: load };
+  const retry = useCallback(() => load(paramsRef.current), [load]);
+
+  return { data, loading, error, retry };
 }

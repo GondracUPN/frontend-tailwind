@@ -1,5 +1,5 @@
 // src/components/ModalCalculadora.js
-// Calculadora simple: sugiere precios mínimos/medios y permite probar un precio personalizado.
+// Calculadora simple: sugiere precios minimos/medios y permite probar un precio personalizado.
 import React, { useMemo, useState } from 'react';
 import { TC_FIJO } from '../utils/tipoCambio';
 
@@ -19,7 +19,7 @@ export default function ModalCalculadora({ producto, onClose }) {
   const [precioCustom, setPrecioCustom] = useState('');
   const [tipoCambio, setTipoCambio] = useState('');
 
-  // costo usado: si hay TC válido, (valorUSD * TC) + envío; si no, costoBase
+  // costo usado: si hay TC valido, (valorUSD * TC) + envio; si no, costoBase
   const costoUsado = useMemo(() => {
     const tc = Number(tipoCambio);
     if (isFinite(tc) && tc > 0) return valorUSD * tc + envioSoles;
@@ -49,18 +49,24 @@ export default function ModalCalculadora({ producto, onClose }) {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white w-full sm:max-w-lg rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-y-auto">
         {/* Cerrar */}
-        <button className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center text-2xl font-bold text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-100" onClick={onClose} aria-label="Cerrar">&times;</button>
+        <button
+          className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center text-2xl font-bold text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-100"
+          onClick={onClose}
+          aria-label="Cerrar"
+        >
+          &times;
+        </button>
 
-        <h2 className="text-xl font-semibold mb-1">Calculadora rápida</h2>
+        <h2 className="text-xl font-semibold mb-1">Calculadora rapida</h2>
         <p className="text-sm text-gray-600 mb-4">
-          Producto: <span className="font-medium">{producto?.tipo}</span> — Costo total base:{' '}
+          Producto: <span className="font-medium">{producto?.tipo}</span> - Costo total base:{' '}
           <span className="font-semibold">{fmtSoles(costoTotalBase)}</span>
         </p>
 
         {/* Sugerencias */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           <div className="border rounded-lg p-4 bg-gray-50">
-            <div className="text-sm text-gray-500 mb-1">Precio mínimo (+20%)</div>
+            <div className="text-sm text-gray-500 mb-1">Precio minimo (+20%)</div>
             <div className="text-2xl font-semibold">{fmtSoles(pvMin)}</div>
             <div className="text-sm text-gray-700 mt-1">
               Ganancia: <strong>{fmtSoles(gananciaMin)}</strong>
@@ -90,7 +96,7 @@ export default function ModalCalculadora({ producto, onClose }) {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">Tipo de cambio (US$ → S/)</label>
+              <label className="block text-sm font-medium mb-2">Tipo de cambio (US$ a S/)</label>
               <input
                 type="number"
                 inputMode="decimal"
@@ -100,7 +106,7 @@ export default function ModalCalculadora({ producto, onClose }) {
                 onChange={(e) => setTipoCambio(e.target.value)}
               />
               <div className="text-xs text-gray-600 mt-1">
-                Si ingresas TC, costo = (valor US$ × TC) + envío.
+                Si ingresas TC, costo = (valor US$ x TC) + envio.
               </div>
             </div>
           </div>
@@ -111,7 +117,7 @@ export default function ModalCalculadora({ producto, onClose }) {
               <strong>{isNaN(valorUSD) ? '-' : `$ ${valorUSD.toFixed(2)}`}</strong>
             </div>
             <div className="flex justify-between">
-              <span>Envío (S/):</span>
+              <span>Envio (S/):</span>
               <strong>{fmtSoles(envioSoles)}</strong>
             </div>
             <div className="flex justify-between">
@@ -136,4 +142,3 @@ export default function ModalCalculadora({ producto, onClose }) {
     </div>
   );
 }
-

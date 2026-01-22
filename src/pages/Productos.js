@@ -10,6 +10,7 @@ import ModalCasillero from '../components/ModalCasillero';
 import ModalVenta from '../components/ModalVenta';
 import ModalFotos from '../components/ModalFotos';
 import ModalFotosManual from '../components/ModalFotosManual';
+import ModalMarcaAgua from '../components/ModalMarcaAgua';
 import ModalCalculadora from '../components/ModalCalculadora';
 import ModalDec from '../components/ModalDec';
 import ModalAdelantarTipo from '../components/ModalAdelantarTipo';
@@ -64,7 +65,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [resumen, setResumen] = useState(() => cached?.resumen || null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
-  const [modalModo, setModalModo] = useState(null); // 'crear'|'detalle'|'costos'|'track'|'fotosManual'
+  const [modalModo, setModalModo] = useState(null); // 'crear'|'detalle'|'costos'|'track'|'fotosManual'|'marca'
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   // Mapa: productoId -> fltima venta (o null)
   const [ventasMap, setVentasMap] = useState(() => cached?.ventasMap || {});
@@ -95,6 +96,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     setProductoSeleccionado(p);
     setModalModo('fotos');
   };
+  const abrirMarcaAgua = () => { setModalModo('marca'); };
   // Cuando se guarda una venta, refrescamos sflo ese producto en el mapa
   const handleVentaSaved = (ventaGuardada) => {
     setVentasMap(prev => {
@@ -164,6 +166,8 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [eshopexVincularOpen, setEshopexVincularOpen] = useState(false);
   const [eshopexVincularRow, setEshopexVincularRow] = useState(null);
   const [soloDisponibles, setSoloDisponibles] = useState(false);
+  const [soloVendidos, setSoloVendidos] = useState(false);
+  const [soloAdelanto, setSoloAdelanto] = useState(false);
   const [selectedCasillero, setSelectedCasillero] = useState(null);
   const [productoEnCasillero, setProductoEnCasillero] = useState(null);
   const [fotosManualSeed, setFotosManualSeed] = useState({ trackingEshop: '', fechaRecepcion: '' });
@@ -1045,13 +1049,19 @@ const confirmAction = async () => {
     }
 
 
-    if (soloDisponibles) {
+    if (soloDisponibles && !soloVendidos && !soloAdelanto) {
       list = list.filter((p) => {
         const t = p.tracking?.[0];
         const venta = ventasMap[p.id] || null;
         const adelanto = adelantosMap[p.id] || null;
         return t?.estado === 'recogido' && !venta && !adelanto;
       });
+    }
+    if (soloVendidos && !soloDisponibles && !soloAdelanto) {
+      list = list.filter((p) => Boolean(ventasMap[p.id]));
+    }
+    if (soloAdelanto && !soloDisponibles && !soloVendidos) {
+      list = list.filter((p) => Boolean(adelantosMap[p.id]));
     }
 
     // Filtro por tipo ("otro" = todo lo que NO es macbook ni ipad)
@@ -1123,7 +1133,7 @@ const confirmAction = async () => {
 
     list.sort((a, b) => ts(b) - ts(a)); // mfs nuevos arriba
     return list;
-  }, [productos, ventasMap, adelantosMap, soloDisponibles, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery]);
+  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery]);
 
 
 
@@ -1487,15 +1497,36 @@ const confirmAction = async () => {
           <>
             {/* Filtro a la izquierda */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap w-full">
-              <label className="inline-flex items-center gap-2 text-sm w-full sm:w-auto">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4"
-                  checked={soloDisponibles}
-                  onChange={(e) => setSoloDisponibles(e.target.checked)}
-                />
-                Mostrar listos venta
-              </label>
+              <div className="border rounded-lg px-3 py-2 bg-white shadow-sm w-full sm:w-auto">
+                <div className="text-xs text-gray-500 mb-1">Mostrar</div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={soloVendidos}
+                    onChange={(e) => setSoloVendidos(e.target.checked)}
+                  />
+                  Vendidos
+                </label>
+                <label className="flex items-center gap-2 text-sm mt-1">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={soloAdelanto}
+                    onChange={(e) => setSoloAdelanto(e.target.checked)}
+                  />
+                  Adelanto
+                </label>
+                <label className="flex items-center gap-2 text-sm mt-1">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={soloDisponibles}
+                    onChange={(e) => setSoloDisponibles(e.target.checked)}
+                  />
+                  Disponibles
+                </label>
+              </div>
 
               <input
                 type="text"
@@ -1622,6 +1653,13 @@ const confirmAction = async () => {
                 title="Ingresar tracking y fecha para consultar fotos en Eshopex"
               >
                 Fotos
+              </button>
+              <button
+                onClick={abrirMarcaAgua}
+                className="w-full sm:w-auto bg-emerald-700 text-white px-5 py-2 rounded hover:bg-emerald-800"
+                title="Aplicar marca de agua a varias fotos"
+              >
+                Marca de agua
               </button>
               <button
                 onClick={abrirDec}
@@ -1934,7 +1972,15 @@ const confirmAction = async () => {
             </table>
           </div>
         ) : (
-          <p>{soloDisponibles ? 'No hay productos disponibles para venta.' : 'No hay productos a\u00fan.'}</p>
+          <p>
+            {(soloDisponibles && !soloVendidos && !soloAdelanto)
+              ? 'No hay productos disponibles para venta.'
+              : (soloVendidos && !soloDisponibles && !soloAdelanto)
+                ? 'No hay productos vendidos.'
+                : (soloAdelanto && !soloDisponibles && !soloVendidos)
+                  ? 'No hay productos con adelanto.'
+                  : 'No hay productos a\u00fan.'}
+          </p>
         )
       )}
 
@@ -2332,6 +2378,7 @@ const confirmAction = async () => {
         />
       )}
       {modalModo === 'fotos' && (<ModalFotos producto={productoSeleccionado} onClose={cerrarModal} />)}
+      {modalModo === 'marca' && (<ModalMarcaAgua onClose={cerrarModal} />)}
       {modalModo === 'fotosManual' && (
         <ModalFotosManual
           onClose={cerrarModal}

@@ -103,11 +103,30 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
       return (t?.casillero || '') === casillero && (t?.estado || '').toLowerCase() !== 'recogido';
     });
   }, [productos, casillero]);
+  const decByGrupo = useMemo(() => {
+    const map = new Map();
+    for (const p of activos) {
+      const groupKeyRaw = p?.envioGrupoId ?? p?.envioGrupo ?? p?.envioGrupoID ?? p?.id;
+      const key = String(groupKeyRaw ?? p?.id ?? '');
+      const decUSD = Number(p?.valor?.valorDec ?? 0);
+      if (!key) continue;
+      if (!map.has(key) && isFinite(decUSD)) {
+        map.set(key, decUSD);
+      }
+    }
+    return map;
+  }, [activos]);
+  const totalDecUnico = useMemo(() => {
+    let total = 0;
+    for (const v of decByGrupo.values()) total += v;
+    return total;
+  }, [decByGrupo]);
 
   const analytics = useMemo(loadAnalyticsSnapshot, []);
 
   const estimarFecha = (fechaRecepcion, transportista) =>
     estimarRangoDesdeRecepcion(fechaRecepcion, transportista, analytics);
+  const seenDec = new Set();
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
@@ -127,7 +146,7 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
           <div className="mt-3 flex flex-wrap gap-2">
             <span className="text-xs px-2 py-1 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">Activos: {activos.length}</span>
             <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-              DEC total: {fmtUSD(activos.reduce((s, p) => s + (Number(p?.valor?.valorDec ?? 0) || 0), 0))}
+              DEC total: {fmtUSD(totalDecUnico)}
             </span>
           </div>
         </div>
@@ -156,6 +175,10 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
                     const t = p?.tracking?.[0] || {};
                     const tipo = p?.tipo || '-';
                     const decUSD = Number(v?.valorDec ?? 0);
+                    const groupKeyRaw = p?.envioGrupoId ?? p?.envioGrupo ?? p?.envioGrupoID ?? p?.id;
+                    const groupKey = String(groupKeyRaw ?? p?.id ?? '');
+                    const showDec = groupKey ? !seenDec.has(groupKey) : true;
+                    if (groupKey && showDec) seenDec.add(groupKey);
                     const estado = t?.estado || '';
                     const recep = t?.fechaRecepcion || '';
                     const compra = v?.fechaCompra || '';
@@ -175,7 +198,7 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
                             {tipo}
                           </button>
                         </td>
-                        <td className="py-2 px-3">{fmtUSD(decUSD)}</td>
+                        <td className="py-2 px-3">{showDec ? fmtUSD(decUSD) : '-'}</td>
                         <td className="py-2 px-3">{labelFromEstado(estado)}</td>
                         <td className="py-2 px-3">{compra ? fmtDate(compra) : (<span className="text-red-600">Sin fecha</span>)}</td>
                         <td className="py-2 px-3">{fmtDate(recep)}</td>

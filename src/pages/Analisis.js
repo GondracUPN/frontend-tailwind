@@ -320,7 +320,8 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- // Filtros: mes (aplica al cambiar), vendedor y producto
+ // Filtros: mes/anio (aplica al cambiar), vendedor y producto
+ const [dateMode, setDateMode] = useState('month');
  const [appliedDates, setAppliedDates] = useState({ from: '', to: '' });
  const [sellerFilter, setSellerFilter] = useState('');
  const [compareMode, setCompareMode] = useState('month');
@@ -333,6 +334,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
  const parts = [
+ dateMode,
 
 
 
@@ -369,7 +371,7 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- }, [appliedDates.from, appliedDates.to, productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter]);
+ }, [dateMode, appliedDates.from, appliedDates.to, productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter]);
 
 
 
@@ -486,22 +488,24 @@ const [isStale, setIsStale] = useState(false);
  return `${y}-12-31`;
  };
 
- const yearKey = appliedDates.from ? appliedDates.from.split('-')[0] : String(new Date().getFullYear());
+ const yearKey = dateMode === 'year' && appliedDates.from
+ ? appliedDates.from
+ : (appliedDates.from ? appliedDates.from.split('-')[0] : String(new Date().getFullYear()));
  const profitRange = useMemo(() => {
- const from = monthStart(appliedDates.from);
- const to = monthEnd(appliedDates.to);
+ const from = dateMode === 'year' ? yearStart(yearKey) : monthStart(appliedDates.from);
+ const to = dateMode === 'year' ? yearEnd(yearKey) : monthEnd(appliedDates.to);
  return { from: from || undefined, to: to || undefined };
- }, [appliedDates.from, appliedDates.to]);
+ }, [appliedDates.from, appliedDates.to, dateMode, yearKey]);
 
  const compareRange = useMemo(() => {
- if (compareMode === 'year') {
+ if (dateMode === 'year' || compareMode === 'year') {
  return { from: yearStart(yearKey), to: yearEnd(yearKey) };
  }
  if (appliedDates.from) {
  return { from: monthStart(appliedDates.from), to: monthEnd(appliedDates.to || appliedDates.from) };
  }
  return { from: yearStart(yearKey), to: yearEnd(yearKey) };
- }, [appliedDates.from, appliedDates.to, compareMode, yearKey]);
+ }, [appliedDates.from, appliedDates.to, compareMode, dateMode, yearKey]);
 
  const profitFilters = useMemo(
  () => ({
@@ -569,11 +573,11 @@ const [isStale, setIsStale] = useState(false);
 
 
 
- const fromDate = monthStart(appliedDates.from);
+ const fromDate = dateMode === 'year' ? yearStart(yearKey) : monthStart(appliedDates.from);
 
 
 
- const toDate = monthEnd(appliedDates.to);
+ const toDate = dateMode === 'year' ? yearEnd(yearKey) : monthEnd(appliedDates.to);
 
 
 
@@ -771,6 +775,25 @@ const [isStale, setIsStale] = useState(false);
  <option value="Renato">Renato</option>
  </select>
 
+ <select
+ className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
+ value={dateMode}
+ onChange={(e) => {
+ const v = e.target.value;
+ setDateMode(v);
+ if (v === 'year') {
+ const y = String(new Date().getFullYear());
+ setAppliedDates({ from: y, to: y });
+ } else {
+ setAppliedDates({ from: '', to: '' });
+ }
+ }}
+ >
+ <option value="month">Mes</option>
+ <option value="year">Anio</option>
+ </select>
+
+ {dateMode === 'month' ? (
  <input
  type="month"
  className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
@@ -781,6 +804,21 @@ const [isStale, setIsStale] = useState(false);
  }}
  placeholder="Mes"
  />
+ ) : (
+ <input
+ type="number"
+ className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
+ value={appliedDates.from || String(new Date().getFullYear())}
+ onChange={(e) => {
+ const v = e.target.value;
+ setAppliedDates({ from: v, to: v });
+ }}
+ placeholder="Anio"
+ min="2000"
+ max="2100"
+ step="1"
+ />
+ )}
  <button
  className="w-full sm:w-auto px-3 py-1.5 rounded border text-sm bg-white hover:bg-gray-50"
  onClick={() => {
@@ -793,6 +831,7 @@ const [isStale, setIsStale] = useState(false);
 
  setProductFilters({ tipo: '', gama: '', proc: '', pantalla: '' });
  setSellerFilter('');
+ setDateMode('month');
 
 
 
@@ -2000,21 +2039,25 @@ const [isStale, setIsStale] = useState(false);
  {(() => {
  const perMonth = data?.sales?.perMonth || [];
  const perYearMonth = yearlyData?.sales?.perMonth || [];
- const monthKey = appliedDates.from || '';
+ const monthKey = dateMode === 'month' ? (appliedDates.from || '') : '';
  const perYear = perYearMonth.filter((m) => String(m.month || '').startsWith(`${yearKey}-`));
  const totalIngresos = perYear.reduce((s, m) => s + (Number(m.ingresos) || 0), 0);
  const totalGanancia = perYear.reduce((s, m) => s + (Number(m.ganancia) || 0), 0);
  const totalCosto = totalIngresos - totalGanancia;
  const totalUtilidad = totalIngresos > 0 ? (totalGanancia / totalIngresos) * 100 : 0;
  const totalMarkup = totalCosto > 0 ? (totalGanancia / totalCosto) * 100 : 0;
+ const yearGastos = Number(data?.summary?.comprasPeriodoCapital ?? 0);
  const monthRow = monthKey ? perMonth.find((m) => m.month === monthKey) : null;
  const monthIngresos = monthRow ? Number(monthRow.ingresos || 0) : null;
  const monthGanancia = monthRow ? Number(monthRow.ganancia || 0) : null;
  const monthCosto = monthIngresos != null && monthGanancia != null ? (monthIngresos - monthGanancia) : null;
  const monthUtilidad = monthRow && monthIngresos ? (monthGanancia / monthIngresos) * 100 : null;
  const monthMarkup = monthRow && monthCosto ? (monthGanancia / monthCosto) * 100 : null;
+ const monthGastos = monthKey ? Number(data?.summary?.comprasPeriodoCapital ?? 0) : null;
+ if (dateMode === 'year') {
  return (
- <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+ <div className="scale-[0.98] origin-top-left">
  <Card
  title={`Ganancia ${yearKey}`}
  value={<Currency v={totalGanancia} />}
@@ -2024,15 +2067,52 @@ const [isStale, setIsStale] = useState(false);
  : <span>Ingresos: <Currency v={totalIngresos} /> - Utilidad: <Percent v={totalUtilidad} /> - Markup: <Percent v={totalMarkup} /></span>
  }
  />
+ </div>
+ <div className="scale-[0.98] origin-top-left">
+ <Card
+ title={`Gastos ${yearKey}`}
+ value={<Currency v={yearGastos} />}
+ sub={<span>Total comprado en el anio.</span>}
+ />
+ </div>
+ </div>
+ );
+ }
+ return (
+ <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+ <div className="scale-[0.98] origin-top-left">
+ <Card
+ title={`Ganancia ${yearKey}`}
+ value={<Currency v={totalGanancia} />}
+ sub={
+ yearlyError
+ ? <span className="text-red-600">{yearlyError}</span>
+ : <span>Ingresos: <Currency v={totalIngresos} /> - Utilidad: <Percent v={totalUtilidad} /> - Markup: <Percent v={totalMarkup} /></span>
+ }
+ />
+ </div>
+ <div className="scale-[0.98] origin-top-left">
  <Card
  title={monthKey ? `Ganancia ${monthKey}` : 'Selecciona un mes'}
  value={monthRow ? <Currency v={monthGanancia} /> : '-'}
  sub={
- monthRow
- ? <span>Ingresos: <Currency v={monthIngresos} /> - Utilidad: <Percent v={monthUtilidad} /> - Markup: <Percent v={monthMarkup} /></span>
+ monthKey
+ ? (
+ <span>
+ {monthRow ? <>Ingresos: <Currency v={monthIngresos} /> - Utilidad: <Percent v={monthUtilidad} /> - Markup: <Percent v={monthMarkup} /></> : null}
+ </span>
+ )
  : <span>Usa el filtro de mes para ver el detalle.</span>
  }
  />
+ </div>
+ <div className="scale-[0.98] origin-top-left">
+ <Card
+ title={monthKey ? `Gastos ${monthKey}` : 'Gastos del mes'}
+ value={monthKey ? <Currency v={monthGastos} /> : '-'}
+ sub={monthKey ? <span>Total comprado en el mes.</span> : <span>Selecciona un mes para ver gastos.</span>}
+ />
+ </div>
  </div>
  );
  })()}
@@ -3049,7 +3129,18 @@ const comprasDetalle = [...(g.comprasDetalle || [])].sort(
 
 
 
- {g.label}{' '}
+ {(g.tipo === 'iphone'
+   ? (() => {
+       const labelRaw = String(g?.label || '').trim();
+       const gamaRaw = String(g?.gama || '').trim();
+       const numFromLabel = labelRaw.match(/iphone\s*(\d+)/i)?.[1] || labelRaw.match(/\b(\d{2})\b/)?.[1] || '';
+       const numFromGama = gamaRaw.match(/(\d+)/)?.[1] || '';
+       const num = numFromGama || numFromLabel;
+       const rest = gamaRaw.replace(/\d+/g, '').trim() || (labelRaw.replace(/iphone\s*\d*/i, '').trim());
+       if (num) return rest ? `iPhone ${num} ${rest}` : `iPhone ${num}`;
+       return gamaRaw ? `iPhone ${gamaRaw}` : 'iPhone';
+     })()
+   : g.label)}{' '}
 
 
 
@@ -3073,7 +3164,13 @@ const comprasDetalle = [...(g.comprasDetalle || [])].sort(
 
 
 
- Variantes: RAM {g.ramDistinct?.join(', ') || '-'} SSD {g.ssdDistinct?.join(', ') || '-'}
+ {g.tipo === 'iphone' ? (
+   <>Variantes: Almacenamiento {g.ssdDistinct?.join(', ') || '-'}</>
+ ) : g.tipo === 'ipad' ? (
+   <>Variantes: RAM {g.ramDistinct?.join(', ') || '-'} Almacenamiento {g.ssdDistinct?.join(', ') || '-'}</>
+ ) : (
+   <>Variantes: RAM {g.ramDistinct?.join(', ') || '-'} SSD {g.ssdDistinct?.join(', ') || '-'}</>
+ )}
 
 
 
