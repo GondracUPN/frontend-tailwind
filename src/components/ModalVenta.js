@@ -56,7 +56,7 @@ export default function ModalVenta({
   useEffect(() => {
     if (!venta) setModoVenta('');
     setEditMode(false);
-  }, [producto?.id, venta?.id]);
+  }, [producto?.id, venta?.id, venta]);
 
   if (!producto) return null;
 

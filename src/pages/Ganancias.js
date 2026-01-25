@@ -750,7 +750,7 @@ function ModalSunat({ seller, onClose, ventas }) {
         split: share !== 1,
       };
     });
-  }, [lista]);
+  }, [lista, sellerSlug]);
 
   const kpis = useMemo(() => {
     let envioTotal = 0;

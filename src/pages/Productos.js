@@ -287,11 +287,6 @@ export default function Productos({ setVista, setAnalisisBack }) {
     setRecojoSelected(new Set());
     setRecojoDate('');
   };
-  const startEshopexPendientes = () => {
-    setEshopexCargaRequested(true);
-    setEshopexCargaHintDismissed(false);
-    setEshopexCargaOpen(true);
-  };
   const triggerEshopexCarga = () => {
     setEshopexCargaRequested(true);
     setEshopexCargaHintDismissed(false);
