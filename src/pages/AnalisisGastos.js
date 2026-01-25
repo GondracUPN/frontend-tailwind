@@ -19,6 +19,28 @@ const shareForSeller = (venta, seller) => {
   return 0;
 };
 
+const getTipoCambioSplit = (venta, seller) => {
+  const slug = normalizeSeller(seller);
+  const base = Number(venta?.tipoCambio ?? 0);
+  if (slug === 'gonzalo') return Number(venta?.tipoCambioGonzalo ?? base) || base || 0;
+  if (slug === 'renato') return Number(venta?.tipoCambioRenato ?? base) || base || 0;
+  return base || 0;
+};
+
+const splitMetrics = (venta, seller) => {
+  const valorUsd = Number(venta?.producto?.valor?.valorProducto ?? 0);
+  const envio = Number(
+    venta?.producto?.valor?.costoEnvioProrrateado ??
+      venta?.producto?.valor?.costoEnvio ??
+      0,
+  );
+  const tc = getTipoCambioSplit(venta, seller);
+  const ingreso = Number(venta?.precioVenta ?? 0) / 2;
+  const costo = (valorUsd / 2) * tc + (envio / 2);
+  const ganancia = ingreso - costo;
+  return { ganancia };
+};
+
 export default function AnalisisGastos({ setVista }) {
   const [rows, setRows] = useState([]);
   const [ventas, setVentas] = useState([]);
@@ -141,9 +163,12 @@ export default function AnalisisGastos({ setVista }) {
         ) || 0;
       SELLERS.forEach((s) => {
         const share = shareForSeller(v, s);
-        if (share) {
-          totales[s] += gananciaBase * share;
+        if (!share) return;
+        if (share !== 1) {
+          totales[s] += splitMetrics(v, s).ganancia;
+          return;
         }
+        totales[s] += gananciaBase;
       });
     });
     return totales;

@@ -1,6 +1,7 @@
 // src/pages/Ganancias.js
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api';
+import ModalVenta from '../components/ModalVenta';
 
 /* =========================
    Helpers
@@ -51,6 +52,32 @@ const shareForSeller = (venta, seller) => {
   if (vend === target) return 1;
   if (vend === SPLIT_VENDOR && SELLER_SLUGS.includes(target)) return SPLIT_SHARE;
   return 0;
+};
+
+const getValorUsd = (venta) => Number(venta?.producto?.valor?.valorProducto ?? 0);
+const getEnvioSoles = (venta) =>
+  Number(
+    venta?.producto?.valor?.costoEnvioProrrateado ??
+      venta?.producto?.valor?.costoEnvio ??
+      0,
+  );
+const getTipoCambioSplit = (venta, seller) => {
+  const slug = normalizeVendedor(seller);
+  const base = Number(venta?.tipoCambio ?? 0);
+  if (slug === 'gonzalo') return Number(venta?.tipoCambioGonzalo ?? base) || base || 0;
+  if (slug === 'renato') return Number(venta?.tipoCambioRenato ?? base) || base || 0;
+  return base || 0;
+};
+
+const splitMetrics = (venta, seller) => {
+  const valorUsd = getValorUsd(venta);
+  const envio = getEnvioSoles(venta);
+  const tc = getTipoCambioSplit(venta, seller);
+  const ingreso = Number(venta?.precioVenta ?? 0) / 2;
+  const costo = (valorUsd / 2) * tc + (envio / 2);
+  const ganancia = ingreso - costo;
+  const pct = costo > 0 ? (ganancia / costo) * 100 : 0;
+  return { ingreso, costo, ganancia, pct };
 };
 
 function nombreProducto(p) {
@@ -127,13 +154,19 @@ function formatDateLocal(dateStr) {
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
-function totales(ventasArr) {
+function totales(ventasArr, seller) {
   let totalVentasSoles = 0;
   let totalGanancia = 0;
   for (const v of ventasArr) {
     const share = Number(v?.__share ?? 1);
-    totalVentasSoles += Number(v.precioVenta ?? 0) * share;
-    totalGanancia += Number(v.ganancia ?? 0) * share;
+    if (seller && v?.__split) {
+      const m = splitMetrics(v, seller);
+      totalVentasSoles += Number(m.ingreso || 0);
+      totalGanancia += Number(m.ganancia || 0);
+    } else {
+      totalVentasSoles += Number(v.precioVenta ?? 0) * share;
+      totalGanancia += Number(v.ganancia ?? 0) * share;
+    }
   }
   return {
     cantidad: ventasArr.length,
@@ -261,8 +294,8 @@ export default function Ganancias({ setVista }) {
     [ventasPorSeller.r, rangoRenato]
   );
 
-  const tG = useMemo(() => totales(ventasGonzaloFiltradas), [ventasGonzaloFiltradas]);
-  const tR = useMemo(() => totales(ventasRenatoFiltradas), [ventasRenatoFiltradas]);
+  const tG = useMemo(() => totales(ventasGonzaloFiltradas, 'gonzalo'), [ventasGonzaloFiltradas]);
+  const tR = useMemo(() => totales(ventasRenatoFiltradas, 'renato'), [ventasRenatoFiltradas]);
   const ventasSinVendedor = useMemo(() => ventasPorSeller.sin, [ventasPorSeller.sin]);
 
   return (
@@ -473,7 +506,9 @@ function ColVendedor({
   reloadVentas,
 }) {
   const currentYear = String(new Date().getFullYear());
+  const sellerSlug = normalizeVendedor(titulo);
   const [unassigningId, setUnassigningId] = useState(null);
+  const [editingVenta, setEditingVenta] = useState(null);
 
   const handleQuitar = async (ventaId) => {
     if (!window.confirm('Quitar esta venta del vendedor?')) return;
@@ -576,12 +611,18 @@ function ColVendedor({
               ventas.map(v => {
                 const p = v.producto || {};
                 const val = p.valor || {};
-                const pct = Number(v.porcentajeGanancia ?? 0);
                 const share = Number(v.__share ?? 1);
                 const costoTotal = Number(val.costoTotal ?? 0);
                 const precioVenta = Number(v.precioVenta ?? 0);
                 const gananciaBase = Number(v.ganancia ?? (precioVenta - costoTotal));
-                const gananciaMostrada = gananciaBase * share;
+                const split = v.__split;
+                const splitCalc = split ? splitMetrics(v, sellerSlug) : null;
+                const costoMostrar = split ? splitCalc?.costo : costoTotal;
+                const precioMostrar = split ? splitCalc?.ingreso : precioVenta;
+                const gananciaMostrar = split ? splitCalc?.ganancia : gananciaBase * share;
+                const pctMostrar = split
+                  ? splitCalc?.pct
+                  : (costoTotal > 0 ? (gananciaBase / costoTotal) * 100 : 0);
 
                 return (
                   <tr key={v.id} className="border-t">
@@ -595,25 +636,34 @@ function ColVendedor({
                         )}
                       </div>
                     </td>
-                    <td className="p-2">{fmtSoles(val.costoTotal)}</td>
+                    <td className="p-2">{fmtSoles(costoMostrar)}</td>
                     <td className="p-2">
                       {val.fechaCompra ? formatDateLocal(val.fechaCompra) : '--'}
                     </td>
-                    <td className="p-2">{fmtSoles(v.precioVenta)}</td>
-                    <td className="p-2">{fmtSoles(gananciaMostrada)}</td>
-                    <td className="p-2">{isFinite(pct) ? `${pct.toFixed(2)}%` : '--'}</td>
+                    <td className="p-2">{fmtSoles(precioMostrar)}</td>
+                    <td className="p-2">{fmtSoles(gananciaMostrar)}</td>
+                    <td className="p-2">{isFinite(pctMostrar) ? `${pctMostrar.toFixed(2)}%` : '--'}</td>
                     <td className="p-2">
                       {v.fechaVenta ? formatDateLocal(v.fechaVenta) : '--'}
                     </td>
                     <td className="p-2">
-                      <button
-                        className="px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-                        onClick={() => handleQuitar(v.id)}
-                        disabled={unassigningId === v.id}
-                        title="Quitar esta venta del vendedor"
-                      >
-                        {unassigningId === v.id ? 'Quitando...' : 'Quitar'}
-                      </button>
+                      <div className="flex flex-col gap-1">
+                        <button
+                          className="px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 text-xs"
+                          onClick={() => handleQuitar(v.id)}
+                          disabled={unassigningId === v.id}
+                          title="Quitar esta venta del vendedor"
+                        >
+                          {unassigningId === v.id ? 'Quitando...' : 'Quitar'}
+                        </button>
+                        <button
+                          className="px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 text-xs"
+                          onClick={() => setEditingVenta(v)}
+                          title="Editar venta"
+                        >
+                          Editar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -622,6 +672,18 @@ function ColVendedor({
           </tbody>
         </table>
       </div>
+
+      {editingVenta && (
+        <ModalVenta
+          producto={editingVenta?.producto || null}
+          venta={editingVenta}
+          onClose={() => setEditingVenta(null)}
+          onSaved={() => {
+            setEditingVenta(null);
+            reloadVentas({ silent: true });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -661,10 +723,11 @@ function ModalSunat({ seller, onClose, ventas }) {
     return lista.map(v => {
       const p = v.producto || {};
       const val = p.valor || {};
-      const tipoCambio = Number(v.tipoCambio ?? 0);
       const share = Number(v.__share ?? 1);
+      const isSplit = v.__split;
+      const tipoCambio = isSplit ? getTipoCambioSplit(v, sellerSlug) : Number(v.tipoCambio ?? 0);
       const valorDecUSDBase = Number(val.valorDec ?? 0);
-      const envioSolesBase = Number(val.costoEnvio ?? 0);
+      const envioSolesBase = Number(val.costoEnvioProrrateado ?? val.costoEnvio ?? 0);
       const ventaSolesBase = Number(v.precioVenta ?? 0);
 
       const valorDecUSD = valorDecUSDBase * share;
@@ -672,8 +735,7 @@ function ModalSunat({ seller, onClose, ventas }) {
       const ventaSoles = ventaSolesBase * share;
       const decSoles = valorDecUSD * tipoCambio;
       const costoBase = decSoles + envioSoles;
-      const gananciaBase = Number(v.ganancia ?? (ventaSolesBase - Number(val.costoTotal ?? 0)));
-      const gananciaNeta = gananciaBase * share;
+      const gananciaNeta = ventaSoles - costoBase;
 
       return {
         id: v.id,

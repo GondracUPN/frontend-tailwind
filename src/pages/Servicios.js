@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import api from '../api';
 import ModalProducto from '../components/ModalProducto';
+import LoginGastos from './LoginGastos';
 
 function UsuariosAdmin() {
   const [users, setUsers] = useState([]);
@@ -260,12 +261,86 @@ function InventarioAdmin({ onIrProductos }) {
 }
 
 export default function Servicios({ setVista }) {
-  // Acceso directo: sin comprobación de sufijo especial en la URL
+  const [user, setUser] = useState(() => {
+    try {
+      const raw = localStorage.getItem('user');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [token, setToken] = useState(() => localStorage.getItem('token'));
+
+  const isLogged = Boolean(token && user);
+  const isAdmin = user?.role === 'admin';
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
+  };
+
+  if (!isLogged) {
+    return (
+      <LoginGastos
+        onLoggedIn={(u, t) => {
+          setUser(u || null);
+          setToken(t || null);
+        }}
+        onBack={() => setVista('home')}
+      />
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen p-6 bg-gray-50 flex items-center justify-center">
+        <div className="bg-white border rounded-xl shadow p-6 w-full max-w-lg">
+          <h1 className="text-xl font-semibold mb-2">Acceso restringido</h1>
+          <p className="text-sm text-gray-600 mb-4">
+            Necesitas permisos de administrador para entrar a Servicios.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900"
+            >
+              Cerrar sesión
+            </button>
+            <button
+              onClick={() => setVista('home')}
+              className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
+            >
+              ← Volver
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen p-6 space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-semibold">Servicios (Admin)</h1>
-        <button onClick={() => setVista('home')} className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100">← Volver</button>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold">Servicios (Admin)</h1>
+          <span className="text-sm text-gray-500">{user?.username}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900"
+          >
+            Cerrar sesión
+          </button>
+          <button
+            onClick={() => setVista('home')}
+            className="px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
+          >
+            ← Volver
+          </button>
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
@@ -275,4 +350,5 @@ export default function Servicios({ setVista }) {
     </div>
   );
 }
+
 

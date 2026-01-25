@@ -17,37 +17,13 @@ import { TC_FIJO } from '../utils/tipoCambio';
 
 
 function Card({ title, value, sub }) {
-
-
-
- return (
-
-
-
- <div className="bg-white rounded-xl border shadow-sm p-4">
-
-
-
- <div className="text-sm text-gray-500">{title}</div>
-
-
-
- <div className="text-2xl font-semibold mt-1">{value}</div>
-
-
-
- {sub ? <div className="text-xs text-gray-500 mt-1">{sub}</div> : null}
-
-
-
- </div>
-
-
-
- );
-
-
-
+  return (
+    <div className="bg-white rounded-xl border shadow-sm p-4">
+      <div className="text-sm text-gray-500">{title}</div>
+      <div className="text-2xl font-semibold mt-1">{value}</div>
+      {sub ? <div className="text-xs text-gray-500 mt-1">{sub}</div> : null}
+    </div>
+  );
 }
 
 
@@ -242,7 +218,21 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- const medianLocal = (arr) => {
+ const fmtSignedSoles = (value) => {
+
+ const n = Number(value);
+
+ if (!isFinite(n)) return '-';
+
+ const sign = n > 0 ? '+' : '';
+
+ return `${sign}${fmtSolesLocal(n)}`;
+
+};
+
+
+
+const medianLocal = (arr) => {
 
 
 
@@ -270,7 +260,50 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- const avgLocal = (arr = []) => {
+ const normalizeEstado = (value) => {
+
+ const s = value == null ? '' : String(value);
+
+ return s.trim().toLowerCase();
+
+};
+
+const applyEstadoFilter = (series = [], estado) => {
+
+ const key = normalizeEstado(estado);
+
+ if (!key || key === 'todos') return series;
+
+ return series.filter((p) => normalizeEstado(p?.estado) === key);
+
+};
+
+const countEstados = (series = []) => {
+
+ const counts = { nuevo: 0, usado: 0, total: 0 };
+
+ series.forEach((p) => {
+
+  counts.total += 1;
+
+  const e = normalizeEstado(p?.estado);
+
+  if (e === 'nuevo') counts.nuevo += 1;
+
+  if (e === 'usado') counts.usado += 1;
+
+ });
+
+ return counts;
+
+};
+
+
+
+
+
+
+const avgLocal = (arr = []) => {
 
 
 
@@ -290,7 +323,89 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
- const roundUp10 = (value) => {
+ const quantileLocal = (arr, q) => {
+
+ const clean = (arr || []).filter((n) => isFinite(n)).sort((a, b) => a - b);
+
+ if (!clean.length) return null;
+
+ const pos = (clean.length - 1) * q;
+
+ const base = Math.floor(pos);
+
+ const rest = pos - base;
+
+ if (clean[base + 1] !== undefined) return clean[base] + rest * (clean[base + 1] - clean[base]);
+
+ return clean[base];
+
+};
+
+const sanitizeSeries = (series = []) => {
+
+ const vals = series.map((p) => p.val).filter((v) => isFinite(v));
+
+ if (vals.length < 4) return { series: series.slice(), removed: 0, bounds: null };
+
+ const q1 = quantileLocal(vals, 0.25);
+
+ const q3 = quantileLocal(vals, 0.75);
+
+ if (q1 == null || q3 == null) return { series: series.slice(), removed: 0, bounds: null };
+
+ const iqr = Math.max(1, q3 - q1);
+
+ const lower = q1 - 1.5 * iqr;
+
+ const upper = q3 + 1.5 * iqr;
+
+ const filtered = series.filter((p) => p.val >= lower && p.val <= upper);
+
+ return { series: filtered, removed: Math.max(0, series.length - filtered.length), bounds: { lower, upper } };
+
+};
+
+const buildTrendStats = (series = []) => {
+
+ if (series.length < 2) return null;
+
+ const first = series[0];
+
+ const last = series[series.length - 1];
+
+ const days = Math.max(1, Math.round((last.ts - first.ts) / (1000 * 60 * 60 * 24)));
+
+ const change = +(last.val - first.val).toFixed(2);
+
+ const per30 = +((change / days) * 30).toFixed(2);
+
+ return { change, days, per30 };
+
+};
+
+const buildSpreadStats = (costSeries = [], saleSeries = []) => {
+
+ const costVals = costSeries.map((p) => p.val).filter((v) => isFinite(v) && v > 0);
+
+ const saleVals = saleSeries.map((p) => p.val).filter((v) => isFinite(v) && v > 0);
+
+ const costMedian = medianLocal(costVals);
+
+ const saleMedian = medianLocal(saleVals);
+
+ if (!isFinite(costMedian) || !isFinite(saleMedian)) return null;
+
+ const spread = +(saleMedian - costMedian).toFixed(2);
+
+ const pct = costMedian ? +((spread / costMedian) * 100).toFixed(2) : null;
+
+ return { costMedian, saleMedian, spread, pct };
+
+};
+
+
+
+const roundUp10 = (value) => {
 
 
 
@@ -306,6 +421,42 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
+ };
+
+ const buildSeries = (rows = [], { dateKey, valueKey } = {}) => {
+  return rows
+   .map((row) => {
+    const rawDate = row?.[dateKey];
+    const rawVal = row?.[valueKey];
+    const ts = rawDate ? Date.parse(rawDate) : NaN;
+    const val = Number(rawVal);
+    if (!isFinite(ts) || !isFinite(val) || val <= 0) return null;
+    return {
+     ts,
+     val,
+     date: rawDate,
+     productoId: row?.productoId ?? null,
+     estado: normalizeEstado(row?.estado),
+    };
+   })
+   .filter(Boolean)
+   .sort((a, b) => a.ts - b.ts);
+ };
+
+ const buildDropStats = (series = []) => {
+  const drops = [];
+  for (let i = 1; i < series.length; i += 1) {
+   const prev = series[i - 1];
+   const cur = series[i];
+   if (cur.val < prev.val) {
+    const days = Math.max(1, Math.round((cur.ts - prev.ts) / (1000 * 60 * 60 * 24)));
+    drops.push({ from: prev, to: cur, days, delta: prev.val - cur.val });
+   }
+  }
+  const count = drops.length;
+  const avgDays = count ? Math.round(drops.reduce((s, d) => s + d.days, 0) / count) : 0;
+  const avgDrop = count ? +(drops.reduce((s, d) => s + d.delta, 0) / count).toFixed(2) : 0;
+  return { count, avgDays, avgDrop, drops };
  };
 
 
@@ -458,6 +609,20 @@ const [isStale, setIsStale] = useState(false);
 
  const [yearlyData, setYearlyData] = useState(null);
  const [yearlyError, setYearlyError] = useState('');
+ const [curvaModal, setCurvaModal] = useState({
+  open: false,
+  title: '',
+  costSeries: [],
+  saleSeries: [],
+  costSeriesRaw: [],
+  saleSeriesRaw: [],
+  comprasDetalleRaw: [],
+  costStats: null,
+  saleStats: null,
+  saleTrend: null,
+  estadoFiltro: "todos",
+  estadoCounts: { nuevo: 0, usado: 0 },
+ });
 
  const monthStart = (monthStr = '') => {
  if (!monthStr) return '';
@@ -486,6 +651,195 @@ const [isStale, setIsStale] = useState(false);
  const y = Number(yearStr);
  if (!y) return '';
  return `${y}-12-31`;
+ };
+
+ const openCurvaModal = ({ title, costSeries, saleSeries, comprasDetalle }) => {
+  const counts = countEstados(comprasDetalle || []);
+  const estadoFiltro = counts.nuevo || counts.usado
+   ? (counts.nuevo >= counts.usado ? 'nuevo' : 'usado')
+   : 'todos';
+  setCurvaModal({
+    open: true,
+    title,
+    costSeries,
+    saleSeries,
+    costSeriesRaw: costSeries,
+    saleSeriesRaw: saleSeries,
+    comprasDetalleRaw: comprasDetalle || [],
+    estadoFiltro,
+    estadoCounts: counts,
+  });
+ };
+
+ const curvaDerived = (() => {
+  const selectedEstado = curvaModal.estadoFiltro || 'todos';
+  const costAll = curvaModal.costSeriesRaw || curvaModal.costSeries || [];
+  const comprasAll = curvaModal.comprasDetalleRaw || [];
+  const saleAll = curvaModal.saleSeriesRaw || curvaModal.saleSeries || [];
+  let costFiltered = applyEstadoFilter(costAll, selectedEstado);
+  let saleFiltered = applyEstadoFilter(saleAll, selectedEstado);
+  const comprasFiltered = applyEstadoFilter(comprasAll, selectedEstado);
+  let usedFallback = false;
+  if (selectedEstado !== 'todos' && costFiltered.length === 0 && saleFiltered.length > 0) {
+    const ids = new Set(saleFiltered.map((p) => p.productoId).filter(Boolean));
+    if (ids.size) {
+      costFiltered = costAll.filter((p) => ids.has(p.productoId));
+      usedFallback = true;
+    }
+  }
+  const costClean = sanitizeSeries(costFiltered);
+  const saleClean = sanitizeSeries(saleFiltered);
+  const costSeriesClean = costClean.series;
+  const saleSeriesClean = saleClean.series;
+  return {
+    selectedEstado,
+    costSeries: costSeriesClean,
+    saleSeries: saleSeriesClean,
+    costOutliers: costClean.removed,
+    saleOutliers: saleClean.removed,
+    spreadStats: buildSpreadStats(costSeriesClean, saleSeriesClean),
+    costTrend: buildTrendStats(costSeriesClean),
+    saleTrend: buildTrendStats(saleSeriesClean),
+    costStats: buildDropStats(costSeriesClean),
+    saleStats: buildDropStats(saleSeriesClean),
+    costCount: costSeriesClean.length,
+    saleCount: saleSeriesClean.length,
+    costCountRaw: costFiltered.length,
+    saleCountRaw: saleFiltered.length,
+    comprasCountRaw: comprasFiltered.length,
+    usedFallback,
+  };
+})();
+const estadoCounts = curvaModal.estadoCounts || { nuevo: 0, usado: 0 };
+const estadoOptions = [
+  { key: 'todos', label: 'Todos', count: estadoCounts.total ?? (estadoCounts.nuevo + estadoCounts.usado) },
+  { key: 'nuevo', label: 'Nuevo', count: estadoCounts.nuevo },
+  { key: 'usado', label: 'Usado', count: estadoCounts.usado },
+];
+const renderCurvaChart = (costSeries, saleSeries) => {
+  const all = [...(costSeries || []), ...(saleSeries || [])];
+  if (!all.length) {
+    return <div className="text-sm text-gray-500">No hay datos suficientes para graficar.</div>;
+  }
+  const width = 720;
+  const height = 300;
+  const pad = 42;
+  const minX = Math.min(...all.map((p) => p.ts));
+  const maxX = Math.max(...all.map((p) => p.ts));
+  const minY = Math.min(...all.map((p) => p.val));
+  const maxY = Math.max(...all.map((p) => p.val));
+  const rangeX = Math.max(1, maxX - minX);
+  const rangeY = Math.max(1, maxY - minY);
+  const padY = rangeY * 0.12;
+  const minYAdj = minY - padY;
+  const maxYAdj = maxY + padY;
+  const rangeYAdj = Math.max(1, maxYAdj - minYAdj);
+  const x = (ts) => pad + ((ts - minX) / rangeX) * (width - pad * 2);
+  const y = (val) => height - pad - ((val - minYAdj) / rangeYAdj) * (height - pad * 2);
+  const buildPath = (series) => {
+    if (!series.length) return '';
+    return series
+      .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${x(p.ts).toFixed(2)} ${y(p.val).toFixed(2)}`)
+      .join(' ');
+  };const buildArea = (series) => {
+    if (!series.length) return '';
+    const baseY = height - pad;
+    const head = series
+      .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${x(p.ts).toFixed(2)} ${y(p.val).toFixed(2)}`)
+      .join(' ');
+    const tail = `L ${x(series[series.length - 1].ts).toFixed(2)} ${baseY.toFixed(2)} L ${x(series[0].ts).toFixed(2)} ${baseY.toFixed(2)} Z`;
+    return `${head} ${tail}`;
+  };
+  const costPath = buildPath(costSeries || []);
+  const salePath = buildPath(saleSeries || []);
+  const costArea = buildArea(costSeries || []);
+  const saleArea = buildArea(saleSeries || []);
+  const gridY = 5;
+  const gridX = 6;
+  const yTicks = Array.from({ length: gridY + 1 }, (_, i) => minYAdj + (rangeYAdj * i) / gridY);
+  const xTicks = Array.from({ length: gridX + 1 }, (_, i) => minX + (rangeX * i) / gridX);
+  const labelY = (val) => fmtSolesLocal(val).replace('S/', 'S/');
+  const minLabel = fmtDate(new Date(minX));
+  const maxLabel = fmtDate(new Date(maxX));
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-72 rounded-xl border border-slate-200 bg-white shadow-sm">
+      <defs>
+        <linearGradient id="costArea" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="#10b981" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="saleArea" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="#6366f1" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+        </linearGradient>
+        <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+        <clipPath id="chartClip">
+          <rect x={pad} y={pad} width={width - pad * 2} height={height - pad * 2} rx="10" />
+        </clipPath>
+      </defs>
+
+      <rect x="8" y="8" width={width - 16} height={height - 16} rx="16" fill="#f8fafc" />
+
+      {yTicks.map((val, idx) => (
+        <g key={`gridy-${idx}`}>
+          <line
+            x1={pad}
+            y1={y(val)}
+            x2={width - pad}
+            y2={y(val)}
+            stroke="#e2e8f0"
+            strokeDasharray="4 6"
+          />
+          <text x={12} y={y(val) + 4} fontSize="10" fill="#94a3b8">
+            {labelY(val)}
+          </text>
+        </g>
+      ))}
+
+      {xTicks.map((val, idx) => (
+        <line
+          key={`gridx-${idx}`}
+          x1={x(val)}
+          y1={pad}
+          x2={x(val)}
+          y2={height - pad}
+          stroke="#f1f5f9"
+        />
+      ))}
+
+      <g clipPath="url(#chartClip)">
+        {costArea && <path d={costArea} fill="url(#costArea)" />}
+        {saleArea && <path d={saleArea} fill="url(#saleArea)" />}
+        {costPath && (
+          <path d={costPath} fill="none" stroke="#10b981" strokeWidth="2.6" filter="url(#softGlow)" />
+        )}
+        {salePath && (
+          <path d={salePath} fill="none" stroke="#6366f1" strokeWidth="2.6" filter="url(#softGlow)" />
+        )}
+        {(costSeries || []).map((p, idx) => (
+          <circle key={`c-${idx}`} cx={x(p.ts)} cy={y(p.val)} r="4" fill="#10b981" stroke="#ffffff" strokeWidth="2"><title>{`Compra: ${fmtSolesLocal(p.val)} | ${fmtDate(p.date)}`}</title></circle>
+        ))}
+        {(saleSeries || []).map((p, idx) => (
+          <circle key={`s-${idx}`} cx={x(p.ts)} cy={y(p.val)} r="4" fill="#6366f1" stroke="#ffffff" strokeWidth="2"><title>{`Venta: ${fmtSolesLocal(p.val)} | ${fmtDate(p.date)}`}</title></circle>
+        ))}
+      </g>
+
+      <line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} stroke="#cbd5f5" />
+      <line x1={pad} y1={pad} x2={pad} y2={height - pad} stroke="#cbd5f5" />
+
+      <text x={pad} y={height - 12} fontSize="10" fill="#94a3b8">{minLabel}</text>
+      <text x={width - pad} y={height - 12} textAnchor="end" fontSize="10" fill="#94a3b8">
+        {maxLabel}
+      </text>
+    </svg>
+  );
  };
 
  const yearKey = dateMode === 'year' && appliedDates.from
@@ -734,6 +1088,7 @@ const [isStale, setIsStale] = useState(false);
 
 
  return (
+ <> 
 
 
 
@@ -2887,6 +3242,12 @@ const comprasDetalle = [...(g.comprasDetalle || [])].sort(
  const ventasByProducto = new Map(ventasDetalleRaw.map((v) => [v.productoId, v]));
  const ventasDetalle = comprasDetalle.map((c) => ventasByProducto.get(c.productoId) || null);
 
+ const estadoByProducto = new Map(comprasDetalle.map((c) => [c.productoId, normalizeEstado(c.estado)]));
+const costSeriesBase = buildSeries(comprasDetalle, { dateKey: 'fechaCompra', valueKey: 'costoTotal' });
+const costSeries = costSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.get(p.productoId) || p.estado || '' }));
+const saleSeriesBase = buildSeries(ventasDetalleRaw, { dateKey: 'fechaVenta', valueKey: 'precioVenta' });
+const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.get(p.productoId) || p.estado || '' }));
+
 
 
  const ventaRef = (() => {
@@ -3178,14 +3539,24 @@ const comprasDetalle = [...(g.comprasDetalle || [])].sort(
 
 
 
- <div className="text-xs text-gray-500">
-
-
-
- Promedios historicos: compra <Currency v={g.compras?.mean} /> - venta <Currency v={g.ventas?.mean} /> - margen <Percent v={g.ventas?.margenPromedio || 0} />
-
-
-
+ <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+  <div>
+   Promedios historicos: compra <Currency v={g.compras?.mean} /> - venta <Currency v={g.ventas?.mean} /> - margen <Percent v={g.ventas?.margenPromedio || 0} />
+  </div>
+  <button
+   type="button"
+   className="px-2 py-1 rounded border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50"
+   onClick={() => {
+    openCurvaModal({
+     title: g.label || g.tipo || 'Producto',
+     costSeries,
+     saleSeries,
+     comprasDetalle,
+    });
+   }}
+  >
+   Ver curvas
+  </button>
  </div>
 
 
@@ -3393,19 +3764,205 @@ const comprasDetalle = [...(g.comprasDetalle || [])].sort(
 
 
 
+ {curvaModal.open && (
+  <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+   <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl border border-gray-100 p-6 relative">
+    <button
+     className="absolute top-3 right-3 w-9 h-9 rounded-full text-xl font-bold text-gray-500 hover:bg-gray-100"
+     onClick={() => setCurvaModal((s) => ({ ...s, open: false }))}
+     aria-label="Cerrar"
+    >
+     x
+    </button>
+    <div className="mb-5 rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 via-white to-emerald-50 p-4">
+     <div className="text-xs uppercase tracking-wide text-indigo-500 font-semibold">Curvas de progresion</div>
+     <div className="text-xl font-semibold text-gray-900">{curvaModal.title}</div>
+     <div className="text-xs text-gray-600 mt-1">
+      Evolucion historica de costo (S/) y venta (S/). Los puntos son registros reales por fecha.
+     </div>
+     <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+      <span className="text-gray-500">Estado:</span>
+      {estadoOptions.map((opt) => (
+       <button
+        key={`estado-${opt.key}`}
+        type="button"
+        className={`px-3 py-1 rounded-full border ${curvaDerived.selectedEstado === opt.key ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+        onClick={() => setCurvaModal((s) => ({ ...s, estadoFiltro: opt.key }))}
+       >
+        {opt.label} ({opt.count})
+       </button>
+      ))}
+      <span className="text-[11px] text-gray-400">Default: mayor cantidad</span>
+     </div>
+     <div className="mt-2 text-xs text-slate-600">
+      <span className="font-medium">Compra:</span>{' '}
+      {curvaDerived.spreadStats ? fmtSolesLocal(curvaDerived.spreadStats.costMedian) : '-'}
+      {' '}|{' '}
+      <span className="font-medium">Venta:</span>{' '}
+      {curvaDerived.spreadStats ? fmtSolesLocal(curvaDerived.spreadStats.saleMedian) : '-'}
+     </div>
+     <div className="mt-1 text-[11px] text-slate-500">
+      Compras: {curvaDerived.comprasCountRaw} (grafico {curvaDerived.costCount}) | Ventas: {curvaDerived.saleCountRaw} (grafico {curvaDerived.saleCount})
+     </div>
+     {curvaDerived.usedFallback ? (
+      <div className="text-[11px] text-amber-700 mt-1">
+       Algunas compras no tienen estado registrado; se emparejaron usando ventas del mismo producto.
+      </div>
+     ) : null}
+    </div>
+    <div className="space-y-3">
+     <div className="rounded-2xl border border-gray-200 bg-gradient-to-b from-white to-gray-50 p-3 shadow-sm">
+     {(!curvaDerived.costCount && !curvaDerived.saleCount) ? (
+      <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+       Sin datos para el estado seleccionado.
+      </div>
+     ) : null}
+      {renderCurvaChart(curvaDerived.costSeries, curvaDerived.saleSeries)}
+      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 mt-3">
+       <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 text-emerald-700 px-3 py-1 border border-emerald-200">
+        <span className="inline-block w-4 h-0.5 bg-emerald-500" />
+        Costo (S/)
+       </div>
+       <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 text-indigo-700 px-3 py-1 border border-indigo-200">
+        <span className="inline-block w-4 h-0.5 bg-indigo-500" />
+        Venta (S/)
+       </div>
+      </div>
+      <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+       <div className="rounded-lg border border-slate-200 bg-white/70 p-3">
+        <div className="text-[11px] uppercase tracking-wide text-slate-500">Brecha tipica</div>
+        {curvaDerived.spreadStats ? (
+         <>
+          <div className="mt-1 text-sm font-semibold text-slate-800">
+           {fmtSignedSoles(curvaDerived.spreadStats.spread)}
+           {curvaDerived.spreadStats.pct != null ? ' (' + curvaDerived.spreadStats.pct + '%)' : ''}
+          </div>
+          <div className="text-[11px] text-slate-500 mt-1">
+           Compra {fmtSolesLocal(curvaDerived.spreadStats.costMedian)} | Venta {fmtSolesLocal(curvaDerived.spreadStats.saleMedian)}
+          </div>
+         </>
+        ) : (
+         <div className="text-xs text-gray-500 mt-1">Sin datos suficientes.</div>
+        )}
+       </div>
+       <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
+        <div className="text-[11px] uppercase tracking-wide text-emerald-700">Tendencia costo</div>
+        {curvaDerived.costTrend ? (
+         <>
+          <div className="mt-1 text-sm font-semibold text-emerald-900">
+           {fmtSignedSoles(curvaDerived.costTrend.change)}
+          </div>
+          <div className="text-[11px] text-emerald-700 mt-1">
+           Aprox {fmtSignedSoles(curvaDerived.costTrend.per30)} cada 30 dias
+          </div>
+         </>
+        ) : (
+         <div className="text-xs text-gray-500 mt-1">Sin datos suficientes.</div>
+        )}
+       </div>
+       <div className="rounded-lg border border-indigo-200 bg-indigo-50/70 p-3">
+        <div className="text-[11px] uppercase tracking-wide text-indigo-700">Tendencia venta</div>
+        {curvaDerived.saleTrend ? (
+         <>
+          <div className="mt-1 text-sm font-semibold text-indigo-900">
+           {fmtSignedSoles(curvaDerived.saleTrend.change)}
+          </div>
+          <div className="text-[11px] text-indigo-700 mt-1">
+           Aprox {fmtSignedSoles(curvaDerived.saleTrend.per30)} cada 30 dias
+          </div>
+         </>
+        ) : (
+         <div className="text-xs text-gray-500 mt-1">Sin datos suficientes.</div>
+        )}
+       </div>
+      </div>
+     </div>
+    </div>
+    <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+     {(() => {
+      const stats = curvaDerived.costStats;
+      return (
+       <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 shadow-sm">
+        <div className="font-semibold text-emerald-800 text-base">Costo</div>
+        {!stats || !stats.count ? (
+         <div className="text-xs text-gray-600 mt-1">Sin bajas detectadas.</div>
+        ) : (
+         <>
+          <div className="text-xs text-gray-700 mt-1">
+           <span className="font-semibold">Bajas:</span> {stats.count}  | 
+           <span className="font-semibold"> Promedio cada</span> {stats.avgDays} dias  | 
+           <span className="font-semibold"> Caida promedio</span> {fmtSolesLocal(stats.avgDrop)}
+          </div>
+          <div className="text-[11px] text-gray-500 mt-2">
+           Cada linea muestra de que fecha a que fecha bajo y cuanto cayo.
+          </div>
+          {curvaDerived.costOutliers ? (
+           <div className="text-[11px] text-emerald-700 mt-1">
+            Se omitieron {curvaDerived.costOutliers} puntos atipicos (mega ofertas) en costo.
+           </div>
+          ) : null}
+          <ul className="text-xs text-gray-600 mt-2 space-y-1 max-h-32 overflow-auto pr-1">
+           {stats.drops.slice(0, 8).map((d, i) => (
+            <li key={`cost-drop-${i}`}>
+             {fmtDate(d.from.date)} -> {fmtDate(d.to.date)}: -{fmtSolesLocal(d.delta)} ({d.days} dias)
+            </li>
+           ))}
+           {stats.drops.length > 8 && (
+            <li>y {stats.drops.length - 8} mas...</li>
+           )}
+          </ul>
+         </>
+        )}
+       </div>
+      );
+     })()}
+     {(() => {
+      const stats = curvaDerived.saleStats;
+      return (
+       <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 shadow-sm">
+        <div className="font-semibold text-indigo-800 text-base">Venta</div>
+        {!stats || !stats.count ? (
+         <div className="text-xs text-gray-600 mt-1">Sin bajas detectadas.</div>
+        ) : (
+         <>
+          <div className="text-xs text-gray-700 mt-1">
+           <span className="font-semibold">Bajas:</span> {stats.count}  | 
+           <span className="font-semibold"> Promedio cada</span> {stats.avgDays} dias  | 
+           <span className="font-semibold"> Caida promedio</span> {fmtSolesLocal(stats.avgDrop)}
+          </div>
+          <div className="text-[11px] text-gray-500 mt-2">
+           Cada linea muestra de que fecha a que fecha bajo y cuanto cayo.
+          </div>
+          {curvaDerived.saleOutliers ? (
+           <div className="text-[11px] text-indigo-700 mt-1">
+            Se omitieron {curvaDerived.saleOutliers} puntos atipicos (mega ofertas) en venta.
+           </div>
+          ) : null}
+          <ul className="text-xs text-gray-600 mt-2 space-y-1 max-h-32 overflow-auto pr-1">
+           {stats.drops.slice(0, 8).map((d, i) => (
+            <li key={`sale-drop-${i}`}>
+             {fmtDate(d.from.date)} -> {fmtDate(d.to.date)}: -{fmtSolesLocal(d.delta)} ({d.days} dias)
+            </li>
+           ))}
+           {stats.drops.length > 8 && (
+            <li>y {stats.drops.length - 8} mas...</li>
+           )}
+          </ul>
+         </>
+        )}
+       </div>
+      );
+     })()}
+    </div>
+   </div>
+  </div>
+ )}
+ </>
  );
 
 
 
 }
-
-
-
-
-
-
-
-
 
 
 
