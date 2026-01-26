@@ -436,6 +436,7 @@ export default function Calculadora({ setVista }) {
   const [ebayPrice, setEbayPrice] = useState(null);
   const [ebayShipping, setEbayShipping] = useState(null);
   const [ebayConditionRaw, setEbayConditionRaw] = useState("");
+  const [ebayZipLoading, setEbayZipLoading] = useState(false);
   const [ebayOverrides, setEbayOverrides] = useState({
     tipo: "",
     gama: "",
@@ -508,25 +509,46 @@ export default function Calculadora({ setVista }) {
     }
   }, [ebayUrl]);
 
-  const descargarFotos = useCallback(() => {
+  const descargarFotos = useCallback(async () => {
     if (!ebayImages.length) return;
+    if (ebayZipLoading) return;
+    setEbayZipLoading(true);
+    setEbayError("");
     const baseTitle = (ebayTitle || 'ebay-foto')
       .replace(/[^a-z0-9]+/gi, ' ')
       .trim()
       .replace(/\s+/g, '_')
       .slice(0, 120);
-    ebayImages.forEach((url, idx) => {
-      setTimeout(() => {
-        const link = document.createElement('a');
-        const fileBase = `${baseTitle || 'ebay-foto'}_${idx + 1}`;
-        link.href = `${API_URL}/utils/ebay/image?url=${encodeURIComponent(url)}&name=${encodeURIComponent(fileBase)}`;
-        link.download = `${fileBase}.jpg`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      }, idx * 120);
-    });
-  }, [ebayImages, ebayTitle]);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/utils/ebay/images-zip`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ urls: ebayImages }),
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const filename = `${baseTitle || 'ebay-fotos'}.zip`;
+      const link = document.createElement('a');
+      const objectUrl = URL.createObjectURL(blob);
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch {
+      setEbayError("No se pudieron descargar las fotos en ZIP.");
+    } finally {
+      setEbayZipLoading(false);
+    }
+  }, [ebayImages, ebayTitle, ebayZipLoading]);
 
   useEffect(() => {
     let alive = true;
@@ -969,10 +991,10 @@ const historialCompras = useMemo(() => {
                   <span className="text-sm font-medium">Fotos del producto</span>
                   <button
                     onClick={descargarFotos}
-                    disabled={!ebayImages.length}
-                    className={`${ebayImages.length ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-gray-300 text-gray-600'} px-3 py-1.5 rounded`}
+                    disabled={!ebayImages.length || ebayZipLoading}
+                    className={`${ebayImages.length && !ebayZipLoading ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-gray-300 text-gray-600'} px-3 py-1.5 rounded`}
                   >
-                    Descargar fotos
+                    {ebayZipLoading ? 'Descargando...' : 'Descargar fotos'}
                   </button>
                 </div>
               </div>
