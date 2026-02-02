@@ -28,14 +28,15 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
   const conceptoOptions = useMemo(() => {
     if (isCredito) {
       return [
+        { value: 'inversion', label: 'Inversion' },
+        { value: 'pago_envios', label: 'Pago envios' },
         { value: 'comida', label: 'Comida' },
         { value: 'gusto', label: 'Gusto' },
-        { value: 'inversion', label: 'Inversion' },
         { value: 'transporte', label: 'Transporte' },
-        { value: 'pago_envios', label: 'Pago envios' },
-        { value: 'deuda_cuotas', label: 'Deuda en cuotas' },
         { value: 'gastos_recurrentes', label: 'Gastos mensuales' },
         { value: 'desgravamen', label: 'Desgravamen' },
+        { value: 'deuda_cuotas', label: 'Deuda en cuotas' },
+        { value: 'cashback', label: 'Cashback reembolso' },
       ];
     }
     return [
@@ -202,3 +203,4 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
     </div>
   );
 }
+

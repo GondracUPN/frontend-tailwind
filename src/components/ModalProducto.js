@@ -148,6 +148,17 @@ const extractRamValue = (val) => {
   return m ? m[1] : '';
 };
 
+const extractApiError = (err, fallback) => {
+  const raw = String(err?.message || '').trim();
+  if (!raw) return fallback;
+  const parts = raw.split(' - ');
+  if (parts.length >= 2) {
+    const msg = parts.slice(1).join(' - ').trim();
+    return msg || fallback;
+  }
+  return raw || fallback;
+};
+
 export default function ModalProducto({ producto, onClose, onSaved }) {
   const isEdit = Boolean(producto);
   const [saving, setSaving] = useState(false);
@@ -341,8 +352,8 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
           valor: { ...f.valor, valorProducto: Number.isFinite(total) && total > 0 ? String(total) : f.valor.valorProducto },
         };
       });
-    } catch {
-      setEbayError('No se pudo leer el URL. Verifica que sea un enlace de eBay.');
+    } catch (err) {
+      setEbayError(extractApiError(err, 'No se pudo leer el URL. Verifica que sea un enlace de eBay.'));
     } finally {
       setEbayLoading(false);
     }

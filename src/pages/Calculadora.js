@@ -72,13 +72,13 @@ const inferNumeroModeloIphone = (title) => {
   const t = normalizeText(title);
   const numero = (t.match(/\biphone\s*(\d{2})\b/) || t.match(/\b(\d{2})\b/))?.[1] || '';
   let modelo = '';
-  if (/\bpro max\b/.test(t)) modelo = 'pro max';
+  if (/\bpro\s*max\b/.test(t) || /\bpromax\b/.test(t)) modelo = 'pro max';
   else if (/\bpro\b/.test(t)) modelo = 'pro';
   else if (/\bplus\b/.test(t)) modelo = 'plus';
   else if (/\bmini\b/.test(t)) modelo = 'mini';
   else if (/\bse\b/.test(t)) modelo = 'se';
   else if (t.includes('iphone')) modelo = 'normal';
-  return { numero, modelo };
+  return { numero, modelo: formatIphoneModeloDisplay(modelo) };
 };
 const inferWatchMeta = (title) => {
   const t = normalizeText(title);
@@ -123,9 +123,10 @@ const getIphoneModelos = (num) => {
 };
 const getIphoneAlmacenamientos = (num, modelo) => {
   const n = parseInt(num, 10);
+  const modelNorm = normalizeIphoneModelo(modelo);
   if (n >= 11 && n <= 12) return ['64', '128', '256'];
   if (n >= 13 && n <= 16) {
-    if (['Pro', 'Pro Max'].includes(modelo)) {
+    if (['pro', 'pro max'].includes(modelNorm)) {
       if (n <= 14) return ['128', '256', '512'];
       return ['256', '512', '1TB'];
     }
@@ -219,6 +220,42 @@ const WATCH_TAMANOS_POR_MODELO = {
 };
 const getWatchTamanos = (generacion) => WATCH_TAMANOS_POR_MODELO[generacion] || [];
 const normalizeField = (v) => normalizeText(v).replace(/\s+/g, ' ').trim();
+const TRACKING_MIN_ESTADOS = new Set(['comprado_en_camino', 'en_eshopex', 'recogido']);
+const isTrackingMinEnCamino = (estado) => TRACKING_MIN_ESTADOS.has(normalizeText(estado || ''));
+const getLastTrackingEstado = (p) => {
+  const arr = Array.isArray(p?.tracking) ? p.tracking : [];
+  if (!arr.length) return '';
+  const last = [...arr].sort((a, b) => (a?.id || 0) - (b?.id || 0)).pop();
+  return last?.estado || '';
+};
+const normalizeIphoneNumero = (raw) => {
+  const t = normalizeText(raw);
+  return (t.match(/\b\d{2}\b/) || [])[0] || '';
+};
+const normalizeIphoneModelo = (raw) => {
+  const t = normalizeText(raw).replace(/\d+/g, '').replace(/[^a-z0-9]+/g, '');
+  if (!t) return '';
+  if (t === 'promax') return 'pro max';
+  if (t === 'pro') return 'pro';
+  if (t === 'plus') return 'plus';
+  if (t === 'mini') return 'mini';
+  if (t === 'se') return 'se';
+  if (t === 'air') return 'air';
+  if (t === 'normal') return 'normal';
+  return raw ? normalizeField(raw) : '';
+};
+const formatIphoneModeloDisplay = (raw) => {
+  const n = normalizeIphoneModelo(raw);
+  if (!n) return '';
+  if (n === 'pro max') return 'Pro Max';
+  if (n === 'pro') return 'Pro';
+  if (n === 'plus') return 'Plus';
+  if (n === 'mini') return 'Mini';
+  if (n === 'se') return 'SE';
+  if (n === 'air') return 'Air';
+  if (n === 'normal') return 'Normal';
+  return raw ? String(raw).trim() : '';
+};
 const normalizeStorageValue = (val) => {
   const raw = normalizeField(val).toLowerCase();
   if (!raw) return '';
@@ -324,6 +361,17 @@ const writeCalcCache = (productos) => {
   } catch {
     /* ignore */
   }
+};
+
+const extractApiError = (err, fallback) => {
+  const raw = String(err?.message || '').trim();
+  if (!raw) return fallback;
+  const parts = raw.split(' - ');
+  if (parts.length >= 2) {
+    const msg = parts.slice(1).join(' - ').trim();
+    return msg || fallback;
+  }
+  return raw || fallback;
 };
 
 // Redondeos
@@ -483,13 +531,15 @@ export default function Calculadora({ setVista }) {
       const inferredAlm = parsed?.ssd || '';
       const iphoneMeta = inferNumeroModeloIphone(String(data?.title || ''));
       const watchMeta = inferWatchMeta(String(data?.title || ''));
+      const iphoneAllowedAlm = getIphoneAlmacenamientos(iphoneMeta.numero, iphoneMeta.modelo).map(normalizeStorageValue);
+      const inferredAlmNorm = normalizeStorageValue(inferredAlm || '');
       setEbayOverrides({
         tipo: inferredTipo || "",
         gama: inferredTipo === 'iphone' || inferredTipo === 'watch' ? "" : (inferredGama || ""),
         procesador: inferredProc || "",
         pantalla: inferredTipo === 'watch' ? (watchMeta.tamano || "") : (inferredPantalla || ""),
         ram: inferredRam || "",
-        almacenamiento: normalizeStorageValue(inferredAlm || ""),
+        almacenamiento: iphoneMeta.numero ? (iphoneAllowedAlm.includes(inferredAlmNorm) ? inferredAlmNorm : "") : normalizeStorageValue(inferredAlm || ""),
         numero: iphoneMeta.numero || "",
         modelo: iphoneMeta.modelo || "",
         generacion: inferredTipo === 'watch' ? (watchMeta.generacion || "") : "",
@@ -502,8 +552,8 @@ export default function Calculadora({ setVista }) {
       if (ship != null) {
         setForm((f) => ({ ...f, envioUsaUsd: String(ship) }));
       }
-    } catch {
-      setEbayError("No se pudo leer el URL. Verifica que sea un enlace de eBay.");
+    } catch (err) {
+      setEbayError(extractApiError(err, "No se pudo leer el URL. Verifica que sea un enlace de eBay."));
     } finally {
       setEbayLoading(false);
     }
@@ -555,9 +605,6 @@ export default function Calculadora({ setVista }) {
     const cached = readCalcCache();
     if (cached?.length) {
       setHistorialProductos(cached);
-      return () => {
-        alive = false;
-      };
     }
     setHistorialLoading(true);
     api.get('/productos')
@@ -646,7 +693,8 @@ const historialCompras = useMemo(() => {
     const matchEstado = (estado) => {
       if (!estadoFiltro) return true;
       const e = normalizeText(estado || '');
-      return estadoFiltro === 'nuevo' ? e === 'nuevo' : e !== 'nuevo';
+      if (estadoFiltro === 'nuevo') return e !== 'usado';
+      return e === 'usado';
     };
     const tipoNorm = normalizeText(tipoSel);
     const gamaKey = normalizeText(gamaSel);
@@ -665,17 +713,15 @@ const historialCompras = useMemo(() => {
     );
     const groups = Array.isArray(analyticsSummary?.productGroups) ? analyticsSummary.productGroups : null;
 
-    const buildIphoneGama = () => {
-      const num = normalizeField(numeroSel || '');
-      const mod = normalizeField(modeloSel || '');
-      if (num && mod) return `${num} ${mod}`.trim();
-      if (num) return num;
-      if (mod) return mod;
-      return '';
-    };
+    const trackingById = new Map();
+    (Array.isArray(historialProductos) ? historialProductos : []).forEach((p) => {
+      trackingById.set(p?.id, getLastTrackingEstado(p));
+    });
+    const trackingOk = (productoId) => isTrackingMinEnCamino(trackingById.get(productoId));
 
     if (groups) {
-      const iphoneGama = buildIphoneGama();
+      const iphoneNumeroSel = normalizeIphoneNumero(numeroSel || '');
+      const iphoneModeloSel = normalizeIphoneModelo(modeloSel || '');
       const candidates = tipoNorm ? groups.filter((g) => normalizeText(g?.tipo) === tipoNorm) : groups;
       const ramMatch = (g) => {
         const ramSet = (Array.isArray(g?.ramDistinct) ? g.ramDistinct : []).map((r) => normalizeField(r));
@@ -689,16 +735,29 @@ const historialCompras = useMemo(() => {
       const pantallaMatch = (g) => normalizeField(String(g?.pantalla || '')).includes(normalizeField(pantallaSel));
       const gamaMatch = (g) => normalizeText(g?.gama || '') === gamaKey;
 
-      const baseGroupsFiltered = candidates.filter((g) => {
+      const filterGroups = ({ useIphoneNumero = true, useIphoneModelo = true, useAlm = true } = {}) => candidates.filter((g) => {
         if (tipoNorm && normalizeText(g?.tipo || '') !== tipoNorm) return false;
-        if (tipoNorm === 'iphone' && iphoneGama && normalizeText(g?.gama || '') !== normalizeText(iphoneGama)) return false;
-        if (gamaKey && !gamaMatch(g)) return false;
+        if (tipoNorm === 'iphone') {
+          if (useIphoneNumero && iphoneNumeroSel && normalizeIphoneNumero(g?.gama || '') !== iphoneNumeroSel) return false;
+          if (useIphoneModelo && iphoneModeloSel && normalizeIphoneModelo(g?.gama || '') !== iphoneModeloSel) return false;
+        }
+        if (gamaKey && tipoNorm !== 'iphone' && !gamaMatch(g)) return false;
         if (procSel && !procMatch(g)) return false;
         if (pantallaSel && !pantallaMatch(g)) return false;
         if (ramSel && !ramMatch(g)) return false;
-        if (almSel && !ssdMatch(g)) return false;
+        if (useAlm && almSel && !ssdMatch(g)) return false;
         return true;
       });
+      let baseGroupsFiltered = filterGroups();
+      if (tipoNorm === 'iphone' && baseGroupsFiltered.length === 0 && iphoneModeloSel) {
+        baseGroupsFiltered = filterGroups({ useIphoneNumero: true, useIphoneModelo: false });
+      }
+      if (tipoNorm === 'iphone' && baseGroupsFiltered.length === 0 && iphoneNumeroSel) {
+        baseGroupsFiltered = filterGroups({ useIphoneNumero: true, useIphoneModelo: false, useAlm: false });
+      }
+      if (baseGroupsFiltered.length === 0 && almSel) {
+        baseGroupsFiltered = filterGroups({ useAlm: false });
+      }
       const baseGroups = hasEbay ? baseGroupsFiltered : (baseGroupsFiltered.length ? baseGroupsFiltered : groups);
 
       const ventaByProductoId = new Map();
@@ -721,6 +780,7 @@ const historialCompras = useMemo(() => {
         const detalles = Array.isArray(g?.comprasDetalle) ? g.comprasDetalle : [];
         detalles.forEach((d) => {
           if (!matchEstado(d?.estado)) return;
+          if (!trackingOk(d?.productoId)) return;
           const venta = d?.productoId ? ventaByProductoId.get(d.productoId) : null;
           rows.push({
             id: `${g?.label || g?.tipo}-${d?.productoId || d?.fechaCompra || Math.random()}`,
@@ -744,8 +804,9 @@ const historialCompras = useMemo(() => {
     }
 
     const items = Array.isArray(historialProductos) ? historialProductos : [];
-    const filtered = items.filter((p) => {
+    const filterItems = ({ useIphoneNumero = true, useIphoneModelo = true, useAlm = true } = {}) => items.filter((p) => {
       if (!matchEstado(p?.estado)) return false;
+      if (!isTrackingMinEnCamino(getLastTrackingEstado(p))) return false;
       if (tipoNorm && normalizeText(p?.tipo) !== tipoNorm) return false;
       if (gamaSel && tipoNorm !== 'iphone' && tipoNorm !== 'watch') {
         const g =
@@ -770,17 +831,17 @@ const historialCompras = useMemo(() => {
         const ram = normalizeField(p?.detalle?.ram || '');
         if (!ram.includes(normalizeField(ramSel))) return false;
       }
-      if (almSel && (tipoNorm === 'macbook' || tipoNorm === 'ipad' || tipoNorm === 'iphone')) {
+      if (useAlm && almSel && (tipoNorm === 'macbook' || tipoNorm === 'ipad' || tipoNorm === 'iphone')) {
         const alm = normalizeStorageValue(p?.detalle?.almacenamiento || p?.detalle?.ssd || '');
         if (!alm.includes(normalizeStorageValue(almSel))) return false;
       }
       if (numeroSel && tipoNorm === 'iphone') {
-        const num = normalizeField(p?.detalle?.numero || '');
-        if (!num.includes(normalizeField(numeroSel))) return false;
+        const num = normalizeIphoneNumero(p?.detalle?.numero || '');
+        if (useIphoneNumero && (!num || num !== normalizeIphoneNumero(numeroSel))) return false;
       }
       if (modeloSel && tipoNorm === 'iphone') {
-        const mod = normalizeField(p?.detalle?.modelo || '');
-        if (!mod.includes(normalizeField(modeloSel))) return false;
+        const mod = normalizeIphoneModelo(p?.detalle?.modelo || '');
+        if (useIphoneModelo && (!mod || mod !== normalizeIphoneModelo(modeloSel))) return false;
       }
       if (generacionSel && tipoNorm === 'watch') {
         const gen = normalizeField(p?.detalle?.generacion || '');
@@ -792,6 +853,16 @@ const historialCompras = useMemo(() => {
       }
       return true;
     });
+    let filtered = filterItems();
+    if (tipoNorm === 'iphone' && filtered.length === 0 && modeloSel) {
+      filtered = filterItems({ useIphoneNumero: true, useIphoneModelo: false });
+    }
+    if (tipoNorm === 'iphone' && filtered.length === 0 && numeroSel) {
+      filtered = filterItems({ useIphoneNumero: true, useIphoneModelo: false, useAlm: false });
+    }
+    if (filtered.length === 0 && almSel) {
+      filtered = filterItems({ useAlm: false });
+    }
     const base = hasFilters ? filtered : items;
     const limit = hasEbay ? 5 : 10;
     return base
@@ -1002,13 +1073,12 @@ const historialCompras = useMemo(() => {
                 <div className="text-sm font-medium mb-3">Ajustes para comparar costos</div>
                 {(() => {
                   const t = normalizeText(ebayOverrides.tipo);
+                  const isIphone = t === 'iphone';
                   const showGama = t === 'macbook' || t === 'ipad';
                   const showProc = t === 'macbook' || t === 'ipad';
                   const showTam = t === 'macbook' || t === 'ipad' || t === 'watch';
                   const showRam = t === 'macbook';
-                  const showAlm = t === 'macbook' || t === 'ipad' || t === 'iphone';
-                  const showNumero = t === 'iphone';
-                  const showModelo = t === 'iphone';
+                  const showAlm = t === 'macbook' || t === 'ipad';
                   const showGeneracion = t === 'watch';
                   const showConexion = t === 'watch';
                   const macConfig = t === 'macbook' ? getMacbookConfig(ebayOverrides.gama, ebayOverrides.procesador) : { sizes: [], rams: [], ssds: [] };
@@ -1025,10 +1095,7 @@ const historialCompras = useMemo(() => {
                     normalizeStorageValue(ebayOverrides.almacenamiento),
                   );
                   const iphoneModelos = ensureOptionList(getIphoneModelos(ebayOverrides.numero), ebayOverrides.modelo);
-                  const iphoneAlm = ensureOptionList(
-                    getIphoneAlmacenamientos(ebayOverrides.numero, ebayOverrides.modelo).map(normalizeStorageValue),
-                    normalizeStorageValue(ebayOverrides.almacenamiento),
-                  );
+                  const iphoneAlm = getIphoneAlmacenamientos(ebayOverrides.numero, ebayOverrides.modelo).map(normalizeStorageValue);
                   const watchTamanos = ensureOptionList(getWatchTamanos(ebayOverrides.generacion), ebayOverrides.pantalla);
                   const tipoOptions = ensureOptionValue([
                     { value: '', label: 'Selecciona' },
@@ -1067,6 +1134,64 @@ const historialCompras = useMemo(() => {
                       ))}
                     </select>
                   </div>
+                  {isIphone && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Numero</label>
+                        <select
+                          className="w-full border rounded-lg p-2 bg-white"
+                          value={ebayOverrides.numero}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            setEbayOverrides((s) => ({
+                              ...s,
+                              numero: next,
+                              modelo: '',
+                              almacenamiento: '',
+                            }));
+                          }}
+                        >
+                          <option value="">Selecciona</option>
+                          {ensureOptionList(IPHONE_NUMEROS, ebayOverrides.numero).map((n) => (
+                            <option key={`num-${n}`} value={n}>{n}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Modelo</label>
+                        <select
+                          className="w-full border rounded-lg p-2 bg-white"
+                          value={ebayOverrides.modelo}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            setEbayOverrides((s) => ({
+                              ...s,
+                              modelo: next,
+                              almacenamiento: '',
+                            }));
+                          }}
+                        >
+                          <option value="">Selecciona</option>
+                          {iphoneModelos.map((m) => (
+                            <option key={`modelo-${m}`} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Almacenamiento</label>
+                        <select
+                          className="w-full border rounded-lg p-2 bg-white"
+                          value={normalizeStorageValue(ebayOverrides.almacenamiento)}
+                          onChange={(e) => setEbayOverrides((s) => ({ ...s, almacenamiento: normalizeStorageValue(e.target.value) }))}
+                        >
+                          <option value="">Selecciona</option>
+                          {iphoneAlm.map((a) => (
+                            <option key={`alm-${a}`} value={normalizeStorageValue(a)}>{formatStorageLabel(a)}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  )}
                   {showGama && (
                     <div>
                       <label className="block text-xs font-medium mb-1">Gama</label>
@@ -1180,51 +1305,6 @@ const historialCompras = useMemo(() => {
                     </select>
                   </div>
                   )}
-                  {showNumero && (
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Numero</label>
-                    <select
-                      className="w-full border rounded-lg p-2 bg-white"
-                      value={ebayOverrides.numero}
-                      onChange={(e) => {
-                          const next = e.target.value;
-                          setEbayOverrides((s) => ({
-                            ...s,
-                            numero: next,
-                            modelo: '',
-                            almacenamiento: '',
-                        }));
-                      }}
-                    >
-                      <option value="">Selecciona</option>
-                      {ensureOptionList(IPHONE_NUMEROS, ebayOverrides.numero).map((n) => (
-                        <option key={`num-${n}`} value={n}>{n}</option>
-                      ))}
-                    </select>
-                    </div>
-                  )}
-                  {showModelo && (
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Modelo</label>
-                    <select
-                      className="w-full border rounded-lg p-2 bg-white"
-                      value={ebayOverrides.modelo}
-                      onChange={(e) => {
-                          const next = e.target.value;
-                          setEbayOverrides((s) => ({
-                            ...s,
-                            modelo: next,
-                            almacenamiento: '',
-                        }));
-                      }}
-                    >
-                      <option value="">Selecciona</option>
-                      {iphoneModelos.map((m) => (
-                        <option key={`modelo-${m}`} value={m}>{m}</option>
-                      ))}
-                    </select>
-                    </div>
-                  )}
                   {showGeneracion && (
                     <div>
                       <label className="block text-xs font-medium mb-1">Generacion</label>
@@ -1329,10 +1409,11 @@ const historialCompras = useMemo(() => {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate font-medium text-gray-900" title={h.label}>{h.label}</div>
-                          {ebayTitle && Number.isFinite(h.ventaPrecio) && (
+                          {ebayTitle && (
                             <div className="mt-1 text-xs text-gray-500">
-                              Venta: {fmtSoles(h.ventaPrecio)}
-                              {Number.isFinite(h.diasVenta) ? ` | Dias: ${Math.round(h.diasVenta)}` : ''}
+                              {Number.isFinite(h.ventaPrecio)
+                                ? `Venta: ${fmtSoles(h.ventaPrecio)}${Number.isFinite(h.diasVenta) ? ` | Dias: ${Math.round(h.diasVenta)}` : ''}`
+                                : 'Venta: Aun no se han vendido'}
                             </div>
                           )}
                         </div>

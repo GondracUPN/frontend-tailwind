@@ -21,10 +21,18 @@ function addMonths(dateStr, months) {
 }
 
 export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChanged }) {
-  const [tab, setTab] = useState('cuotas'); // 'cuotas' | 'mensuales'
+  const [tab, setTab] = useState('mensuales'); // 'cuotas' | 'mensuales'
   const [selKeys, setSelKeys] = useState({});
   const token = localStorage.getItem('token');
   const [schedules, setSchedules] = useState([]);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editKey, setEditKey] = useState(null);
+  const [editMonto, setEditMonto] = useState('');
+  const [editTarjeta, setEditTarjeta] = useState('');
+  const [editErr, setEditErr] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editCards, setEditCards] = useState([]);
+  const [editLoadingCards, setEditLoadingCards] = useState(false);
   const [hiddenKeys, setHiddenKeys] = useState(() => {
     try {
       const raw = localStorage.getItem('mensuales_hidden');
@@ -87,6 +95,32 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
     });
     return groups.filter(g => !hiddenKeys.has(g.key));
   }, [rows, hiddenKeys]);
+
+  const editGroup = useMemo(
+    () => (editKey ? mensualesGroups.find((g) => g.key === editKey) : null),
+    [editKey, mensualesGroups]
+  );
+
+  const editIsCredito = editGroup?.metodoPago === 'credito';
+
+  useEffect(() => {
+    if (!editOpen || !editIsCredito) return;
+    let alive = true;
+    (async () => {
+      try {
+        setEditLoadingCards(true);
+        const res = await fetch(`${API_URL}/cards`, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
+        const data = await res.json();
+        if (!alive) return;
+        setEditCards(Array.isArray(data) ? data : []);
+      } catch {
+        if (alive) setEditCards([]);
+      } finally {
+        if (alive) setEditLoadingCards(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [editOpen, editIsCredito, token]);
 
 
   const findScheduleForGroup = (g) => {
@@ -172,20 +206,50 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
     }
   };
 
-  const eliminarUltimo = async (k) => {
+  const openEditar = (k) => {
     const it = mensualesGroups.find(x => x.key === k);
     if (!it?.last?.id) return;
-    if (!window.confirm('Â¿Eliminar el Ãºltimo pago de este gasto mensual?')) return;
-    try {
-      const res = await fetch(`${API_URL}/gastos/${it.last.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error(await res.text());
-      onChanged?.();
-    } catch (e) {
-      console.error('[ModalCuotasYGastos] eliminar:', e);
-      alert('No se pudo eliminar.');
-    }
+    setEditKey(k);
+    setEditMonto(String(it.last?.monto ?? it.monto ?? ''));
+    setEditTarjeta(it.last?.tarjeta || (it.tarjeta !== '-' ? it.tarjeta : ''));
+    setEditErr('');
+    setEditOpen(true);
   };
 
+  const closeEditar = () => {
+    setEditOpen(false);
+    setEditKey(null);
+    setEditErr('');
+    setEditSaving(false);
+  };
+
+  const guardarEdicion = async (e) => {
+    e?.preventDefault?.();
+    if (editSaving) return;
+    setEditErr('');
+    const n = Number(editMonto);
+    if (!isFinite(n) || n <= 0) return setEditErr('Monto inválido.');
+    if (!token) return setEditErr('No hay sesión.');
+    if (!editGroup?.last?.id) return setEditErr('No se encontró el gasto.');
+    setEditSaving(true);
+    try {
+      const body = { monto: n };
+      if (editIsCredito && editTarjeta) body.tarjeta = editTarjeta;
+      const res = await fetch(`${API_URL}/gastos/${editGroup.last.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      onChanged?.();
+      closeEditar();
+    } catch (e) {
+      console.error('[ModalCuotasYGastos] editar:', e);
+      setEditErr('No se pudo actualizar.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
   const eliminarMensual = async (k) => {
     const g = mensualesGroups.find((x) => x.key === k);
     if (!g) return;
@@ -242,8 +306,8 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
         <h2 className="text-lg font-semibold mb-4">Cuotas / Gastos mensuales</h2>
 
         <div className="flex gap-2 mb-4">
-          <button className={`px-3 py-1.5 rounded border ${tab==='cuotas'?'bg-gray-900 text-white':'bg-white'}`} onClick={()=>setTab('cuotas')}>Cuotas</button>
           <button className={`px-3 py-1.5 rounded border ${tab==='mensuales'?'bg-gray-900 text-white':'bg-white'}`} onClick={()=>setTab('mensuales')}>Gastos mensuales</button>
+          <button className={`px-3 py-1.5 rounded border ${tab==='cuotas'?'bg-gray-900 text-white':'bg-white'}`} onClick={()=>setTab('cuotas')}>Cuotas</button>
         </div>
 
         {tab === 'cuotas' ? (
@@ -296,7 +360,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
                           <td className="p-2 align-top">{g.last?.fecha || '-'}</td>
                           <td className="p-2 align-top">
                             <div className="flex gap-2">
-                              <button className="px-2 py-1 text-red-600 hover:bg-red-50 rounded border" onClick={()=>eliminarUltimo(g.key)}>Eliminar Ãºltimo</button>
+                              <button className="px-2 py-1 text-indigo-700 hover:bg-indigo-50 rounded border" onClick={()=>openEditar(g.key)}>Editar</button>
                               {findScheduleForGroup(g) ? (
                                 <button className="px-2 py-1 text-red-700 hover:bg-red-50 rounded border" title="Eliminar programaciÃ³n (no borra gastos histÃ³ricos)" onClick={()=>eliminarMensual(g.key)}>Eliminar mensual</button>
                               ) : (
@@ -324,10 +388,50 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
             )}
           </div>
         )}
+      {editOpen && editGroup && (
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={(e)=>{ if (e.target === e.currentTarget) closeEditar(); }}>
+          <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-5" onClick={(e)=>e.stopPropagation()}>
+            <div className="text-lg font-semibold mb-2">Editar gasto mensual</div>
+            <div className="text-xs text-gray-600 mb-3">
+              <div>Detalle: <b>{editGroup.notas || '(Sin detalle)'}</b></div>
+              <div>Metodo: <b className="capitalize">{editGroup.metodoPago}</b> · Moneda: <b>{editGroup.moneda}</b> · Ultimo pago: <b>{editGroup.last?.fecha || '-'}</b></div>
+            </div>
+
+            {editErr && <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{editErr}</div>}
+
+            <form className="grid gap-3" onSubmit={guardarEdicion}>
+              <label className="text-sm">
+                <span className="block text-gray-600 mb-1">Monto</span>
+                <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={editMonto} onChange={(e)=>setEditMonto(e.target.value)} required />
+              </label>
+
+              {editIsCredito && (
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Tarjeta</span>
+                  <select className="w-full border rounded px-3 py-2" value={editTarjeta} onChange={(e)=>setEditTarjeta(e.target.value)} disabled={editLoadingCards || !editCards.length}>
+                    {editCards.map(c => (
+                      <option key={c.id} value={c.tipo || c.type}>{c.label || c.name || c.tipo || c.type}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" className="px-4 py-2 rounded bg-gray-200 text-gray-800 hover:bg-gray-300" onClick={closeEditar}>Cancelar</button>
+                <button type="submit" disabled={editSaving} className="px-5 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60">
+                  {editSaving ? 'Actualizando...' : 'Actualizar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );
 }
+
+
 
 
 

@@ -328,8 +328,18 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
               <div>
                 <div className="text-sm font-semibold">Saldo de tarjetas</div>
                 {cardsSummary.length > 0 && (
-                  <div className="text-xs text-gray-600 mt-0.5">
-                    Gastado total: <b>S/ {cardsTotals.pen}</b>  <b>$ {cardsTotals.usd}</b>  En soles: <b>S/ {cardsTotals.totalPen}</b>
+                  <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-semibold text-gray-800">Gastado total</span>
+                      <span className="text-gray-500">TC {TIPO_CAMBIO}</span>
+                      <span className="font-semibold">S/ {cardsTotals.totalPen}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-gray-500">En soles</span>
+                      <span className="font-semibold">S/ {cardsTotals.pen}</span>
+                      <span className="text-gray-500">En dolares</span>
+                      <span className="font-semibold">$ {cardsTotals.usd}</span>
+                    </div>
                   </div>
                 )}
               </div>

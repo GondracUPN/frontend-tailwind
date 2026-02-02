@@ -63,22 +63,9 @@ const isFlexibleMoneda = (c) => {
   return ['ingreso', 'gasto_recurrente', 'gastos_recurrentes', 'gusto', 'cashback'].some((k) => n.startsWith(k));
 };
 
-const orderByFrequency = (options, stats, cardKey) => {
-  const baseIndex = new Map(options.map((o, idx) => [o.value, idx]));
-  const cardStats = stats?.byCard?.[String(cardKey || 'default').toLowerCase()] || {};
-  const globalStats = stats?.global || {};
-  return [...options].sort((a, b) => {
-    const na = normConcept(a.value);
-    const nb = normConcept(b.value);
-    const ca = cardStats[na] ?? globalStats[na] ?? 0;
-    const cb = cardStats[nb] ?? globalStats[nb] ?? 0;
-    if (ca !== cb) return cb - ca;
-    return (baseIndex.get(a.value) ?? 0) - (baseIndex.get(b.value) ?? 0);
-  });
-};
 
 export default function ModalGastoDebito({ onClose, onSaved, userId }) {
-  const [concepto, setConcepto] = useState('comida');
+  const [concepto, setConcepto] = useState(BASE_CONCEPTOS_DEBITO[0]?.value || 'comida');
   const [moneda, setMoneda] = useState('PEN');
   const [monto, setMonto] = useState('');
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
@@ -90,8 +77,6 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
   const [tarjetaPagar, setTarjetaPagar] = useState('');
   const [cardsErr, setCardsErr] = useState('');
 
-  const [conceptStats, setConceptStats] = useState({ global: {}, byCard: {} });
-  const [conceptFromAuto, setConceptFromAuto] = useState(true);
 
   const [nota, setNota] = useState('');
   const [detalleMensual, setDetalleMensual] = useState('');
@@ -123,33 +108,6 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     return () => { alive = false; };
   }, [userId]);
 
-  // Historial para ordenar conceptos segun frecuencia por banco
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const url = userId ? `${API_URL}/gastos/all?userId=${userId}` : `${API_URL}/gastos`;
-        const res = await fetch(url, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
-        if (!res.ok) throw new Error('historial');
-        const data = await res.json();
-        const stats = { global: {}, byCard: {} };
-        (Array.isArray(data) ? data : []).forEach((g) => {
-          if (g.metodoPago !== 'debito') return;
-          const c = normConcept(g.concepto);
-          const card = String(g.tarjeta || '').toLowerCase() || 'default';
-          stats.global[c] = (stats.global[c] || 0) + 1;
-          stats.byCard[card] = stats.byCard[card] || {};
-          stats.byCard[card][c] = (stats.byCard[card][c] || 0) + 1;
-        });
-        if (alive) setConceptStats(stats);
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => { alive = false; };
-  }, [userId]);
-
   // En conceptos distintos a pago_tarjeta, forzar soles
   useEffect(() => {
     if (concepto !== 'pago_tarjeta' && !isFlexibleMoneda(concepto)) {
@@ -164,6 +122,10 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  const handleConceptChange = (val) => {
+    setConcepto(val);
+  };
 
   const submit = async (e) => {
     e?.preventDefault?.();
@@ -199,9 +161,11 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     if (concepto === 'pago_tarjeta') {
       body.pagoObjetivo = pagoObjetivo;
       if (pagoObjetivo === 'USD') {
-        body.tipoCambioDia = Number(tcPago);
+        const tc = Number(tcPago);
+        if (!isFinite(tc) || tc <= 0) return setError('Ingresa tipo de cambio válido.');
+        body.tipoCambioDia = tc;
         if (moneda === 'PEN') {
-          const usd = convertPenToUsd(n, Number(tcPago));
+          const usd = convertPenToUsd(n, tc);
           if (usd != null) body.montoUsdAplicado = Number(usd.toFixed(2));
         }
       } else {
@@ -214,7 +178,11 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/gastos`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+      const res = await fetch(`${API_URL}/gastos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       onSaved?.(data);
@@ -228,22 +196,6 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
   const showPagoTarjeta = concepto === 'pago_tarjeta';
   const showTarjetaDestino = showPagoTarjeta;
-  const conceptosOrdenados = orderByFrequency(BASE_CONCEPTOS_DEBITO, conceptStats, banco);
-
-  useEffect(() => {
-    const first = conceptosOrdenados[0]?.value;
-    if (!first) return;
-    const currentExists = conceptosOrdenados.some((c) => c.value === concepto);
-    if (!currentExists || conceptFromAuto) {
-      setConcepto(first);
-      setConceptFromAuto(true);
-    }
-  }, [banco, conceptosOrdenados, concepto, conceptFromAuto]);
-
-  const handleConceptChange = (val) => {
-    setConceptFromAuto(false);
-    setConcepto(val);
-  };
 
   return (
     <div className="fixed inset-0 z-50 bg-neutral-900/50 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={(e)=>{ if(e.target===e.currentTarget) onClose?.(); }}>
@@ -257,7 +209,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
           <label className="text-sm">
                         <span className="block text-gray-600 mb-1">Concepto</span>
             <select className="w-full border rounded px-3 py-2" value={concepto} onChange={(e)=>handleConceptChange(e.target.value)}>
-              {conceptosOrdenados.map((c) => (
+              {BASE_CONCEPTOS_DEBITO.map((c) => (
                 <option key={c.value} value={c.value}>{c.label}</option>
               ))}
             </select>
@@ -349,7 +301,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">{concepto === 'ingreso' ? 'Tarjeta (banco)' : 'Débito (banco)'}</span>
-              <select className="w-full border rounded px-3 py-2" value={banco} onChange={(e)=>{ setConceptFromAuto(true); setBanco(e.target.value); }}>
+              <select className="w-full border rounded px-3 py-2" value={banco} onChange={(e)=>setBanco(e.target.value)}>
                 {BANKS_DEBITO.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
               </select>
             </label>
@@ -390,3 +342,5 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     </div>
   );
 }
+
+

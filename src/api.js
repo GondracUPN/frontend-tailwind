@@ -18,7 +18,16 @@ async function request(path, opts = {}) {
 
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status} - ${txt.slice(0, 500)}`);
+    let detail = txt || '';
+    try {
+      const parsed = JSON.parse(txt);
+      if (Array.isArray(parsed?.message)) detail = parsed.message.join(' | ');
+      else if (parsed?.message) detail = String(parsed.message);
+      else if (parsed?.error) detail = String(parsed.error);
+    } catch {
+      // keep raw text
+    }
+    throw new Error(`HTTP ${res.status} - ${String(detail || '').slice(0, 500)}`);
   }
 
   const ct = res.headers.get('content-type') || '';
