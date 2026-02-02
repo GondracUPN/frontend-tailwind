@@ -1025,6 +1025,18 @@ const confirmAction = async () => {
       const t = fc ? Date.parse(fc) : 0;
       return Number.isFinite(t) ? t : 0;
     };
+    const saleTs = (p) => {
+      const venta = ventasMap[p?.id] || null;
+      const fv =
+        venta?.fechaVenta ||
+        venta?.fecha_venta ||
+        venta?.fecha ||
+        venta?.createdAt ||
+        venta?.updatedAt ||
+        null;
+      const t = fv ? Date.parse(fv) : 0;
+      return Number.isFinite(t) ? t : 0;
+    };
 
     let list = Array.isArray(productos) ? [...productos] : [];
     // --- Filtro por tracking (USA / Eshopex) ---
@@ -1137,7 +1149,11 @@ const confirmAction = async () => {
     }
 
 
-    list.sort((a, b) => ts(b) - ts(a)); // mfs nuevos arriba
+    if (soloVendidos && !soloDisponibles && !soloAdelanto) {
+      list.sort((a, b) => saleTs(b) - saleTs(a)); // ventas mas recientes arriba
+    } else {
+      list.sort((a, b) => ts(b) - ts(a)); // mas nuevos arriba (fecha compra)
+    }
     return list;
   }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery]);
 

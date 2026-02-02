@@ -498,6 +498,19 @@ export default function Calculadora({ setVista }) {
     conexion: "",
     condicion: "",
   });
+  const [ebayTouched, setEbayTouched] = useState({
+    tipo: false,
+    gama: false,
+    procesador: false,
+    pantalla: false,
+    ram: false,
+    almacenamiento: false,
+    numero: false,
+    modelo: false,
+    generacion: false,
+    conexion: false,
+    condicion: false,
+  });
   const [historialProductos, setHistorialProductos] = useState([]);
   const [historialLoading, setHistorialLoading] = useState(false);
   const [analyticsSummary, setAnalyticsSummary] = useState(null);
@@ -545,6 +558,19 @@ export default function Calculadora({ setVista }) {
         generacion: inferredTipo === 'watch' ? (watchMeta.generacion || "") : "",
         conexion: inferredTipo === 'watch' ? (watchMeta.conexion || "") : "",
         condicion: mappedCondition || "",
+      });
+      setEbayTouched({
+        tipo: false,
+        gama: false,
+        procesador: false,
+        pantalla: false,
+        ram: false,
+        almacenamiento: false,
+        numero: false,
+        modelo: false,
+        generacion: false,
+        conexion: false,
+        condicion: false,
       });
       if (price != null) {
         setForm((f) => ({ ...f, precioUsd: String(price) }));
@@ -658,8 +684,8 @@ export default function Calculadora({ setVista }) {
     const pesoIn      = num(debounced.pesoKg);
     const pesoFacturable = roundTenth05Down(pesoIn);
 
-    const precioSoles = precioUsd * (num(tipoCambio) || 0);
-    const envioUsaSoles = envioUsaUsd * (num(tipoCambio) || 0);
+    const baseUsd = precioUsd + envioUsaUsd;
+    const precioSoles = baseUsd * (num(tipoCambio) || 0);
 
     const transporteBruto    = tarifaEshopexInterpolada(pesoFacturable);
     const promoDescuento     = tarifaHasta3Kg(pesoFacturable) * 0.35;
@@ -669,26 +695,52 @@ export default function Calculadora({ setVista }) {
     const seguro     = seguroPorDEC(decUsd);
     const costoEnvio = transporteConPromo + honorarios + seguro;
 
-    const costoTotal     = precioSoles + envioUsaSoles + costoEnvio;
+    const costoTotal     = precioSoles + costoEnvio;
     const precioVentaMin = ceil10(costoTotal * 1.2);
     const ganancia       = precioVentaMin - costoTotal;
 
-    return { precioSoles, envioUsaSoles, pesoFacturable, transporteBruto, promoDescuento, transporteConPromo, honorarios, seguro, costoEnvio, costoTotal, precioVentaMin, ganancia };
+    return { precioSoles, pesoFacturable, transporteBruto, promoDescuento, transporteConPromo, honorarios, seguro, costoEnvio, costoTotal, precioVentaMin, ganancia };
   }, [debounced, tipoCambio]);
 
 const historialCompras = useMemo(() => {
     const hasEbay = Boolean(ebayTitle);
+    const hasManualEbayFilters = Object.values(ebayTouched || {}).some(Boolean);
+    const allowRelaxNumero = !hasManualEbayFilters || !ebayTouched.numero;
+    const allowRelaxModelo = !hasManualEbayFilters || !ebayTouched.modelo;
+    const allowRelaxAlm = !hasManualEbayFilters || !ebayTouched.almacenamiento;
     const tipoSel = ebayOverrides.tipo || inferTipo(ebayTitle);
-    const gamaSel = ebayOverrides.gama || inferGama(ebayTitle, tipoSel);
-    const procSel = ebayOverrides.procesador || inferProcesador(ebayTitle);
-    const pantallaSel = ebayOverrides.pantalla;
-    const ramSel = ebayOverrides.ram;
-    const almSel = normalizeStorageValue(ebayOverrides.almacenamiento);
-    const numeroSel = ebayOverrides.numero;
-    const modeloSel = ebayOverrides.modelo;
-    const generacionSel = ebayOverrides.generacion;
-    const conexionSel = ebayOverrides.conexion;
-    const condicionSel = ebayOverrides.condicion;
+    const gamaSel = hasManualEbayFilters
+      ? (ebayTouched.gama ? ebayOverrides.gama : '')
+      : (ebayOverrides.gama || inferGama(ebayTitle, tipoSel));
+    const procSel = hasManualEbayFilters
+      ? (ebayTouched.procesador ? ebayOverrides.procesador : '')
+      : (ebayOverrides.procesador || inferProcesador(ebayTitle));
+    const pantallaSel = hasManualEbayFilters
+      ? (ebayTouched.pantalla ? ebayOverrides.pantalla : '')
+      : (ebayOverrides.pantalla || '');
+    const ramSel = hasManualEbayFilters
+      ? (ebayTouched.ram ? ebayOverrides.ram : '')
+      : (ebayOverrides.ram || '');
+    const almSel = normalizeStorageValue(
+      hasManualEbayFilters
+        ? (ebayTouched.almacenamiento ? ebayOverrides.almacenamiento : '')
+        : ebayOverrides.almacenamiento
+    );
+    const numeroSel = hasManualEbayFilters
+      ? (ebayTouched.numero ? ebayOverrides.numero : '')
+      : ebayOverrides.numero;
+    const modeloSel = hasManualEbayFilters
+      ? (ebayTouched.modelo ? ebayOverrides.modelo : '')
+      : ebayOverrides.modelo;
+    const generacionSel = hasManualEbayFilters
+      ? (ebayTouched.generacion ? ebayOverrides.generacion : '')
+      : ebayOverrides.generacion;
+    const conexionSel = hasManualEbayFilters
+      ? (ebayTouched.conexion ? ebayOverrides.conexion : '')
+      : ebayOverrides.conexion;
+    const condicionSel = hasManualEbayFilters
+      ? (ebayTouched.condicion ? ebayOverrides.condicion : '')
+      : ebayOverrides.condicion;
     const estadoFiltro = normalizeEstadoCondicion(condicionSel);
     const matchEstado = (estado) => {
       if (!estadoFiltro) return true;
@@ -749,16 +801,18 @@ const historialCompras = useMemo(() => {
         return true;
       });
       let baseGroupsFiltered = filterGroups();
-      if (tipoNorm === 'iphone' && baseGroupsFiltered.length === 0 && iphoneModeloSel) {
+      if (tipoNorm === 'iphone' && baseGroupsFiltered.length === 0 && iphoneModeloSel && allowRelaxModelo) {
         baseGroupsFiltered = filterGroups({ useIphoneNumero: true, useIphoneModelo: false });
       }
-      if (tipoNorm === 'iphone' && baseGroupsFiltered.length === 0 && iphoneNumeroSel) {
+      if (tipoNorm === 'iphone' && baseGroupsFiltered.length === 0 && iphoneNumeroSel && allowRelaxNumero) {
         baseGroupsFiltered = filterGroups({ useIphoneNumero: true, useIphoneModelo: false, useAlm: false });
       }
-      if (baseGroupsFiltered.length === 0 && almSel) {
+      if (baseGroupsFiltered.length === 0 && almSel && allowRelaxAlm) {
         baseGroupsFiltered = filterGroups({ useAlm: false });
       }
-      const baseGroups = hasEbay ? baseGroupsFiltered : (baseGroupsFiltered.length ? baseGroupsFiltered : groups);
+      const baseGroups = (hasEbay || hasFilters)
+        ? baseGroupsFiltered
+        : (baseGroupsFiltered.length ? baseGroupsFiltered : groups);
 
       const ventaByProductoId = new Map();
       groups.forEach((g) => {
@@ -781,6 +835,14 @@ const historialCompras = useMemo(() => {
         detalles.forEach((d) => {
           if (!matchEstado(d?.estado)) return;
           if (!trackingOk(d?.productoId)) return;
+          if (ramSel) {
+            const ramVal = normalizeField(d?.ram || '');
+            if (!ramVal || ramVal !== normalizeField(ramSel)) return;
+          }
+          if (almSel) {
+            const ssdVal = normalizeStorageValue(d?.ssd || '');
+            if (!ssdVal || ssdVal !== normalizeStorageValue(almSel)) return;
+          }
           const venta = d?.productoId ? ventaByProductoId.get(d.productoId) : null;
           rows.push({
             id: `${g?.label || g?.tipo}-${d?.productoId || d?.fechaCompra || Math.random()}`,
@@ -854,13 +916,13 @@ const historialCompras = useMemo(() => {
       return true;
     });
     let filtered = filterItems();
-    if (tipoNorm === 'iphone' && filtered.length === 0 && modeloSel) {
+    if (tipoNorm === 'iphone' && filtered.length === 0 && modeloSel && allowRelaxModelo) {
       filtered = filterItems({ useIphoneNumero: true, useIphoneModelo: false });
     }
-    if (tipoNorm === 'iphone' && filtered.length === 0 && numeroSel) {
+    if (tipoNorm === 'iphone' && filtered.length === 0 && numeroSel && allowRelaxNumero) {
       filtered = filterItems({ useIphoneNumero: true, useIphoneModelo: false, useAlm: false });
     }
-    if (filtered.length === 0 && almSel) {
+    if (filtered.length === 0 && almSel && allowRelaxAlm) {
       filtered = filterItems({ useAlm: false });
     }
     const base = hasFilters ? filtered : items;
@@ -879,7 +941,7 @@ const historialCompras = useMemo(() => {
         return tb - ta;
       })
       .slice(0, limit);
-  }, [ebayTitle, historialProductos, ebayOverrides, analyticsSummary]);
+  }, [ebayTitle, historialProductos, ebayOverrides, ebayTouched, analyticsSummary]);
 
   const sugeridosResumen = useMemo(() => {
     const rows = Array.isArray(historialCompras) ? historialCompras : [];
@@ -890,9 +952,11 @@ const historialCompras = useMemo(() => {
     const ventaMin = quantile(ventaVals, 0.25);
     const ventaMax = quantile(ventaVals, 0.75);
     const precioForm = num(debounced.precioUsd);
-    const precioActual = Number.isFinite(precioForm) && precioForm > 0
-      ? precioForm
-      : (Number.isFinite(ebayPrice) ? ebayPrice : null);
+    const envioUsaForm = num(debounced.envioUsaUsd);
+    const precioActual =
+      (Number.isFinite(precioForm) && precioForm > 0)
+        ? precioForm + (Number.isFinite(envioUsaForm) && envioUsaForm > 0 ? envioUsaForm : 0)
+        : null;
     let nivel = null;
     if (Number.isFinite(precioActual) && compraMin != null && compraMax != null) {
       if (precioActual < compraMin) {
@@ -916,7 +980,7 @@ const historialCompras = useMemo(() => {
       ventaRango: ventaMin != null && ventaMax != null ? { min: ventaMin, max: ventaMax } : null,
       nivel,
     };
-  }, [historialCompras, ebayPrice, debounced.precioUsd]);
+  }, [historialCompras, debounced.precioUsd, debounced.envioUsaUsd]);
 
   const recomendacionMeta = useMemo(() => {
     const nivel = sugeridosResumen.nivel;
@@ -931,6 +995,11 @@ const historialCompras = useMemo(() => {
     };
     return map[key] || { label: nivel, bg: 'bg-gray-50', text: 'text-gray-800', ring: 'ring-gray-200' };
   }, [sugeridosResumen.nivel]);
+  const hasSuggestions = Boolean(
+    sugeridosResumen.compraRango ||
+    sugeridosResumen.ventaRango ||
+    recomendacionMeta
+  );
 
   /* --------- KENNY --------- */
   const kenny = useMemo(() => {
@@ -1127,6 +1196,19 @@ const historialCompras = useMemo(() => {
                           generacion: '',
                           conexion: '',
                         }));
+                        setEbayTouched({
+                          tipo: true,
+                          gama: false,
+                          procesador: false,
+                          pantalla: false,
+                          ram: false,
+                          almacenamiento: false,
+                          numero: false,
+                          modelo: false,
+                          generacion: false,
+                          conexion: false,
+                          condicion: false,
+                        });
                       }}
                     >
                       {tipoOptions.map((opt) => (
@@ -1149,6 +1231,12 @@ const historialCompras = useMemo(() => {
                               modelo: '',
                               almacenamiento: '',
                             }));
+                            setEbayTouched((t) => ({
+                              ...t,
+                              numero: true,
+                              modelo: false,
+                              almacenamiento: false,
+                            }));
                           }}
                         >
                           <option value="">Selecciona</option>
@@ -1169,6 +1257,11 @@ const historialCompras = useMemo(() => {
                               modelo: next,
                               almacenamiento: '',
                             }));
+                            setEbayTouched((t) => ({
+                              ...t,
+                              modelo: true,
+                              almacenamiento: false,
+                            }));
                           }}
                         >
                           <option value="">Selecciona</option>
@@ -1182,7 +1275,10 @@ const historialCompras = useMemo(() => {
                         <select
                           className="w-full border rounded-lg p-2 bg-white"
                           value={normalizeStorageValue(ebayOverrides.almacenamiento)}
-                          onChange={(e) => setEbayOverrides((s) => ({ ...s, almacenamiento: normalizeStorageValue(e.target.value) }))}
+                          onChange={(e) => {
+                            setEbayOverrides((s) => ({ ...s, almacenamiento: normalizeStorageValue(e.target.value) }));
+                            setEbayTouched((t) => ({ ...t, almacenamiento: true }));
+                          }}
                         >
                           <option value="">Selecciona</option>
                           {iphoneAlm.map((a) => (
@@ -1195,21 +1291,29 @@ const historialCompras = useMemo(() => {
                   {showGama && (
                     <div>
                       <label className="block text-xs font-medium mb-1">Gama</label>
-                      <select
-                        className="w-full border rounded-lg p-2 bg-white"
-                        value={ebayOverrides.gama}
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          setEbayOverrides((s) => ({
-                            ...s,
-                            gama: next,
-                            procesador: '',
-                            pantalla: '',
-                            ram: '',
-                            almacenamiento: '',
-                          }));
-                        }}
-                      >
+                    <select
+                      className="w-full border rounded-lg p-2 bg-white"
+                      value={ebayOverrides.gama}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setEbayOverrides((s) => ({
+                          ...s,
+                          gama: next,
+                          procesador: '',
+                          pantalla: '',
+                          ram: '',
+                          almacenamiento: '',
+                        }));
+                        setEbayTouched((t) => ({
+                          ...t,
+                          gama: true,
+                          procesador: false,
+                          pantalla: false,
+                          ram: false,
+                          almacenamiento: false,
+                        }));
+                      }}
+                    >
                         {ensureOptionValue(
                           [
                             { value: '', label: 'Selecciona' },
@@ -1245,6 +1349,13 @@ const historialCompras = useMemo(() => {
                           ram: '',
                           almacenamiento: '',
                         }));
+                        setEbayTouched((t) => ({
+                          ...t,
+                          procesador: true,
+                          pantalla: false,
+                          ram: false,
+                          almacenamiento: false,
+                        }));
                       }}
                     >
                       <option value="">Selecciona</option>
@@ -1266,7 +1377,10 @@ const historialCompras = useMemo(() => {
                     <select
                       className="w-full border rounded-lg p-2 bg-white"
                       value={ebayOverrides.pantalla}
-                      onChange={(e) => setEbayOverrides((s) => ({ ...s, pantalla: e.target.value }))}
+                      onChange={(e) => {
+                        setEbayOverrides((s) => ({ ...s, pantalla: e.target.value }));
+                        setEbayTouched((t) => ({ ...t, pantalla: true }));
+                      }}
                     >
                       <option value="">Selecciona</option>
                       {(t === 'macbook' ? macSizes : (t === 'ipad' ? ipadTamanos : watchTamanos)).map((size) => (
@@ -1281,7 +1395,10 @@ const historialCompras = useMemo(() => {
                     <select
                       className="w-full border rounded-lg p-2 bg-white"
                       value={ebayOverrides.ram}
-                      onChange={(e) => setEbayOverrides((s) => ({ ...s, ram: e.target.value }))}
+                      onChange={(e) => {
+                        setEbayOverrides((s) => ({ ...s, ram: e.target.value }));
+                        setEbayTouched((t) => ({ ...t, ram: true }));
+                      }}
                     >
                       <option value="">Selecciona</option>
                       {macRams.map((ram) => (
@@ -1296,7 +1413,10 @@ const historialCompras = useMemo(() => {
                     <select
                       className="w-full border rounded-lg p-2 bg-white"
                       value={normalizeStorageValue(ebayOverrides.almacenamiento)}
-                      onChange={(e) => setEbayOverrides((s) => ({ ...s, almacenamiento: normalizeStorageValue(e.target.value) }))}
+                      onChange={(e) => {
+                        setEbayOverrides((s) => ({ ...s, almacenamiento: normalizeStorageValue(e.target.value) }));
+                        setEbayTouched((t) => ({ ...t, almacenamiento: true }));
+                      }}
                     >
                       <option value="">Selecciona</option>
                       {(t === 'macbook' ? macSsds : (t === 'ipad' ? ipadAlm : iphoneAlm)).map((a) => (
@@ -1319,6 +1439,12 @@ const historialCompras = useMemo(() => {
                             pantalla: '',
                             conexion: '',
                         }));
+                        setEbayTouched((t) => ({
+                          ...t,
+                          generacion: true,
+                          pantalla: false,
+                          conexion: false,
+                        }));
                       }}
                     >
                       <option value="">Selecciona</option>
@@ -1334,7 +1460,10 @@ const historialCompras = useMemo(() => {
                     <select
                       className="w-full border rounded-lg p-2 bg-white"
                       value={ebayOverrides.conexion}
-                      onChange={(e) => setEbayOverrides((s) => ({ ...s, conexion: e.target.value }))}
+                      onChange={(e) => {
+                        setEbayOverrides((s) => ({ ...s, conexion: e.target.value }));
+                        setEbayTouched((t) => ({ ...t, conexion: true }));
+                      }}
                     >
                       <option value="">Selecciona</option>
                       {ensureOptionList(WATCH_CONEXIONES, ebayOverrides.conexion).map((c) => (
@@ -1348,11 +1477,14 @@ const historialCompras = useMemo(() => {
                 })()}
                 <div className="mt-3">
                   <label className="block text-xs font-medium mb-1">Condition</label>
-                  <select
-                    className="w-full border rounded-lg p-2 bg-white"
-                    value={ebayOverrides.condicion}
-                    onChange={(e) => setEbayOverrides((s) => ({ ...s, condicion: e.target.value }))}
-                  >
+                <select
+                  className="w-full border rounded-lg p-2 bg-white"
+                  value={ebayOverrides.condicion}
+                  onChange={(e) => {
+                    setEbayOverrides((s) => ({ ...s, condicion: e.target.value }));
+                    setEbayTouched((t) => ({ ...t, condicion: true }));
+                  }}
+                >
                     <option value="">Selecciona</option>
                     <option value="nuevo">Nuevo</option>
                     <option value="usado">Usado</option>
@@ -1380,8 +1512,8 @@ const historialCompras = useMemo(() => {
               </div>
             </div>
             <ul className="space-y-2">
-              <li className="flex justify-between"><span>Precio en soles (Producto x {num(tipoCambio).toFixed(2)}):</span><strong>{fmtSoles(compras.precioSoles)}</strong></li>
-              <li className="flex justify-between"><span>Costo de envio:</span><strong>{fmtSoles(compras.costoEnvio + compras.envioUsaSoles)}</strong></li>
+              <li className="flex justify-between"><span>Precio en soles ((Prod + Envio USA) x {num(tipoCambio).toFixed(2)}):</span><strong>{fmtSoles(compras.precioSoles)}</strong></li>
+              <li className="flex justify-between"><span>Costo de envio:</span><strong>{fmtSoles(compras.costoEnvio)}</strong></li>
               <li className="flex justify-between"><span>Costo total (S/):</span><strong>{fmtSoles(compras.costoTotal)}</strong></li>
               <li className="flex justify-between text-xl"><span>Precio de venta minimo (+20%):</span><strong>{fmtSoles(compras.precioVentaMin)}</strong></li>
               <li className="mt-2 pt-2 border-t flex items-center gap-2 text-xs">
@@ -1395,7 +1527,7 @@ const historialCompras = useMemo(() => {
 
           <Card title="Precios sugeridos">
             <div className="text-xs text-gray-500 mb-2">
-              Precio eBay: <strong>{fmtUSD(ebayPrice)}</strong>
+              Precio (USD): <strong>{fmtUSD((num(debounced.precioUsd) || 0) + (num(debounced.envioUsaUsd) || 0))}</strong>
             </div>
             {analyticsLoading || historialLoading ? (
               <div className="text-sm text-gray-500">Cargando productos...</div>
@@ -1409,13 +1541,13 @@ const historialCompras = useMemo(() => {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate font-medium text-gray-900" title={h.label}>{h.label}</div>
-                          {ebayTitle && (
-                            <div className="mt-1 text-xs text-gray-500">
-                              {Number.isFinite(h.ventaPrecio)
-                                ? `Venta: ${fmtSoles(h.ventaPrecio)}${Number.isFinite(h.diasVenta) ? ` | Dias: ${Math.round(h.diasVenta)}` : ''}`
-                                : 'Venta: Aun no se han vendido'}
-                            </div>
-                          )}
+                        {hasSuggestions && (
+                          <div className="mt-1 text-xs text-gray-500">
+                            {Number.isFinite(h.ventaPrecio)
+                              ? `Venta: ${fmtSoles(h.ventaPrecio)}${Number.isFinite(h.diasVenta) ? ` | Dias: ${Math.round(h.diasVenta)}` : ''}`
+                              : 'Venta: Aun no se han vendido'}
+                          </div>
+                        )}
                         </div>
                         <div className="text-right">
                           <div className="text-xs text-gray-500">Compra</div>
@@ -1426,7 +1558,7 @@ const historialCompras = useMemo(() => {
                     </div>
                   ))}
                 </div>
-                {ebayTitle && (
+                {hasSuggestions && (
                   <div className="mt-auto pt-3 border-t">
                     <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
                       Recomendaciones
