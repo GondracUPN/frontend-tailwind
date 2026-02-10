@@ -164,138 +164,142 @@ export default function ModalMarcaAgua({ onClose }) {
       onClick={onClose}
     >
       <div
-        className="bg-white w-full max-w-4xl max-h-[92vh] sm:max-h-[90vh] rounded-xl shadow-lg p-4 sm:p-6 relative mx-auto flex flex-col overflow-hidden"
+        className="bg-white w-full max-w-4xl max-h-[92vh] sm:max-h-[90vh] rounded-xl shadow-lg relative mx-auto flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <button
-          className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center text-2xl font-bold text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-100"
-          onClick={onClose}
-          aria-label="Cerrar"
-        >
-          &times;
-        </button>
-        <h3 className="text-lg font-semibold mb-4 pr-10">Marca de agua</h3>
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b">
+          <h3 className="text-lg font-semibold">Marca de agua</h3>
+          <button
+            className="w-10 h-10 flex items-center justify-center text-2xl font-bold text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-100"
+            onClick={onClose}
+            aria-label="Cerrar"
+          >
+            &times;
+          </button>
+        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-dashed border-emerald-400/60 bg-emerald-50/60 p-4 sm:p-6">
-              <div className="text-sm font-semibold text-emerald-900">Fotos</div>
-              <div className="text-xs text-emerald-800 mt-1">Arrastra o haz clic para cargar varias imagenes</div>
-              <div className="mt-3 relative">
-                <div className="h-32 sm:h-40 rounded-xl bg-white/80 ring-1 ring-emerald-200 flex flex-col items-center justify-center text-sm text-emerald-700">
-                  <div className="font-semibold">
-                    {images.length ? `${images.length} archivos seleccionados` : 'Seleccionar imagenes'}
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-dashed border-emerald-400/60 bg-emerald-50/60 p-4 sm:p-6">
+                <div className="text-sm font-semibold text-emerald-900">Fotos</div>
+                <div className="text-xs text-emerald-800 mt-1">Arrastra o haz clic para cargar varias imagenes</div>
+                <div className="mt-3 relative">
+                  <div className="h-32 sm:h-40 rounded-xl bg-white/80 ring-1 ring-emerald-200 flex flex-col items-center justify-center text-sm text-emerald-700">
+                    <div className="font-semibold">
+                      {images.length ? `${images.length} archivos seleccionados` : 'Seleccionar imagenes'}
+                    </div>
+                    <div className="text-xs text-emerald-600 mt-1">PNG, JPG, WEBP</div>
                   </div>
-                  <div className="text-xs text-emerald-600 mt-1">PNG, JPG, WEBP</div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    onChange={handleImagesChange}
+                    aria-label="Seleccionar fotos"
+                  />
                 </div>
+                {images.length > 0 && (
+                  <div className="mt-3 text-xs text-emerald-900">
+                    {images.slice(0, 3).map((f) => f.name).join(', ')}
+                    {images.length > 3 ? ` y ${images.length - 3} mas...` : ''}
+                  </div>
+                )}
+              </div>
+
+              <label className="block text-sm font-medium">
+                Logo de marca de agua (opcional si ya existe public/logo.png)
                 <input
                   type="file"
                   accept="image/*"
-                  multiple
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  onChange={handleImagesChange}
-                  aria-label="Seleccionar fotos"
+                  className="mt-2 block w-full text-sm"
+                  onChange={handleWatermarkChange}
                 />
+              </label>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 space-y-4">
+                <label className="block text-sm font-medium">
+                  Opacidad: {Math.round(opacity * 100)}%
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1"
+                    step="0.05"
+                    value={opacity}
+                    onChange={(e) => setOpacity(Number(e.target.value))}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <label className="block text-sm font-medium">
+                  Tamano: {Math.round(scale * 100)}%
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1"
+                    step="0.05"
+                    value={scale}
+                    onChange={(e) => setScale(Number(e.target.value))}
+                    className="mt-2 w-full"
+                  />
+                </label>
               </div>
-              {images.length > 0 && (
-                <div className="mt-3 text-xs text-emerald-900">
-                  {images.slice(0, 3).map((f) => f.name).join(', ')}
-                  {images.length > 3 ? ` y ${images.length - 3} mas...` : ''}
-                </div>
+            </div>
+
+            <div className="border rounded-2xl bg-white p-3 sm:p-4 flex flex-col min-h-[320px] max-h-[62vh]">
+              <div className="text-sm font-semibold text-gray-800 mb-2">Vista previa</div>
+              {watermarkError && (
+                <div className="mb-2 text-sm text-red-600">{watermarkError}</div>
               )}
-            </div>
-
-            <label className="block text-sm font-medium">
-              Logo de marca de agua (opcional si ya existe public/logo.png)
-              <input
-                type="file"
-                accept="image/*"
-                className="mt-2 block w-full text-sm"
-                onChange={handleWatermarkChange}
-              />
-            </label>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 space-y-4">
-              <label className="block text-sm font-medium">
-                Opacidad: {Math.round(opacity * 100)}%
-                <input
-                  type="range"
-                  min="0.1"
-                  max="1"
-                  step="0.05"
-                  value={opacity}
-                  onChange={(e) => setOpacity(Number(e.target.value))}
-                  className="mt-2 w-full"
-                />
-              </label>
-
-              <label className="block text-sm font-medium">
-                Tamano: {Math.round(scale * 100)}%
-                <input
-                  type="range"
-                  min="0.1"
-                  max="1"
-                  step="0.05"
-                  value={scale}
-                  onChange={(e) => setScale(Number(e.target.value))}
-                  className="mt-2 w-full"
-                />
-              </label>
-            </div>
-          </div>
-
-          <div className="border rounded-2xl bg-white p-3 sm:p-4 flex flex-col min-h-[320px] max-h-[62vh]">
-            <div className="text-sm font-semibold text-gray-800 mb-2">Vista previa</div>
-            {watermarkError && (
-              <div className="mb-2 text-sm text-red-600">{watermarkError}</div>
-            )}
-            <div className="flex-1 overflow-auto pr-1">
-              {outputs.length === 0 ? (
-                <div className="text-sm text-gray-500 py-10 text-center">
-                  Selecciona fotos para ver la vista previa.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {outputs.map((item, idx) => (
-                    <div key={item.url} className="group border rounded-xl overflow-hidden bg-white shadow-sm relative">
-                      <button
-                        type="button"
-                        onClick={() => setImages((prev) => prev.filter((_, i) => i !== idx))}
-                        className="absolute top-2 right-2 h-7 w-7 rounded-full bg-white/90 text-gray-700 shadow-sm opacity-0 group-hover:opacity-100 transition"
-                        title="Eliminar"
-                        aria-label="Eliminar foto"
-                      >
-                        &times;
-                      </button>
-                      <div className="bg-gray-100 h-44 flex items-center justify-center">
+              <div className="flex-1 overflow-auto pr-1">
+                {outputs.length === 0 ? (
+                  <div className="text-sm text-gray-500 py-10 text-center">
+                    Selecciona fotos para ver la vista previa.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {outputs.map((item, idx) => (
+                      <div key={item.url} className="group border rounded-xl overflow-hidden bg-white shadow-sm relative">
                         <button
                           type="button"
-                          className="w-full h-full flex items-center justify-center"
-                          onClick={() => setPreviewItem(item)}
-                          aria-label="Ver foto"
+                          onClick={() => setImages((prev) => prev.filter((_, i) => i !== idx))}
+                          className="absolute top-2 right-2 h-7 w-7 rounded-full bg-white/90 text-gray-700 shadow-sm opacity-0 group-hover:opacity-100 transition"
+                          title="Eliminar"
+                          aria-label="Eliminar foto"
                         >
-                          <img src={item.url} alt={item.name} className="max-h-full max-w-full object-contain" />
+                          &times;
                         </button>
+                        <div className="bg-gray-100 h-44 flex items-center justify-center">
+                          <button
+                            type="button"
+                            className="w-full h-full flex items-center justify-center"
+                            onClick={() => setPreviewItem(item)}
+                            aria-label="Ver foto"
+                          >
+                            <img src={item.url} alt={item.name} className="max-h-full max-w-full object-contain" />
+                          </button>
+                        </div>
+                        <div className="p-2 flex items-center justify-between gap-2">
+                          <div className="text-xs text-gray-600 truncate" title={item.name}>{item.name}</div>
+                          <a
+                            href={item.url}
+                            download={item.name}
+                            className="text-sm text-blue-600 underline"
+                          >
+                            Descargar
+                          </a>
+                        </div>
                       </div>
-                      <div className="p-2 flex items-center justify-between gap-2">
-                        <div className="text-xs text-gray-600 truncate" title={item.name}>{item.name}</div>
-                        <a
-                          href={item.url}
-                          download={item.name}
-                          className="text-sm text-blue-600 underline"
-                        >
-                          Descargar
-                        </a>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+        <div className="border-t px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white">
           <div className="flex flex-wrap gap-3">
             <div className="border rounded-lg px-4 py-2 text-sm bg-white shadow-sm">
               <div className="text-gray-500 text-xs">Fotos totales</div>
@@ -317,8 +321,6 @@ export default function ModalMarcaAgua({ onClose }) {
             Descargar todo
           </button>
         </div>
-
-        <div className="flex-1 overflow-auto" />
       </div>
       {previewItem ? (
         <div

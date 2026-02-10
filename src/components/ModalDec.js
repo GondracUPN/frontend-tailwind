@@ -858,13 +858,19 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       aria-modal="true"
       role="dialog"
     >
-      <div className="w-full max-w-5xl bg-white rounded-xl shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="w-full max-w-5xl bg-white rounded-xl shadow-xl max-h-[92vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Top bar */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b">
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b">
           <h2 className="text-base font-semibold">Generar HTML - Printer friendly (solo textos)</h2>
-          <button onClick={onClose} className="text-gray-700 hover:text-black text-sm" aria-label="Close modal">&lt; Back</button>
+          <div className="flex items-center">
+            <button onClick={onClose} className="text-gray-700 hover:text-black text-sm" aria-label="Close modal">&lt; Back</button>
+          </div>
         </div>
 
+        <div className="flex-1 overflow-y-auto">
         {/* Productos */}
         <div className="grid gap-4 p-4 sm:p-6 border-b">
           {hardError ? (
@@ -1009,14 +1015,14 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
 
         {/* Resultado HTML */}
         <div className="p-4 sm:p-6">
-          <div className="flex items-start justify-between mb-2 gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between mb-2 gap-4">
             <div>
               <h3 className="font-semibold">HTML (solo "modal-content")</h3>
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1">
                 Recordatorio: busca <code>class="gen-tables"</code> en tu DOM para pegar este HTML.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button onClick={copySelector} className="px-3 py-1.5 rounded border border-gray-300 text-sm hover:bg-gray-50 h-9">Copiar selector</button>
               <button onClick={copyHTML} className="px-3 py-1.5 rounded bg-black text-white text-sm hover:bg-gray-900 h-9">Copiar HTML</button>
               <button
@@ -1039,6 +1045,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
           <p className="text-xs text-gray-500 mt-2">
             Copia este bloque y reemplaza en el DOM únicamente la parte <code>&lt;div class="modal-content"&gt;...&lt;/div&gt;</code>.
           </p>
+        </div>
         </div>
       </div>
 
