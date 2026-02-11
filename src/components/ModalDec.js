@@ -585,6 +585,9 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [itemName, setItemName] = useState("");
   const [shippingSvc, setShippingSvc] = useState("Standard Shipping");
   const [savingFactura, setSavingFactura] = useState(false);
+  const [publishingTemplate, setPublishingTemplate] = useState(false);
+  const [publishStatus, setPublishStatus] = useState("");
+  const [publishAt, setPublishAt] = useState("");
   const [randomNames, setRandomNames] = useState({});
   const [linkedItemNames, setLinkedItemNames] = useState({});
   const resetSeleccion = () => {
@@ -622,6 +625,21 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     })();
     return () => { mounted = false; };
   }, [productosProp]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const meta = await api.get("/tm/ebay-template/meta");
+        if (mounted && meta?.updatedAt) {
+          setPublishAt(meta.updatedAt);
+        }
+      } catch {
+        // no template yet
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   // Fuente ?nica
   const productosAll = useMemo(() => {
@@ -815,6 +833,24 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     }
   };
   const copySelector = async () => { try { await navigator.clipboard.writeText('class="gen-tables"'); } catch { } };
+  const publishTemplate = async () => {
+    if (publishingTemplate) return;
+    setPublishingTemplate(true);
+    setPublishStatus("");
+    try {
+      const res = await api.post("/tm/ebay-template", {
+        html,
+        source: "modal-dec",
+      });
+      if (res?.updatedAt) setPublishAt(res.updatedAt);
+      setPublishStatus("Plantilla publicada para Tampermonkey.");
+    } catch (err) {
+      console.error("[ModalDec] Error publicando plantilla TM:", err);
+      setPublishStatus("No se pudo publicar la plantilla.");
+    } finally {
+      setPublishingTemplate(false);
+    }
+  };
   const facturaMarcada = Boolean(productoSel?.facturaDecSubida);
   const toggleFacturaMarcada = async () => {
     if (!productoSel || savingFactura || facturaMarcada) return;
@@ -1027,6 +1063,19 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
               <button onClick={copyHTML} className="px-3 py-1.5 rounded bg-black text-white text-sm hover:bg-gray-900 h-9">Copiar HTML</button>
               <button
                 type="button"
+                onClick={publishTemplate}
+                disabled={publishingTemplate}
+                className={`px-3 py-1.5 rounded text-sm h-9 border transition ${
+                  publishingTemplate
+                    ? "bg-blue-300 text-white border-blue-300"
+                    : "bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
+                } ${publishingTemplate ? "cursor-not-allowed opacity-70" : ""}`}
+                title="Guardar plantilla en el endpoint para Tampermonkey"
+              >
+                {publishingTemplate ? "Publicando..." : "Publicar plantilla TM"}
+              </button>
+              <button
+                type="button"
                 onClick={toggleFacturaMarcada}
                 disabled={!productoSel || savingFactura || facturaMarcada}
                 className={`px-3 py-1.5 rounded text-sm h-9 border transition ${
@@ -1044,6 +1093,9 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
           <textarea id="dec-html-ta" className="w-full max-w-md h-[200px] border rounded p-3 font-mono text-xs resize-none" readOnly value={html} />
           <p className="text-xs text-gray-500 mt-2">
             Copia este bloque y reemplaza en el DOM únicamente la parte <code>&lt;div class="modal-content"&gt;...&lt;/div&gt;</code>.
+          </p>
+          <p className={`text-xs mt-2 ${publishStatus.includes("No se pudo") ? "text-red-600" : "text-emerald-700"}`}>
+            {publishStatus || (publishAt ? `Plantilla publicada: ${new Date(publishAt).toLocaleString()}` : "Aún no se ha publicado plantilla para TM.")}
           </p>
         </div>
         </div>
