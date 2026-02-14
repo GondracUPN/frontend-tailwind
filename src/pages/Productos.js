@@ -865,17 +865,18 @@ const confirmAction = async () => {
   const iconFromEstado = (estado) => {
     switch (normalizeEstado(estado)) {
       case 'comprado_sin_tracking':
-        return <span role="img" aria-label="Paquete" className="text-lg">ðŸ“¦</span>;
+        return <span role="img" aria-label="Paquete" className="text-lg">{"\uD83D\uDCE6"}</span>;
       case 'comprado_en_camino':
-        return <span role="img" aria-label="Camion" className="text-lg">ðŸšš</span>;
+        return <span role="img" aria-label="Camion" className="text-lg">{"\uD83D\uDE9A"}</span>;
       case 'en_eshopex':
-        return <span role="img" aria-label="Pin" className="text-lg">ðŸ“</span>;
+        return <span role="img" aria-label="Pin" className="text-lg">{"\uD83D\uDCCD"}</span>;
       case 'recogido':
-        return <span role="img" aria-label="Check" className="text-lg">âœ…</span>;
+        return <span role="img" aria-label="Check" className="text-lg">{"\u2705"}</span>;
       default:
-        return <span role="img" aria-label="Desconocido" className="text-lg">â“</span>;
+        return <span role="img" aria-label="Desconocido" className="text-lg">{"\u2753"}</span>;
     }
   };
+
 
 
 
@@ -1623,7 +1624,7 @@ const confirmAction = async () => {
 
               {(filtroTipo === 'macbook' || filtroTipo === 'ipad') && (
                 <label className="text-sm inline-flex items-center gap-2 w-full sm:w-auto">
-                  <span>Tamafo</span>
+                  <span>{'Tama\u00f1o'}</span>
                   <select
                     className="border rounded px-2 py-1 w-full sm:w-auto"
                     value={filtroTam}
@@ -1753,7 +1754,7 @@ const confirmAction = async () => {
                   <th className="p-2">Accesorios</th>
                   <th className="p-2">Valor $</th>
                   <th className="p-2">Valor S/</th>
-                  <th className="p-2">Envfo S/</th>
+                  <th className="p-2">{'Env\u00edo S/'}</th>
                   <th className="p-2">Total S/</th>
                   <th className="p-2">Calculadora</th>
                   <th className="p-2">F. Compra</th>
@@ -2591,6 +2592,7 @@ const confirmAction = async () => {
   );
 
 }
+
 
 
 
