@@ -865,15 +865,15 @@ const confirmAction = async () => {
   const iconFromEstado = (estado) => {
     switch (normalizeEstado(estado)) {
       case 'comprado_sin_tracking':
-        return <span role="img" aria-label="Paquete" className="text-lg">📦</span>;
+        return <span role="img" aria-label="Paquete" className="text-lg">ðŸ“¦</span>;
       case 'comprado_en_camino':
-        return <span role="img" aria-label="Camion" className="text-lg">🚚</span>;
+        return <span role="img" aria-label="Camion" className="text-lg">ðŸšš</span>;
       case 'en_eshopex':
-        return <span role="img" aria-label="Pin" className="text-lg">📍</span>;
+        return <span role="img" aria-label="Pin" className="text-lg">ðŸ“</span>;
       case 'recogido':
-        return <span role="img" aria-label="Check" className="text-lg">✅</span>;
+        return <span role="img" aria-label="Check" className="text-lg">âœ…</span>;
       default:
-        return <span role="img" aria-label="Desconocido" className="text-lg">❓</span>;
+        return <span role="img" aria-label="Desconocido" className="text-lg">â“</span>;
     }
   };
 
@@ -2006,15 +2006,15 @@ const confirmAction = async () => {
       )}
 
       
-      {recojoOpen && (
+            {recojoOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white w-full max-w-4xl rounded-xl shadow-lg p-4 sm:p-6 relative mx-3 sm:mx-4">
+          <div className="bg-white w-full max-w-4xl rounded-xl shadow-lg p-4 sm:p-6 relative mx-3 sm:mx-4 max-h-[92vh] overflow-hidden flex flex-col">
             <button
               className="absolute right-3 top-3 sm:right-4 sm:top-4 w-11 h-11 sm:w-10 sm:h-10 flex items-center justify-center text-2xl font-bold rounded-full border border-gray-300 bg-white shadow-sm hover:bg-gray-100 active:scale-95 z-10"
               onClick={() => setRecojoOpen(false)}
               aria-label="Cerrar"
             >
-              ×
+              x
             </button>
 
             <div className="mb-4 pr-12">
@@ -2036,11 +2036,12 @@ const confirmAction = async () => {
               </button>
             </div>
 
-            <div className="flex flex-wrap items-end gap-3 mb-4">
-              <div className="flex items-end gap-2">
+            <div className="overflow-y-auto pr-0.5">
+            <div className="grid grid-cols-1 gap-3 mb-4">
+              <div className="flex flex-col sm:flex-row sm:items-end gap-2">
                 <button
                   type="button"
-                  className="px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
+                  className="px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 w-full sm:w-auto"
                   onClick={() => {
                     const allIds = recojoList.filter((p) => isRecojoReady(p)).map((p) => p.id);
                     const allSelected = recojoSelected.size === allIds.length && allIds.length > 0;
@@ -2051,18 +2052,23 @@ const confirmAction = async () => {
                     ? 'Deseleccionar'
                     : 'Seleccionar todos'}
                 </button>
-                <div>
+                <div className="w-full sm:w-auto">
                   <label className="block text-sm font-medium mb-1">Fecha de recojo</label>
                   <input
                     type="date"
-                    className="border rounded px-3 py-2"
+                    className="border rounded px-3 py-2 w-full sm:w-auto"
                     value={recojoDate}
                     onChange={(e) => setRecojoDate(e.target.value)}
                   />
                 </div>
               </div>
-              <div className="flex flex-col gap-2 flex-1">
-                <div className="flex flex-wrap gap-2 items-center">
+
+              <div className="text-sm text-gray-500">
+                Productos en Eshopex: {recojoList.length}
+              </div>
+
+              <div className="overflow-x-auto">
+                <div className="flex gap-2 items-center min-w-max pb-1">
                   {recojoCasilleros.map((c) => {
                     const accountKey = String(c.accountKey || '').trim().toLowerCase();
                     const pagoKey = `cas-${c.casKey}-${accountKey}`;
@@ -2077,7 +2083,7 @@ const confirmAction = async () => {
                           handleEshopexPrepago({ account: accountKey, guia: `cas-${c.casKey}` });
                         }}
                         disabled={!canPay || pagoLoading}
-                        className={`${(!canPay || pagoLoading) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-2 py-1 rounded`}
+                        className={`${(!canPay || pagoLoading) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-3 py-2 rounded whitespace-nowrap`}
                         title={!canPay ? 'Sin paquetes disponibles para pagar' : `Pagar casillero ${c.casLabel}`}
                       >
                         {pagoLoading ? 'Procesando...' : `Pagar ${c.casLabel}`}
@@ -2086,15 +2092,12 @@ const confirmAction = async () => {
                   })}
                 </div>
               </div>
-              <div className="text-sm text-gray-500">
-                Productos en Eshopex: {recojoList.length}
-              </div>
             </div>
 
             {recojoList.length === 0 ? (
               <div className="text-sm text-gray-500">No hay productos en Eshopex.</div>
             ) : (
-              <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm max-h-[60vh] overflow-y-auto">
+              <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm max-h-[58vh] sm:max-h-[60vh] overflow-y-auto">
                 <table className="min-w-[900px] w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
@@ -2180,6 +2183,7 @@ const confirmAction = async () => {
                 </table>
               </div>
             )}
+            </div>
           </div>
         </div>
       )}
@@ -2587,6 +2591,7 @@ const confirmAction = async () => {
   );
 
 }
+
 
 
 
