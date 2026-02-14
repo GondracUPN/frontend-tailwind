@@ -2036,7 +2036,7 @@ const confirmAction = async () => {
               </button>
             </div>
 
-            <div className="overflow-y-auto pr-0.5">
+            <div className="pr-0.5">
             <div className="grid grid-cols-1 gap-3 mb-4">
               <div className="flex flex-col sm:flex-row sm:items-end gap-2">
                 <button
@@ -2086,7 +2086,7 @@ const confirmAction = async () => {
                         className={`${(!canPay || pagoLoading) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-3 py-2 rounded whitespace-nowrap`}
                         title={!canPay ? 'Sin paquetes disponibles para pagar' : `Pagar casillero ${c.casLabel}`}
                       >
-                        {pagoLoading ? 'Procesando...' : `Pagar ${c.casLabel}`}
+                        {pagoLoading ? 'Procesando...' : `${c.casLabel}`}
                       </button>
                     );
                   })}
