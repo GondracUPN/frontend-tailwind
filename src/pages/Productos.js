@@ -332,6 +332,11 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const buildNombreProducto = (p) => {
     if (!p) return '';
     if (p.tipo === 'otro') return (p.detalle?.descripcionOtro || '').trim() || 'Otros';
+    if (String(p.tipo || '').toLowerCase() === 'iphone') {
+      const numero = String(p.detalle?.numero || '').trim();
+      const modelo = String(p.detalle?.modelo || '').trim();
+      return ['iPhone', numero, modelo].filter(Boolean).join(' ');
+    }
     const parts = [
       p.tipo,
       p.detalle?.gama,
@@ -2003,28 +2008,32 @@ const confirmAction = async () => {
       
       {recojoOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white w-full max-w-4xl rounded-xl shadow-lg p-6 relative mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <button
-                  className="px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-                  onClick={handleRecojoWhatsapp}
-                >
-                  Marcar recogido
-                </button>
-                <button
-                  className="px-3 py-2 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                  onClick={handleRecojoTrackingLinks}
-                >
-                  Abrir tracking
-                </button>
-              </div>
-              <h2 className="text-lg font-semibold">Recojo Eshopex</h2>
+          <div className="bg-white w-full max-w-4xl rounded-xl shadow-lg p-4 sm:p-6 relative mx-3 sm:mx-4">
+            <button
+              className="absolute right-3 top-3 sm:right-4 sm:top-4 w-11 h-11 sm:w-10 sm:h-10 flex items-center justify-center text-2xl font-bold rounded-full border border-gray-300 bg-white shadow-sm hover:bg-gray-100 active:scale-95 z-10"
+              onClick={() => setRecojoOpen(false)}
+              aria-label="Cerrar"
+            >
+              ×
+            </button>
+
+            <div className="mb-4 pr-12">
+              <h2 className="text-lg sm:text-xl font-semibold">Recojo Eshopex</h2>
+            </div>
+
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
               <button
-                className="w-9 h-9 flex items-center justify-center text-xl font-bold rounded-full hover:bg-gray-100"
-                onClick={() => setRecojoOpen(false)}
-                aria-label="Cerrar"
-              >x</button>
+                className="px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                onClick={handleRecojoWhatsapp}
+              >
+                Marcar recogido
+              </button>
+              <button
+                className="px-3 py-2 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                onClick={handleRecojoTrackingLinks}
+              >
+                Abrir tracking
+              </button>
             </div>
 
             <div className="flex flex-wrap items-end gap-3 mb-4">

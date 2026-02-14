@@ -72,58 +72,47 @@ function Percent({ v }) {
 
 
 
-function Bar({ label, value, max }) {
-
-
-
- const pct = max ? Math.min(100, Math.round((value / max) * 100)) : 0;
-
-
-
+function Bar({ label, value, max, subValue = null, totalBase = null }) {
+ const total = Number(value || 0);
+ const activeRaw = subValue == null ? null : Number(subValue || 0);
+ const active = activeRaw == null ? null : Math.max(0, Math.min(total, activeRaw));
+ const baseTotal = Number(totalBase || 0) > 0 ? Number(totalBase) : Number(max || 0);
+ const pct = baseTotal ? Math.min(100, Math.round((total / baseTotal) * 100)) : 0;
+ const activePctOnBought = (active != null && total > 0) ? Math.min(100, Math.round((active / total) * 100)) : 0;
+ const subPct = active != null ? Math.round((pct * activePctOnBought) / 100) : 0;
  return (
-
-
-
- <div className="mb-2">
-
-
-
- <div className="flex justify-between text-xs text-gray-600 mb-1">
-
-
-
- <span>{label}</span>
-
-
-
- <span>{value}</span>
-
-
-
+ <div className="mb-4 rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2">
+ <div className="flex items-start justify-between gap-3 mb-2">
+ <div className="text-sm font-medium text-slate-700">{label}</div>
+ <div className="flex items-center gap-2 shrink-0">
+ <span className="inline-flex items-center rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-[11px] font-semibold">
+ T: {total}
+ </span>
+ {active != null && (
+ <span className="inline-flex items-center rounded-full bg-sky-100 text-sky-700 px-2 py-0.5 text-[11px] font-semibold">
+ A: {active}
+ </span>
+ )}
  </div>
-
-
-
- <div className="h-2 bg-gray-100 rounded">
-
-
-
- <div className="h-2 bg-blue-500 rounded" style={{ width: pct + '%' }} />
-
-
-
  </div>
-
-
-
+ <div className="h-3 rounded-full bg-emerald-50 border border-emerald-100 relative overflow-hidden">
+ <div
+ className="h-3 rounded-full bg-gradient-to-r from-teal-500 to-emerald-600 transition-all duration-500"
+ style={{ width: `${pct}%` }}
+ />
+ {active != null && (
+ <div
+ className="h-3 rounded-full absolute left-0 top-0 bg-gradient-to-r from-emerald-200 to-teal-200 transition-all duration-500"
+ style={{ width: `${subPct}%` }}
+ />
+ )}
  </div>
-
-
-
+ <div className="mt-1.5 flex justify-between text-[11px] text-slate-500">
+ <span>Total: {pct}%</span>
+ {active != null ? <span>Activo: {activePctOnBought}%</span> : <span>&nbsp;</span>}
+ </div>
+ </div>
  );
-
-
-
 }
 
 
@@ -1073,6 +1062,88 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
  }, [data]);
 
+ const generalInvRows = useMemo(() => {
+ const rows = (data?.inventoryByType || []).map((x) => ({
+ tipo: x.tipo,
+ unidades: Number(x.unidades || 0),
+ activos: Number(x.unidades || 0),
+ capital: Number(x.capital || 0),
+ }));
+ return rows;
+ }, [data?.inventoryByType]);
+
+ const generalInvTotalUnits = useMemo(
+ () => generalInvRows.reduce((s, x) => s + (Number(x.unidades || 0) || 0), 0),
+ [generalInvRows],
+ );
+
+ const yearMonthKeyFromCompras = useMemo(() => {
+ if (dateMode !== 'year') return '';
+ const keys = (data?.comprasPeriodo || [])
+ .map((p) => String(p?.fechaCompra || '').slice(0, 7))
+ .filter((m) => /^\d{4}-\d{2}$/.test(m));
+ if (!keys.length) return '';
+ keys.sort();
+ return keys[keys.length - 1];
+ }, [dateMode, data?.comprasPeriodo]);
+
+ const comprasDelMesEnYear = useMemo(() => {
+ const all = data?.comprasPeriodo || [];
+ if (dateMode !== 'year') return all;
+ if (!yearMonthKeyFromCompras) return [];
+ return all.filter((p) => String(p?.fechaCompra || '').slice(0, 7) === yearMonthKeyFromCompras);
+ }, [dateMode, data?.comprasPeriodo, yearMonthKeyFromCompras]);
+
+ const comprasPeriodoVista = useMemo(() => {
+ if (dateMode === 'year') return comprasDelMesEnYear;
+ return data?.comprasPeriodo || [];
+ }, [dateMode, comprasDelMesEnYear, data?.comprasPeriodo]);
+
+ const comprasPeriodoVistaResumen = useMemo(() => {
+ const rows = comprasPeriodoVista || [];
+ const unidades = rows.length;
+ const activos = (() => {
+ const key = dateMode === 'year' ? yearMonthKeyFromCompras : appliedDates.from;
+ const list = (data?.noVendidosDelPeriodo || []).filter((p) => {
+ if (!key) return true;
+ return String(p?.fechaCompra || '').slice(0, 7) === key;
+ });
+ return list.length;
+ })();
+ const capital = rows.reduce((sum, p) => sum + (Number(p?.costoTotal || 0) || 0), 0);
+ return { unidades, activos, capital };
+ }, [comprasPeriodoVista, data?.noVendidosDelPeriodo, dateMode, yearMonthKeyFromCompras, appliedDates.from]);
+
+ const inventarioTipoComprasVista = useMemo(() => {
+ const key = dateMode === 'year' ? yearMonthKeyFromCompras : appliedDates.from;
+ const activosSet = new Set(
+ (data?.noVendidosDelPeriodo || [])
+ .filter((p) => {
+ if (!key) return true;
+ return String(p?.fechaCompra || '').slice(0, 7) === key;
+ })
+ .map((p) => p?.productoId)
+ .filter(Boolean)
+ );
+ const map = new Map();
+ for (const p of comprasPeriodoVista || []) {
+ const tipo = String(p?.tipo || 'otro').toLowerCase() || 'otro';
+ const prev = map.get(tipo) || { tipo, unidades: 0, activos: 0, capital: 0 };
+ prev.unidades += 1;
+ if (activosSet.has(p?.productoId)) prev.activos += 1;
+ prev.capital += Number(p?.costoTotal || 0) || 0;
+ map.set(tipo, prev);
+ }
+ return Array.from(map.values()).sort((a, b) => b.unidades - a.unidades);
+ }, [comprasPeriodoVista, data?.noVendidosDelPeriodo, dateMode, yearMonthKeyFromCompras, appliedDates.from]);
+
+ const comprasPeriodoVistaLabel = useMemo(() => {
+ if (dateMode === 'year') {
+ return yearMonthKeyFromCompras ? `Mes: ${yearMonthKeyFromCompras}` : `A${'\u00f1'}o: ${appliedDates.from || yearKey}`;
+ }
+ return appliedDates.from ? `Mes: ${appliedDates.from}` : 'Mes seleccionado';
+ }, [dateMode, yearMonthKeyFromCompras, appliedDates.from, yearKey]);
+
 
 
 
@@ -1145,7 +1216,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  }}
  >
  <option value="month">Mes</option>
- <option value="year">Anio</option>
+ <option value="year">A{'\u00f1'}o</option>
  </select>
 
  {dateMode === 'month' ? (
@@ -1168,7 +1239,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  const v = e.target.value;
  setAppliedDates({ from: v, to: v });
  }}
- placeholder="Anio"
+ placeholder={`A${'\u00f1'}o`}
  min="2000"
  max="2100"
  step="1"
@@ -1362,11 +1433,22 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
 
- {(data.inventoryByType || []).map((x) => (
+ <div className="flex items-center gap-4 mb-2 text-[11px] text-slate-500">
+<span className="inline-flex items-center gap-1.5">
+<span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-teal-500 to-emerald-600 inline-block" />
+Total
+</span>
+<span className="inline-flex items-center gap-1.5">
+<span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-emerald-200 to-teal-200 inline-block" />
+Activo
+</span>
+</div>
+
+{generalInvRows.map((x) => (
 
 
 
- <Bar key={x.tipo} label={`${x.tipo} (${x.unidades})`} value={x.unidades} max={maxByType} />
+ <Bar key={x.tipo} label={`${x.tipo} (${x.unidades}, act: ${x.activos})`} value={x.unidades} subValue={x.activos} totalBase={generalInvTotalUnits} max={maxByType} />
 
 
 
@@ -1396,6 +1478,8 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
  <th className="py-1">Unidades</th>
+<th className="py-1">% Total</th>
+<th className="py-1">% Activo</th>
 
 
 
@@ -1415,7 +1499,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
 
- {(data.inventoryByType || []).map((x) => (
+ {generalInvRows.map((x) => (
 
 
 
@@ -1428,6 +1512,8 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
  <td className="py-1">{x.unidades}</td>
+<td className="py-1">{generalInvTotalUnits > 0 ? `${Math.round((x.unidades / generalInvTotalUnits) * 100)}%` : '0%'}</td>
+<td className="py-1">{x.unidades > 0 ? `${Math.round((x.activos / x.unidades) * 100)}%` : '0%'}</td>
 
 
 
@@ -1636,133 +1722,96 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
  {/* Compras del mes (modo Mes) */}
-
-
-
  {!isGeneral && (
-
-
-
- <div className={`${tab !== 'economico' ? 'hidden ' : ''}bg-white rounded-xl border shadow-sm p-5 mb-6`}>
-
-
-
+ <div className={`${tab !== 'economico' ? 'hidden ' : ''}grid grid-cols-1 xl:grid-cols-2 gap-5 mb-6`}>
+ <div className="bg-white rounded-xl border shadow-sm p-5 min-h-[430px]">
  <div className="flex items-center justify-between mb-3">
-
-
-
  <h2 className="text-lg font-semibold">Compras del mes</h2>
-
-
-
- <div className="text-xs text-gray-500">Unidades: {data.summary?.comprasPeriodoUnidades ?? 0} Capital: <Currency v={data.summary?.comprasPeriodoCapital || 0} /></div>
-
-
-
+ <div className="text-xs text-gray-500">
+ {comprasPeriodoVistaLabel}
  </div>
-
-
-
- <div className="max-h-72 overflow-auto">
-
-
-
- <table className="min-w-[520px] w-full text-sm">
-
-
-
+ </div>
+ <div className="text-xs text-gray-500 mb-2">
+ Unidades: {comprasPeriodoVistaResumen.unidades} (activo: {comprasPeriodoVistaResumen.activos}) Capital: <Currency v={comprasPeriodoVistaResumen.capital} />
+ </div>
+ <div className="max-h-80 overflow-auto">
+ <table className="min-w-[560px] w-full text-sm">
  <thead>
-
-
-
  <tr className="text-left text-gray-500">
-
-
-
  <th className="py-1">#</th>
-
-
-
  <th className="py-1">Producto</th>
-
-
-
  <th className="py-1">Fecha compra</th>
-
-
-
  <th className="py-1">Costo</th>
-
-
-
  </tr>
-
-
-
  </thead>
-
-
-
  <tbody>
-
-
-
- {(data.comprasPeriodo || []).map((p, i) => (
-
-
-
+ {comprasPeriodoVista.map((p, i) => (
  <tr key={`${p.productoId}-${i}`} className="border-t">
-
-
-
  <td className="py-1">{p.productoId}</td>
-
-
-
  <td className="py-1">{p.display || p.tipo}</td>
-
-
-
  <td className="py-1">{fmtDate(p.fechaCompra)}</td>
-
-
-
  <td className="py-1"><Currency v={p.costoTotal} /></td>
-
-
-
  </tr>
-
-
-
  ))}
-
-
-
- </tbody>
-
-
-
- </table>
-
-
-
- </div>
-
-
-
- </div>
-
-
-
+ {comprasPeriodoVista.length === 0 && (
+ <tr>
+ <td className="py-2 text-sm text-gray-500" colSpan={4}>No hay compras para el mes seleccionado.</td>
+ </tr>
  )}
-
-
-
-
-
-
-
+ </tbody>
+ </table>
+ </div>
+ </div>
+ <div className="bg-white rounded-xl border shadow-sm p-5 min-h-[430px]">
+ <div className="flex items-center justify-between mb-3">
+ <h2 className="text-lg font-semibold">Inventario por tipo</h2>
+ <div className="text-xs text-gray-500">Unidades y capital del mismo mes</div>
+ </div>
+ <div className="mb-3">
+ <div className="flex items-center gap-4 mb-2 text-[11px] text-slate-500">
+ <span className="inline-flex items-center gap-1.5">
+ <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-teal-500 to-emerald-600 inline-block" />
+ Total
+ </span>
+ <span className="inline-flex items-center gap-1.5">
+ <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-emerald-200 to-teal-200 inline-block" />
+ Activo
+ </span>
+ </div>
+ {inventarioTipoComprasVista.map((x) => (
+ <Bar key={`inv-vista-${x.tipo}`} label={`${x.tipo} (${x.unidades}, act: ${x.activos || 0})`} value={x.unidades} subValue={x.activos || 0} totalBase={comprasPeriodoVistaResumen.unidades} />
+ ))}
+ {!inventarioTipoComprasVista.length && (
+ <div className="text-sm text-gray-500">Sin inventario para ese mes.</div>
+ )}
+ </div>
+ <div className="overflow-x-auto">
+ <table className="min-w-[520px] w-full text-sm">
+ <thead>
+ <tr className="text-left text-gray-500">
+ <th className="py-1">Tipo</th>
+ <th className="py-1">Unidades</th>
+<th className="py-1">% Total</th>
+<th className="py-1">% Activo</th>
+ <th className="py-1">Capital</th>
+ </tr>
+ </thead>
+ <tbody>
+ {inventarioTipoComprasVista.map((x) => (
+ <tr key={`inv-vista-t-${x.tipo}`} className="border-t">
+ <td className="py-1">{x.tipo}</td>
+ <td className="py-1">{x.unidades} (act: {x.activos || 0})</td>
+ <td className="py-1">{comprasPeriodoVistaResumen.unidades > 0 ? `${Math.round((x.unidades / comprasPeriodoVistaResumen.unidades) * 100)}%` : '0%'}</td>
+ <td className="py-1">{x.unidades > 0 ? `${Math.round(((x.activos || 0) / x.unidades) * 100)}%` : '0%'}</td>
+ <td className="py-1"><Currency v={x.capital} /></td>
+ </tr>
+ ))}
+ </tbody>
+ </table>
+ </div>
+ </div>
+ </div>
+ )}
  {/* Productos del mes: Vendidos vs Pendientes (modo Mes) */}
 
 
@@ -2427,7 +2476,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  <Card
  title={`Gastos ${yearKey}`}
  value={<Currency v={yearGastos} />}
- sub={<span>Total comprado en el anio.</span>}
+ sub={<span>Total comprado en el a{'\u00f1'}o.</span>}
  />
  </div>
  </div>
@@ -3963,6 +4012,8 @@ const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.g
 
 
 }
+
+
 
 
 
