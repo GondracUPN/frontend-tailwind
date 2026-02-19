@@ -3,6 +3,7 @@ import { API_URL } from '../api';
 
 import ModalGastoDebito from '../components/ModalGastoDebito';
 import ModalGastoCredito from '../components/ModalGastoCredito';
+import ModalGastoCreditoMasivo from '../components/ModalGastoCreditoMasivo';
 import ModalTarjetas from '../components/ModalTarjetas';
 import ModalCuotasYGastos from '../components/ModalCuotasYGastos';
 import ModalEditarGasto from '../components/ModalEditarGasto';
@@ -40,6 +41,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   // Modales
   const [showDeb, setShowDeb] = useState(false);
   const [showCre, setShowCre] = useState(false);
+  const [showCreBulk, setShowCreBulk] = useState(false);
   const [showTar, setShowTar] = useState(false);
   const [showCG, setShowCG] = useState(false);
   const [showAnalisisMes, setShowAnalisisMes] = useState(false);
@@ -177,6 +179,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const displayConcepto = (c) => {
     const n = String(c || '').toLowerCase().replace(/\s+/g,'_');
     if (n === 'gastos_recurrentes') return 'Gastos mensuales';
+    if (n === 'cashback') return 'Devo/Cash';
     return String(c || '').replace(/_/g,' ');
   };
 
@@ -221,6 +224,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
 
   const openDeb = () => setShowDeb(true);
   const openCre = () => setShowCre(true);
+  const openCreBulk = () => setShowCreBulk(true);
   const openTar = () => setShowTar(true);
   const openCG = () => setShowCG(true);
   const openEfec = () => setShowEfec(true);
@@ -377,13 +381,13 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         </div>
       </div>
 
-      {/* Dbito y Crdito */}
+      {/* Debito y Credito */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Dbito */}
+        {/* Debito */}
         <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
-            <h3 className="text-lg font-semibold">Dbito</h3>
-            <button onClick={openDeb} className="w-full sm:w-auto px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[44px]">Agregar gasto dbito</button>
+            <h3 className="text-lg font-semibold">Debito</h3>
+            <button onClick={openDeb} className="w-full sm:w-auto px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[44px]">Agregar gasto debito</button>
           </div>
 
           {loading ? (
@@ -407,7 +411,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   {debitRows.map((g) => {
                     const conceptoCell = g.concepto === 'pago_tarjeta'
                       ? `Pago Tarjeta  ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
-                      : (g.concepto || '').replace(/_/g, ' ');
+                      : displayConcepto(g.concepto);
                     const detalle = g.notas || '-';
                     return (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
@@ -457,6 +461,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                 </select>
               </label>
               <button onClick={openCre} className="w-full sm:w-auto px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 min-h-[44px]">Agregar gasto credito</button>
+              <button onClick={openCreBulk} className="w-full sm:w-auto px-4 py-2 rounded bg-sky-600 text-white hover:bg-sky-700 min-h-[44px]">Agregar gastos masivos</button>
             </div>
           </div>
 
@@ -527,6 +532,15 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
             setShowCre(false);
             if (row) upsertRow(row);
             refreshTotals();
+          }}
+        />
+      )}
+      {showCreBulk && (
+        <ModalGastoCreditoMasivo
+          onClose={() => setShowCreBulk(false)}
+          onSaved={() => {
+            setShowCreBulk(false);
+            reloadAll({ includeGastos: true, useCache: false });
           }}
         />
       )}

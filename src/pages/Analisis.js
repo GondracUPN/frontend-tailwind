@@ -1066,7 +1066,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  const rows = (data?.inventoryByType || []).map((x) => ({
  tipo: x.tipo,
  unidades: Number(x.unidades || 0),
- activos: Number(x.unidades || 0),
+ activos: Number(x.activos || 0),
  capital: Number(x.capital || 0),
  }));
  return rows;

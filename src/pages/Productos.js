@@ -17,11 +17,16 @@ import ModalAdelantarTipo from '../components/ModalAdelantarTipo';
 import ModalAdelantoCreate from '../components/ModalAdelantoCreate';
 import ModalAdelantoDetalle from '../components/ModalAdelantoDetalle';
 import ModalAdelantoCompletar from '../components/ModalAdelantoCompletar';
+import ModalVentaMensaje from '../components/ModalVentaMensaje';
 import { FiFileText } from 'react-icons/fi';
 
 
 const CACHE_KEY = 'productos:cache:v2';
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos para revalidar
+const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
+const ESHOPEX_BG_REQUESTED_KEY = 'eshopex-carga-requested';
+const ESHOPEX_BG_OPEN_MODAL_KEY = 'eshopex-carga-open-modal';
+const ESHOPEX_BG_COUNT_KEY = 'eshopex-carga-pendientes-count';
 
 const readCache = () => {
   try {
@@ -157,12 +162,19 @@ export default function Productos({ setVista, setAnalisisBack }) {
     recojoStatusRef.current = recojoStatusMap;
   }, [recojoStatusMap]);
   const [eshopexCargaOpen, setEshopexCargaOpen] = useState(false);
-  const [eshopexCargaRequested, setEshopexCargaRequested] = useState(false);
+  const [eshopexCargaRequested, setEshopexCargaRequested] = useState(() => {
+    try {
+      const requested = localStorage.getItem(ESHOPEX_BG_REQUESTED_KEY) === '1';
+      const hasCache = !!localStorage.getItem('eshopex-carga-cache');
+      return requested || hasCache;
+    } catch {
+      return false;
+    }
+  });
   const [eshopexCargaRows, setEshopexCargaRows] = useState([]);
   const [eshopexCargaLoading, setEshopexCargaLoading] = useState(false);
   const [eshopexCargaError, setEshopexCargaError] = useState(null);
   const [eshopexCargaRefreshKey, setEshopexCargaRefreshKey] = useState(0);
-  const [eshopexCargaHintDismissed, setEshopexCargaHintDismissed] = useState(false);
   const [eshopexPagoLoading, setEshopexPagoLoading] = useState(() => new Set());
   const [eshopexVincularLoading, setEshopexVincularLoading] = useState(() => new Set());
   const [eshopexVincularOpen, setEshopexVincularOpen] = useState(false);
@@ -170,6 +182,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [soloDisponibles, setSoloDisponibles] = useState(false);
   const [soloVendidos, setSoloVendidos] = useState(false);
   const [soloAdelanto, setSoloAdelanto] = useState(false);
+  const [ventaMsgOpen, setVentaMsgOpen] = useState(false);
   const [selectedCasillero, setSelectedCasillero] = useState(null);
   const [productoEnCasillero, setProductoEnCasillero] = useState(null);
   const [fotosManualSeed, setFotosManualSeed] = useState({ trackingEshop: '', fechaRecepcion: '' });
@@ -289,8 +302,16 @@ export default function Productos({ setVista, setAnalisisBack }) {
   };
   const triggerEshopexCarga = () => {
     setEshopexCargaRequested(true);
-    setEshopexCargaHintDismissed(false);
+    setEshopexCargaLoading(true);
+    setEshopexCargaError(null);
     setEshopexCargaRefreshKey((v) => v + 1);
+    try {
+      localStorage.setItem(ESHOPEX_BG_REQUESTED_KEY, '1');
+      localStorage.setItem(ESHOPEX_BG_TRIGGER_KEY, String(Date.now()));
+      localStorage.setItem('eshopex-carga-bg-loading', '1');
+    } catch {
+      /* ignore */
+    }
   };
 
 
@@ -382,6 +403,21 @@ const confirmAction = async () => {
     });
     return trk[0] || null;
   }, []);
+
+  const productosVentaMensaje = React.useMemo(() => {
+    return (productos || [])
+      .filter((p) => {
+        const t = getLastTracking(p);
+        const venta = ventasMap[p?.id] || null;
+        const adelanto = adelantosMap[p?.id] || null;
+        return String(t?.estado || '').toLowerCase() === 'recogido' && !venta && !adelanto;
+      })
+      .map((p) => ({
+        id: p.id,
+        label: buildNombreProducto(p) || String(p.tipo || 'Producto'),
+      }))
+      .sort((a, b) => String(a.label).localeCompare(String(b.label)));
+  }, [productos, ventasMap, adelantosMap, getLastTracking]);
 
   const recojoList = React.useMemo(() => {
     return (productos || []).filter((p) => {
@@ -626,7 +662,33 @@ const confirmAction = async () => {
       .map((item) => item.row);
   }, [eshopexCargaRows, productosByEshopex, trackingUsaEnEshopex, casilleroByAccount, casillerosEnCamino]);
   const eshopexPendientesCount = eshopexPendientes.length;
-  const showEshopexCargaFloating = !eshopexCargaOpen && !eshopexCargaHintDismissed;
+  useEffect(() => {
+    try {
+      localStorage.setItem(ESHOPEX_BG_COUNT_KEY, String(eshopexPendientesCount));
+    } catch {
+      /* ignore */
+    }
+  }, [eshopexPendientesCount]);
+
+  const eshopexOpenSignalSeenRef = useRef(0);
+  useEffect(() => {
+    const checkOpenSignal = () => {
+      try {
+        const signal = Number(localStorage.getItem(ESHOPEX_BG_OPEN_MODAL_KEY) || 0);
+        if (!Number.isFinite(signal) || signal <= 0) return;
+        if (signal <= eshopexOpenSignalSeenRef.current) return;
+        eshopexOpenSignalSeenRef.current = signal;
+        setEshopexCargaOpen(true);
+        setEshopexCargaRequested(true);
+        localStorage.removeItem(ESHOPEX_BG_OPEN_MODAL_KEY);
+      } catch {
+        /* ignore */
+      }
+    };
+    const timer = window.setInterval(checkOpenSignal, 500);
+    checkOpenSignal();
+    return () => window.clearInterval(timer);
+  }, []);
 
   const toggleRecojoSelect = (id) => {
     setRecojoSelected((prev) => {
@@ -1670,6 +1732,13 @@ const confirmAction = async () => {
                 Recojo
               </button>
               <button
+                onClick={() => setVentaMsgOpen(true)}
+                className="w-full sm:w-auto bg-pink-600 text-white px-5 py-2 rounded hover:bg-pink-700"
+                title="Generar texto de venta para WhatsApp"
+              >
+                Venta
+              </button>
+              <button
                 onClick={abrirFotosManual}
                 className="w-full sm:w-auto bg-teal-600 text-white px-5 py-2 rounded hover:bg-teal-700"
                 title="Ingresar tracking y fecha para consultar fotos en Eshopex"
@@ -2008,8 +2077,8 @@ const confirmAction = async () => {
 
       
             {recojoOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white w-full max-w-4xl rounded-xl shadow-lg p-4 sm:p-6 relative mx-3 sm:mx-4 max-h-[92vh] overflow-hidden flex flex-col">
+        <div className="fixed inset-0 bg-black/40 flex items-start sm:items-center justify-center z-50 overflow-y-auto p-2 sm:p-4">
+          <div className="bg-white w-full max-w-4xl rounded-xl shadow-lg p-4 sm:p-6 relative max-h-[95dvh] sm:max-h-[92dvh] overflow-hidden flex flex-col">
             <button
               className="absolute right-3 top-3 sm:right-4 sm:top-4 w-11 h-11 sm:w-10 sm:h-10 flex items-center justify-center text-2xl font-bold rounded-full border border-gray-300 bg-white shadow-sm hover:bg-gray-100 active:scale-95 z-10"
               onClick={() => setRecojoOpen(false)}
@@ -2037,7 +2106,7 @@ const confirmAction = async () => {
               </button>
             </div>
 
-            <div className="pr-0.5">
+            <div className="pr-0.5 flex-1 min-h-0 flex flex-col">
             <div className="grid grid-cols-1 gap-3 mb-4">
               <div className="flex flex-col sm:flex-row sm:items-end gap-2">
                 <button
@@ -2098,7 +2167,7 @@ const confirmAction = async () => {
             {recojoList.length === 0 ? (
               <div className="text-sm text-gray-500">No hay productos en Eshopex.</div>
             ) : (
-              <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm max-h-[58vh] sm:max-h-[60vh] overflow-y-auto">
+              <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm flex-1 min-h-0 overflow-y-auto">
                 <table className="min-w-[900px] w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
@@ -2411,76 +2480,6 @@ const confirmAction = async () => {
           </div>
         </div>
       )}
-      {showEshopexCargaFloating && (
-        <div className="fixed bottom-4 right-4 z-40">
-          <div className="bg-white border border-gray-200 shadow-lg rounded-xl px-4 py-3 flex items-start gap-3">
-            <div className="mt-1">
-              {!eshopexCargaRequested ? (
-                <div className="h-2 w-2 rounded-full mt-1.5 bg-gray-300" />
-              ) : eshopexCargaLoading ? (
-                <div className="h-4 w-4 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin" />
-              ) : (
-                <div
-                  className={`h-2 w-2 rounded-full mt-1.5 ${eshopexCargaError ? 'bg-red-500' : 'bg-emerald-500'}`}
-                />
-              )}
-            </div>
-            <div className="text-sm">
-              <div className="font-semibold text-gray-900">Pendientes Eshopex</div>
-              <div className="text-gray-600">
-                {!eshopexCargaRequested
-                  ? 'Aun no se ha buscado.'
-                  : eshopexCargaLoading
-                    ? 'Buscando en segundo plano...'
-                    : (eshopexCargaError || `Listo: ${eshopexPendientesCount} pendientes`)}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 ml-2">
-              {!eshopexCargaRequested && (
-                <button
-                  type="button"
-                  className="px-2 py-1 text-xs rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                  onClick={triggerEshopexCarga}
-                >
-                  Buscar
-                </button>
-              )}
-              {eshopexCargaRequested && (
-                <>
-                  <button
-                    type="button"
-                    className="px-2 py-1 text-xs rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
-                    onClick={triggerEshopexCarga}
-                    disabled={eshopexCargaLoading}
-                  >
-                    {eshopexCargaLoading ? 'Buscando...' : 'Actualizar'}
-                  </button>
-                  <button
-                    type="button"
-                    className="px-2 py-1 text-xs rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
-                    onClick={() => {
-                      setEshopexCargaOpen(true);
-                      setEshopexCargaHintDismissed(false);
-                    }}
-                    disabled={eshopexCargaLoading && eshopexPendientesCount === 0}
-                  >
-                    Ver
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                className="w-7 h-7 flex items-center justify-center text-sm font-bold rounded-full hover:bg-gray-100"
-                onClick={() => setEshopexCargaHintDismissed(true)}
-                aria-label="Ocultar"
-              >
-                x
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Modales */}
       {modalModo === 'crear' && <ModalProducto onClose={cerrarModal} onSaved={handleSaved} />}
       {modalModo === 'detalle' && (
@@ -2582,6 +2581,12 @@ const confirmAction = async () => {
           onClose={cerrarModal}
           productos={productos}   // ?o. le pasas lo que ya cargaste arriba
           loading={cargando}      // ?o. estado de carga del padre
+        />
+      )}
+      {ventaMsgOpen && (
+        <ModalVentaMensaje
+          onClose={() => setVentaMsgOpen(false)}
+          productos={productosVentaMensaje}
         />
       )}
 
