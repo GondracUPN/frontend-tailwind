@@ -13,6 +13,7 @@ import ModalFotosManual from '../components/ModalFotosManual';
 import ModalMarcaAgua from '../components/ModalMarcaAgua';
 import ModalCalculadora from '../components/ModalCalculadora';
 import ModalDec from '../components/ModalDec';
+import ModalFacu from '../components/ModalFacu';
 import ModalAdelantarTipo from '../components/ModalAdelantarTipo';
 import ModalAdelantoCreate from '../components/ModalAdelantoCreate';
 import ModalAdelantoDetalle from '../components/ModalAdelantoDetalle';
@@ -1234,6 +1235,7 @@ const confirmAction = async () => {
   const abrirCostos = (p) => { setProductoSeleccionado(p); setModalModo('costos'); };
   const abrirTrack = (p) => { setProductoSeleccionado(p); setModalModo('track'); };
   const abrirDec = (p) => { setProductoSeleccionado(p); setModalModo('dec'); };
+  const abrirFacu = () => { setProductoSeleccionado(null); setModalModo('facu'); };
   const abrirFotosManual = (seed = null) => {
     if (seed) {
       setFotosManualSeed({
@@ -1759,6 +1761,14 @@ const confirmAction = async () => {
               >
                 <FiFileText className="text-lg" />
                 DEC
+              </button>
+              <button
+                onClick={abrirFacu}
+                className="w-full sm:w-auto bg-slate-700 text-white px-5 py-2 rounded hover:bg-slate-800 inline-flex items-center gap-2"
+                title="Generar FACU"
+              >
+                <FiFileText className="text-lg" />
+                FACU
               </button>
             </div>
           </>
@@ -2582,6 +2592,9 @@ const confirmAction = async () => {
           productos={productos}   // ?o. le pasas lo que ya cargaste arriba
           loading={cargando}      // ?o. estado de carga del padre
         />
+      )}
+      {modalModo === 'facu' && (
+        <ModalFacu onClose={cerrarModal} />
       )}
       {ventaMsgOpen && (
         <ModalVentaMensaje

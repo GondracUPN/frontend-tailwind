@@ -10,6 +10,7 @@ export default function FormProductoIphone({ detalle, onChange }) {
     if (n === 17) ops.push('Normal', 'Air', 'Pro', 'Pro Max');
     if (n >= 12 && n <= 13) ops.push('Mini');
     if (n >= 14 && n <= 16) ops.push('Plus');
+    if (n >= 16 && n <= 17) ops.push('E');
     return Array.from(new Set(ops));
   };
 

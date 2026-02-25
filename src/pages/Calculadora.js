@@ -70,12 +70,17 @@ const inferProcesador = (title) => {
 };
 const inferNumeroModeloIphone = (title) => {
   const t = normalizeText(title);
-  const numero = (t.match(/\biphone\s*(\d{2})\b/) || t.match(/\b(\d{2})\b/))?.[1] || '';
+  const numero = (
+    t.match(/\biphone\s*(\d{2})(?:\s*[a-z])?\b/) ||
+    t.match(/\b(\d{2})[a-z]\b/) ||
+    t.match(/\b(\d{2})\b/)
+  )?.[1] || '';
   let modelo = '';
   if (/\bpro\s*max\b/.test(t) || /\bpromax\b/.test(t)) modelo = 'pro max';
   else if (/\bpro\b/.test(t)) modelo = 'pro';
   else if (/\bplus\b/.test(t)) modelo = 'plus';
   else if (/\bmini\b/.test(t)) modelo = 'mini';
+  else if ((numero === '16' || numero === '17') && (/\biphone\s*(16|17)\s*e\b/.test(t) || /\b(16|17)e\b/.test(t))) modelo = 'e';
   else if (/\bse\b/.test(t)) modelo = 'se';
   else if (t.includes('iphone')) modelo = 'normal';
   return { numero, modelo: formatIphoneModeloDisplay(modelo) };
@@ -119,6 +124,7 @@ const getIphoneModelos = (num) => {
   if (n === 17) ops.push('Normal', 'Air', 'Pro', 'Pro Max');
   if (n >= 12 && n <= 13) ops.push('Mini');
   if (n >= 14 && n <= 16) ops.push('Plus');
+  if (n >= 16 && n <= 17) ops.push('E');
   return Array.from(new Set(ops));
 };
 const getIphoneAlmacenamientos = (num, modelo) => {
@@ -239,6 +245,7 @@ const normalizeIphoneModelo = (raw) => {
   if (t === 'pro') return 'pro';
   if (t === 'plus') return 'plus';
   if (t === 'mini') return 'mini';
+  if (t === 'e') return 'e';
   if (t === 'se') return 'se';
   if (t === 'air') return 'air';
   if (t === 'normal') return 'normal';
@@ -251,6 +258,7 @@ const formatIphoneModeloDisplay = (raw) => {
   if (n === 'pro') return 'Pro';
   if (n === 'plus') return 'Plus';
   if (n === 'mini') return 'Mini';
+  if (n === 'e') return 'E';
   if (n === 'se') return 'SE';
   if (n === 'air') return 'Air';
   if (n === 'normal') return 'Normal';

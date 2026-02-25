@@ -1,5 +1,5 @@
 // src/components/ModalDec.js
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import api from "../api";
 import { FaDice } from "react-icons/fa";
 
@@ -583,6 +583,9 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [qty, setQty] = useState(1);
   const [price, setPrice] = useState("0.00"); // DEC
   const [itemName, setItemName] = useState("");
+  const [manualMainDecRef, setManualMainDecRef] = useState("");
+  const [manualCarrier, setManualCarrier] = useState("");
+  const [manualCarrierTracking, setManualCarrierTracking] = useState("");
   const [shippingSvc, setShippingSvc] = useState("Standard Shipping");
   const [savingFactura, setSavingFactura] = useState(false);
   const [publishingTemplate, setPublishingTemplate] = useState(false);
@@ -590,6 +593,24 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [publishAt, setPublishAt] = useState("");
   const [randomNames, setRandomNames] = useState({});
   const [linkedItemNames, setLinkedItemNames] = useState({});
+  const manualLineIdRef = useRef(1);
+  const [manualLinkedLines, setManualLinkedLines] = useState([]);
+  const addManualLinkedLine = () => {
+    const nextId = manualLineIdRef.current++;
+    setManualLinkedLines((prev) => ([
+      ...prev,
+      {
+        id: `manual-${nextId}`,
+        name: "",
+        decRef: "",
+      },
+    ]));
+  };
+  const updateManualLinkedLine = (id, patch) => {
+    setManualLinkedLines((prev) =>
+      prev.map((line) => (line.id === id ? { ...line, ...patch } : line))
+    );
+  };
   const resetSeleccion = () => {
     setProductoSel(null);
     setNameCore("");
@@ -599,8 +620,12 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setOrderNumber("");
     setQty(1);
     setPrice("0.00");
+    setManualMainDecRef("");
+    setManualCarrier("");
+    setManualCarrierTracking("");
     setShippingSvc("Standard Shipping");
     setCasilleroKey("Renato");
+    setManualLinkedLines([]);
   };
 
   // 1) Si NO vienen productos por props, cargar del backend
@@ -674,6 +699,14 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
 
     if (!p) {
       setProductoSel(null);
+      setNameCore("");
+      setProblemSuffix("");
+      setItemName("");
+      setPrice("0.00");
+      setManualMainDecRef("");
+      setRandomNames({});
+      setLinkedItemNames({});
+      setManualLinkedLines([]);
       return;
     }
 
@@ -697,6 +730,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setProblemSuffix("");               // limpia el problema al cambiar de producto
     setRandomNames({});
     setLinkedItemNames({});
+    setManualMainDecRef("");
     setPrice(decClean);
     setPlacedOn(toYYYYMMDD(fechaCompra));
     if (autoKey) setCasilleroKey(autoKey);
@@ -709,9 +743,37 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     if (autoKey) setCasilleroKey(autoKey);
   }, [productoSel]);
 
+  const randomNameForAnyProduct = () => {
+    const pool = (productosEnCamino && productosEnCamino.length)
+      ? productosEnCamino
+      : (productosAll || []);
+    if (pool.length) {
+      const p = pool[Math.floor(Math.random() * pool.length)];
+      const tipo = normalize(p?.tipo);
+      let core = buildCoreName(p);
+      if (tipo.includes("macbook")) {
+        const opts = cpuOptionsForMac(p);
+        const cpu = pickOne(opts);
+        core = buildCoreName(p, cpu);
+      }
+      const prob = randomProblemForProduct(p);
+      return core + (prob ? ` ${prob}` : "");
+    }
+    const genericCore = pickOne([
+      'MacBook Pro i7 13" 16GB RAM 512GB',
+      'iPad Pro 12.9 4th gen 256GB',
+      'iPhone 13 Pro 256GB',
+    ]);
+    const prob = randomProblemForProduct(null);
+    return `${genericCore} ${prob}`.trim();
+  };
+
   // ?? CPU aleatoria (Mac) + problema aleatorio al final
   const rollName = () => {
-    if (!productoSel) return;
+    if (!productoSel) {
+      onEditItemName(randomNameForAnyProduct());
+      return;
+    }
     const tipo = normalize(productoSel?.tipo);
     let core = buildCoreName(productoSel);
     if (tipo.includes("macbook")) {
@@ -743,6 +805,11 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       setNameCore(core);
       setProblemSuffix(prob || "");
     }
+  };
+
+  const rollManualLinkedName = (id) => {
+    const full = randomNameForAnyProduct();
+    updateManualLinkedLine(id, { name: full });
   };
 
   // itemName = core + (opcional) problema
@@ -800,6 +867,52 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     });
   }, [productoSel, linkedGroup, shippingSvc, itemName, randomNames, linkedItemNames]);
 
+  const manualItems = useMemo(() => {
+    if (productoSel) return null;
+    const parseRef = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    };
+    const namedLines = [
+      { name: itemName, decRef: parseRef(manualMainDecRef) },
+      ...manualLinkedLines.map((line) => ({
+        name: line?.name || "",
+        decRef: parseRef(line?.decRef),
+      })),
+    ]
+      .map((line) => ({ ...line, name: String(line.name || "").trim() }))
+      .filter((line) => line.name);
+
+    const total = Number(price) || 0;
+    const count = Math.max(1, namedLines.length || 1);
+    const totalRef = namedLines.reduce((s, line) => s + line.decRef, 0);
+    const fallbackShare = count ? 1 / count : 1;
+    let used = 0;
+    return Array.from({ length: count }).map((_, idx) => {
+      const line = namedLines[idx] || { name: "", decRef: 0 };
+      const share = totalRef > 0 ? (line.decRef / totalRef) : fallbackShare;
+      const isLast = idx === count - 1;
+      const linePrice = isLast
+        ? +(total - used).toFixed(2)
+        : +((total * share).toFixed(2));
+      used += linePrice;
+      return {
+        qty: 1,
+        name: line.name || "",
+        price: linePrice,
+        shippingSvc: shippingSvc || "Standard Shipping",
+      };
+    });
+  }, [productoSel, itemName, manualMainDecRef, manualLinkedLines, price, shippingSvc]);
+
+  const htmlItems = useMemo(() => {
+    if (productoSel) {
+      return linkedItems && linkedItems.length ? linkedItems : null;
+    }
+    return manualItems;
+  }, [productoSel, linkedItems, manualItems]);
+  const manualHasMultiple = !productoSel && manualLinkedLines.length > 0;
+
   const html = useMemo(
     () =>
       buildModalContentHTML({
@@ -811,9 +924,9 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         price,       // ? DEC
         itemName,
         shippingSvc,
-        items: linkedItems,
+        items: htmlItems,
       }),
-    [seller, placedOn, orderNumber, casilleroKey, qty, price, itemName, shippingSvc, linkedItems]
+    [seller, placedOn, orderNumber, casilleroKey, qty, price, itemName, shippingSvc, htmlItems]
   );
 
   // Cerrar con ESC
@@ -915,7 +1028,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
 
           <div className="grid sm:grid-cols-4 gap-3">
             <label className="text-sm sm:col-span-2">
-              <span className="block text-gray-600 mb-1">Producto (en camino)</span>
+              <span className="block text-gray-600 mb-1">Producto (opcional, en camino)</span>
               <select
                 className="input"
                 value={productoSel?.id ?? ""}
@@ -936,13 +1049,30 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                     </option>
                   ))}
               </select>
+              <div className="text-[11px] text-gray-500 mt-1">
+                Si no eliges producto, puedes crear la boleta llenando los campos manualmente.
+              </div>
             </label>
 
-            {/* Valor DEC solo lectura */}
-            <label className="text-sm">
-              <span className="block text-gray-600 mb-1">Valor DEC</span>
-              <input className="input" value={productoSel?.__decResolved || ""} readOnly placeholder="-" />
-            </label>
+            {productoSel ? (
+              <label className="text-sm">
+                <span className="block text-gray-600 mb-1">Valor DEC (producto)</span>
+                <input className="input" value={productoSel?.__decResolved || ""} readOnly placeholder="-" />
+              </label>
+            ) : (
+              <label className="text-sm">
+                <span className="block text-gray-600 mb-1">Valor DEC total (USD)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="input"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  placeholder="0.00"
+                />
+              </label>
+            )}
 
             {/* Casillero único (afecta al HTML) */}
             <label className="text-sm">
@@ -978,20 +1108,32 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             </label>
           </div>
 
-          {/* Tracking del transportista (solo lectura, NO va al HTML) */}
+          {/* Tracking del transportista (solo lectura con producto, editable en modo manual) */}
           <div className="grid sm:grid-cols-3 gap-3">
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Transportista</span>
-              <input className="input" value={carrier || ""} readOnly placeholder="-" />
+              <input
+                className="input"
+                value={productoSel ? (carrier || "") : manualCarrier}
+                onChange={(e) => setManualCarrier(e.target.value)}
+                readOnly={!!productoSel}
+                placeholder="-"
+              />
             </label>
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Tracking #</span>
-              <input className="input" value={carrierTracking || ""} readOnly placeholder="-" />
+              <input
+                className="input"
+                value={productoSel ? (carrierTracking || "") : manualCarrierTracking}
+                onChange={(e) => setManualCarrierTracking(e.target.value)}
+                readOnly={!!productoSel}
+                placeholder="-"
+              />
             </label>
             <div />
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-3">
+          <div className="grid sm:grid-cols-4 gap-3">
             <label className="text-sm sm:col-span-2">
               <span className="block text-gray-600 mb-1">Item name</span>
               <div className="flex gap-2">
@@ -1006,7 +1148,6 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                   onClick={rollName}
                   title="Elegir CPU (Mac) + problema aleatorio"
                   className="px-3 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700"
-                  disabled={!productoSel}
                 >
                   <FaDice className="text-base" />
                 </button>
@@ -1016,6 +1157,20 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
               <span className="block text-gray-600 mb-1">Shipping service</span>
               <input value={shippingSvc} onChange={(e) => setShippingSvc(e.target.value)} className="input" placeholder="Standard Shipping" />
             </label>
+            {!productoSel && manualHasMultiple ? (
+              <label className="text-sm">
+                <span className="block text-gray-600 mb-1">DEC ref (item 1)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={manualMainDecRef}
+                  onChange={(e) => setManualMainDecRef(e.target.value)}
+                  className="input"
+                  placeholder="0.00"
+                />
+              </label>
+            ) : null}
           </div>
 
           {linkedGroup.length > 1 ? (
@@ -1045,6 +1200,61 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                   </label>
                 );
               })}
+            </div>
+          ) : null}
+
+          {!productoSel ? (
+            <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <div className="text-sm font-medium text-gray-700">Items adicionales (manual)</div>
+                <button
+                  type="button"
+                  onClick={addManualLinkedLine}
+                  className="px-3 py-1.5 rounded bg-gray-800 text-white text-xs hover:bg-gray-900"
+                >
+                  + Agregar linea
+                </button>
+              </div>
+              <div className="text-[11px] text-gray-500 mb-3">
+                {manualHasMultiple
+                  ? "Modo manual: define DEC ref por item y se prorratea el Valor DEC total en base a esos refs."
+                  : "Modo manual: con 1 producto no se necesita DEC ref por item."}
+              </div>
+              {manualLinkedLines.length > 0 ? (
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {manualLinkedLines.map((line, idx) => (
+                    <label key={line.id} className="text-[11px] text-gray-600">
+                      <span className="block mb-1">Item name manual #{idx + 2}</span>
+                      <div className={`grid ${manualHasMultiple ? "grid-cols-[1fr_130px_auto]" : "grid-cols-[1fr_auto]"} gap-2`}>
+                        <input
+                          className="input text-xs py-1.5 flex-1"
+                          value={line.name}
+                          onChange={(e) => updateManualLinkedLine(line.id, { name: e.target.value })}
+                        />
+                        {manualHasMultiple ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className="input text-xs py-1.5"
+                            value={line.decRef || ""}
+                            onChange={(e) => updateManualLinkedLine(line.id, { decRef: e.target.value })}
+                            placeholder="DEC ref"
+                          />
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => rollManualLinkedName(line.id)}
+                          title="Generar item name"
+                          className="px-2 rounded-lg bg-indigo-600 text-white text-xs hover:bg-indigo-700"
+                        >
+                          <FaDice className="text-sm" />
+                        </button>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>

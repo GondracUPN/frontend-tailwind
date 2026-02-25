@@ -52,13 +52,18 @@ const inferGama = (title) => {
 
 const inferIphoneMeta = (title) => {
   const t = normalizeText(title);
-  const numero = (t.match(/\biphone\s*(\d{2})\b/) || t.match(/\b(\d{2})\b/))?.[1] || '';
+  const numero = (
+    t.match(/\biphone\s*(\d{2})(?:\s*[a-z])?\b/) ||
+    t.match(/\b(\d{2})[a-z]\b/) ||
+    t.match(/\b(\d{2})\b/)
+  )?.[1] || '';
   let modelo = '';
   if (/\bpro max\b/.test(t)) modelo = 'Pro Max';
   else if (/\bpro\b/.test(t)) modelo = 'Pro';
   else if (/\bplus\b/.test(t)) modelo = 'Plus';
   else if (/\bmini\b/.test(t)) modelo = 'Mini';
   else if (/\bair\b/.test(t)) modelo = 'Air';
+  else if ((numero === '16' || numero === '17') && (/\biphone\s*(16|17)\s*e\b/.test(t) || /\b(16|17)e\b/.test(t))) modelo = 'E';
   else if (t.includes('iphone')) modelo = 'Normal';
   return { numero, modelo };
 };
