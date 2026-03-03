@@ -28,6 +28,35 @@ const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
 const ESHOPEX_BG_REQUESTED_KEY = 'eshopex-carga-requested';
 const ESHOPEX_BG_OPEN_MODAL_KEY = 'eshopex-carga-open-modal';
 const ESHOPEX_BG_COUNT_KEY = 'eshopex-carga-pendientes-count';
+const EMPTY_ESH_PROGRESS = {
+  status: 'idle',
+  total: 0,
+  completed: 0,
+  remaining: 0,
+  currentAccount: '',
+  currentCasillero: '',
+  message: '',
+  error: null,
+};
+
+const normalizeEshopexProgress = (raw) => {
+  const total = Number(raw?.total || 0);
+  const completed = Number(raw?.completed || 0);
+  const remainingRaw = Number(raw?.remaining);
+  const remaining = Number.isFinite(remainingRaw)
+    ? Math.max(0, remainingRaw)
+    : Math.max(0, total - completed);
+  return {
+    status: String(raw?.status || 'idle').toLowerCase(),
+    total: Number.isFinite(total) ? Math.max(0, total) : 0,
+    completed: Number.isFinite(completed) ? Math.max(0, completed) : 0,
+    remaining,
+    currentAccount: String(raw?.currentAccount || '').trim(),
+    currentCasillero: String(raw?.currentCasillero || '').trim(),
+    message: String(raw?.message || '').trim(),
+    error: raw?.error ? String(raw.error) : null,
+  };
+};
 
 const readCache = () => {
   try {
@@ -175,6 +204,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [eshopexCargaRows, setEshopexCargaRows] = useState([]);
   const [eshopexCargaLoading, setEshopexCargaLoading] = useState(false);
   const [eshopexCargaError, setEshopexCargaError] = useState(null);
+  const [eshopexCargaProgress, setEshopexCargaProgress] = useState(() => ({ ...EMPTY_ESH_PROGRESS }));
   const [eshopexCargaRefreshKey, setEshopexCargaRefreshKey] = useState(0);
   const [eshopexPagoLoading, setEshopexPagoLoading] = useState(() => new Set());
   const [eshopexVincularLoading, setEshopexVincularLoading] = useState(() => new Set());
@@ -305,6 +335,12 @@ export default function Productos({ setVista, setAnalisisBack }) {
     setEshopexCargaRequested(true);
     setEshopexCargaLoading(true);
     setEshopexCargaError(null);
+    setEshopexCargaProgress((prev) => ({
+      ...prev,
+      status: 'running',
+      message: 'Iniciando busqueda...',
+      error: null,
+    }));
     setEshopexCargaRefreshKey((v) => v + 1);
     try {
       localStorage.setItem(ESHOPEX_BG_REQUESTED_KEY, '1');
@@ -563,11 +599,53 @@ const confirmAction = async () => {
         if (!alive) return;
         setEshopexCargaError('No se pudo cargar la informacion de Eshopex.');
       } finally {
+        if (!alive) return;
+        try {
+          const progressData = await api.get('/tracking/eshopex-carga-progress');
+          if (alive) setEshopexCargaProgress(normalizeEshopexProgress(progressData));
+        } catch {
+          /* ignore */
+        }
         if (alive) setEshopexCargaLoading(false);
       }
     })();
     return () => { alive = false; };
   }, [eshopexCargaRequested, recojoOpen, eshopexCargaRefreshKey, readEshopexCargaCache, writeEshopexCargaCache]);
+
+  useEffect(() => {
+    if (!eshopexCargaLoading) return () => {};
+    let alive = true;
+    const pullProgress = async () => {
+      try {
+        const data = await api.get('/tracking/eshopex-carga-progress');
+        if (!alive) return;
+        setEshopexCargaProgress(normalizeEshopexProgress(data));
+      } catch {
+        /* ignore */
+      }
+    };
+    const timer = window.setInterval(pullProgress, 700);
+    pullProgress();
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [eshopexCargaLoading]);
+
+  const eshopexCargaProgressLabel = React.useMemo(() => {
+    if (!eshopexCargaLoading) return '';
+    const target = eshopexCargaProgress.currentCasillero || eshopexCargaProgress.currentAccount;
+    const remaining = Number(eshopexCargaProgress.remaining || 0);
+    const completed = Number(eshopexCargaProgress.completed || 0);
+    const total = Number(eshopexCargaProgress.total || 0);
+    const base = target ? `Va por: ${target}.` : 'Buscando en casilleros...';
+    const detail = total > 0
+      ? ` Completados: ${Math.min(completed, total)}/${total}. Faltan: ${remaining}.`
+      : ` Faltan: ${remaining}.`;
+    const msg = String(eshopexCargaProgress.message || '').trim();
+    if (msg) return `${msg} ${detail.trim()}`.trim();
+    return `${base}${detail}`;
+  }, [eshopexCargaLoading, eshopexCargaProgress]);
 
   const casilleroByAccount = React.useMemo(() => ({
     'gongarc2001@gmail.com': 'Walter',
@@ -2307,7 +2385,7 @@ const confirmAction = async () => {
               </div>
             )}
             {eshopexCargaLoading && (
-              <div className="text-sm text-gray-600">Cargando...</div>
+              <div className="text-sm text-gray-700">{eshopexCargaProgressLabel || 'Cargando...'}</div>
             )}
             {eshopexCargaError && (
               <div className="text-sm text-red-600">{eshopexCargaError}</div>
