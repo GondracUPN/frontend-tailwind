@@ -181,6 +181,10 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
   const [pendingLinkIds, setPendingLinkIds] = useState([]);
   const [vincularConList, setVincularConList] = useState([]);
   const [desvincularEnvio, setDesvincularEnvio] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(false);
+  const [recentLoading, setRecentLoading] = useState(false);
+  const [recentError, setRecentError] = useState('');
+  const [recentNuevo, setRecentNuevo] = useState([]);
 
   const [form, setForm] = useState({
     tipo: '',
@@ -289,6 +293,68 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     } else {
       setForm((f) => ({ ...f, [section]: { ...f[section], [field]: value } }));
     }
+  };
+
+  const describeProducto = (p) => {
+    const tipo = String(p?.tipo || '').trim();
+    const d = p?.detalle || {};
+    if (tipo.toLowerCase() === 'iphone') {
+      return ['iPhone', d.numero, d.modelo, d.almacenamiento].filter(Boolean).join(' ');
+    }
+    if (tipo.toLowerCase() === 'otro') {
+      return String(d.descripcionOtro || '').trim() || 'Otro';
+    }
+    return [tipo, d.gama, d.procesador, d.tamano || d.tamanio, d.almacenamiento].filter(Boolean).join(' ');
+  };
+
+  const getRecentTs = (p) => {
+    const fechaCompra = String(p?.valor?.fechaCompra || '').trim();
+    const tsCompra = fechaCompra ? Date.parse(fechaCompra) : 0;
+    if (Number.isFinite(tsCompra) && tsCompra > 0) return tsCompra;
+    const createdAt = String(p?.createdAt || '').trim();
+    const tsCreated = createdAt ? Date.parse(createdAt) : 0;
+    return Number.isFinite(tsCreated) ? tsCreated : 0;
+  };
+
+  const loadRecentNuevo = async () => {
+    try {
+      setRecentLoading(true);
+      setRecentError('');
+      const res = await api.get('/productos');
+      const data = res?.data || res || [];
+      const list = (Array.isArray(data) ? data : [])
+        .filter((p) => String(p?.estado || '').toLowerCase() === 'nuevo')
+        .sort((a, b) => getRecentTs(b) - getRecentTs(a))
+        .slice(0, 15);
+      setRecentNuevo(list);
+    } catch (err) {
+      console.error('No se pudieron cargar productos recientes', err);
+      setRecentError('No se pudo cargar el listado reciente.');
+    } finally {
+      setRecentLoading(false);
+    }
+  };
+
+  const applyRecentNuevo = (p) => {
+    if (!p) return;
+    const detalleSrc = { ...(p?.detalle || {}) };
+    if (detalleSrc.tamanio && !detalleSrc.tamano) {
+      detalleSrc.tamano = detalleSrc.tamanio;
+      delete detalleSrc.tamanio;
+    }
+    setForm((f) => ({
+      ...f,
+      tipo: p?.tipo || f.tipo,
+      estado: p?.estado || f.estado,
+      accesorios: Array.isArray(p?.accesorios) ? [...p.accesorios] : f.accesorios,
+      detalle: { ...f.detalle, ...detalleSrc },
+      valor: {
+        ...f.valor,
+        valorProducto: p?.valor?.valorProducto ?? f.valor.valorProducto,
+        // Preserve current valorDec/peso/fechaCompra and casillero as requested.
+      },
+    }));
+    setRecentOpen(false);
   };
 
   const fetchEbay = async () => {
@@ -480,6 +546,50 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                     )}
                   </div>
                 )}
+                {!isEdit && (
+                  <div className="border rounded-lg p-3 bg-gray-50/60">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="px-3 py-2 rounded border text-sm bg-white hover:bg-gray-100"
+                        onClick={async () => {
+                          if (!recentOpen && recentNuevo.length === 0) {
+                            await loadRecentNuevo();
+                          }
+                          setRecentOpen((v) => !v);
+                        }}
+                      >
+                        {recentOpen ? 'Cerrar lista recientes' : 'Usar comprados recientes (nuevo)'}
+                      </button>
+                    </div>
+                    {recentOpen && (
+                      <div className="mt-3 border rounded-lg bg-white p-2 max-h-52 overflow-auto space-y-2">
+                        {recentLoading && <div className="text-sm text-gray-500">Cargando recientes...</div>}
+                        {!recentLoading && recentError && <div className="text-sm text-red-600">{recentError}</div>}
+                        {!recentLoading && !recentError && recentNuevo.length === 0 && (
+                          <div className="text-sm text-gray-500">No hay productos en estado nuevo.</div>
+                        )}
+                        {!recentLoading && !recentError && recentNuevo.map((p) => (
+                          <div key={`recent-${p.id}`} className="flex items-center justify-between gap-3 border rounded-md p-2">
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-gray-900 truncate">#{p.id} - {describeProducto(p) || p.tipo || 'Producto'}</div>
+                              <div className="text-xs text-gray-600">
+                                Compra: {p?.valor?.fechaCompra || '-'} | Valor producto: {p?.valor?.valorProducto ?? '-'}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="px-3 py-1.5 rounded bg-indigo-600 text-white text-sm hover:bg-indigo-700"
+                              onClick={() => applyRecentNuevo(p)}
+                            >
+                              Usar
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div>
                   <label className="block font-medium">Tipo de Producto</label>
                   <select
@@ -662,6 +772,32 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                     >
                       {linkerOpen ? 'Cerrar lista' : (producto?.envioGrupoId ? 'Agregar vinculo' : 'Vincular producto')}
                     </button>
+                    {linkerOpen && (
+                      <>
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded-md border text-sm bg-white hover:bg-gray-100"
+                          onClick={() => {
+                            setLinkerOpen(false);
+                            setPendingLinkIds([]);
+                          }}
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          className="px-4 py-1.5 rounded-md text-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+                          disabled={!pendingLinkIds.length}
+                          onClick={() => {
+                            setVincularConList(pendingLinkIds);
+                            setDesvincularEnvio(false);
+                            setLinkerOpen(false);
+                          }}
+                        >
+                          Aceptar
+                        </button>
+                      </>
+                    )}
                     {producto?.envioGrupoId && (
                       <button
                         type="button"
@@ -734,27 +870,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                           </label>
                         );
                       })}
-                      <div className="flex justify-end gap-3 pt-1">
-                        <button
-                          type="button"
-                          className="px-3 py-1.5 rounded-md border text-sm bg-white hover:bg-gray-100"
-                          onClick={() => { setLinkerOpen(false); setPendingLinkIds([]); }}
-                        >
-                          Cancelar
-                        </button>
-                        <button
-                          type="button"
-                          className="px-4 py-1.5 rounded-md text-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
-                          disabled={!pendingLinkIds.length}
-                          onClick={() => {
-                            setVincularConList(pendingLinkIds);
-                            setDesvincularEnvio(false);
-                            setLinkerOpen(false);
-                          }}
-                        >
-                          Aceptar
-                        </button>
-                      </div>
                     </div>
                   )}
                 </div>
