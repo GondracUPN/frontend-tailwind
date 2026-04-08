@@ -1,6 +1,6 @@
 // src/components/ModalDec.js
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import api, { API_URL } from "../api";
+import api from "../api";
 import { FaDice } from "react-icons/fa";
 
 /** Casilleros exactos (para el HTML final) */
@@ -40,7 +40,6 @@ const PROBLEMS = {
   ],
 };
 const pickOne = (arr) => arr[Math.floor(Math.random() * arr.length)];
-const EBAY_LOGO = "https://ir.ebaystatic.com/rs/v/fxxj3ttftm5ltcqnto1o4baovyl.png";
 
 /* ---------- Helpers ---------- */
 function fmtUSD(n) {
@@ -560,525 +559,6 @@ ${safeItems.map((it) => `
 `.trim();
 }
 
-function buildAmazonTemplateHTML({
-  placedOn,
-  orderNumber,
-  casilleroKey,
-  qty,
-  price,
-  itemName,
-  items,
-  deliveryHeadline,
-  imageSmall,
-  imageLarge,
-}) {
-  const safeItems = Array.isArray(items) && items.length
-    ? items
-    : [{ qty: Math.max(1, Number(qty) || 1), name: itemName || "", price: Number(price) || 0 }];
-  const subtotal = safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1), 0);
-  const grandTotal = subtotal;
-  const shipName = CASILLEROS[casilleroKey] || "";
-  const placedOnTxt = fmtDateUSLong(placedOn);
-  const deliveryText = String(deliveryHeadline || "Delivered tomorrow").trim();
-  const deliveryHeading = deliveryText.toLowerCase().startsWith("delivered ")
-    ? deliveryText.replace(/^Delivered\s*/i, '<span class="a-text-bold">Delivered </span><span class="a-text-bold a-nowrap">')
-        .replace(/$/, "</span>")
-    : `<span class="a-text-bold">${esc(deliveryText)}</span>`;
-
-  const itemsHtml = safeItems.map((it) => `
-  <div class="a-row a-spacing-top-base">
-    <div class="a-fixed-left-grid a-spacing-none"><div class="a-fixed-left-grid-inner" style="padding-left:100px">
-      <div class="a-fixed-left-grid-col a-col-left" style="width:100px;margin-left:-100px;float:left;">
-        <div class="" data-component="itemImage">
-          <div class="aok-relative">
-            <a class="a-link-normal" href="#" keepapreview="pf_prevImg">
-              <img alt="${esc(it.name || "")}" src="${esc(imageSmall || DEFAULT_IMAGE_SRC)}" height="90" width="90" data-a-hires="${esc(imageLarge || imageSmall || DEFAULT_IMAGE_SRC)}">
-            </a>
-          </div>
-        </div>
-      </div>
-      <div class="a-fixed-left-grid-col a-col-right" style="padding-left:1.5%;float:left;">
-        <div class="" data-component="itemTitle">
-          <div class="a-row"><a class="a-link-normal" href="#" keepapreview="pf_prevImg">${esc(it.name || "")}</a></div>
-        </div>
-        <div class="" data-component="orderedMerchant">
-          <span class="a-size-small a-color-secondary">Sold by: Amazon.com</span>
-        </div>
-        <div class="" data-component="supplierOfRecord">
-          <span class="a-size-small a-color-secondary">Supplied by: Other</span>
-        </div>
-        <div class="" data-component="itemReturnEligibility">
-          <div class="a-row">
-            <span class="a-size-small">Return or replace items: Eligible through ${esc(placedOnTxt || "")}</span>
-          </div>
-        </div>
-        <div class="" data-component="quantity">
-          <span class="a-size-small">Quantity: ${Math.max(1, Number(it.qty) || 1)}</span>
-        </div>
-        <div class="" data-component="unitPrice">
-          <span class="a-price a-text-price" data-a-size="s" data-a-color="base">
-            <span class="a-offscreen">${esc(fmtUSD(Number(it.price) || 0))}</span>
-            <span aria-hidden="true">${esc(fmtUSD(Number(it.price) || 0))}</span>
-          </span>
-        </div>
-      </div>
-    </div></div>
-  </div>`).join("");
-
-  return `
-<div class="" data-component="default">
-  <div class="" data-component="debugBanner"></div>
-  <div class="" data-component="aapiDebug"></div>
-  <div class="" data-component="title">
-    <div class="a-section">
-      <div class="a-row">
-        <div class="" data-component="titleLeftGrid">
-          <div class="a-column a-span6">
-            <div class="" data-component="printODTitle">
-              <h1>Order Summary</h1>
-            </div>
-          </div>
-        </div>
-        <div class="" data-component="titleRightGrid">
-          <div class="a-column a-span6 a-text-right a-span-last">
-            <div class="" data-component="brandLogo"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="" data-component="saveButtonMobile"></div>
-
-  <div class="" data-component="briefOrderInfoInvoice">
-    <div class="a-section">
-      <div class="a-row a-spacing-mini">
-        <div class="" data-component="briefOrderInfoInvoiceLeftGridDesktop">
-          <div class="a-section">
-            <div class="a-column a-span9 a-spacing-top-mini">
-              <div class="" data-component="poNumber"></div>
-              <div class="" data-component="orderDateLabel"><span>Order placed</span></div>
-              <div class="" data-component="orderDate"><span>${esc(placedOnTxt)} <i class="a-icon a-icon-text-separator" role="presentation"></i></span></div>
-              <div class="" data-component="orderIdLabel"><span>Order #</span></div>
-              <div class="" data-component="orderId"><span>${esc(orderNumber || "")}</span></div>
-            </div>
-          </div>
-        </div>
-        <div class="" data-component="briefOrderInfoInvoiceLeftGridMobile"></div>
-        <div class="" data-component="briefOrderInfoInvoiceRightGrid">
-          <div class="a-section">
-            <div class="a-column a-span3 a-text-right a-span-last">
-              <div class="" data-component="saveButton">
-                <span class="a-declarative" data-action="printOD-print" data-printod-print="{}">
-                  <span class="a-button a-button-primary printOD-hide-print" id="a-autoid-0">
-                    <span class="a-button-inner">
-                      <input class="a-button-input" type="submit" aria-labelledby="a-autoid-0-announce">
-                      <span class="a-button-text" aria-hidden="true" id="a-autoid-0-announce">Print</span>
-                    </span>
-                  </span>
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="" data-component="orderSummary">
-    <div class="a-box-group a-spacing-base">
-      <div class="a-box"><div class="a-box-inner">
-        <div class="a-fixed-right-grid"><div class="a-fixed-right-grid-inner" style="padding-right:260px">
-          <div class="a-fixed-right-grid-col a-col-left" style="padding-right:0%;float:left;">
-            <div class="a-row">
-              <div class="a-column a-span5">
-                <div class="" data-component="shippingAddress">
-                  <h5 class="a-spacing-micro">Ship to</h5>
-                  <ul class="a-unordered-list a-nostyle a-vertical">
-                    <li><span class="a-list-item">${esc(shipName)}</span></li>
-                    <li><span class="a-list-item">9990 NW 14TH ST STE 110<br>DORAL, FL 33192-2702</span></li>
-                    <li><span class="a-list-item">United States</span></li>
-                  </ul>
-                </div>
-              </div>
-              <div class="a-column a-span7 a-span-last">
-                <div class="a-section a-spacing-base">
-                  <div class="" data-component="viewPaymentPlanSummaryWidget">
-                    <h5 class="a-spacing-micro">Payment method</h5>
-                    <div class="a-section">
-                      <div class="a-row pmts-portal-root-EsrhbdGCI4j3">
-                        <div class="a-column a-span12 pmts-payment-instrument-billing-address">
-                          <span class="pmts-payments-instrument-detail-box-paystationpaymentmethod">Visa<span class="a-letter-space"></span> <span class="a-color-base">ending in 9513</span><br></span>
-                        </div>
-                      </div>
-                      <span class="a-button a-button-base a-button-small pmts-view-your-transactions-button" id="a-autoid-1">
-                        <span class="a-button-inner"><a href="#" class="a-button-text" role="button" id="a-autoid-1-announce">View related transactions</a></span>
-                      </span>
-                    </div>
-                  </div>
-                  <div class="" data-component="aapiPaymentMethods"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div id="od-subtotals" class="a-fixed-right-grid-col a-col-right" style="width:260px;margin-right:-260px;float:left;">
-            <div class="" data-component="chargeSummary">
-              <div class="a-column a-span12">
-                <div class="a-row a-spacing-small"><h5>Order Summary</h5></div>
-                <ul class="a-unordered-list a-nostyle a-vertical">
-                  <li><span class="a-list-item"><div class="a-row od-line-item-row"><div class="a-column a-span7 od-line-item-row-label"><span class="a-size-base"><span>Item(s) Subtotal: </span></span></div><div class="a-column a-span5 od-line-item-row-content a-span-last"><span class="a-size-base a-color-base">${esc(fmtUSD(subtotal))}</span></div></div></span></li>
-                  <li><span class="a-list-item"><div class="a-row od-line-item-row"><div class="a-column a-span7 od-line-item-row-label"><span class="a-size-base"><span>Shipping &amp; Handling:</span></span></div><div class="a-column a-span5 od-line-item-row-content a-span-last"><span class="a-size-base a-color-base">$0.00</span></div></div></span></li>
-                  <li><span class="a-list-item"><div class="a-row od-line-item-row"><div class="a-column a-span7 od-line-item-row-label"><span class="a-size-base"><span>Total before tax:</span></span></div><div class="a-column a-span5 od-line-item-row-content a-span-last"><span class="a-size-base a-color-base">${esc(fmtUSD(subtotal))}</span></div></div></span></li>
-                  <li><span class="a-list-item"><div class="a-row od-line-item-row"><div class="a-column a-span7 od-line-item-row-label"><span class="a-size-base"><span>Estimated tax to be collected:</span></span></div><div class="a-column a-span5 od-line-item-row-content a-span-last"><span class="a-size-base a-color-base">$0.00</span></div></div></span></li>
-                  <li><span class="a-list-item"><div class="a-row od-line-item-row"><div class="a-column a-span7 od-line-item-row-label"><span class="a-size-base a-color-base a-text-bold"><span>Grand Total:</span></span></div><div class="a-column a-span5 od-line-item-row-content a-span-last"><span class="a-size-base a-color-base a-text-bold">${esc(fmtUSD(grandTotal))}</span></div></div></span></li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div></div>
-      </div></div>
-    </div>
-  </div>
-
-  <div class="" data-component="orderCard">
-    <div class="" data-component="shipments">
-      <div class="a-box-group">
-        <div class="a-box"><div class="a-box-inner">
-          <div class="a-fixed-right-grid"><div class="a-fixed-right-grid-inner" style="padding-right:220px">
-            <div class="a-fixed-right-grid-col a-col-left" style="padding-right:3.2%;float:left;">
-              <div class="" data-component="shipmentStatus">
-                <div id="shipment-top-row" class="a-row">
-                  <div class="a-section">
-                    <div class="a-row">
-                      <h4 class="a-color-base od-status-message">${deliveryHeading}</h4>
-                    </div>
-                    <div class="a-row od-status-message"></div>
-                    <div class="a-row"></div>
-                  </div>
-                </div>
-              </div>
-              <div class="" data-component="purchasedItems">
-                ${itemsHtml}
-              </div>
-            </div>
-          </div></div>
-        </div></div>
-      </div>
-    </div>
-  </div>
-</div>
-`.trim();
-}
-
-const PRINT_CSS = `
-  *{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#111827;background:#eef2f7}
-  .doc{padding:24px}.page{max-width:980px;margin:0 auto}.card{background:#fff;border:1px solid #d7dce2;border-radius:14px;box-shadow:0 14px 36px rgba(15,23,42,.08);overflow:hidden}
-  .pad{padding:24px}.section{border:1px solid #d7dce2;border-radius:12px;background:#fff;overflow:hidden}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}
-  .title{font-size:18px;font-weight:700;margin:0 0 14px}.rows{display:grid;gap:6px;font-size:13px;line-height:1.5}.line{display:flex;justify-content:space-between;gap:12px}
-  .line strong{color:#111827}.muted{color:#4b5563}.table{width:100%;border-collapse:collapse;font-size:13px}.table th,.table td{padding:12px 10px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}
-  .table th:last-child,.table td:last-child{text-align:right;white-space:nowrap}.table thead th{font-size:12px;color:#4b5563;text-transform:uppercase;letter-spacing:.04em}.table tbody tr:last-child td{border-bottom:0}
-  .ebay-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}.ebay-head img{width:142px;height:auto}.ebay-meta{text-align:right;font-size:12px;color:#4b5563}
-  .market-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.market-top h1{margin:0 0 10px;font-size:28px;line-height:1.1;font-weight:500}.market-line{font-size:14px}.market-line .sep{margin:0 10px;color:#9ca3af}
-  .print-pill{min-width:70px;padding:10px 14px;border-radius:999px;border:1px solid #f5b400;background:#ffd814;color:#111827;font-size:14px;text-align:center}
-  .market-grid{display:grid;grid-template-columns:1.1fr 1.2fr 1fr;gap:24px}.market-label{margin:0 0 8px;font-size:15px;font-weight:700}.market-info{display:grid;gap:3px;font-size:13px;line-height:1.45}
-  .market-delivery{padding:18px 20px}.market-delivery h2{margin:0;font-size:18px;font-weight:700}.market-item{display:grid;grid-template-columns:90px 1fr 120px;gap:16px;padding:18px 20px;border-top:1px solid #e5e7eb}
-  .market-item:first-of-type{border-top:0}.market-thumb{width:90px;height:90px;border:1px solid #d1d5db;border-radius:8px;overflow:hidden;background:#fff;display:flex;align-items:center;justify-content:center}
-  .market-thumb img{width:90px;height:90px;object-fit:cover;display:block}.market-name{font-size:15px;line-height:1.35;margin-bottom:8px;color:#146eb4}.store-apple .market-name{color:#111827}
-  .market-meta{display:grid;gap:3px;font-size:13px;color:#374151}.market-price{text-align:right;font-size:15px;font-weight:700}.summary .line{margin-bottom:4px}.summary .grand{margin-top:10px;padding-top:10px;border-top:1px solid #d1d5db;font-weight:700}
-  .store-apple body,.store-apple{background:#f5f5f7}.store-apple .print-pill{border-color:#d1d5db;background:#f3f4f6}
-  .store-amazon body,.store-amazon{background:#fff}
-  .store-amazon .doc{padding:0}
-  .store-amazon .page{max-width:none;width:100%}
-  .store-amazon .card{border:0;box-shadow:none;border-radius:0}
-  .store-amazon .pad{padding:22px 28px}
-  .amazon-title{margin:0;font-size:52px;line-height:1.05;font-weight:400;color:#111}
-  .amazon-brief{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin:10px 0 18px}
-  .amazon-brief-line{font-size:15px;color:#111}
-  .amazon-brief-line .sep{display:inline-block;margin:0 10px;color:#6b7280}
-  .amazon-print{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 18px;border-radius:999px;border:1px solid #f7ca00;background:#ffd814;color:#111;font-size:14px;margin-top:6px}
-  .amazon-box{border:1px solid #d5d9d9;border-radius:8px;background:#fff}
-  .amazon-top-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1.1fr) 285px;gap:28px;padding:16px 18px}
-  .amazon-label{margin:0 0 8px;font-size:18px;font-weight:700;color:#111}
-  .amazon-list{display:grid;gap:4px;font-size:15px;line-height:1.42;color:#111}
-  .amazon-pay-button{display:inline-flex;align-items:center;justify-content:center;min-height:26px;padding:0 12px;margin-top:8px;border:1px solid #888c8c;border-radius:999px;background:#fff;color:#0f1111;font-size:13px}
-  .amazon-summary-col .line{margin-bottom:4px;font-size:15px}
-  .amazon-summary-col .grand{margin-top:8px;padding-top:8px;border-top:1px solid #d5d9d9;font-weight:700}
-  .amazon-delivery-box{margin-top:12px;border:1px solid #d5d9d9;border-radius:8px;background:#fff}
-  .amazon-delivery-head{padding:14px 18px 10px}
-  .amazon-delivery-head h2{margin:0;font-size:18px;font-weight:700;color:#111}
-  .amazon-item{display:grid;grid-template-columns:108px minmax(0,1fr) 130px;gap:18px;padding:14px 18px;border-top:1px solid #eaeded}
-  .amazon-item:first-of-type{border-top:0}
-  .amazon-thumb{width:108px;height:100px;display:flex;align-items:flex-start;justify-content:center}
-  .amazon-thumb img{width:90px;height:90px;object-fit:cover;display:block}
-  .amazon-item-title{margin:0 0 8px;font-size:15px;line-height:1.45;color:#2162a1}
-  .amazon-item-meta{display:grid;gap:4px;font-size:13px;line-height:1.4;color:#565959}
-  .amazon-item-meta .primary{color:#111}
-  .amazon-price{font-size:15px;font-weight:400;color:#111;text-align:right}
-  @page{size:auto;margin:14mm}
-  @media print{
-    body{background:#fff}
-    .doc{padding:0}
-    .card{box-shadow:none}
-    .print-pill,.amazon-print{display:none!important}
-    .store-amazon .page{width:100% !important;max-width:none !important}
-    .store-amazon .pad{padding:20px 24px !important}
-    .amazon-title{font-size:52px !important}
-    .amazon-brief-line,.amazon-list,.amazon-summary-col .line{font-size:15px !important}
-    .amazon-item-title{font-size:15px !important}
-    .amazon-item-meta{font-size:13px !important}
-    .amazon-top-grid{grid-template-columns:1.05fr 1.1fr 285px !important}
-    .amazon-item{grid-template-columns:108px minmax(0,1fr) 130px !important}
-    .market-grid{grid-template-columns:1.1fr 1.2fr 1fr !important}
-    .market-item{grid-template-columns:90px 1fr 120px !important}
-    .market-price,.amazon-price{text-align:right !important}
-  }
-  @media screen and (max-width:900px){.doc{padding:16px}.grid3,.market-grid,.market-item,.amazon-top-grid,.amazon-item{grid-template-columns:1fr}.market-price,.amazon-price{text-align:left}.ebay-head,.market-top,.amazon-brief{flex-direction:column;align-items:flex-start}}
-`;
-
-const DEFAULT_IMAGE_SRC =
-  'data:image/svg+xml;charset=UTF-8,' +
-  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="284" height="284" viewBox="0 0 284 284"><rect width="284" height="284" fill="#f3f4f6"/><rect x="26" y="26" width="232" height="232" rx="28" fill="#ffffff" stroke="#d1d5db" stroke-width="6"/><circle cx="103" cy="108" r="26" fill="#d1d5db"/><path d="M58 214c20-40 46-60 76-60 27 0 46 12 68 42l24-27 26 45H58z" fill="#cbd5e1"/></svg>');
-
-function esc(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-function fmtDateUSLong(d) { return fmtDateUS(d, { month: "long", day: "numeric", year: "numeric" }); }
-function fmtDateUSNoYear(d) {
-  if (!d) return "";
-  const dt = new Date(`${d}T00:00:00`);
-  if (isNaN(dt)) return "";
-  return dt.toLocaleDateString("en-US", { month: "long", day: "numeric" });
-}
-function docWrap(storeClass, html) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>DEC Preview</title><style>${PRINT_CSS}</style></head><body class="${esc(storeClass)}">${html}</body></html>`;
-}
-function ensureItems({ items, qty, itemName, price, shippingSvc }) {
-  if (Array.isArray(items) && items.length) return items;
-  return [{ qty: Math.max(1, Number(qty) || 1), name: String(itemName || "").trim(), price: Number(price) || 0, shippingSvc: shippingSvc || "Standard Shipping" }];
-}
-function totalsFor(items) {
-  const safe = ensureItems({ items });
-  const itemsCount = safe.reduce((s, it) => s + (Number(it.qty) || 1), 0);
-  const subtotal = safe.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1), 0);
-  return { itemsCount, subtotal: +subtotal.toFixed(2), grandTotal: +subtotal.toFixed(2) };
-}
-function deliveryHeadlineFor(mode, deliveredOn, customText) {
-  if (mode === "delivered") return deliveredOn ? `Delivered ${fmtDateUSNoYear(deliveredOn)}` : "Delivered";
-  if (mode === "custom") return String(customText || "").trim() || "Delivered tomorrow";
-  return "Delivered tomorrow";
-}
-function buildPrintableEbayDoc({ seller, placedOn, orderNumber, casilleroKey, qty, price, itemName, shippingSvc, items }) {
-  const safe = ensureItems({ items, qty, itemName, price, shippingSvc });
-  const { itemsCount, subtotal, grandTotal } = totalsFor(safe);
-  const shipName = CASILLEROS[casilleroKey] || "";
-  const rows = safe.map((it) => `
-    <tr>
-      <td>${esc(Math.max(1, Number(it.qty) || 1))}</td>
-      <td>${esc(it.name || "")}</td>
-      <td>${esc(it.shippingSvc || "Standard Shipping")}</td>
-      <td>${esc(fmtUSD(Number(it.price) || 0))}</td>
-    </tr>`).join("");
-  return docWrap("store-ebay", `
-    <div class="doc"><div class="page"><div class="card"><div class="pad">
-      <div class="ebay-head">
-        <img src="${EBAY_LOGO}" alt="eBay" />
-        <div class="ebay-meta"><div>Printer friendly preview</div><div>${esc(fmtDateUS(placedOn, { month: "short" }) || "-")}</div></div>
-      </div>
-      <div class="grid3">
-        <section class="section"><div class="pad"><h2 class="title">Order information</h2><div class="rows">
-          <div class="line"><span class="muted">Buyer</span><strong>renato1_9</strong></div>
-          <div class="line"><span class="muted">Seller</span><strong>${esc(seller || "")}</strong></div>
-          <div class="line"><span class="muted">Placed on</span><strong>${esc(fmtDateUS(placedOn, { month: "short" }) || "-")}</strong></div>
-          <div class="line"><span class="muted">Payment method</span><strong>PayPal</strong></div>
-          <div class="line"><span class="muted">Paid on</span><strong>${esc(fmtDateUS(placedOn, { month: "short" }) || "-")}</strong></div>
-        </div></div></section>
-        <section class="section"><div class="pad"><h2 class="title">Shipping address</h2><div class="rows">
-          <div>${esc(shipName)}</div><div>9990 NW 14th Street, Ste 110</div><div>Doral, Florida 33192-2702</div><div>United States</div>
-        </div></div></section>
-        <section class="section"><div class="pad"><h2 class="title">Order total</h2><div class="rows">
-          <div class="line"><span>${esc(`${itemsCount} item${itemsCount === 1 ? "" : "s"}`)}</span><strong>${esc(fmtUSD(subtotal))}</strong></div>
-          <div class="line"><span>Shipping</span><strong>Free</strong></div>
-          <div class="line"><span>Tax*</span><strong>$0.00</strong></div>
-        </div><div style="border-top:1px solid #d1d5db;margin:16px 0 12px;"></div><div class="line" style="font-size:22px;font-weight:700"><span>Order total</span><span>${esc(fmtUSD(grandTotal))}</span></div></div></section>
-      </div>
-      <section class="section" style="margin-top:18px"><div class="pad">
-        <h2 class="title" style="margin-bottom:4px">Items bought from ${esc(seller || "")}</h2>
-        <div class="muted" style="font-size:12px;margin-bottom:16px">Order number: ${esc(orderNumber || "")}</div>
-        <table class="table"><thead><tr><th>Quantity</th><th>Item name</th><th>Shipping service</th><th>Item price</th></tr></thead><tbody>${rows}</tbody></table>
-      </div></section>
-    </div></div></div></div>`);
-}
-function buildPrintableMarketDoc({ store, placedOn, orderNumber, casilleroKey, qty, price, itemName, items, deliveryHeadline, imageSmall }) {
-  const safe = ensureItems({ items, qty, itemName, price });
-  const { subtotal, grandTotal } = totalsFor(safe);
-  const shipName = CASILLEROS[casilleroKey] || "";
-  const isApple = store === "apple";
-  const soldBy = isApple ? "Apple" : "Amazon.com";
-  const title = isApple ? "Order Details" : "Order Summary";
-  if (!isApple) {
-    const cards = safe.map((it) => `
-      <div class="amazon-item">
-        <div class="amazon-thumb">
-          <img src="${esc(imageSmall || DEFAULT_IMAGE_SRC)}" alt="Product" />
-        </div>
-        <div>
-          <div class="amazon-item-title">${esc(it.name || "")}</div>
-          <div class="amazon-item-meta">
-            <div>Sold by: Amazon.com</div>
-            <div>Supplied by: Other</div>
-            <div class="primary">Return or replace items: Eligible through ${esc(fmtDateUSLong(placedOn) || "-")}</div>
-            <div class="primary">Quantity: ${esc(Math.max(1, Number(it.qty) || 1))}</div>
-          </div>
-        </div>
-        <div class="amazon-price">${esc(fmtUSD(Number(it.price) || 0))}</div>
-      </div>`).join("");
-    return docWrap("store-amazon", `
-      <div class="doc">
-        <div class="page">
-          <div class="card">
-            <div class="pad">
-              <h1 class="amazon-title">Order Summary</h1>
-              <div class="amazon-brief">
-                <div class="amazon-brief-line">
-                  <span>Order placed</span>
-                  <span>${esc(fmtDateUSLong(placedOn) || "-")}</span>
-                  <span class="sep">|</span>
-                  <span>Order #</span>
-                  <span>${esc(orderNumber || "")}</span>
-                </div>
-                <div class="amazon-print">Print</div>
-              </div>
-
-              <section class="amazon-box">
-                <div class="amazon-top-grid">
-                  <div>
-                    <h5 class="amazon-label">Ship to</h5>
-                    <div class="amazon-list">
-                      <div>${esc(shipName)}</div>
-                      <div>9990 NW 14TH ST STE 110</div>
-                      <div>DORAL, FL 33192-2702</div>
-                      <div>United States</div>
-                    </div>
-                  </div>
-                  <div>
-                    <h5 class="amazon-label">Payment method</h5>
-                    <div class="amazon-list">
-                      <div>Visa ending in 9513</div>
-                    </div>
-                    <div class="amazon-pay-button">View related transactions</div>
-                  </div>
-                  <div class="amazon-summary-col">
-                    <h5 class="amazon-label">Order Summary</h5>
-                    <div class="line"><span>Item(s) Subtotal:</span> <strong>${esc(fmtUSD(subtotal))}</strong></div>
-                    <div class="line"><span>Shipping &amp; Handling:</span> <strong>$0.00</strong></div>
-                    <div class="line"><span>Total before tax:</span> <strong>${esc(fmtUSD(subtotal))}</strong></div>
-                    <div class="line"><span>Estimated tax to be collected:</span> <strong>$0.00</strong></div>
-                    <div class="line grand"><span>Grand Total:</span> <strong>${esc(fmtUSD(grandTotal))}</strong></div>
-                  </div>
-                </div>
-              </section>
-
-              <section class="amazon-delivery-box">
-                <div class="amazon-delivery-head">
-                  <h2>${esc(deliveryHeadline || "Delivered tomorrow")}</h2>
-                </div>
-                ${cards}
-              </section>
-            </div>
-          </div>
-        </div>
-      </div>`);
-  }
-  const cards = safe.map((it) => `
-    <div class="market-item">
-      <div class="market-thumb"><img src="${esc(imageSmall || DEFAULT_IMAGE_SRC)}" alt="Product" /></div>
-      <div>
-        <div class="market-name">${esc(it.name || "")}</div>
-        <div class="market-meta">
-          <div>Sold by: ${esc(soldBy)}</div>
-          <div>Payment method: Visa ending in 9513</div>
-          <div>Quantity: ${esc(Math.max(1, Number(it.qty) || 1))}</div>
-        </div>
-      </div>
-      <div class="market-price">${esc(fmtUSD(Number(it.price) || 0))}</div>
-    </div>`).join("");
-  return docWrap(`store-market ${isApple ? "store-apple" : "store-amazon"}`, `
-    <div class="doc"><div class="page"><div class="card"><div class="pad">
-      <div class="market-top">
-        <div>
-          <h1>${esc(title)}</h1>
-          <div class="market-line">Order placed ${esc(fmtDateUSLong(placedOn) || "-")} <span class="sep">|</span> Order # ${esc(orderNumber || "")} <span class="sep">|</span> ${isApple ? "Apple" : "Amazon"}</div>
-        </div>
-        <div class="print-pill">Print</div>
-      </div>
-      <section class="section" style="margin-top:18px"><div class="pad"><div class="market-grid">
-        <div><p class="market-label">Ship to</p><div class="market-info"><div>${esc(shipName)}</div><div>9990 NW 14th ST STE 110</div><div>DORAL, FL 33192-2702</div><div>United States</div></div></div>
-        <div><p class="market-label">Payment method</p><div class="market-info"><div>Visa ending in 9513</div></div></div>
-        <div class="summary">
-          <p class="market-label">${esc(title)}</p>
-          <div class="line"><span>Item(s) Subtotal:</span><strong>${esc(fmtUSD(subtotal))}</strong></div>
-          <div class="line"><span>Shipping &amp; Handling:</span><strong>$0.00</strong></div>
-          <div class="line"><span>Total before tax:</span><strong>${esc(fmtUSD(subtotal))}</strong></div>
-          <div class="line"><span>Estimated tax to be collected:</span><strong>$0.00</strong></div>
-          <div class="line grand"><span>Grand Total:</span><strong>${esc(fmtUSD(grandTotal))}</strong></div>
-        </div>
-      </div></div></section>
-      <section class="section" style="margin-top:18px"><div class="market-delivery"><h2>${esc(deliveryHeadline || "Delivered tomorrow")}</h2></div>${cards}</section>
-    </div></div></div></div>`);
-}
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("No se pudo leer la imagen."));
-    reader.readAsDataURL(blob);
-  });
-}
-function loadImg(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("No se pudo cargar la imagen."));
-    img.src = src;
-  });
-}
-function squareFromImage(img, size) {
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("No se pudo preparar el canvas.");
-  const scale = Math.min(size / img.width, size / img.height);
-  const drawWidth = img.width * scale;
-  const drawHeight = img.height * scale;
-  const offsetX = (size - drawWidth) / 2;
-  const offsetY = (size - drawHeight) / 2;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, size, size);
-  ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
-  return canvas.toDataURL("image/png");
-}
-async function normalizeImagePipeline(src) {
-  const original = await loadImg(src);
-  const large = squareFromImage(original, 284);
-  const resized = await loadImg(large);
-  const small = squareFromImage(resized, 90);
-  return { large, small };
-}
-async function fetchUrlAsDataUrl(url) {
-  const res = await fetch(`${API_URL}/utils/image-proxy?url=${encodeURIComponent(String(url || "").trim())}`);
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(txt || "No se pudo descargar la imagen.");
-  }
-  return blobToDataUrl(await res.blob());
-}
-
 /* ================== Componente ================== */
 export default function ModalDec({ onClose, productos: productosProp, loading: loadingProp = false }) {
   // Si te pasan productos por props, se usan; si no, cargo del backend.
@@ -1096,7 +576,6 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [problemSuffix, setProblemSuffix] = useState(""); // solo el problema
 
   // Form
-  const [store, setStore] = useState("ebay");
   const [seller, setSeller] = useState("961firstave");
   const [placedOn, setPlacedOn] = useState(""); // YYYY-MM-DD
   const [orderNumber, setOrderNumber] = useState("");
@@ -1114,15 +593,6 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [publishAt, setPublishAt] = useState("");
   const [randomNames, setRandomNames] = useState({});
   const [linkedItemNames, setLinkedItemNames] = useState({});
-  const [deliveryMode, setDeliveryMode] = useState("tomorrow");
-  const [deliveredOn, setDeliveredOn] = useState("");
-  const [customDeliveryText, setCustomDeliveryText] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
-  const [imageLarge, setImageLarge] = useState(DEFAULT_IMAGE_SRC);
-  const [imageSmall, setImageSmall] = useState(DEFAULT_IMAGE_SRC);
-  const [imageBusy, setImageBusy] = useState(false);
-  const [imageStatus, setImageStatus] = useState("");
-  const [imageFileName, setImageFileName] = useState("");
   const manualLineIdRef = useRef(1);
   const [manualLinkedLines, setManualLinkedLines] = useState([]);
   const addManualLinkedLine = () => {
@@ -1156,9 +626,6 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setShippingSvc("Standard Shipping");
     setCasilleroKey("Renato");
     setManualLinkedLines([]);
-    setDeliveryMode("tomorrow");
-    setDeliveredOn("");
-    setCustomDeliveryText("");
   };
 
   // 1) Si NO vienen productos por props, cargar del backend
@@ -1188,19 +655,16 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     let mounted = true;
     (async () => {
       try {
-        const metaPath = store === "amazon" ? "/tm/amazon-template/meta" : "/tm/ebay-template/meta";
-        const meta = await api.get(metaPath);
+        const meta = await api.get("/tm/ebay-template/meta");
         if (mounted && meta?.updatedAt) {
           setPublishAt(meta.updatedAt);
-        } else if (mounted) {
-          setPublishAt("");
         }
       } catch {
-        if (mounted) setPublishAt("");
+        // no template yet
       }
     })();
     return () => { mounted = false; };
-  }, [store]);
+  }, []);
 
   // Fuente ?nica
   const productosAll = useMemo(() => {
@@ -1269,9 +733,6 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setManualMainDecRef("");
     setPrice(decClean);
     setPlacedOn(toYYYYMMDD(fechaCompra));
-    setDeliveryMode("tomorrow");
-    setDeliveredOn("");
-    setCustomDeliveryText("");
     if (autoKey) setCasilleroKey(autoKey);
   };
 
@@ -1451,49 +912,21 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     return manualItems;
   }, [productoSel, linkedItems, manualItems]);
   const manualHasMultiple = !productoSel && manualLinkedLines.length > 0;
-  const deliveryHeadline = useMemo(
-    () => deliveryHeadlineFor(deliveryMode, deliveredOn, customDeliveryText),
-    [deliveryMode, deliveredOn, customDeliveryText]
-  );
-  const previewDoc = useMemo(
-    () => (store === "ebay"
-      ? buildPrintableEbayDoc({
-          seller,
-          placedOn,
-          orderNumber,
-          casilleroKey,
-          qty,
-          price,
-          itemName,
-          shippingSvc,
-          items: htmlItems,
-        })
-      : buildPrintableMarketDoc({
-          store,
-          placedOn,
-          orderNumber,
-          casilleroKey,
-          qty,
-          price,
-          itemName,
-          items: htmlItems,
-          deliveryHeadline,
-          imageSmall,
-        })),
-    [
-      store,
-      seller,
-      placedOn,
-      orderNumber,
-      casilleroKey,
-      qty,
-      price,
-      itemName,
-      shippingSvc,
-      htmlItems,
-      deliveryHeadline,
-      imageSmall,
-    ]
+
+  const html = useMemo(
+    () =>
+      buildModalContentHTML({
+        seller,
+        placedOn,
+        orderNumber,
+        casilleroKey,
+        qty,
+        price,       // ? DEC
+        itemName,
+        shippingSvc,
+        items: htmlItems,
+      }),
+    [seller, placedOn, orderNumber, casilleroKey, qty, price, itemName, shippingSvc, htmlItems]
   );
 
   // Cerrar con ESC
@@ -1504,139 +937,24 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   }, [onClose]);
 
   const handleOverlayClick = (e) => { if (e.target === e.currentTarget) onClose?.(); };
-  const openPrintDialog = () => {
-    const win = window.open("", "_blank", "width=1400,height=1000");
-    if (!win) {
-      alert("No se pudo abrir la vista de impresion.");
-      return;
-    }
-    win.document.open();
-    win.document.write(previewDoc);
-    win.document.close();
-    const printWhenReady = () => {
-      win.focus();
-      setTimeout(() => win.print(), 450);
-    };
-    if (win.document.readyState === "complete") printWhenReady();
-    else win.onload = printWhenReady;
-  };
-  const processImageDataUrl = async (dataUrl, label) => {
-    setImageBusy(true);
-    setImageStatus("");
-    try {
-      const normalized = await normalizeImagePipeline(dataUrl);
-      setImageLarge(normalized.large);
-      setImageSmall(normalized.small);
-      setImageStatus(`Imagen lista: ${label} (284x284 -> 90x90).`);
-    } catch (err) {
-      console.error("[ModalDec] image error", err);
-      setImageStatus("No se pudo procesar la imagen.");
-    } finally {
-      setImageBusy(false);
-    }
-  };
-  const handleLoadRemoteImage = async () => {
-    const remoteUrl = String(imageUrl || "").trim();
-    if (!remoteUrl) return;
-    setImageBusy(true);
-    setImageStatus("");
-    try {
-      const dataUrl = await fetchUrlAsDataUrl(remoteUrl);
-      const normalized = await normalizeImagePipeline(dataUrl);
-      setImageLarge(normalized.large);
-      setImageSmall(normalized.small);
-      setImageFileName("");
-      setImageStatus("Imagen URL lista (284x284 -> 90x90).");
-    } catch (err) {
-      console.error("[ModalDec] remote image error", err);
-      setImageStatus(err?.message ? String(err.message) : "No se pudo descargar la imagen.");
-    } finally {
-      setImageBusy(false);
-    }
-  };
-  const handleImageFile = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      setImageFileName(file.name);
-      const dataUrl = await blobToDataUrl(file);
-      await processImageDataUrl(dataUrl, file.name);
-    } catch (err) {
-      console.error("[ModalDec] local image error", err);
-      setImageStatus("No se pudo leer la imagen local.");
-      setImageBusy(false);
-    } finally {
-      e.target.value = "";
-    }
-  };
-  const resetImage = () => {
-    setImageUrl("");
-    setImageFileName("");
-    setImageLarge(DEFAULT_IMAGE_SRC);
-    setImageSmall(DEFAULT_IMAGE_SRC);
-    setImageStatus("");
-  };
-  const isHtmlStore = store === "ebay" || store === "amazon";
-  const htmlSelector = store === "amazon" ? 'data-component="default"' : 'class="gen-tables"';
-  const html = store === "amazon"
-    ? buildAmazonTemplateHTML({
-        placedOn,
-        orderNumber,
-        casilleroKey,
-        qty,
-        price,
-        itemName,
-        items: htmlItems,
-        deliveryHeadline,
-        imageSmall,
-        imageLarge,
-      })
-    : buildModalContentHTML({
-        seller,
-        placedOn,
-        orderNumber,
-        casilleroKey,
-        qty,
-        price,
-        itemName,
-        shippingSvc,
-        items: htmlItems,
-      });
+
   const copyHTML = async () => {
-    try { await navigator.clipboard.writeText(html); alert("HTML copiado al portapapeles."); }
+    try { await navigator.clipboard.writeText(html); alert("HTML copiado al portapapeles ?"); }
     catch {
       const ta = document.getElementById("dec-html-ta");
-      if (ta) { ta.select(); document.execCommand("copy"); alert("HTML copiado."); }
+      if (ta) { ta.select(); document.execCommand("copy"); alert("HTML copiado (fallback) ?"); }
     }
   };
-  const copySelector = async () => { try { await navigator.clipboard.writeText(htmlSelector); } catch { } };
+  const copySelector = async () => { try { await navigator.clipboard.writeText('class="gen-tables"'); } catch { } };
   const publishTemplate = async () => {
     if (publishingTemplate) return;
     setPublishingTemplate(true);
     setPublishStatus("");
     try {
-      let res;
-      if (store === "amazon") {
-        const token = localStorage.getItem("token");
-        const raw = await fetch(`${API_URL}/tm/amazon-template?source=modal-dec-amazon`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "text/plain; charset=utf-8",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: html,
-        });
-        if (!raw.ok) {
-          const txt = await raw.text().catch(() => "");
-          throw new Error(`HTTP ${raw.status} - ${txt.slice(0, 500)}`);
-        }
-        res = await raw.json();
-      } else {
-        res = await api.post("/tm/ebay-template", {
-          html,
-          source: "modal-dec",
-        });
-      }
+      const res = await api.post("/tm/ebay-template", {
+        html,
+        source: "modal-dec",
+      });
       if (res?.updatedAt) setPublishAt(res.updatedAt);
       setPublishStatus("Plantilla publicada para Tampermonkey.");
     } catch (err) {
@@ -1690,31 +1008,23 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       role="dialog"
     >
       <div
-        className={`${store === "ebay" ? "max-w-5xl" : "max-w-[1400px]"} w-full bg-white rounded-xl shadow-xl max-h-[94vh] flex flex-col overflow-hidden`}
+        className="w-full max-w-5xl bg-white rounded-xl shadow-xl max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Top bar */}
         <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b">
-          <h2 className="text-base font-semibold">{store === "ebay" ? "Generar HTML - Printer friendly (solo textos)" : "DEC printable preview"}</h2>
-          <button onClick={onClose} className="text-gray-700 hover:text-black text-sm" aria-label="Close modal">&lt; Back</button>
+          <h2 className="text-base font-semibold">Generar HTML - Printer friendly (solo textos)</h2>
+          <div className="flex items-center">
+            <button onClick={onClose} className="text-gray-700 hover:text-black text-sm" aria-label="Close modal">&lt; Back</button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-        <div className={store === "ebay" ? "" : "grid xl:grid-cols-[500px_minmax(0,1fr)]"}>
-        <div className={`grid gap-4 p-4 sm:p-6 ${store === "ebay" ? "border-b" : "border-b xl:border-b-0 xl:border-r"}`}>
+        {/* Productos */}
+        <div className="grid gap-4 p-4 sm:p-6 border-b">
           {hardError ? (
             <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">{hardError}</div>
           ) : null}
-
-          <div className="grid gap-3">
-            <label className="text-sm">
-              <span className="block text-gray-600 mb-1">Tienda</span>
-              <select className="input" value={store} onChange={(e) => setStore(e.target.value)}>
-                <option value="ebay">eBay</option>
-                <option value="amazon">Amazon</option>
-                <option value="apple">Apple</option>
-              </select>
-            </label>
-          </div>
 
           <div className="grid sm:grid-cols-4 gap-3">
             <label className="text-sm sm:col-span-2">
@@ -1782,23 +1092,23 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             </label>
           </div>
 
-          <div className={`grid gap-3 mt-2 ${store === "ebay" ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
-            {store === "ebay" ? (
-              <label className="text-sm">
-                <span className="block text-gray-600 mb-1">Seller</span>
-                <input value={seller} onChange={(e) => setSeller(e.target.value)} className="input" placeholder="961firstave" />
-              </label>
-            ) : null}
+          {/* Form datos de la orden */}
+          <div className="grid sm:grid-cols-3 gap-3 mt-2">
             <label className="text-sm">
-              <span className="block text-gray-600 mb-1">{store === "ebay" ? "Fecha de compra" : "Order placed"}</span>
+              <span className="block text-gray-600 mb-1">Seller</span>
+              <input value={seller} onChange={(e) => setSeller(e.target.value)} className="input" placeholder="961firstave" />
+            </label>
+            <label className="text-sm">
+              <span className="block text-gray-600 mb-1">Fecha de compra</span>
               <input type="date" value={placedOn} onChange={(e) => setPlacedOn(e.target.value)} className="input" />
             </label>
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Order number</span>
-              <input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} className="input" placeholder={store === "ebay" ? "16-13587-70764" : "112-6574313-0325818"} />
+              <input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} className="input" placeholder="16-13587-70764" />
             </label>
           </div>
 
+          {/* Tracking del transportista (solo lectura con producto, editable en modo manual) */}
           <div className="grid sm:grid-cols-3 gap-3">
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Transportista</span>
@@ -1823,17 +1133,6 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             <div />
           </div>
 
-          <div className="hidden">
-            <label className="text-sm">
-              <span className="block text-gray-600 mb-1">Tienda</span>
-              <select className="input" value={store} onChange={(e) => setStore(e.target.value)}>
-                <option value="ebay">eBay</option>
-                <option value="amazon">Amazon</option>
-                <option value="apple">Apple</option>
-              </select>
-            </label>
-          </div>
-
           <div className="grid sm:grid-cols-4 gap-3">
             <label className="text-sm sm:col-span-2">
               <span className="block text-gray-600 mb-1">Item name</span>
@@ -1854,12 +1153,10 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                 </button>
               </div>
             </label>
-            {store === "ebay" ? (
-              <label className="text-sm">
-                <span className="block text-gray-600 mb-1">Shipping service</span>
-                <input value={shippingSvc} onChange={(e) => setShippingSvc(e.target.value)} className="input" placeholder="Standard Shipping" />
-              </label>
-            ) : <div />}
+            <label className="text-sm">
+              <span className="block text-gray-600 mb-1">Shipping service</span>
+              <input value={shippingSvc} onChange={(e) => setShippingSvc(e.target.value)} className="input" placeholder="Standard Shipping" />
+            </label>
             {!productoSel && manualHasMultiple ? (
               <label className="text-sm">
                 <span className="block text-gray-600 mb-1">DEC ref (item 1)</span>
@@ -1960,108 +1257,15 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
               ) : null}
             </div>
           ) : null}
-
-          {store !== "ebay" ? (
-            <>
-              <div className="grid sm:grid-cols-3 gap-3">
-                <label className="text-sm">
-                  <span className="block text-gray-600 mb-1">Estado entrega</span>
-                  <select className="input" value={deliveryMode} onChange={(e) => setDeliveryMode(e.target.value)}>
-                    <option value="tomorrow">Delivered tomorrow</option>
-                    <option value="delivered">Delivered + fecha</option>
-                    <option value="custom">Texto manual</option>
-                  </select>
-                </label>
-                {deliveryMode === "delivered" ? (
-                  <label className="text-sm">
-                    <span className="block text-gray-600 mb-1">Fecha entregada</span>
-                    <input type="date" value={deliveredOn} onChange={(e) => setDeliveredOn(e.target.value)} className="input" />
-                  </label>
-                ) : deliveryMode === "custom" ? (
-                  <label className="text-sm sm:col-span-2">
-                    <span className="block text-gray-600 mb-1">Texto de entrega</span>
-                    <input value={customDeliveryText} onChange={(e) => setCustomDeliveryText(e.target.value)} className="input" placeholder="Delivered Thursday, March 20" />
-                  </label>
-                ) : <div className="sm:col-span-2 text-xs text-gray-500 flex items-end pb-2">Se mostrara "Delivered tomorrow".</div>}
-              </div>
-
-              <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 space-y-3">
-                <div className="text-sm font-medium text-gray-700">Imagen del producto</div>
-                <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end">
-                  <label className="text-sm">
-                    <span className="block text-gray-600 mb-1">URL de imagen</span>
-                    <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className="input" placeholder="https://..." />
-                  </label>
-                  <button type="button" onClick={handleLoadRemoteImage} disabled={imageBusy || !String(imageUrl || "").trim()} className={`px-3 py-2 rounded text-sm ${imageBusy || !String(imageUrl || "").trim() ? "bg-gray-300 text-gray-600" : "bg-black text-white hover:bg-gray-900"}`}>
-                    {imageBusy ? "Procesando..." : "Cargar URL"}
-                  </button>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <label className="px-3 py-2 rounded border border-gray-300 text-sm cursor-pointer hover:bg-white">
-                    Subir imagen
-                    <input type="file" accept="image/*" className="hidden" onChange={handleImageFile} />
-                  </label>
-                  <button type="button" onClick={resetImage} className="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-white">Limpiar imagen</button>
-                  <div className="text-xs text-gray-500">{imageFileName ? `Archivo: ${imageFileName}` : "Acepta URL o archivo local."}</div>
-                </div>
-                <div className="grid sm:grid-cols-[110px_160px_1fr] gap-4 items-center">
-                  <div className="rounded-lg border border-gray-300 bg-white p-2 flex items-center justify-center">
-                    <img src={imageSmall} alt="90x90" className="w-[90px] h-[90px] object-cover" />
-                  </div>
-                  <div className="rounded-lg border border-gray-300 bg-white p-2 flex items-center justify-center overflow-hidden">
-                    <img src={imageLarge} alt="284x284" className="w-[142px] h-[142px] object-cover" />
-                  </div>
-                  <div className={`text-xs ${imageStatus.includes("No se pudo") ? "text-red-600" : "text-gray-600"}`}>
-                    <div>Proceso aplicado: 284x284 y luego 90x90.</div>
-                    <div className="mt-1">{imageStatus || "Usando placeholder hasta que cargues una imagen."}</div>
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : null}
-
-          {store === "apple" ? (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <button type="button" onClick={openPrintDialog} className="px-3 py-2 rounded bg-amber-400 text-black text-sm hover:bg-amber-300">
-                Imprimir / Guardar PDF
-              </button>
-              <button
-                type="button"
-                onClick={toggleFacturaMarcada}
-                disabled={!productoSel || savingFactura || facturaMarcada}
-                className={`px-3 py-2 rounded text-sm border transition ${
-                  facturaMarcada
-                    ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                } ${(!productoSel || savingFactura || facturaMarcada) ? 'opacity-60 cursor-not-allowed' : ''}`}
-              >
-                {facturaMarcada ? 'Factura subida' : 'Subir factura'}
-              </button>
-            </div>
-          ) : null}
         </div>
 
-        {store === "apple" ? (
-        <div className="p-4 sm:p-6 bg-slate-100">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <div>
-              <h3 className="font-semibold text-slate-900">Vista previa</h3>
-              <p className="text-xs text-slate-500">Esto es lo que se imprimira o se guardara como PDF.</p>
-            </div>
-            <div className="text-xs text-slate-500">{store === "ebay" ? "Template eBay" : store === "amazon" ? "Template Amazon" : "Template Apple"}</div>
-          </div>
-          <div className="rounded-xl overflow-hidden border border-slate-300 bg-white shadow-sm">
-            <iframe title="DEC preview" srcDoc={previewDoc} className="w-full h-[78vh] bg-white" />
-          </div>
-        </div>
-        ) : null}
-
-        <div className={isHtmlStore ? "p-4 sm:p-6" : "hidden"}>
+        {/* Resultado HTML */}
+        <div className="p-4 sm:p-6">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between mb-2 gap-4">
             <div>
-              <h3 className="font-semibold">HTML (solo contenedor destino)</h3>
+              <h3 className="font-semibold">HTML (solo "modal-content")</h3>
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1">
-                Recordatorio: busca <code>{htmlSelector}</code> en tu DOM para pegar este HTML.
+                Recordatorio: busca <code>class="gen-tables"</code> en tu DOM para pegar este HTML.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -2098,14 +1302,11 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
 
           <textarea id="dec-html-ta" className="w-full max-w-md h-[200px] border rounded p-3 font-mono text-xs resize-none" readOnly value={html} />
           <p className="text-xs text-gray-500 mt-2">
-            {store === "amazon"
-              ? <>Copia este bloque y reemplaza en el DOM únicamente la parte <code>&lt;div data-component="default"&gt;...&lt;/div&gt;</code>.</>
-              : <>Copia este bloque y reemplaza en el DOM únicamente la parte <code>&lt;div class="modal-content"&gt;...&lt;/div&gt;</code>.</>}
+            Copia este bloque y reemplaza en el DOM únicamente la parte <code>&lt;div class="modal-content"&gt;...&lt;/div&gt;</code>.
           </p>
           <p className={`text-xs mt-2 ${publishStatus.includes("No se pudo") ? "text-red-600" : "text-emerald-700"}`}>
             {publishStatus || (publishAt ? `Plantilla publicada: ${new Date(publishAt).toLocaleString()}` : "Aún no se ha publicado plantilla para TM.")}
           </p>
-        </div>
         </div>
         </div>
       </div>

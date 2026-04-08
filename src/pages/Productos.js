@@ -228,6 +228,58 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [trackingQuery, setTrackingQuery] = useState('');
   const [filtroGama, setFiltroGama] = useState('todos'); // gama (Pro, Air, etc)
 
+  const fmtFechaTabla = (value) => {
+    if (!value) return '-';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime())
+      ? '-'
+      : parsed.toLocaleDateString('es-PE', { timeZone: 'UTC' });
+  };
+  const getFechaCompra = (p) =>
+    p?.valor?.fechaCompra || p?.valor?.fecha_compra || p?.fechaCompra || null;
+  const getFechaRecojo = (p) => {
+    const trackings = Array.isArray(p?.tracking) ? p.tracking : [];
+    let picked = null;
+    let pickedTs = 0;
+    for (const trk of trackings) {
+      const value = trk?.fechaRecogido || trk?.fecha_recogido || null;
+      if (!value) continue;
+      const ts = Date.parse(value);
+      if (!Number.isFinite(ts)) continue;
+      if (!picked || ts > pickedTs) {
+        picked = value;
+        pickedTs = ts;
+      }
+    }
+    return picked;
+  };
+  const getFechaVenta = useCallback((p) => {
+    const venta = ventasMap[p?.id] || null;
+    return (
+      venta?.fechaVenta ||
+      venta?.fecha_venta ||
+      venta?.fecha ||
+      venta?.createdAt ||
+      venta?.updatedAt ||
+      null
+    );
+  }, [ventasMap]);
+  const dateColumnLabel =
+    soloVendidos && !soloDisponibles && !soloAdelanto
+      ? 'F. Venta'
+      : soloDisponibles && !soloVendidos && !soloAdelanto
+        ? 'F. Recojo'
+        : 'F. Compra';
+  const getFechaColumna = (p) => {
+    if (soloVendidos && !soloDisponibles && !soloAdelanto) {
+      return getFechaVenta(p);
+    }
+    if (soloDisponibles && !soloVendidos && !soloAdelanto) {
+      return getFechaRecojo(p);
+    }
+    return getFechaCompra(p);
+  };
+
   const keyTamano = 'tama\u00f1o';
   // Helper: lee tamano desde detalle (normaliza a 'tamano' ASCII) y ajusta a enteros para macbooks
   const getTam = (d) => {
@@ -1168,19 +1220,17 @@ const confirmAction = async () => {
   const displayedProductos = React.useMemo(() => {
 
     const ts = (p) => {
-      const fc = p?.valor?.fechaCompra || p?.valor?.fecha_compra || p?.fechaCompra || null;
+      const fc = getFechaCompra(p);
       const t = fc ? Date.parse(fc) : 0;
       return Number.isFinite(t) ? t : 0;
     };
+    const pickupTs = (p) => {
+      const fr = getFechaRecojo(p);
+      const t = fr ? Date.parse(fr) : 0;
+      return Number.isFinite(t) ? t : 0;
+    };
     const saleTs = (p) => {
-      const venta = ventasMap[p?.id] || null;
-      const fv =
-        venta?.fechaVenta ||
-        venta?.fecha_venta ||
-        venta?.fecha ||
-        venta?.createdAt ||
-        venta?.updatedAt ||
-        null;
+      const fv = getFechaVenta(p);
       const t = fv ? Date.parse(fv) : 0;
       return Number.isFinite(t) ? t : 0;
     };
@@ -1298,11 +1348,13 @@ const confirmAction = async () => {
 
     if (soloVendidos && !soloDisponibles && !soloAdelanto) {
       list.sort((a, b) => saleTs(b) - saleTs(a)); // ventas mas recientes arriba
+    } else if (soloDisponibles && !soloVendidos && !soloAdelanto) {
+      list.sort((a, b) => pickupTs(b) - pickupTs(a)); // recojos mas recientes arriba
     } else {
       list.sort((a, b) => ts(b) - ts(a)); // mas nuevos arriba (fecha compra)
     }
     return list;
-  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery]);
+  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery, getFechaVenta]);
 
 
 
@@ -1914,7 +1966,7 @@ const confirmAction = async () => {
                   <th className="p-2">{'Env\u00edo S/'}</th>
                   <th className="p-2">Total S/</th>
                   <th className="p-2">Calculadora</th>
-                  <th className="p-2">F. Compra</th>
+                  <th className="p-2">{dateColumnLabel}</th>
                   <th className="p-2">Tracking</th>
                   <th className="p-2">Fotos Es</th>
                   <th className="p-2">Acciones</th>
@@ -2004,7 +2056,7 @@ const confirmAction = async () => {
 
                     </td>
                     <td className="p-2">
-                      {v.fechaCompra ? new Date(v.fechaCompra).toLocaleDateString('es-PE', { timeZone: 'UTC' }) : '-'}
+                      {fmtFechaTabla(getFechaColumna(p))}
                     </td>
                     <td className="p-2">
                       {/* Pill/ botfn de estado: mfs grande, negrita y ??oclickable??? */}

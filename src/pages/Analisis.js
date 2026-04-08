@@ -570,7 +570,7 @@ const [isStale, setIsStale] = useState(false);
 
 
 
- const [tab, setTab] = useState('economico'); // 'economico' | 'productos'
+ const [tab, setTab] = useState('economico'); // 'economico' | 'sunat' | 'productos' | 'ganancias'
 
 
 
@@ -598,6 +598,8 @@ const [isStale, setIsStale] = useState(false);
 
  const [yearlyData, setYearlyData] = useState(null);
  const [yearlyError, setYearlyError] = useState('');
+ const [sunatFx, setSunatFx] = useState({ buy: TC_FIJO, sell: TC_FIJO, date: null, fallback: true, reason: '', authMode: null });
+ const [sunatFxError, setSunatFxError] = useState('');
  const [curvaModal, setCurvaModal] = useState({
   open: false,
   title: '',
@@ -834,6 +836,18 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  const yearKey = dateMode === 'year' && appliedDates.from
  ? appliedDates.from
  : (appliedDates.from ? appliedDates.from.split('-')[0] : String(new Date().getFullYear()));
+ const sunatFxDate = useMemo(() => {
+ const today = new Date();
+ const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+ let target = '';
+ if (dateMode === 'year') {
+ target = yearEnd(appliedDates.from || yearKey);
+ } else {
+ target = monthEnd(appliedDates.from || appliedDates.to || '');
+ }
+ if (!target) return todayYmd;
+ return target > todayYmd ? todayYmd : target;
+ }, [appliedDates.from, appliedDates.to, dateMode, yearKey]);
  const profitRange = useMemo(() => {
  const from = dateMode === 'year' ? yearStart(yearKey) : monthStart(appliedDates.from);
  const to = dateMode === 'year' ? yearEnd(yearKey) : monthEnd(appliedDates.to);
@@ -885,6 +899,33 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  setYearlyError(e.message || 'Error');
  }
  }, [yearKey, productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter]);
+
+ const loadSunatFx = useCallback(async () => {
+ setSunatFxError('');
+ try {
+ const q = new URLSearchParams();
+ if (sunatFxDate) q.set('date', sunatFxDate);
+ const res = await api.get(`/analytics/sunat/exchange-rate?${q.toString()}`);
+ setSunatFx({
+ buy: Number(res?.buy ?? TC_FIJO) || TC_FIJO,
+ sell: Number(res?.sell ?? TC_FIJO) || TC_FIJO,
+ date: res?.date || sunatFxDate,
+ fallback: !!res?.fallback,
+ reason: res?.reason || '',
+ authMode: res?.authMode || null,
+ });
+ } catch (e) {
+ setSunatFx({
+ buy: TC_FIJO,
+ sell: TC_FIJO,
+ date: sunatFxDate || null,
+ fallback: true,
+ reason: 'No se pudo consultar TC SUNAT.',
+ authMode: null,
+ });
+ setSunatFxError(e.message || 'Error');
+ }
+ }, [sunatFxDate]);
 
 
 
@@ -1042,6 +1083,10 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  loadYearly();
  }, [loadYearly]);
 
+ useEffect(() => {
+ loadSunatFx();
+ }, [loadSunatFx]);
+
 
 
 
@@ -1151,6 +1196,9 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
  const isGeneral = !appliedDates.from && !appliedDates.to;
+ const sunatSellTc = Number(sunatFx?.sell ?? TC_FIJO) || TC_FIJO;
+ const sunatDecUsd = Number(data?.summary?.sunat?.valorDecTotal || 0) || 0;
+ const sunatDecPen = +(sunatDecUsd * sunatSellTc).toFixed(2);
 
 
 
@@ -1173,6 +1221,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
  <div className="flex flex-wrap gap-2 mb-3">
  <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='economico'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('economico')}>Analisis economico</button>
+ <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='sunat'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('sunat')}>Analisis Sunat</button>
  <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='productos'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('productos')}>Analisis de productos</button>
  <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='ganancias'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('ganancias')}>Analisis de ganancias</button>
  </div>
@@ -1373,9 +1422,16 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
 
- <Card title="Capital inmovilizado" value={<Currency v={data.summary?.capitalInmovilizado} />} />
-
-
+ <Card
+ title="Capital inmovilizado"
+ value={<Currency v={data.summary?.capitalInmovilizado} />}
+ sub={
+ <>
+ <span>Producto: <Currency v={data.summary?.capitalInmovilizadoProducto} /> - Envio: <Currency v={data.summary?.capitalInmovilizadoEnvio} /></span>
+ <span className="block text-[11px] text-gray-400">Envio solo para productos recogidos.</span>
+ </>
+ }
+ />
 
  <Card title="Capital total" value={<Currency v={data.summary?.capitalTotal} />} />
 
@@ -1390,6 +1446,46 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
  </div>
+
+ {tab === 'sunat' && (
+ <div className="bg-white rounded-xl border shadow-sm p-5 mb-6">
+ <h2 className="text-lg font-semibold mb-1">Analisis Sunat</h2>
+ <div className="text-xs text-gray-500 mb-4">
+ {dateMode === 'year'
+ ? `Periodo: A${'\u00f1'}o ${appliedDates.from || yearKey}`
+ : `Periodo: ${appliedDates.from || 'Mes seleccionado'}`}
+ </div>
+ <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+ <Card
+ title="Gasto del periodo"
+ value={<Currency v={data.summary?.sunat?.gastoProductos} />}
+ sub={<span>Solo costo de productos del periodo.</span>}
+ />
+ <Card
+ title="Envios recogidos"
+ value={<Currency v={data.summary?.sunat?.gastoEnvio} />}
+ sub={<span>Costo de envio solo de productos recogidos.</span>}
+ />
+ <Card
+ title="Ganancia del periodo"
+ value={<Currency v={data.summary?.sunat?.gananciaTotal} />}
+ />
+ <Card
+ title="Valor DEC del periodo"
+ value={fmtUSD(sunatDecUsd)}
+ sub={
+ <>
+ <span>Soles (TC SUNAT {sunatSellTc.toFixed(3)}): <Currency v={sunatDecPen} /></span>
+ <span className="block">Fecha TC: {sunatFx?.date || '-'}</span>
+ {sunatFx?.fallback ? <span className="block text-amber-700">TC fallback aplicado ({TC_FIJO}). {sunatFx?.reason ? `Motivo: ${sunatFx.reason}` : ''}</span> : null}
+ {sunatFxError ? <span className="block text-red-600">{sunatFxError}</span> : null}
+ </>
+ }
+ />
+ </div>
+ <div className="text-[11px] text-gray-400 mt-3">Envio SUNAT: solo se cuenta para productos recogidos.</div>
+ </div>
+ )}
 
 
 
