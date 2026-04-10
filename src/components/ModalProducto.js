@@ -39,8 +39,9 @@ const inferTipo = (title) => {
   return '';
 };
 
-const inferGama = (title) => {
+const inferGama = (title, tipo = '') => {
   const t = normalizeText(title);
+  if (tipo === 'macbook' && /\bneo\b/.test(t)) return 'Neo';
   if (/\bpro max\b/.test(t)) return 'Pro Max';
   if (/\bpro\b/.test(t)) return 'Pro';
   if (/\bair\b/.test(t)) return 'Air';
@@ -90,8 +91,10 @@ const inferWatchMeta = (title) => {
 
 const inferProcesador = (title) => {
   const t = normalizeText(title);
+  const a18 = t.match(/\b(a18)\s*(pro)\b/);
+  if (a18) return `${a18[1].toUpperCase()} ${a18[2].charAt(0).toUpperCase()}${a18[2].slice(1)}`;
   const m = t.match(/\b(m[1-5])\s*(pro|max|ultra)?\b/);
-  if (m) return `${m[1].toUpperCase()}${m[2] ? ` ${m[2].toUpperCase()}` : ''}`.trim();
+  if (m) return `${m[1].toUpperCase()}${m[2] ? ` ${m[2].charAt(0).toUpperCase()}${m[2].slice(1)}` : ''}`.trim();
   const intel = t.match(/\b(i[3579])\b/);
   if (intel) return intel[1].toUpperCase();
   return '';
@@ -376,7 +379,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
 
       const tipoInfer = normalizeText(parsed?.tipo || inferTipo(title));
       const tipo = tipoInfer || 'otro';
-      const gama = parsed?.gama || inferGama(title);
+      const gama = parsed?.gama || inferGama(title, tipo);
       const proc = parsed?.proc || inferProcesador(title);
       const pantalla = parsed?.pantalla || inferPantalla(title);
       const ram = extractRamValue(parsed?.ram || '') || inferRamFromTitle(title);

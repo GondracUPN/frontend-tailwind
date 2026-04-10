@@ -4,6 +4,7 @@ export default function FormProductoMacbook({ detalle, onChange }) {
 
   // Opciones clásicas; se agrega M5 solo en variante base (sin Pro/Max)
   const procesadoresAir = ['M1', 'M2', 'M3', 'M4', 'M5'];
+  const procesadoresNeo = ['A18 Pro'];
   const procesadoresPro = [
     'M1', 'M2', 'M3', 'M4', 'M5',
     'M1 Pro', 'M2 Pro', 'M3 Pro', 'M4 Pro',
@@ -21,6 +22,8 @@ export default function FormProductoMacbook({ detalle, onChange }) {
       else if (p === 'M3') { sizes=['13','15']; rams=['8','16','24']; ssds=['256','512','1TB','2TB']; }
       else if (p === 'M4') { sizes=['13','15']; rams=['16','24','32']; ssds=['256','512','1TB','2TB']; }
       else if (p === 'M5') { sizes=['13','15']; rams=['16','24','32']; ssds=['256','512','1TB','2TB']; }
+    } else if (gama === 'Neo') {
+      if (p === 'A18 Pro') { sizes=['13']; rams=['8']; ssds=['256','512']; }
     } else if (gama === 'Pro') {
       if (p === 'M1') { sizes=['13']; rams=['8','16']; ssds=['256','512','1TB','2TB']; }
       else if (p === 'M1 Pro') { sizes=['14','16']; rams=['16','32']; ssds=['512','1TB','2TB']; }
@@ -53,6 +56,7 @@ export default function FormProductoMacbook({ detalle, onChange }) {
         >
           <option value="">Seleccione</option>
           <option value="Air">Air</option>
+          <option value="Neo">Neo</option>
           <option value="Pro">Pro</option>
         </select>
       </div>
@@ -66,7 +70,7 @@ export default function FormProductoMacbook({ detalle, onChange }) {
           onChange={e => { onChange('procesador', e.target.value); onChange('tamano',''); onChange('ram',''); onChange('almacenamiento',''); }}
         >
           <option value="">Seleccione</option>
-          {(gama === 'Air' ? procesadoresAir : procesadoresPro).map(p => (
+          {(gama === 'Air' ? procesadoresAir : gama === 'Neo' ? procesadoresNeo : procesadoresPro).map(p => (
             <option key={p} value={p}>{p}</option>
           ))}
         </select>

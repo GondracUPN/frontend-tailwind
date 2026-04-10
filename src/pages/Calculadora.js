@@ -49,23 +49,26 @@ const inferTipo = (title) => {
 const inferGama = (title, tipo) => {
   const t = normalizeText(title);
   if (!tipo) return '';
-  if (/\bpro max\b/.test(t)) return 'pro max';
-  if (/\bpro\b/.test(t)) return 'pro';
-  if (/\bair\b/.test(t)) return 'air';
-  if (/\bmini\b/.test(t)) return 'mini';
-  if (/\bplus\b/.test(t)) return 'plus';
-  if (/\bultra\b/.test(t)) return 'ultra';
+  if (tipo === 'macbook' && /\bneo\b/.test(t)) return 'Neo';
+  if (/\bpro max\b/.test(t)) return 'Pro Max';
+  if (/\bpro\b/.test(t)) return 'Pro';
+  if (/\bair\b/.test(t)) return 'Air';
+  if (/\bmini\b/.test(t)) return 'Mini';
+  if (/\bplus\b/.test(t)) return 'Plus';
+  if (/\bultra\b/.test(t)) return 'Ultra';
   return '';
 };
 const inferProcesador = (title) => {
   const t = normalizeText(title);
-  const m = t.match(/\b(m[1-4])\s*(pro|max|ultra)?\b/);
-  if (m) return `${m[1]}${m[2] ? ` ${m[2]}` : ''}`.trim();
+  const a18 = t.match(/\b(a18)\s*(pro)\b/);
+  if (a18) return `${a18[1].toUpperCase()} ${a18[2].charAt(0).toUpperCase()}${a18[2].slice(1)}`;
+  const m = t.match(/\b(m[1-5])\s*(pro|max|ultra)?\b/);
+  if (m) return `${m[1].toUpperCase()}${m[2] ? ` ${m[2].charAt(0).toUpperCase()}${m[2].slice(1)}` : ''}`.trim();
   const intel = t.match(/\b(i[3579])\b/);
-  if (intel) return intel[1];
+  if (intel) return intel[1].toUpperCase();
   const ryzen = t.match(/\b(ryzen\s*\d)\b/);
-  if (ryzen) return ryzen[1].replace(/\s+/g, '');
-  if (t.includes('intel')) return 'intel';
+  if (ryzen) return ryzen[1].replace(/\s+/g, '').replace(/^r/, 'R');
+  if (t.includes('intel')) return 'Intel';
   return '';
 };
 const inferNumeroModeloIphone = (title) => {
@@ -144,6 +147,7 @@ const getIphoneAlmacenamientos = (num, modelo) => {
   return [];
 };
 const MACBOOK_PROCESADORES_AIR = ['M1', 'M2', 'M3', 'M4', 'M5'];
+const MACBOOK_PROCESADORES_NEO = ['A18 Pro'];
 const MACBOOK_PROCESADORES_PRO = [
   'M1', 'M2', 'M3', 'M4', 'M5',
   'M1 Pro', 'M2 Pro', 'M3 Pro', 'M4 Pro',
@@ -160,6 +164,8 @@ const getMacbookConfig = (gama, procesador) => {
     else if (p === 'M3') { sizes = ['13', '15']; rams = ['8', '16', '24']; ssds = ['256', '512', '1TB', '2TB']; }
     else if (p === 'M4') { sizes = ['13', '15']; rams = ['16', '24', '32']; ssds = ['256', '512', '1TB', '2TB']; }
     else if (p === 'M5') { sizes = ['13', '15']; rams = ['16', '24', '32']; ssds = ['256', '512', '1TB', '2TB']; }
+  } else if (gama === 'Neo') {
+    if (p === 'A18 Pro') { sizes = ['13']; rams = ['8']; ssds = ['256', '512']; }
   } else if (gama === 'Pro') {
     if (p === 'M1') { sizes = ['13']; rams = ['8', '16']; ssds = ['256', '512', '1TB', '2TB']; }
     else if (p === 'M1 Pro') { sizes = ['14', '16']; rams = ['16', '32']; ssds = ['512', '1TB', '2TB']; }
@@ -1327,6 +1333,7 @@ const historialCompras = useMemo(() => {
                             { value: '', label: 'Selecciona' },
                             ...(t === 'macbook' ? [
                               { value: 'Air', label: 'Air' },
+                              { value: 'Neo', label: 'Neo' },
                               { value: 'Pro', label: 'Pro' },
                             ] : [
                               { value: 'Normal', label: 'Normal' },
@@ -1369,7 +1376,11 @@ const historialCompras = useMemo(() => {
                       <option value="">Selecciona</option>
                       {(t === 'macbook'
                         ? ensureOptionList(
-                          ebayOverrides.gama === 'Air' ? MACBOOK_PROCESADORES_AIR : MACBOOK_PROCESADORES_PRO,
+                          ebayOverrides.gama === 'Air'
+                            ? MACBOOK_PROCESADORES_AIR
+                            : ebayOverrides.gama === 'Neo'
+                              ? MACBOOK_PROCESADORES_NEO
+                              : MACBOOK_PROCESADORES_PRO,
                           ebayOverrides.procesador,
                         )
                         : ensureOptionList(ipadProcesadores, ebayOverrides.procesador)
