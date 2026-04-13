@@ -21,7 +21,6 @@ import ModalAdelantoCompletar from '../components/ModalAdelantoCompletar';
 import ModalVentaMensaje from '../components/ModalVentaMensaje';
 import { FiFileText } from 'react-icons/fi';
 
-
 const CACHE_KEY = 'productos:cache:v2';
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos para revalidar
 const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
@@ -214,6 +213,10 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [soloVendidos, setSoloVendidos] = useState(false);
   const [soloAdelanto, setSoloAdelanto] = useState(false);
   const [ventaMsgOpen, setVentaMsgOpen] = useState(false);
+  const [sellerAssignOpen, setSellerAssignOpen] = useState(false);
+  const [sellerAssignDrafts, setSellerAssignDrafts] = useState({});
+  const [sellerAssignSelected, setSellerAssignSelected] = useState(() => new Set());
+  const [sellerAssignSaving, setSellerAssignSaving] = useState(false);
   const [selectedCasillero, setSelectedCasillero] = useState(null);
   const [productoEnCasillero, setProductoEnCasillero] = useState(null);
   const [fotosManualSeed, setFotosManualSeed] = useState({ trackingEshop: '', fechaRecepcion: '' });
@@ -1356,6 +1359,21 @@ const confirmAction = async () => {
     return list;
   }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery, getFechaVenta]);
 
+  const paquetesSinVendedor = React.useMemo(() => {
+    return (productos || []).filter((p) => !String(p?.vendedor || '').trim());
+  }, [productos]);
+  const showSellerAssignButton = paquetesSinVendedor.length > 5;
+
+  useEffect(() => {
+    if (!sellerAssignOpen) return;
+    const nextDrafts = {};
+    paquetesSinVendedor.forEach((p) => {
+      nextDrafts[p.id] = String(p?.vendedor || '').trim();
+    });
+    setSellerAssignDrafts(nextDrafts);
+    setSellerAssignSelected(new Set());
+  }, [sellerAssignOpen, paquetesSinVendedor]);
+
 
 
 
@@ -1366,6 +1384,11 @@ const confirmAction = async () => {
   const abrirTrack = (p) => { setProductoSeleccionado(p); setModalModo('track'); };
   const abrirDec = (p) => { setProductoSeleccionado(p); setModalModo('dec'); };
   const abrirFacu = () => { setProductoSeleccionado(null); setModalModo('facu'); };
+  const abrirSellerAssign = () => { setSellerAssignOpen(true); };
+  const cerrarSellerAssign = () => {
+    if (sellerAssignSaving) return;
+    setSellerAssignOpen(false);
+  };
   const abrirFotosManual = (seed = null) => {
     if (seed) {
       setFotosManualSeed({
@@ -1485,6 +1508,74 @@ const confirmAction = async () => {
       console.error(e);
       alert('Error al eliminar.');
     }
+  };
+
+  const guardarAsignacionVendedores = async () => {
+    const entries = Object.entries(sellerAssignDrafts)
+      .map(([id, vendedor]) => ({ id: Number(id), vendedor: String(vendedor || '').trim() }))
+      .filter((row) => Number.isFinite(row.id) && row.id > 0 && row.vendedor);
+
+    if (!entries.length) {
+      alert('Selecciona al menos un vendedor.');
+      return;
+    }
+
+    try {
+      setSellerAssignSaving(true);
+      const responses = await Promise.all(
+        entries.map((row) => api.patch(`/productos/${row.id}`, { vendedor: row.vendedor })),
+      );
+      const updatedMap = new Map(
+        responses
+          .map((res) => res?.data ?? res)
+          .filter((item) => item?.id != null)
+          .map((item) => [item.id, item]),
+      );
+
+      setProductos((list) => {
+        const next = list.map((p) => updatedMap.get(p.id) || p);
+        writeCache(next, ventasRef.current, resumenRef.current, adelantosRef.current);
+        return next;
+      });
+
+      setSellerAssignOpen(false);
+      await refreshProductos({ force: true, useCache: false, silent: true });
+    } catch (e) {
+      console.error('[Productos] Error asignando vendedores', e);
+      alert('No se pudo guardar la asignacion de vendedores.');
+    } finally {
+      setSellerAssignSaving(false);
+    }
+  };
+
+  const toggleSellerAssignSelected = (productoId) => {
+    setSellerAssignSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(productoId)) next.delete(productoId);
+      else next.add(productoId);
+      return next;
+    });
+  };
+
+  const setSellerForSelected = (vendedor) => {
+    if (!sellerAssignSelected.size) {
+      alert('Selecciona al menos un producto.');
+      return;
+    }
+    setSellerAssignDrafts((prev) => {
+      const next = { ...prev };
+      sellerAssignSelected.forEach((id) => {
+        next[id] = vendedor;
+      });
+      return next;
+    });
+  };
+
+  const toggleAllSellerAssign = () => {
+    setSellerAssignSelected((prev) => {
+      if (prev.size === paquetesSinVendedor.length) return new Set();
+      return new Set(paquetesSinVendedor.map((p) => p.id));
+    });
   };
 
   // === CONTADORES ===
@@ -1900,6 +1991,15 @@ const confirmAction = async () => {
                 <FiFileText className="text-lg" />
                 FACU
               </button>
+              {showSellerAssignButton && (
+                <button
+                  onClick={abrirSellerAssign}
+                  className="w-full sm:w-auto bg-rose-700 text-white px-5 py-2 rounded hover:bg-rose-800"
+                  title={`Temporal: asignar vendedor a ${paquetesSinVendedor.length} paquetes sin vendedor`}
+                >
+                  Asignar vendedor ({paquetesSinVendedor.length})
+                </button>
+              )}
             </div>
           </>
         ) : (
@@ -1966,6 +2066,7 @@ const confirmAction = async () => {
                   <th className="p-2">{'Env\u00edo S/'}</th>
                   <th className="p-2">Total S/</th>
                   <th className="p-2">Calculadora</th>
+                  <th className="p-2">Vendedor</th>
                   <th className="p-2">{dateColumnLabel}</th>
                   <th className="p-2">Tracking</th>
                   <th className="p-2">Fotos Es</th>
@@ -2055,6 +2156,7 @@ const confirmAction = async () => {
                       </button>
 
                     </td>
+                    <td className="p-2">{p.vendedor || '-'}</td>
                     <td className="p-2">
                       {fmtFechaTabla(getFechaColumna(p))}
                     </td>
@@ -2725,6 +2827,166 @@ const confirmAction = async () => {
       )}
       {modalModo === 'facu' && (
         <ModalFacu onClose={cerrarModal} />
+      )}
+      {sellerAssignOpen && (
+        <div className="fixed inset-0 z-40 bg-black/45 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl max-h-[88vh] overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b">
+              <div>
+                <h2 className="text-lg font-semibold">Asignar vendedor</h2>
+                <p className="text-sm text-gray-600">
+                  Temporal. Aparece solo cuando hay mas de 5 paquetes sin vendedor asignado.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={cerrarSellerAssign}
+                disabled={sellerAssignSaving}
+                className="px-3 py-1.5 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-60"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="px-5 py-4 border-b bg-gray-50 text-sm text-gray-700 space-y-3">
+              <div>
+                Paquetes sin vendedor: <span className="font-semibold">{paquetesSinVendedor.length}</span>
+                {' '}| Seleccionados: <span className="font-semibold">{sellerAssignSelected.size}</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={toggleAllSellerAssign}
+                  disabled={sellerAssignSaving}
+                  className="px-3 py-2 rounded border border-gray-300 hover:bg-white disabled:opacity-60"
+                >
+                  {sellerAssignSelected.size === paquetesSinVendedor.length ? 'Quitar seleccion' : 'Seleccionar todos'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSellerForSelected('Gonzalo')}
+                  disabled={sellerAssignSaving}
+                  className="px-3 py-2 rounded bg-sky-700 text-white hover:bg-sky-800 disabled:opacity-60"
+                >
+                  Gonzalo a seleccionados
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSellerForSelected('Renato')}
+                  disabled={sellerAssignSaving}
+                  className="px-3 py-2 rounded bg-violet-700 text-white hover:bg-violet-800 disabled:opacity-60"
+                >
+                  Renato a seleccionados
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSellerForSelected('ambos')}
+                  disabled={sellerAssignSaving}
+                  className="px-3 py-2 rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-60"
+                >
+                  Ambos a seleccionados
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-auto max-h-[58vh]">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-100 sticky top-0">
+                  <tr>
+                    <th className="p-2 text-left">Sel.</th>
+                    <th className="p-2 text-left">ID</th>
+                    <th className="p-2 text-left">Tipo</th>
+                    <th className="p-2 text-left">Fecha compra</th>
+                    <th className="p-2 text-left">Venta</th>
+                    <th className="p-2 text-left">Tracking</th>
+                    <th className="p-2 text-left">Vendedor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paquetesSinVendedor.map((p) => {
+                    const t = getLastTracking(p);
+                    const venta = ventasMap[p.id] || null;
+                    const selected = sellerAssignSelected.has(p.id);
+                    const ventaNombre = String(
+                      venta?.vendedor ||
+                      venta?.cliente ||
+                      venta?.nombreCliente ||
+                      venta?.nombre ||
+                      ''
+                    ).trim();
+                    return (
+                      <tr key={p.id} className={`border-t ${selected ? 'bg-rose-50' : ''}`}>
+                        <td className="p-2">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            disabled={sellerAssignSaving}
+                            onChange={() => toggleSellerAssignSelected(p.id)}
+                          />
+                        </td>
+                        <td className="p-2 font-medium">{p.id}</td>
+                        <td className="p-2">
+                          <button
+                            type="button"
+                            onClick={() => abrirDetalle(p)}
+                            className="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 border"
+                          >
+                            {p.tipo || 'Producto'}
+                          </button>
+                        </td>
+                        <td className="p-2">{fmtFechaTabla(getFechaCompra(p))}</td>
+                        <td className="p-2">
+                          {venta ? (
+                            <span className="inline-flex flex-wrap gap-1 items-center">
+                              <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs">
+                                Vendido
+                              </span>
+                              <span>{ventaNombre || '-'}</span>
+                            </span>
+                          ) : (
+                            <span className="text-gray-500">No vendido</span>
+                          )}
+                        </td>
+                        <td className="p-2">
+                          <div>{(t?.trackingUsa || '').trim() || '-'}</div>
+                          <div className="text-xs text-gray-500">{t?.casillero || '-'}</div>
+                        </td>
+                        <td className="p-2">
+                          <span className={`px-2 py-1 rounded text-xs border ${
+                            sellerAssignDrafts[p.id]
+                              ? 'bg-rose-100 text-rose-800 border-rose-300'
+                              : 'bg-gray-100 text-gray-600 border-gray-300'
+                          }`}>
+                            {sellerAssignDrafts[p.id] || 'Sin elegir'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-5 py-4 border-t bg-white">
+              <button
+                type="button"
+                onClick={cerrarSellerAssign}
+                disabled={sellerAssignSaving}
+                className="px-4 py-2 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={guardarAsignacionVendedores}
+                disabled={sellerAssignSaving}
+                className="px-4 py-2 rounded bg-rose-700 text-white hover:bg-rose-800 disabled:opacity-60"
+              >
+                {sellerAssignSaving ? 'Guardando...' : 'Guardar asignacion'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {ventaMsgOpen && (
         <ModalVentaMensaje

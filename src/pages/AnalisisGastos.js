@@ -10,8 +10,19 @@ const normalizeConcept = (c) => String(c || '').trim().toLowerCase().replace(/\s
 const displayConcepto = (c) => String(c || '').replace(/_/g, ' ');
 const sumValues = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]);
 const normalizeSeller = (s) => (s == null ? '' : String(s).trim().toLowerCase());
+const getVentaSeller = (venta) =>
+  normalizeSeller(venta?.producto?.vendedor ?? venta?.vendedor);
+const getProductoSeller = (producto) => normalizeSeller(producto?.vendedor);
 const shareForSeller = (venta, seller) => {
-  const vend = normalizeSeller(venta?.vendedor);
+  const vend = getVentaSeller(venta);
+  const target = normalizeSeller(seller);
+  if (!vend || !target) return 0;
+  if (vend === target) return 1;
+  if (vend === SPLIT_VENDOR && SELLERS.includes(target)) return SPLIT_SHARE;
+  return 0;
+};
+const shareForProductoSeller = (producto, seller) => {
+  const vend = getProductoSeller(producto);
   const target = normalizeSeller(seller);
   if (!vend || !target) return 0;
   if (vend === target) return 1;
@@ -44,6 +55,7 @@ const splitMetrics = (venta, seller) => {
 export default function AnalisisGastos({ setVista }) {
   const [rows, setRows] = useState([]);
   const [ventas, setVentas] = useState([]);
+  const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [showPie, setShowPie] = useState(false);
@@ -66,16 +78,19 @@ export default function AnalisisGastos({ setVista }) {
         const gastosUrl = isAdmin ? `${API_URL}/gastos/all${userIdParam}` : `${API_URL}/gastos`;
         const ventasUrl = `${API_URL}/ventas`;
 
-        const [resGastos, resVentas] = await Promise.all([
+        const [resGastos, resVentas, resProductos] = await Promise.all([
           fetch(gastosUrl, { headers }),
           fetch(ventasUrl, { headers }),
+          fetch(`${API_URL}/productos`, { headers }),
         ]);
         if (!resGastos.ok) throw new Error(`GET ${gastosUrl} -> ${await resGastos.text()}`);
         if (!resVentas.ok) throw new Error(`GET ${ventasUrl} -> ${await resVentas.text()}`);
+        if (!resProductos.ok) throw new Error(`GET ${API_URL}/productos -> ${await resProductos.text()}`);
 
-        const [dataGastos, dataVentas] = await Promise.all([resGastos.json(), resVentas.json()]);
+        const [dataGastos, dataVentas, dataProductos] = await Promise.all([resGastos.json(), resVentas.json(), resProductos.json()]);
         setRows(Array.isArray(dataGastos) ? dataGastos : []);
         setVentas(Array.isArray(dataVentas) ? dataVentas : []);
+        setProductos(Array.isArray(dataProductos) ? dataProductos : []);
       } catch (e) {
         console.error('[AnalisisGastos] load error', e);
         setErr('No se pudo cargar los gastos y ventas.');
@@ -150,6 +165,15 @@ export default function AnalisisGastos({ setVista }) {
     [ventas, month],
   );
 
+  const productosMes = useMemo(
+    () =>
+      productos.filter((p) => {
+        const fecha = (p?.valor?.fechaCompra || p?.fechaCompra || '').slice(0, 7);
+        return fecha === month;
+      }),
+    [productos, month],
+  );
+
   const ingresosPorPersona = useMemo(() => {
     const totales = { gonzalo: 0, renato: 0 };
     ventasMes.forEach((v) => {
@@ -174,8 +198,23 @@ export default function AnalisisGastos({ setVista }) {
     return totales;
   }, [ventasMes]);
 
+  const comprasInventarioPorPersona = useMemo(() => {
+    const totales = { gonzalo: 0, renato: 0 };
+    productosMes.forEach((p) => {
+      const costo = Number(p?.valor?.costoTotal ?? 0) || 0;
+      SELLERS.forEach((seller) => {
+        const share = shareForProductoSeller(p, seller);
+        if (!share) return;
+        totales[seller] += costo * share;
+      });
+    });
+    return totales;
+  }, [productosMes]);
+
   const ingresoSeleccionado = ingresosPorPersona[selectedPersona] || 0;
-  const balanceMes = ingresoSeleccionado - totalPen;
+  const comprasInventarioSeleccionado = comprasInventarioPorPersona[selectedPersona] || 0;
+  const gastoGeneralSeleccionado = totalPen + comprasInventarioSeleccionado;
+  const balanceMes = ingresoSeleccionado - gastoGeneralSeleccionado;
 
   const daysInMonth = useMemo(() => {
     const [y, m] = month.split('-').map(Number);
@@ -262,7 +301,7 @@ export default function AnalisisGastos({ setVista }) {
   const pieGradientDeb = useMemo(() => buildGradient(pieDataDeb), [pieDataDeb]);
   const pieGradientCre = useMemo(() => buildGradient(pieDataCre), [pieDataCre]);
   const pieGradientVida = useMemo(() => buildGradient(pieDataVida), [pieDataVida]);
-  const balanceVida = ingresoSeleccionado - gastosVidaPen;
+  const balanceVida = ingresoSeleccionado - gastosVidaPen - comprasInventarioSeleccionado;
 
   return (
     <>
@@ -301,16 +340,21 @@ export default function AnalisisGastos({ setVista }) {
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="bg-white rounded-xl border shadow-sm p-4">
-              <div className="text-sm text-gray-500">Total gastado (mes)</div>
-              <div className="text-2xl font-semibold mt-1">S/ {totalPen.toFixed(2)}</div>
-              <div className="text-xs text-gray-500 mt-1">{gastosSolo.length} movimientos</div>
-            </div>
-            <div className="bg-white rounded-xl border shadow-sm p-4">
-              <div className="text-sm text-gray-500">Promedio por dia</div>
-              <div className="text-2xl font-semibold mt-1">S/ {promedioDia.toFixed(2)}</div>
-              <div className="text-xs text-gray-500 mt-1">{daysInMonth} dias del mes</div>
-            </div>
+          <div className="bg-white rounded-xl border shadow-sm p-4">
+            <div className="text-sm text-gray-500">Total gastado (mes)</div>
+            <div className="text-2xl font-semibold mt-1">S/ {totalPen.toFixed(2)}</div>
+            <div className="text-xs text-gray-500 mt-1">{gastosSolo.length} movimientos</div>
+          </div>
+          <div className="bg-white rounded-xl border shadow-sm p-4">
+            <div className="text-sm text-gray-500">Compras de productos (mes)</div>
+            <div className="text-2xl font-semibold mt-1">S/ {comprasInventarioSeleccionado.toFixed(2)}</div>
+            <div className="text-xs text-gray-500 mt-1">Segun producto.vendedor para {selectedPersona}</div>
+          </div>
+          <div className="bg-white rounded-xl border shadow-sm p-4">
+            <div className="text-sm text-gray-500">Promedio por dia</div>
+            <div className="text-2xl font-semibold mt-1">S/ {promedioDia.toFixed(2)}</div>
+            <div className="text-xs text-gray-500 mt-1">{daysInMonth} dias del mes</div>
+          </div>
             <div className="bg-white rounded-xl border shadow-sm p-4">
               <div className="text-sm text-gray-500">Comparacion vs mes anterior</div>
               <div className="text-2xl font-semibold mt-1">
@@ -341,8 +385,9 @@ export default function AnalisisGastos({ setVista }) {
                 <div className="text-lg font-semibold text-gray-900">S/ {ingresoSeleccionado.toFixed(2)}</div>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg border">
-                  <div className="text-gray-500">Gasto total</div>
-                  <div className="text-lg font-semibold text-gray-900">S/ {totalPen.toFixed(2)}</div>
+                  <div className="text-gray-500">Gasto total + compras</div>
+                  <div className="text-lg font-semibold text-gray-900">S/ {gastoGeneralSeleccionado.toFixed(2)}</div>
+                  <div className="text-xs text-gray-500 mt-1">Gastos: S/ {totalPen.toFixed(2)} | Compras: S/ {comprasInventarioSeleccionado.toFixed(2)}</div>
                 </div>
               <div className={`p-3 bg-gray-50 rounded-lg border ${balanceMes >= 0 ? 'border-green-200' : 'border-red-200'}`}>
                 <div className="text-gray-500">Resultado</div>
@@ -375,8 +420,9 @@ export default function AnalisisGastos({ setVista }) {
                 <div className="text-lg font-semibold text-gray-900">S/ {ingresoSeleccionado.toFixed(2)}</div>
               </div>
               <div className="p-3 bg-gray-50 rounded-lg border">
-                <div className="text-gray-500">Gasto vida total</div>
-                <div className="text-lg font-semibold text-gray-900">S/ {gastosVidaPen.toFixed(2)}</div>
+                <div className="text-gray-500">Gasto vida + compras</div>
+                <div className="text-lg font-semibold text-gray-900">S/ {(gastosVidaPen + comprasInventarioSeleccionado).toFixed(2)}</div>
+                <div className="text-xs text-gray-500 mt-1">Vida: S/ {gastosVidaPen.toFixed(2)} | Compras: S/ {comprasInventarioSeleccionado.toFixed(2)}</div>
               </div>
               <div className={`p-3 bg-gray-50 rounded-lg border ${balanceVida >= 0 ? 'border-green-200' : 'border-red-200'}`}>
                 <div className="text-gray-500">Resultado</div>

@@ -192,6 +192,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
   const [form, setForm] = useState({
     tipo: '',
     estado: '',
+    vendedor: '',
     accesorios: [],
     casillero: '',
     detalle: {
@@ -237,6 +238,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     setForm({
       tipo: producto.tipo || '',
       estado: producto.estado || '',
+      vendedor: producto.vendedor || '',
       accesorios: Array.isArray(producto.accesorios) ? producto.accesorios : [],
       casillero: producto.tracking?.[0]?.casillero || '',
       detalle,
@@ -452,7 +454,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       Object.entries(form.detalle || {}).filter(([k]) => allowedDetalle.includes(k))
     );
 
-    const payload = { ...base, detalle: cleanDetalle, valor: form.valor };
+    const payload = { ...base, vendedor: form.vendedor || null, detalle: cleanDetalle, valor: form.valor };
     const primaryLink = Array.isArray(vincularConList) ? vincularConList[0] : null;
     if (primaryLink) payload.vincularCon = Number(primaryLink);
     if (desvincularEnvio) payload.desvincularEnvio = true;
@@ -775,32 +777,6 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                     >
                       {linkerOpen ? 'Cerrar lista' : (producto?.envioGrupoId ? 'Agregar vinculo' : 'Vincular producto')}
                     </button>
-                    {linkerOpen && (
-                      <>
-                        <button
-                          type="button"
-                          className="px-3 py-1.5 rounded-md border text-sm bg-white hover:bg-gray-100"
-                          onClick={() => {
-                            setLinkerOpen(false);
-                            setPendingLinkIds([]);
-                          }}
-                        >
-                          Cancelar
-                        </button>
-                        <button
-                          type="button"
-                          className="px-4 py-1.5 rounded-md text-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
-                          disabled={!pendingLinkIds.length}
-                          onClick={() => {
-                            setVincularConList(pendingLinkIds);
-                            setDesvincularEnvio(false);
-                            setLinkerOpen(false);
-                          }}
-                        >
-                          Aceptar
-                        </button>
-                      </>
-                    )}
                     {producto?.envioGrupoId && (
                       <button
                         type="button"
@@ -830,51 +806,91 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                   </div>
 
                   {linkerOpen && (
-                    <div className="mt-3 border border-gray-200 rounded-xl bg-white p-3 space-y-3 max-h-56 overflow-auto shadow-sm">
-                      {loadingLinker && <div className="text-sm text-gray-500">Cargando opciones...</div>}
-                      {!loadingLinker && linkables.length === 0 && (
-                        <div className="text-sm text-gray-500">No hay productos elegibles.</div>
-                      )}
-                      {!loadingLinker && linkables.map((p) => {
-                        const d = p.detalle || {};
-                        const checked = pendingLinkIds.includes(p.id);
-                        const locked = producto?.envioGrupoId ? (p.envioGrupoId && p.envioGrupoId !== producto.envioGrupoId) : false;
-                        const inCurrentGroup = producto?.envioGrupoId && p.envioGrupoId === producto.envioGrupoId;
-                        const disabled = locked || inCurrentGroup;
-                        return (
-                          <label
-                            key={`link-${p.id}`}
-                            className={`flex flex-col gap-1 border rounded-lg p-3 cursor-pointer transition shadow-sm ${checked ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'} ${disabled ? 'opacity-60 cursor-not-allowed bg-gray-50' : ''}`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="font-medium text-sm text-gray-900">#{p.id} - {p.tipo}</div>
-                              <input
-                                type="checkbox"
-                                name="link-product"
-                                className="h-4 w-4"
-                                checked={checked}
-                                disabled={disabled}
-                                onChange={() => {
-                                  if (disabled) return;
-                                  setPendingLinkIds((prev) =>
-                                    prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]
-                                  );
-                                }}
-                              />
-                            </div>
-                            <div className="text-xs text-gray-700">
-                              {[d.gama, d.procesador, d.tamano, p.estado].filter(Boolean).join(' - ')}
-                            </div>
-                            <div className="text-xs text-gray-600">
-                              Casillero: {p.tracking?.[0]?.casillero || 'N/A'} - Tracking: {getLastTrackingEstado(p) || 'N/A'}
-                              {inCurrentGroup && <span className="ml-1 text-gray-600">(Vinculado actual)</span>}
-                              {locked && <span className="ml-1 text-amber-600">(Ya en grupo)</span>}
-                            </div>
-                          </label>
-                        );
-                      })}
+                    <div className="mt-3 space-y-3">
+                      <div className="border border-gray-200 rounded-xl bg-white p-3 space-y-3 max-h-56 overflow-auto shadow-sm">
+                        {loadingLinker && <div className="text-sm text-gray-500">Cargando opciones...</div>}
+                        {!loadingLinker && linkables.length === 0 && (
+                          <div className="text-sm text-gray-500">No hay productos elegibles.</div>
+                        )}
+                        {!loadingLinker && linkables.map((p) => {
+                          const d = p.detalle || {};
+                          const checked = pendingLinkIds.includes(p.id);
+                          const locked = producto?.envioGrupoId ? (p.envioGrupoId && p.envioGrupoId !== producto.envioGrupoId) : false;
+                          const inCurrentGroup = producto?.envioGrupoId && p.envioGrupoId === producto.envioGrupoId;
+                          const disabled = locked || inCurrentGroup;
+                          return (
+                            <label
+                              key={`link-${p.id}`}
+                              className={`flex flex-col gap-1 border rounded-lg p-3 cursor-pointer transition shadow-sm ${checked ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'} ${disabled ? 'opacity-60 cursor-not-allowed bg-gray-50' : ''}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="font-medium text-sm text-gray-900">#{p.id} - {p.tipo}</div>
+                                <input
+                                  type="checkbox"
+                                  name="link-product"
+                                  className="h-4 w-4"
+                                  checked={checked}
+                                  disabled={disabled}
+                                  onChange={() => {
+                                    if (disabled) return;
+                                    setPendingLinkIds((prev) =>
+                                      prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]
+                                    );
+                                  }}
+                                />
+                              </div>
+                              <div className="text-xs text-gray-700">
+                                {[d.gama, d.procesador, d.tamano, p.estado].filter(Boolean).join(' - ')}
+                              </div>
+                              <div className="text-xs text-gray-600">
+                                Casillero: {p.tracking?.[0]?.casillero || 'N/A'} - Tracking: {getLastTrackingEstado(p) || 'N/A'}
+                                {inCurrentGroup && <span className="ml-1 text-gray-600">(Vinculado actual)</span>}
+                                {locked && <span className="ml-1 text-amber-600">(Ya en grupo)</span>}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded-md border text-sm bg-white hover:bg-gray-100"
+                          onClick={() => {
+                            setLinkerOpen(false);
+                            setPendingLinkIds([]);
+                          }}
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          className="px-4 py-1.5 rounded-md text-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+                          disabled={!pendingLinkIds.length}
+                          onClick={() => {
+                            setVincularConList(pendingLinkIds);
+                            setDesvincularEnvio(false);
+                            setLinkerOpen(false);
+                          }}
+                        >
+                          Aceptar
+                        </button>
+                      </div>
                     </div>
                   )}
+                </div>
+
+                <div>
+                  <label className="block font-medium mb-1">Vendedor</label>
+                  <select
+                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    value={form.vendedor}
+                    onChange={e => onChange('main', 'vendedor', e.target.value)}
+                  >
+                    <option value="">Selecciona</option>
+                    <option value="Gonzalo">Gonzalo</option>
+                    <option value="Renato">Renato</option>
+                    <option value="ambos">Ambos</option>
+                  </select>
                 </div>
               </div>
             </div>

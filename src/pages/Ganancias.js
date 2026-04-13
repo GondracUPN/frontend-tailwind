@@ -13,6 +13,8 @@ const fmtUSD = (n) =>
 
 const normalizeVendedor = (value) =>
   (value == null ? '' : String(value)).trim().toLowerCase();
+const getVentaSeller = (venta) =>
+  normalizeVendedor(venta?.vendedor ?? venta?.producto?.vendedor);
 
 const SELLER_SLUGS = ['gonzalo', 'renato'];
 const SPLIT_VENDOR = 'ambos';
@@ -46,7 +48,7 @@ const writeCache = (ventas) => {
 };
 
 const shareForSeller = (venta, seller) => {
-  const vend = normalizeVendedor(venta?.vendedor);
+  const vend = getVentaSeller(venta);
   const target = normalizeVendedor(seller);
   if (!vend || !target) return 0;
   if (vend === target) return 1;
@@ -181,7 +183,6 @@ function totales(ventasArr, seller) {
 export default function Ganancias({ setVista }) {
   const [ventas, setVentas] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [assigningVenta, setAssigningVenta] = useState(null);
 
   const currentYear = String(new Date().getFullYear());
 
@@ -219,23 +220,6 @@ export default function Ganancias({ setVista }) {
     }
   };
 
-  const handleAssignVenta = async (ventaId, vendedor) => {
-    if (!ventaId || !vendedor) return;
-    try {
-      setAssigningVenta(`${ventaId}-${vendedor}`);
-      await api.patch(`/ventas/${ventaId}`, { vendedor });
-      setVentas((prev) =>
-        prev.map((v) => (v.id === ventaId ? { ...v, vendedor } : v)),
-      );
-      fetchVentas({ silent: true });
-    } catch (e) {
-      console.error('[Ganancias] Error asignando vendedor:', e);
-      alert('No se pudo asignar el vendedor.');
-    } finally {
-      setAssigningVenta(null);
-    }
-  };
-
   useEffect(() => {
     const cached = readCache();
     if (cached && cached.length) {
@@ -267,7 +251,7 @@ export default function Ganancias({ setVista }) {
     const r = [];
     const sin = [];
     for (const v of ventas) {
-      if (!normalizeVendedor(v.vendedor)) sin.push(v);
+      if (!getVentaSeller(v)) sin.push(v);
       const shareG = shareForSeller(v, 'gonzalo');
       if (shareG) g.push({ ...v, __share: shareG, __split: shareG !== 1 });
       const shareR = shareForSeller(v, 'renato');
@@ -360,10 +344,10 @@ export default function Ganancias({ setVista }) {
       <div className="bg-white border rounded-2xl shadow-sm p-5 mb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
           <div>
-            <div className="text-lg font-semibold">Ventas sin vendedor</div>
+            <div className="text-lg font-semibold">Ventas sin vendedor en venta</div>
             <div className="text-sm text-gray-500">
               {ventasSinVendedor.length
-                ? 'Asigna cada venta para que aparezca en la columna del vendedor.'
+                ? 'Asigna el vendedor en la venta para que aparezca en las columnas de ganancias.'
                 : 'Todas las ventas tienen vendedor asignado.'}
             </div>
           </div>
@@ -387,7 +371,7 @@ export default function Ganancias({ setVista }) {
                   <th className="p-2">Ganancia (S/)</th>
                   <th className="p-2">% Gan.</th>
                   <th className="p-2">F. venta</th>
-                  <th className="p-2">Asignar</th>
+                  <th className="p-2">Estado</th>
                 </tr>
               </thead>
               <tbody>
@@ -411,30 +395,8 @@ export default function Ganancias({ setVista }) {
                       <td className="p-2">
                       {v.fechaVenta ? formatDateLocal(v.fechaVenta) : '--'}
                       </td>
-                      <td className="p-2">
-                        <div className="flex flex-wrap gap-2">
-                          {['Gonzalo', 'Renato'].map((vend) => {
-                            const key = `${v.id}-${vend}`;
-                            const busy = assigningVenta === key;
-                            return (
-                              <button
-                                key={vend}
-                                onClick={() => handleAssignVenta(v.id, vend)}
-                                className="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 text-xs"
-                                disabled={busy}
-                              >
-                                {busy ? 'Asignando...' : `Asignar a ${vend}`}
-                              </button>
-                            );
-                          })}
-                          <button
-                            onClick={() => handleAssignVenta(v.id, SPLIT_VENDOR)}
-                            className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 text-xs"
-                            disabled={assigningVenta === `${v.id}-${SPLIT_VENDOR}`}
-                          >
-                            {assigningVenta === `${v.id}-${SPLIT_VENDOR}` ? 'Dividiendo...' : 'Dividir 50/50'}
-                          </button>
-                        </div>
+                      <td className="p-2 text-xs text-amber-700">
+                        Asignar en Productos
                       </td>
                     </tr>
                   );
@@ -507,22 +469,7 @@ function ColVendedor({
 }) {
   const currentYear = String(new Date().getFullYear());
   const sellerSlug = normalizeVendedor(titulo);
-  const [unassigningId, setUnassigningId] = useState(null);
   const [editingVenta, setEditingVenta] = useState(null);
-
-  const handleQuitar = async (ventaId) => {
-    if (!window.confirm('Quitar esta venta del vendedor?')) return;
-    try {
-      setUnassigningId(ventaId);
-      await api.patch(`/ventas/${ventaId}`, { vendedor: null });
-      await reloadVentas({ silent: true });
-    } catch (e) {
-      console.error('[ColVendedor] Error al quitar venta:', e);
-      alert('No se pudo quitar la venta.');
-    } finally {
-      setUnassigningId(null);
-    }
-  };
 
   return (
     <div className="bg-white border rounded-2xl shadow-sm p-5">
@@ -647,23 +594,13 @@ function ColVendedor({
                       {v.fechaVenta ? formatDateLocal(v.fechaVenta) : '--'}
                     </td>
                     <td className="p-2">
-                      <div className="flex flex-col gap-1">
-                        <button
-                          className="px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 text-xs"
-                          onClick={() => handleQuitar(v.id)}
-                          disabled={unassigningId === v.id}
-                          title="Quitar esta venta del vendedor"
-                        >
-                          {unassigningId === v.id ? 'Quitando...' : 'Quitar'}
-                        </button>
-                        <button
-                          className="px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 text-xs"
-                          onClick={() => setEditingVenta(v)}
-                          title="Editar venta"
-                        >
-                          Editar
-                        </button>
-                      </div>
+                      <button
+                        className="px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 text-xs"
+                        onClick={() => setEditingVenta(v)}
+                        title="Editar venta"
+                      >
+                        Editar
+                      </button>
                     </td>
                   </tr>
                 );

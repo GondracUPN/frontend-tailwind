@@ -1,83 +1,89 @@
-// src/components/ModalVenta.jsx
 import React, { useEffect, useState } from 'react';
 import api from '../api';
+
+const normalizeSeller = (value) =>
+  value == null ? '' : String(value).trim().toLowerCase();
+
+const formatSeller = (value) => {
+  const slug = normalizeSeller(value);
+  if (slug === 'gonzalo') return 'Gonzalo';
+  if (slug === 'renato') return 'Renato';
+  if (slug === 'ambos') return 'Ambos';
+  return '';
+};
 
 export default function ModalVenta({
   producto,
   venta,
   onClose,
   onSaved,
-  allowVendedorOnCreate = false, // permite elegir vendedor al crear
-  presetVendedor = '',           // valor inicial del vendedor
+  allowVendedorOnCreate = false,
+  presetVendedor = '',
 }) {
   const [editMode, setEditMode] = useState(false);
-  const [modoVenta, setModoVenta] = useState(''); // 'gonzalo' | 'renato' | 'ambos'
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     tipoCambio: '',
     tipoCambioGonzalo: '',
     tipoCambioRenato: '',
     fechaVenta: '',
     precioVenta: '',
-    vendedor: '',
   });
-  const [saving, setSaving] = useState(false);
 
+  const sellerSlug = normalizeSeller(
+    producto?.vendedor || venta?.vendedor || presetVendedor || '',
+  );
+  const sellerLabel = formatSeller(sellerSlug) || 'Sin vendedor asignado';
   const isReadOnly = Boolean(venta) && !editMode;
   const isSplitVenta = Boolean(
     venta &&
-    (String(venta?.vendedor || '').trim().toLowerCase() === 'ambos' ||
-      venta?.tipoCambioGonzalo != null ||
-      venta?.tipoCambioRenato != null),
+      (sellerSlug === 'ambos' ||
+        venta?.tipoCambioGonzalo != null ||
+        venta?.tipoCambioRenato != null),
   );
-  const isSplitCreate = !venta && modoVenta === 'ambos';
+  const isSplitCreate = !venta && sellerSlug === 'ambos';
+  const splitModeActive = venta ? isSplitVenta : isSplitCreate;
 
   useEffect(() => {
     if (venta) {
       setForm({
         tipoCambio: venta.tipoCambio != null ? String(venta.tipoCambio) : '',
-        tipoCambioGonzalo: venta.tipoCambioGonzalo != null ? String(venta.tipoCambioGonzalo) : '',
-        tipoCambioRenato: venta.tipoCambioRenato != null ? String(venta.tipoCambioRenato) : '',
+        tipoCambioGonzalo:
+          venta.tipoCambioGonzalo != null ? String(venta.tipoCambioGonzalo) : '',
+        tipoCambioRenato:
+          venta.tipoCambioRenato != null ? String(venta.tipoCambioRenato) : '',
         fechaVenta: venta.fechaVenta ?? '',
         precioVenta: venta.precioVenta != null ? String(venta.precioVenta) : '',
-        vendedor: (venta.vendedor ?? '') + '',
       });
-    } else {
-      setForm({
-        tipoCambio: '',
-        tipoCambioGonzalo: '',
-        tipoCambioRenato: '',
-        fechaVenta: '',
-        precioVenta: '',
-        vendedor: allowVendedorOnCreate ? (presetVendedor || '') : '',
-      });
+      return;
     }
-  }, [venta, editMode, allowVendedorOnCreate, presetVendedor]);
+
+    setForm({
+      tipoCambio: '',
+      tipoCambioGonzalo: '',
+      tipoCambioRenato: '',
+      fechaVenta: '',
+      precioVenta: '',
+    });
+  }, [venta, producto?.id, producto?.vendedor, presetVendedor, allowVendedorOnCreate]);
 
   useEffect(() => {
-    if (!venta) setModoVenta('');
     setEditMode(false);
   }, [producto?.id, venta?.id, venta]);
 
   if (!producto) return null;
 
-  const onChange = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
-  const selectModoVenta = (modo) => {
-    setModoVenta(modo);
-    const vendedor =
-      modo === 'gonzalo' ? 'Gonzalo' : modo === 'renato' ? 'Renato' : 'ambos';
-    setForm((prev) => ({
-      ...prev,
-      tipoCambio: '',
-      tipoCambioGonzalo: '',
-      tipoCambioRenato: '',
-      vendedor,
-    }));
-  };
+  const onChange = (field, value) =>
+    setForm((prev) => ({ ...prev, [field]: value }));
 
   const validate = () => {
-    const splitMode = isSplitCreate || (venta && !isReadOnly && isSplitVenta);
-    if (splitMode) {
-      if (!form.fechaVenta || !form.precioVenta || !form.tipoCambioGonzalo || !form.tipoCambioRenato) {
+    if (splitModeActive) {
+      if (
+        !form.fechaVenta ||
+        !form.precioVenta ||
+        !form.tipoCambioGonzalo ||
+        !form.tipoCambioRenato
+      ) {
         alert('Completa Fecha de venta, Precio de venta y tipo de cambio para ambos.');
         return false;
       }
@@ -91,8 +97,7 @@ export default function ModalVenta({
   };
 
   const handleSaveCreate = async () => {
-    if (saving) return;
-    if (!validate()) return;
+    if (saving || !validate()) return;
 
     setSaving(true);
     try {
@@ -102,7 +107,7 @@ export default function ModalVenta({
         precioVenta: Number(form.precioVenta),
       };
 
-      if (isSplitCreate) {
+      if (splitModeActive) {
         const tcG = Number(form.tipoCambioGonzalo);
         const tcR = Number(form.tipoCambioRenato);
         const avg = (tcG + tcR) / 2;
@@ -112,13 +117,11 @@ export default function ModalVenta({
         body.vendedor = 'ambos';
       } else {
         body.tipoCambio = Number(form.tipoCambio);
-        if (modoVenta === 'gonzalo') body.vendedor = 'Gonzalo';
-        if (modoVenta === 'renato') body.vendedor = 'Renato';
-        if (allowVendedorOnCreate && form.vendedor?.trim()) {
-          body.vendedor = form.vendedor.trim();
-        }
+        if (sellerSlug === 'gonzalo') body.vendedor = 'Gonzalo';
+        if (sellerSlug === 'renato') body.vendedor = 'Renato';
       }
-      const saved = await api.post(`/ventas`, body);
+
+      const saved = await api.post('/ventas', body);
       onSaved?.(saved);
       onClose?.();
     } catch (e) {
@@ -130,9 +133,7 @@ export default function ModalVenta({
   };
 
   const handleSaveEdit = async () => {
-    if (!venta) return;
-    if (saving) return;
-    if (!validate()) return;
+    if (!venta || saving || !validate()) return;
 
     setSaving(true);
     try {
@@ -141,7 +142,7 @@ export default function ModalVenta({
         precioVenta: Number(form.precioVenta),
       };
 
-      if (isSplitVenta) {
+      if (splitModeActive) {
         const tcG = Number(form.tipoCambioGonzalo || form.tipoCambio || 0);
         const tcR = Number(form.tipoCambioRenato || form.tipoCambio || 0);
         const avg = (tcG + tcR) / 2;
@@ -151,7 +152,12 @@ export default function ModalVenta({
         payload.vendedor = 'ambos';
       } else {
         payload.tipoCambio = Number(form.tipoCambio);
-        payload.vendedor = form.vendedor?.trim() ? form.vendedor.trim() : null;
+        payload.vendedor =
+          sellerSlug === 'gonzalo'
+            ? 'Gonzalo'
+            : sellerSlug === 'renato'
+              ? 'Renato'
+              : null;
       }
 
       const updated = await api.patch(`/ventas/${venta.id}`, payload);
@@ -165,9 +171,6 @@ export default function ModalVenta({
     }
   };
 
-  const startEdit = () => setEditMode(true);
-  const cancelEdit = () => setEditMode(false);
-
   const valorUsd = Number(producto?.valor?.valorProducto ?? 0);
   const envioSoles = Number(
     producto?.valor?.costoEnvioProrrateado ?? producto?.valor?.costoEnvio ?? 0,
@@ -178,7 +181,8 @@ export default function ModalVenta({
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? n : null;
   };
-  const baseTc = toPositiveNumber(form.tipoCambio) ?? toPositiveNumber(venta?.tipoCambio) ?? 0;
+  const baseTc =
+    toPositiveNumber(form.tipoCambio) ?? toPositiveNumber(venta?.tipoCambio) ?? 0;
   const tcG =
     toPositiveNumber(form.tipoCambioGonzalo) ??
     toPositiveNumber(venta?.tipoCambioGonzalo) ??
@@ -190,7 +194,7 @@ export default function ModalVenta({
 
   const calcSplit = (tc) => {
     if (!tc) return null;
-    const costo = (valorUsd / 2) * tc + (envioSoles / 2);
+    const costo = (valorUsd / 2) * tc + envioSoles / 2;
     const ganancia = mitadVentaSoles - costo;
     const porcentaje = costo > 0 ? (ganancia / costo) * 100 : 0;
     return { costo, ganancia, porcentaje };
@@ -199,201 +203,147 @@ export default function ModalVenta({
   const splitG = calcSplit(tcG);
   const splitR = calcSplit(tcR);
 
-  const fmtMoney = (n) => (Number.isFinite(n) ? Number(n).toFixed(2) : '--');
-  const fmtPct = (n) => (Number.isFinite(n) ? `${Number(n).toFixed(2)}%` : '--');
-  const fmtTc = (n) => (Number.isFinite(n) && n > 0 ? Number(n).toFixed(4) : '--');
+  const fmtMoney = (n) =>
+    Number.isFinite(n) ? Number(n).toFixed(2) : '--';
+  const fmtPct = (n) =>
+    Number.isFinite(n) ? `${Number(n).toFixed(2)}%` : '--';
+  const fmtTc = (n) =>
+    Number.isFinite(n) && n > 0 ? Number(n).toFixed(4) : '--';
+
+  const renderSplitFields = () => (
+    <>
+      <div>
+        <label className="block font-medium mb-1">Precio de venta (S/)</label>
+        <input
+          type="number"
+          step="0.01"
+          className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          value={form.precioVenta}
+          onChange={(e) => onChange('precioVenta', e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="block font-medium mb-1">Fecha de venta</label>
+        <input
+          type="date"
+          className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          value={form.fechaVenta}
+          onChange={(e) => onChange('fechaVenta', e.target.value)}
+        />
+      </div>
+      <div className="border rounded-lg divide-y">
+        <div className="p-3 space-y-2">
+          <div className="font-semibold">Gonzalo</div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Tipo de cambio</label>
+            <input
+              type="number"
+              step="0.0001"
+              className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              value={form.tipoCambioGonzalo}
+              onChange={(e) => onChange('tipoCambioGonzalo', e.target.value)}
+            />
+          </div>
+          <div className="text-xs text-gray-600">
+            Costo: S/ {splitG ? fmtMoney(splitG.costo) : '--'} | Ganancia: S/ {splitG ? fmtMoney(splitG.ganancia) : '--'} | %: {splitG ? fmtPct(splitG.porcentaje) : '--'}
+          </div>
+        </div>
+        <div className="p-3 space-y-2">
+          <div className="font-semibold">Renato</div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Tipo de cambio</label>
+            <input
+              type="number"
+              step="0.0001"
+              className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              value={form.tipoCambioRenato}
+              onChange={(e) => onChange('tipoCambioRenato', e.target.value)}
+            />
+          </div>
+          <div className="text-xs text-gray-600">
+            Costo: S/ {splitR ? fmtMoney(splitR.costo) : '--'} | Ganancia: S/ {splitR ? fmtMoney(splitR.ganancia) : '--'} | %: {splitR ? fmtPct(splitR.porcentaje) : '--'}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  const renderSingleFields = () => (
+    <>
+      <div>
+        <label className="block font-medium mb-1">Tipo de cambio</label>
+        <input
+          type="number"
+          step="0.0001"
+          className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          value={form.tipoCambio}
+          onChange={(e) => onChange('tipoCambio', e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="block font-medium mb-1">Fecha de venta</label>
+        <input
+          type="date"
+          className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          value={form.fechaVenta}
+          onChange={(e) => onChange('fechaVenta', e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="block font-medium mb-1">Precio de venta (S/)</label>
+        <input
+          type="number"
+          step="0.01"
+          className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          value={form.precioVenta}
+          onChange={(e) => onChange('precioVenta', e.target.value)}
+        />
+      </div>
+    </>
+  );
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white w-full sm:max-w-lg rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-y-auto">
-        {/* Cerrar (X) */}
         <button
           className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
           onClick={onClose}
           aria-label="Cerrar modal"
         >
-          ✖
+          x
         </button>
 
-        {/* Título */}
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-semibold">
             {venta ? (isReadOnly ? 'Detalle de Venta' : 'Editar Venta') : 'Registrar Venta'}
           </h2>
-          {/* ❌ Ya no mostramos el botón Editar aquí en modo lectura */}
         </div>
 
-        {/* Crear nueva venta */}
-        {!venta && (
-          <div className="space-y-4">
-            {!modoVenta && (
-              <div className="space-y-3">
-                <div className="text-sm text-gray-600">Selecciona el tipo de venta</div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <button
-                    className="px-3 py-2 rounded border bg-white hover:bg-gray-50"
-                    onClick={() => selectModoVenta('gonzalo')}
-                  >
-                    Venta Gonzalo
-                  </button>
-                  <button
-                    className="px-3 py-2 rounded border bg-white hover:bg-gray-50"
-                    onClick={() => selectModoVenta('renato')}
-                  >
-                    Venta Renato
-                  </button>
-                  <button
-                    className="px-3 py-2 rounded border bg-white hover:bg-gray-50"
-                    onClick={() => selectModoVenta('ambos')}
-                  >
-                    Venta conjunta
-                  </button>
-                </div>
-              </div>
-            )}
+        <div className="rounded-lg border bg-gray-50 px-3 py-2 text-sm text-gray-700 mb-4">
+          Vendedor del producto: <span className="font-medium">{sellerLabel}</span>
+        </div>
 
-            {modoVenta && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-gray-600">
-                    Modo: {modoVenta === 'ambos' ? 'Venta conjunta' : `Venta ${modoVenta.charAt(0).toUpperCase() + modoVenta.slice(1)}`}
-                  </div>
-                  <button
-                    className="text-xs px-2 py-1 rounded border hover:bg-gray-50"
-                    onClick={() => setModoVenta('')}
-                  >
-                    Cambiar tipo
-                  </button>
-                </div>
-
-                {modoVenta !== 'ambos' && (
-                  <>
-                    <div>
-                      <label className="block font-medium mb-1">Tipo de cambio</label>
-                      <input
-                        type="number"
-                        step="0.0001"
-                        className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        value={form.tipoCambio}
-                        onChange={e => onChange('tipoCambio', e.target.value)}
-                        placeholder="Ej. 3.85"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-medium mb-1">Fecha de venta</label>
-                      <input
-                        type="date"
-                        className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        value={form.fechaVenta}
-                        onChange={e => onChange('fechaVenta', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-medium mb-1">Precio de venta (S/)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        value={form.precioVenta}
-                        onChange={e => onChange('precioVenta', e.target.value)}
-                        placeholder="Ej. 2499.90"
-                      />
-                    </div>
-                  </>
-                )}
-
-                {modoVenta === 'ambos' && (
-                  <>
-                    <div>
-                      <label className="block font-medium mb-1">Precio de venta (S/)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        value={form.precioVenta}
-                        onChange={e => onChange('precioVenta', e.target.value)}
-                        placeholder="Ej. 2499.90"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-medium mb-1">Fecha de venta</label>
-                      <input
-                        type="date"
-                        className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        value={form.fechaVenta}
-                        onChange={e => onChange('fechaVenta', e.target.value)}
-                      />
-                    </div>
-
-                    <div className="border rounded-lg divide-y">
-                      <div className="p-3 space-y-2">
-                        <div className="font-semibold">Gonzalo</div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Tipo de cambio</label>
-                          <input
-                            type="number"
-                            step="0.0001"
-                            className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            value={form.tipoCambioGonzalo}
-                            onChange={e => onChange('tipoCambioGonzalo', e.target.value)}
-                            placeholder="Ej. 3.85"
-                          />
-                        </div>
-                        <div className="text-xs text-gray-600">
-                          Costo: S/ {splitG ? fmtMoney(splitG.costo) : '--'} | Ganancia: S/ {splitG ? fmtMoney(splitG.ganancia) : '--'} | %: {splitG ? fmtPct(splitG.porcentaje) : '--'}
-                        </div>
-                      </div>
-                      <div className="p-3 space-y-2">
-                        <div className="font-semibold">Renato</div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Tipo de cambio</label>
-                          <input
-                            type="number"
-                            step="0.0001"
-                            className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            value={form.tipoCambioRenato}
-                            onChange={e => onChange('tipoCambioRenato', e.target.value)}
-                            placeholder="Ej. 3.85"
-                          />
-                        </div>
-                        <div className="text-xs text-gray-600">
-                          Costo: S/ {splitR ? fmtMoney(splitR.costo) : '--'} | Ganancia: S/ {splitR ? fmtMoney(splitR.ganancia) : '--'} | %: {splitR ? fmtPct(splitR.porcentaje) : '--'}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {allowVendedorOnCreate && modoVenta !== 'ambos' && (
-                  <div>
-                    <label className="block font-medium mb-1">Vendedor (opcional)</label>
-                    <select
-                      className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      value={form.vendedor}
-                      onChange={e => onChange('vendedor', e.target.value)}
-                    >
-                      <option value="">— Seleccionar —</option>
-                      <option value="Gonzalo">Gonzalo</option>
-                      <option value="Renato">Renato</option>
-                    </select>
-                  </div>
-                )}
-
-                <div className="text-right">
-                  <button
-                    className={`bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 ${saving ? 'opacity-60 cursor-not-allowed' : ''}`}
-                    onClick={handleSaveCreate}
-                    disabled={saving}
-                  >
-                    {saving ? 'Guardando…' : 'Guardar'}
-                  </button>
-                </div>
-              </div>
-            )}
+        {!venta && !sellerSlug && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 mb-4">
+            Este producto no tiene vendedor asignado. Puedes registrar la venta, pero no aparecerá en ganancias por vendedor hasta asignarlo en el producto.
           </div>
         )}
 
-        {/* Modo lectura (ver información) */}
+        {!venta && (
+          <div className="space-y-4">
+            {splitModeActive ? renderSplitFields() : renderSingleFields()}
+            <div className="text-right">
+              <button
+                className={`bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 ${saving ? 'opacity-60 cursor-not-allowed' : ''}`}
+                onClick={handleSaveCreate}
+                disabled={saving}
+              >
+                {saving ? 'Guardando…' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {venta && isReadOnly && (
           <div className="space-y-3">
             <div>
@@ -411,9 +361,7 @@ export default function ModalVenta({
                   <div className="p-3 space-y-1">
                     <div className="font-semibold">Gonzalo</div>
                     <div className="text-sm text-gray-700">Tipo de cambio: {fmtTc(tcG)}</div>
-                    <div className="text-xs text-gray-600">
-                      Venta: S/ {fmtMoney(mitadVentaSoles)}
-                    </div>
+                    <div className="text-xs text-gray-600">Venta: S/ {fmtMoney(mitadVentaSoles)}</div>
                     <div className="text-xs text-gray-600">
                       Costo: S/ {splitG ? fmtMoney(splitG.costo) : '--'} | Ganancia: S/ {splitG ? fmtMoney(splitG.ganancia) : '--'} | %: {splitG ? fmtPct(splitG.porcentaje) : '--'}
                     </div>
@@ -421,9 +369,7 @@ export default function ModalVenta({
                   <div className="p-3 space-y-1">
                     <div className="font-semibold">Renato</div>
                     <div className="text-sm text-gray-700">Tipo de cambio: {fmtTc(tcR)}</div>
-                    <div className="text-xs text-gray-600">
-                      Venta: S/ {fmtMoney(mitadVentaSoles)}
-                    </div>
+                    <div className="text-xs text-gray-600">Venta: S/ {fmtMoney(mitadVentaSoles)}</div>
                     <div className="text-xs text-gray-600">
                       Costo: S/ {splitR ? fmtMoney(splitR.costo) : '--'} | Ganancia: S/ {splitR ? fmtMoney(splitR.ganancia) : '--'} | %: {splitR ? fmtPct(splitR.porcentaje) : '--'}
                     </div>
@@ -451,17 +397,15 @@ export default function ModalVenta({
               </>
             )}
 
-            {venta.vendedor != null && (
-              <div>
-                <span className="font-medium">Vendedor: </span>
-                <span className="text-gray-700">{String(venta.vendedor || '')}</span>
-              </div>
-            )}
+            <div>
+              <span className="font-medium">Vendedor: </span>
+              <span className="text-gray-700">{sellerLabel}</span>
+            </div>
 
             <div className="text-right pt-2 flex items-center justify-end gap-2">
               <button
                 className="px-3 py-2 rounded bg-amber-500 text-white hover:bg-amber-600"
-                onClick={startEdit}
+                onClick={() => setEditMode(true)}
               >
                 Editar
               </button>
@@ -475,115 +419,13 @@ export default function ModalVenta({
           </div>
         )}
 
-        {/* Modo edición */}
         {venta && !isReadOnly && (
           <div className="space-y-4">
-            {isSplitVenta ? (
-              <>
-                <div>
-                  <label className="block font-medium mb-1">Precio de venta (S/)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    value={form.precioVenta}
-                    onChange={e => onChange('precioVenta', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium mb-1">Fecha de venta</label>
-                  <input
-                    type="date"
-                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    value={form.fechaVenta}
-                    onChange={e => onChange('fechaVenta', e.target.value)}
-                  />
-                </div>
-                <div className="border rounded-lg divide-y">
-                  <div className="p-3 space-y-2">
-                    <div className="font-semibold">Gonzalo</div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Tipo de cambio</label>
-                      <input
-                        type="number"
-                        step="0.0001"
-                        className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        value={form.tipoCambioGonzalo}
-                        onChange={e => onChange('tipoCambioGonzalo', e.target.value)}
-                      />
-                    </div>
-                    <div className="text-xs text-gray-600">
-                      Costo: S/ {splitG ? fmtMoney(splitG.costo) : '--'} | Ganancia: S/ {splitG ? fmtMoney(splitG.ganancia) : '--'} | %: {splitG ? fmtPct(splitG.porcentaje) : '--'}
-                    </div>
-                  </div>
-                  <div className="p-3 space-y-2">
-                    <div className="font-semibold">Renato</div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Tipo de cambio</label>
-                      <input
-                        type="number"
-                        step="0.0001"
-                        className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        value={form.tipoCambioRenato}
-                        onChange={e => onChange('tipoCambioRenato', e.target.value)}
-                      />
-                    </div>
-                    <div className="text-xs text-gray-600">
-                      Costo: S/ {splitR ? fmtMoney(splitR.costo) : '--'} | Ganancia: S/ {splitR ? fmtMoney(splitR.ganancia) : '--'} | %: {splitR ? fmtPct(splitR.porcentaje) : '--'}
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div>
-                  <label className="block font-medium mb-1">Tipo de cambio</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    value={form.tipoCambio}
-                    onChange={e => onChange('tipoCambio', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium mb-1">Fecha de venta</label>
-                  <input
-                    type="date"
-                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    value={form.fechaVenta}
-                    onChange={e => onChange('fechaVenta', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium mb-1">Precio de venta (S/)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    value={form.precioVenta}
-                    onChange={e => onChange('precioVenta', e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium mb-1">Vendedor (opcional)</label>
-                  <select
-                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    value={form.vendedor}
-                    onChange={e => onChange('vendedor', e.target.value)}
-                  >
-                    <option value="">— Seleccionar —</option>
-                    <option value="Gonzalo">Gonzalo</option>
-                    <option value="Renato">Renato</option>
-                  </select>
-                </div>
-              </>
-            )}
-
+            {splitModeActive ? renderSplitFields() : renderSingleFields()}
             <div className="flex items-center justify-end gap-2">
               <button
                 className="bg-gray-200 text-gray-800 px-6 py-2 rounded hover:bg-gray-300"
-                onClick={cancelEdit}
+                onClick={() => setEditMode(false)}
                 disabled={saving}
               >
                 Cancelar
@@ -602,12 +444,3 @@ export default function ModalVenta({
     </div>
   );
 }
-
-
-
-
-
-
-
-
-

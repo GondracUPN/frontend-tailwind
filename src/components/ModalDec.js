@@ -13,6 +13,18 @@ const CASILLEROS = {
   Kenny: "KENNY MIYAGUI KOKI PEZ102647",
   Alex: "Alexander Rodrigo Solis Delgado PEZ102500",
 };
+const DEC_FORM_EMAIL_BY_CASILLERO = {
+  Walter: "gongarc2001@gmail.com",
+  Renato: "renato1carbajal@gmail.com",
+  Christian: "limonimofelip@gmail.com",
+  Alex: "dracgonic12@gmail.com",
+  MamaRen: "renato1carbajal@outlook.com",
+  Jorge: "goneba2526@gmail.com",
+  Kenny: "gondrac10@gmail.com",
+};
+const DEC_FORM_CLIP_PREFIX = "DEC_AUTOFILL:";
+const DEC_FORM_TARGET_URL_KEY = "decAutofillTargetUrl";
+const DEFAULT_DEC_FORM_TARGET_URL = "https://www.eshopex.com/pe/prealerta_cb0.aspx";
 
 /* -------- Biblioteca de problemas por tipo -------- */
 const PROBLEMS = {
@@ -325,6 +337,34 @@ function getCarrierTracking(p) {
 }
 function getGroupKey(p) {
   return p?.envioGrupoId ?? p?.envioGrupo ?? p?.envioGrupoID ?? null;
+}
+function normalizeExternalProductLabel(input) {
+  const s = normalize(input);
+  if (s.includes("macbook")) return "MacBook piezas";
+  if (s.includes("iphone")) return "iPhone piezas";
+  if (s.includes("watch")) return "Apple Watch piezas";
+  if (s.includes("ipad")) return "iPad piezas";
+  return "Apple piezas";
+}
+function encodeAutofillPayload(payload) {
+  try {
+    return window.btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+  } catch {
+    return "";
+  }
+}
+function buildAutofillUrl(baseUrl, payload) {
+  const rawBase = String(baseUrl || "").trim();
+  if (!rawBase) return "";
+  try {
+    const url = new URL(rawBase);
+    const hashParams = new URLSearchParams(String(url.hash || "").replace(/^#/, ""));
+    hashParams.set("decfill", encodeAutofillPayload(payload));
+    url.hash = hashParams.toString();
+    return url.toString();
+  } catch {
+    return "";
+  }
 }
 
 /* --------- HTML builder (Shipping siempre Free con clase POSITIVE) --------- */
@@ -1112,6 +1152,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [publishingTemplate, setPublishingTemplate] = useState(false);
   const [publishStatus, setPublishStatus] = useState("");
   const [publishAt, setPublishAt] = useState("");
+  const [autofillTargetUrl, setAutofillTargetUrl] = useState("");
   const [randomNames, setRandomNames] = useState({});
   const [linkedItemNames, setLinkedItemNames] = useState({});
   const [deliveryMode, setDeliveryMode] = useState("tomorrow");
@@ -1201,6 +1242,13 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     })();
     return () => { mounted = false; };
   }, [store]);
+  useEffect(() => {
+    try {
+      setAutofillTargetUrl(localStorage.getItem(DEC_FORM_TARGET_URL_KEY) || DEFAULT_DEC_FORM_TARGET_URL);
+    } catch {
+      setAutofillTargetUrl(DEFAULT_DEC_FORM_TARGET_URL);
+    }
+  }, []);
 
   // Fuente ?nica
   const productosAll = useMemo(() => {
@@ -1369,6 +1417,40 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   // Derivados de tracking SOLO para mostrar en UI (no van al HTML)
   const carrier = getCarrier(productoSel);
   const carrierTracking = getCarrierTracking(productoSel);
+  const effectiveCarrier = String(productoSel ? carrier : manualCarrier).trim();
+  const effectiveCarrierTracking = String(productoSel ? carrierTracking : manualCarrierTracking).trim();
+  const autofillPayload = useMemo(() => {
+    const resolvedPrice = cleanMoneyToString(price);
+    const typeSource = productoSel?.tipo || itemName;
+    return {
+      source: "modal-dec",
+      sourceProductId: productoSel?.id ?? null,
+      casilleroKey,
+      email: DEC_FORM_EMAIL_BY_CASILLERO[casilleroKey] || "",
+      carrier: effectiveCarrier,
+      tracking: effectiveCarrierTracking,
+      store: "ebay",
+      product: normalizeExternalProductLabel(typeSource),
+      purchaseValue: resolvedPrice,
+      decTotalUsd: resolvedPrice,
+      rawItemName: itemName || "",
+      placedOn,
+      orderNumber,
+    };
+  }, [
+    productoSel,
+    casilleroKey,
+    effectiveCarrier,
+    effectiveCarrierTracking,
+    price,
+    itemName,
+    placedOn,
+    orderNumber,
+  ]);
+  const autofillUrl = useMemo(
+    () => buildAutofillUrl(autofillTargetUrl, autofillPayload),
+    [autofillTargetUrl, autofillPayload]
+  );
 
   const linkedGroup = useMemo(() => {
     const groupKey = getGroupKey(productoSel);
@@ -1610,6 +1692,35 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     }
   };
   const copySelector = async () => { try { await navigator.clipboard.writeText(htmlSelector); } catch { } };
+  const copyAutofillPayload = async () => {
+    const text = `${DEC_FORM_CLIP_PREFIX}${JSON.stringify(autofillPayload)}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      alert("Payload DEC copiado. En la web externa usa el userscript para rellenar.");
+    } catch {
+      alert("No se pudo copiar el payload DEC.");
+    }
+  };
+  const configureAutofillTarget = () => {
+    const nextUrl = window.prompt("URL del formulario externo para autofill", autofillTargetUrl || DEFAULT_DEC_FORM_TARGET_URL);
+    if (nextUrl == null) return;
+    const clean = String(nextUrl || "").trim();
+    try {
+      if (clean) localStorage.setItem(DEC_FORM_TARGET_URL_KEY, clean);
+      else localStorage.removeItem(DEC_FORM_TARGET_URL_KEY);
+    } catch {}
+    setAutofillTargetUrl(clean || DEFAULT_DEC_FORM_TARGET_URL);
+  };
+  const openAutofillTarget = async () => {
+    if (!autofillUrl) {
+      configureAutofillTarget();
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(`${DEC_FORM_CLIP_PREFIX}${JSON.stringify(autofillPayload)}`);
+    } catch {}
+    window.open(autofillUrl, "_blank", "noopener,noreferrer");
+  };
   const publishTemplate = async () => {
     if (publishingTemplate) return;
     setPublishingTemplate(true);
@@ -1821,6 +1932,46 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
               />
             </label>
             <div />
+          </div>
+
+          <div className="border border-sky-200 rounded-lg p-3 bg-sky-50">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div className="text-sm">
+                <div className="font-medium text-sky-900">Autofill formulario externo</div>
+                <div className="text-sky-800 mt-1">Email: <span className="font-medium">{autofillPayload.email || "-"}</span></div>
+                <div className="text-sky-800">Producto: <span className="font-medium">{autofillPayload.product}</span></div>
+                <div className="text-sky-800">Tracking: <span className="font-medium">{autofillPayload.tracking || "-"}</span></div>
+                <div className="text-sky-800">Valor USD: <span className="font-medium">{autofillPayload.purchaseValue}</span></div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={copyAutofillPayload}
+                  className="px-3 py-2 rounded border border-sky-300 text-sky-900 text-sm hover:bg-white"
+                >
+                  Copiar payload
+                </button>
+                <button
+                  type="button"
+                  onClick={configureAutofillTarget}
+                  className="px-3 py-2 rounded border border-sky-300 text-sky-900 text-sm hover:bg-white"
+                >
+                  URL formulario
+                </button>
+                <button
+                  type="button"
+                  onClick={openAutofillTarget}
+                  className="px-3 py-2 rounded bg-sky-700 text-white text-sm hover:bg-sky-800"
+                >
+                  Abrir y rellenar
+                </button>
+              </div>
+            </div>
+            <div className="text-[11px] text-sky-900 mt-2 break-all">
+              {autofillTargetUrl
+                ? `Destino guardado: ${autofillTargetUrl}`
+                : "Primero guarda la URL del formulario externo. Luego 'Abrir y rellenar' enviara el payload por URL y portapapeles."}
+            </div>
           </div>
 
           <div className="hidden">

@@ -13,6 +13,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
   const [form, setForm] = useState({
     tipo: '',
     estado: '',
+    vendedor: '',
     accesorios: [],        // ['Caja','Cubo','Cable'] o ['Todos']
     detalle: {},           // dinamico segun tipo
   });
@@ -30,6 +31,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
     setForm({
       tipo: producto.tipo,
       estado: producto.estado,
+      vendedor: producto.vendedor || '',
       accesorios: Array.isArray(producto.accesorios) ? producto.accesorios : [],
       detalle: { ...producto.detalle }, // viene con 'id' -> se filtrar en handleSave
     });
@@ -75,7 +77,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
       Object.entries(form.detalle || {}).filter(([k]) => k !== 'id')
     );
     // payload completo con todos los campos editables (sin 'detalle.id')
-    const payload = { tipo: form.tipo, estado: form.estado, accesorios, detalle: cleanDetalle };
+    const payload = { tipo: form.tipo, estado: form.estado, vendedor: form.vendedor || null, accesorios, detalle: cleanDetalle };
     const primaryLink = Array.isArray(vincularConList) ? vincularConList[0] : null;
     const extraLinks = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
     if (primaryLink) payload.vincularCon = Number(primaryLink);
@@ -163,6 +165,9 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
 
               <section className="md:border-l md:pl-4">
                 <h3 className="font-medium mb-2">Envio compartido</h3>
+                <p className="text-sm text-gray-700 mb-2">
+                  Vendedor: <span className="font-medium">{producto.vendedor || 'Sin asignar'}</span>
+                </p>
                 {producto.envioGrupoId ? (
                   <>
                     <p className="text-sm text-gray-700">En grupo con {vinculados.length} producto(s)</p>
@@ -378,47 +383,49 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                     )}
                   </div>
                   {linkerOpen && (
-                    <div className="mt-2 border rounded bg-white p-2 space-y-2 max-h-56 overflow-auto">
-                      {loadingLinker && <div className="text-sm text-gray-500">Cargando opciones </div>}
-                      {!loadingLinker && linkables.length === 0 && (
-                        <div className="text-sm text-gray-500">No hay productos elegibles.</div>
-                      )}
-                      {!loadingLinker && linkables.map((p) => {
-                        const d = p.detalle || {};
-                        const checked = pendingLinkIds.includes(p.id);
-                        const locked = producto?.envioGrupoId ? (p.envioGrupoId && p.envioGrupoId !== producto.envioGrupoId) : false;
-                        const inCurrentGroup = producto?.envioGrupoId && p.envioGrupoId === producto.envioGrupoId;
-                        const disabled = locked || inCurrentGroup;
-                        return (
-                          <label
-                            key={`link-${p.id}`}
-                            className={`flex flex-col gap-0.5 border rounded p-2 cursor-pointer ${checked ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'} ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="font-medium text-sm">#{p.id}   {p.tipo}</div>
-                              <input
-                                type="checkbox"
-                                name="link-product"
-                                checked={checked}
-                                disabled={disabled}
-                                onChange={() => {
-                                  if (disabled) return;
-                                  setPendingLinkIds((prev) =>
-                                    prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]
-                                  );
-                                }}
-                              />
-                            </div>
-                            <div className="text-xs text-gray-600">
-                              {[d.gama, d.procesador, d.tamano, p.estado].filter(Boolean).join('   ')}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              Casillero: {p.tracking?.[0]?.casillero || 'N/A'}   Tracking: {getLastTrackingEstado(p) || 'N/A'}
-                              {inCurrentGroup && <span className="ml-1 text-gray-600">(Vinculado actual)</span>}{locked && <span className="ml-1 text-amber-600">(Ya en grupo)</span>}
-                            </div>
-                          </label>
-                        );
-                      })}
+                    <div className="mt-2 space-y-2">
+                      <div className="border rounded bg-white p-2 space-y-2 max-h-56 overflow-auto">
+                        {loadingLinker && <div className="text-sm text-gray-500">Cargando opciones </div>}
+                        {!loadingLinker && linkables.length === 0 && (
+                          <div className="text-sm text-gray-500">No hay productos elegibles.</div>
+                        )}
+                        {!loadingLinker && linkables.map((p) => {
+                          const d = p.detalle || {};
+                          const checked = pendingLinkIds.includes(p.id);
+                          const locked = producto?.envioGrupoId ? (p.envioGrupoId && p.envioGrupoId !== producto.envioGrupoId) : false;
+                          const inCurrentGroup = producto?.envioGrupoId && p.envioGrupoId === producto.envioGrupoId;
+                          const disabled = locked || inCurrentGroup;
+                          return (
+                            <label
+                              key={`link-${p.id}`}
+                              className={`flex flex-col gap-0.5 border rounded p-2 cursor-pointer ${checked ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'} ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="font-medium text-sm">#{p.id}   {p.tipo}</div>
+                                <input
+                                  type="checkbox"
+                                  name="link-product"
+                                  checked={checked}
+                                  disabled={disabled}
+                                  onChange={() => {
+                                    if (disabled) return;
+                                    setPendingLinkIds((prev) =>
+                                      prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]
+                                    );
+                                  }}
+                                />
+                              </div>
+                              <div className="text-xs text-gray-600">
+                                {[d.gama, d.procesador, d.tamano, p.estado].filter(Boolean).join('   ')}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                Casillero: {p.tracking?.[0]?.casillero || 'N/A'}   Tracking: {getLastTrackingEstado(p) || 'N/A'}
+                                {inCurrentGroup && <span className="ml-1 text-gray-600">(Vinculado actual)</span>}{locked && <span className="ml-1 text-amber-600">(Ya en grupo)</span>}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
@@ -442,6 +449,19 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                       </div>
                     </div>
                   )}
+                </div>
+                <div>
+                  <label className="block font-medium">Vendedor</label>
+                  <select
+                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    value={form.vendedor}
+                    onChange={e => handleMainChange('vendedor', e.target.value)}
+                  >
+                    <option value="">Selecciona</option>
+                    <option value="Gonzalo">Gonzalo</option>
+                    <option value="Renato">Renato</option>
+                    <option value="ambos">Ambos</option>
+                  </select>
                 </div>
               </div>
             </div>
