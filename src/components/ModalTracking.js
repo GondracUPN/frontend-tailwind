@@ -259,6 +259,7 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
                   <option>MamaRen</option>
                   <option>Jorge</option>
                   <option>Kenny</option>
+                  <option>Sebastian</option>
                 </select>
               </div>
 
@@ -361,6 +362,7 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
                   <option>MamaRen</option>
                   <option>Jorge</option>
                   <option>Kenny</option>
+                  <option>Sebastian</option>
                 </select>
               </div>
             </div>

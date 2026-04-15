@@ -710,6 +710,7 @@ const confirmAction = async () => {
     'renato1carbajal@outlook.com': 'MamaRen',
     'goneba2526@gmail.com': 'Jorge',
     'gondrac10@gmail.com': 'Kenny',
+    'macsominus@gmail.com': 'Sebastian',
   }), []);
   const accountByCasillero = React.useMemo(() => {
     const map = {};

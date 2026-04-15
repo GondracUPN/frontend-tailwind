@@ -874,31 +874,35 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  }),
  [productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter],
  );
- const loadYearly = useCallback(async () => {
- setYearlyError('');
- try {
+ const buildSummaryQuery = useCallback(({ fromDate = '', toDate = '' } = {}) => {
  const q = new URLSearchParams();
- const fromYear = yearStart(yearKey);
- const toYear = yearEnd(yearKey);
- if (fromYear) {
- q.set('fromVenta', fromYear);
- q.set('fromCompra', fromYear);
+ if (fromDate) {
+ q.set('fromVenta', fromDate);
+ q.set('fromCompra', fromDate);
  }
- if (toYear) {
- q.set('toVenta', toYear);
- q.set('toCompra', toYear);
+ if (toDate) {
+ q.set('toVenta', toDate);
+ q.set('toCompra', toDate);
  }
  if (productFilters.tipo) q.set('tipo', productFilters.tipo);
  if (productFilters.gama) q.set('gama', productFilters.gama);
  if (productFilters.proc) q.set('procesador', productFilters.proc);
  if (productFilters.pantalla) q.set('pantalla', productFilters.pantalla);
  if (sellerFilter) q.set('vendedor', sellerFilter);
+ return q;
+ }, [productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter]);
+ const loadYearly = useCallback(async () => {
+ setYearlyError('');
+ try {
+ const fromYear = yearStart(yearKey);
+ const toYear = yearEnd(yearKey);
+ const q = buildSummaryQuery({ fromDate: fromYear, toDate: toYear });
  const res = await api.get(`/analytics/summary?${q.toString()}`);
  setYearlyData(res);
  } catch (e) {
  setYearlyError(e.message || 'Error');
  }
- }, [yearKey, productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter]);
+ }, [buildSummaryQuery, yearKey]);
 
  const loadSunatFx = useCallback(async () => {
  setSunatFxError('');
@@ -950,64 +954,9 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
  try {
-
-
-
- const q = new URLSearchParams();
-
-
-
  const fromDate = dateMode === 'year' ? yearStart(yearKey) : monthStart(appliedDates.from);
-
-
-
  const toDate = dateMode === 'year' ? yearEnd(yearKey) : monthEnd(appliedDates.to);
-
-
-
- if (fromDate) {
-
-
-
- q.set('fromVenta', fromDate);
-
-
-
- q.set('fromCompra', fromDate);
-
-
-
- }
-
-
-
- if (toDate) {
-
-
-
- q.set('toVenta', toDate);
-
-
-
- q.set('toCompra', toDate);
-
-
-
- }
- if (productFilters.tipo) q.set('tipo', productFilters.tipo);
-
-
-
- if (productFilters.gama) q.set('gama', productFilters.gama);
-
-
-
- if (productFilters.proc) q.set('procesador', productFilters.proc);
-
-
-
- if (productFilters.pantalla) q.set('pantalla', productFilters.pantalla);
- if (sellerFilter) q.set('vendedor', sellerFilter);
+ const q = buildSummaryQuery({ fromDate, toDate });
 
 
 
@@ -1016,6 +965,10 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
  setData(res);
+ if (dateMode === 'year') {
+ setYearlyData(res);
+ setYearlyError('');
+ }
 
 
 
@@ -1067,7 +1020,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
 
- }, [appliedDates.from, appliedDates.to, dateMode, yearKey, productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter, cacheKey]);
+ }, [appliedDates.from, appliedDates.to, buildSummaryQuery, dateMode, yearKey, cacheKey]);
 
 
 
@@ -1080,8 +1033,9 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  }, [load]);
 
  useEffect(() => {
+ if (dateMode === 'year') return;
  loadYearly();
- }, [loadYearly]);
+ }, [dateMode, loadYearly]);
 
  useEffect(() => {
  loadSunatFx();

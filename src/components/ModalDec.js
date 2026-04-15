@@ -12,6 +12,7 @@ const CASILLEROS = {
   Jorge: "JORGE SAHID GARCIA SANCHEZ PEZ103361",
   Kenny: "KENNY MIYAGUI KOKI PEZ102647",
   Alex: "Alexander Rodrigo Solis Delgado PEZ102500",
+  Sebastian: "Sebastian Arturo Zenteno PEZ105183",
 };
 const DEC_FORM_EMAIL_BY_CASILLERO = {
   Walter: "gongarc2001@gmail.com",
@@ -21,6 +22,7 @@ const DEC_FORM_EMAIL_BY_CASILLERO = {
   MamaRen: "renato1carbajal@outlook.com",
   Jorge: "goneba2526@gmail.com",
   Kenny: "gondrac10@gmail.com",
+  Sebastian: "macsominus@gmail.com",
 };
 const DEC_FORM_CLIP_PREFIX = "DEC_AUTOFILL:";
 const DEC_FORM_TARGET_URL_KEY = "decAutofillTargetUrl";
@@ -59,10 +61,26 @@ function fmtUSD(n) {
   const num = Number(n) || 0;
   return `$${num.toFixed(2)}`;
 }
-function fmtDateUS(d) {
+function fmtDateUS(d, options = {}) {
   if (!d) return "";
   const dt = new Date(`${d}T00:00:00`);
-  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  if (Number.isNaN(dt.getTime())) return "";
+  const baseOptions = { month: "short", day: "numeric", year: "numeric" };
+  return dt.toLocaleDateString("en-US", { ...baseOptions, ...(options || {}) });
+}
+function dateToYMD(dt) {
+  if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return "";
+  const yyyy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+function addDaysYMD(ymd, days) {
+  if (!ymd) return "";
+  const dt = new Date(`${ymd}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return "";
+  dt.setDate(dt.getDate() + Number(days || 0));
+  return dateToYMD(dt);
 }
 function toYYYYMMDD(input) {
   if (!input) return "";
@@ -620,6 +638,8 @@ function buildAmazonTemplateHTML({
   const shipName = CASILLEROS[casilleroKey] || "";
   const placedOnTxt = fmtDateUSLong(placedOn);
   const deliveryText = String(deliveryHeadline || "Delivered tomorrow").trim();
+  const eligibleThroughTxt = amazonEligibleThroughFor(deliveryText, placedOn);
+  const showEligibleLine = shouldShowAmazonEligibleLine(deliveryText);
   const deliveryHeading = deliveryText.toLowerCase().startsWith("delivered ")
     ? deliveryText.replace(/^Delivered\s*/i, '<span class="a-text-bold">Delivered </span><span class="a-text-bold a-nowrap">')
         .replace(/$/, "</span>")
@@ -632,7 +652,7 @@ function buildAmazonTemplateHTML({
         <div class="" data-component="itemImage">
           <div class="aok-relative">
             <a class="a-link-normal" href="#" keepapreview="pf_prevImg">
-              <img alt="${esc(it.name || "")}" src="${esc(imageSmall || DEFAULT_IMAGE_SRC)}" height="90" width="90" data-a-hires="${esc(imageLarge || imageSmall || DEFAULT_IMAGE_SRC)}">
+              <img alt="${esc(it.name || "")}" src="${esc(it.imageSmall || imageSmall || DEFAULT_IMAGE_SRC)}" height="90" width="90" data-a-hires="${esc(it.imageLarge || it.imageSmall || imageLarge || imageSmall || DEFAULT_IMAGE_SRC)}">
             </a>
           </div>
         </div>
@@ -647,11 +667,13 @@ function buildAmazonTemplateHTML({
         <div class="" data-component="supplierOfRecord">
           <span class="a-size-small a-color-secondary">Supplied by: Other</span>
         </div>
+        ${showEligibleLine ? `
         <div class="" data-component="itemReturnEligibility">
           <div class="a-row">
-            <span class="a-size-small">Return or replace items: Eligible through ${esc(placedOnTxt || "")}</span>
+            <span class="a-size-small">Return or replace items: Eligible through ${esc(eligibleThroughTxt || "")}</span>
           </div>
-        </div>
+        </div>` : ""}
+        ${Math.max(1, Number(it.qty) || 1) > 1 ? `<div class="od-item-view-qty"><span>${Math.max(1, Number(it.qty) || 1)}</span></div>` : ""}
         <div class="" data-component="quantity">
           <span class="a-size-small">Quantity: ${Math.max(1, Number(it.qty) || 1)}</span>
         </div>
@@ -894,6 +916,17 @@ function fmtDateUSNoYear(d) {
   if (isNaN(dt)) return "";
   return dt.toLocaleDateString("en-US", { month: "long", day: "numeric" });
 }
+function amazonEligibleThroughFor(deliveryHeadline, placedOn) {
+  const normalizedHeadline = String(deliveryHeadline || "").trim().toLowerCase();
+  if (normalizedHeadline === "arriving today") {
+    const todayYmd = dateToYMD(new Date());
+    return fmtDateUSLong(addDaysYMD(todayYmd, 15));
+  }
+  return fmtDateUSLong(placedOn);
+}
+function shouldShowAmazonEligibleLine(deliveryHeadline) {
+  return String(deliveryHeadline || "").trim().toLowerCase() === "arriving today";
+}
 function docWrap(storeClass, html) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>DEC Preview</title><style>${PRINT_CSS}</style></head><body class="${esc(storeClass)}">${html}</body></html>`;
 }
@@ -908,6 +941,7 @@ function totalsFor(items) {
   return { itemsCount, subtotal: +subtotal.toFixed(2), grandTotal: +subtotal.toFixed(2) };
 }
 function deliveryHeadlineFor(mode, deliveredOn, customText) {
+  if (mode === "arrivingToday") return "Arriving today";
   if (mode === "delivered") return deliveredOn ? `Delivered ${fmtDateUSNoYear(deliveredOn)}` : "Delivered";
   if (mode === "custom") return String(customText || "").trim() || "Delivered tomorrow";
   return "Delivered tomorrow";
@@ -960,18 +994,20 @@ function buildPrintableMarketDoc({ store, placedOn, orderNumber, casilleroKey, q
   const isApple = store === "apple";
   const soldBy = isApple ? "Apple" : "Amazon.com";
   const title = isApple ? "Order Details" : "Order Summary";
+  const eligibleThroughTxt = amazonEligibleThroughFor(deliveryHeadline, placedOn);
+  const showEligibleLine = shouldShowAmazonEligibleLine(deliveryHeadline);
   if (!isApple) {
     const cards = safe.map((it) => `
       <div class="amazon-item">
         <div class="amazon-thumb">
-          <img src="${esc(imageSmall || DEFAULT_IMAGE_SRC)}" alt="Product" />
+          <img src="${esc(it.imageSmall || imageSmall || DEFAULT_IMAGE_SRC)}" alt="Product" />
         </div>
         <div>
           <div class="amazon-item-title">${esc(it.name || "")}</div>
           <div class="amazon-item-meta">
             <div>Sold by: Amazon.com</div>
             <div>Supplied by: Other</div>
-            <div class="primary">Return or replace items: Eligible through ${esc(fmtDateUSLong(placedOn) || "-")}</div>
+            ${showEligibleLine ? `<div class="primary">Return or replace items: Eligible through ${esc(eligibleThroughTxt || "-")}</div>` : ""}
             <div class="primary">Quantity: ${esc(Math.max(1, Number(it.qty) || 1))}</div>
           </div>
         </div>
@@ -1155,6 +1191,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [autofillTargetUrl, setAutofillTargetUrl] = useState("");
   const [randomNames, setRandomNames] = useState({});
   const [linkedItemNames, setLinkedItemNames] = useState({});
+  const [groupLinkedAsSame, setGroupLinkedAsSame] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState("tomorrow");
   const [deliveredOn, setDeliveredOn] = useState("");
   const [customDeliveryText, setCustomDeliveryText] = useState("");
@@ -1164,6 +1201,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [imageBusy, setImageBusy] = useState(false);
   const [imageStatus, setImageStatus] = useState("");
   const [imageFileName, setImageFileName] = useState("");
+  const [linkedImages, setLinkedImages] = useState({});
   const manualLineIdRef = useRef(1);
   const [manualLinkedLines, setManualLinkedLines] = useState([]);
   const addManualLinkedLine = () => {
@@ -1196,6 +1234,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setManualCarrierTracking("");
     setShippingSvc("Standard Shipping");
     setCasilleroKey("Renato");
+    setGroupLinkedAsSame(false);
+    setLinkedImages({});
     setManualLinkedLines([]);
     setDeliveryMode("tomorrow");
     setDeliveredOn("");
@@ -1290,6 +1330,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       setManualMainDecRef("");
       setRandomNames({});
       setLinkedItemNames({});
+      setGroupLinkedAsSame(false);
+      setLinkedImages({});
       setManualLinkedLines([]);
       return;
     }
@@ -1314,6 +1356,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setProblemSuffix("");               // limpia el problema al cambiar de producto
     setRandomNames({});
     setLinkedItemNames({});
+    setGroupLinkedAsSame(false);
+    setLinkedImages({});
     setManualMainDecRef("");
     setPrice(decClean);
     setPlacedOn(toYYYYMMDD(fechaCompra));
@@ -1457,6 +1501,28 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     if (!groupKey) return [];
     return (productosAll || []).filter((p) => getGroupKey(p) === groupKey);
   }, [productoSel, productosAll]);
+  const getLinkedImageEntry = (id) => linkedImages[id] || {
+    url: "",
+    large: DEFAULT_IMAGE_SRC,
+    small: DEFAULT_IMAGE_SRC,
+    busy: false,
+    status: "",
+    fileName: "",
+  };
+  const setLinkedImageEntry = (id, patch) => {
+    setLinkedImages((prev) => ({
+      ...prev,
+      [id]: {
+        ...getLinkedImageEntry(id),
+        ...(prev[id] || {}),
+        ...(patch || {}),
+      },
+    }));
+  };
+  const linkedGroupOthers = useMemo(
+    () => linkedGroup.filter((p) => p?.id !== productoSel?.id),
+    [linkedGroup, productoSel]
+  );
 
   const linkedItems = useMemo(() => {
     if (!productoSel) return null;
@@ -1467,7 +1533,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     const baseDec = (Number(pickDec(productoSel)) || 0) || totalDec;
     const fallbackShare = group.length ? 1 / group.length : 1;
     let used = 0;
-    return group.map((p, idx) => {
+    const rawItems = group.map((p, idx) => {
       const real = Number(pickValorProducto(p)) || 0;
       const share = totalReal > 0 ? (real / totalReal) : fallbackShare;
       const isLast = idx === group.length - 1;
@@ -1479,14 +1545,29 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       const name = p?.id === productoSel?.id
         ? (itemName || override || buildCoreName(p))
         : (override || randomNames[p.id]?.full || buildCoreName(p));
+      const linkedImage = p?.id === productoSel?.id ? null : linkedImages[p.id];
       return {
         qty: 1,
         name,
         price,
         shippingSvc,
+        productId: p?.id ?? null,
+        imageSmall: p?.id === productoSel?.id ? imageSmall : (linkedImage?.small || DEFAULT_IMAGE_SRC),
+        imageLarge: p?.id === productoSel?.id ? imageLarge : (linkedImage?.large || DEFAULT_IMAGE_SRC),
       };
     });
-  }, [productoSel, linkedGroup, shippingSvc, itemName, randomNames, linkedItemNames]);
+    if (!groupLinkedAsSame) return rawItems;
+    const selectedItem = rawItems.find((it) => Number(it.productId) === Number(productoSel?.id)) || rawItems[0];
+    const totalQty = rawItems.reduce((s, it) => s + (Number(it.qty) || 1), 0);
+    const totalPrice = rawItems.reduce((s, it) => s + (Number(it.price) || 0), 0);
+    return [{
+      ...selectedItem,
+      qty: totalQty,
+      price: totalQty > 0 ? totalPrice / totalQty : totalPrice,
+      grouped: true,
+      groupedIds: rawItems.map((it) => it.productId).filter(Boolean),
+    }];
+  }, [productoSel, linkedGroup, shippingSvc, itemName, randomNames, linkedItemNames, linkedImages, imageSmall, imageLarge, groupLinkedAsSame]);
 
   const manualItems = useMemo(() => {
     if (productoSel) return null;
@@ -1617,6 +1698,26 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       setImageBusy(false);
     }
   };
+  const processLinkedImageDataUrl = async (productId, dataUrl, label) => {
+    if (!productId) return;
+    setLinkedImageEntry(productId, { busy: true, status: "", fileName: label || "" });
+    try {
+      const normalized = await normalizeImagePipeline(dataUrl);
+      setLinkedImageEntry(productId, {
+        busy: false,
+        status: `Imagen lista: ${label} (284x284 -> 90x90).`,
+        fileName: label || "",
+        large: normalized.large,
+        small: normalized.small,
+      });
+    } catch (err) {
+      console.error("[ModalDec] linked image error", err);
+      setLinkedImageEntry(productId, {
+        busy: false,
+        status: "No se pudo procesar la imagen.",
+      });
+    }
+  };
   const handleLoadRemoteImage = async () => {
     const remoteUrl = String(imageUrl || "").trim();
     if (!remoteUrl) return;
@@ -1636,6 +1737,29 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       setImageBusy(false);
     }
   };
+  const handleLoadRemoteLinkedImage = async (productId) => {
+    const current = getLinkedImageEntry(productId);
+    const remoteUrl = String(current?.url || "").trim();
+    if (!remoteUrl) return;
+    setLinkedImageEntry(productId, { busy: true, status: "" });
+    try {
+      const dataUrl = await fetchUrlAsDataUrl(remoteUrl);
+      const normalized = await normalizeImagePipeline(dataUrl);
+      setLinkedImageEntry(productId, {
+        busy: false,
+        status: "Imagen URL lista (284x284 -> 90x90).",
+        fileName: "",
+        large: normalized.large,
+        small: normalized.small,
+      });
+    } catch (err) {
+      console.error("[ModalDec] linked remote image error", err);
+      setLinkedImageEntry(productId, {
+        busy: false,
+        status: err?.message ? String(err.message) : "No se pudo descargar la imagen.",
+      });
+    }
+  };
   const handleImageFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1651,12 +1775,39 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       e.target.value = "";
     }
   };
+  const handleLinkedImageFile = async (productId, e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setLinkedImageEntry(productId, { fileName: file.name });
+      const dataUrl = await blobToDataUrl(file);
+      await processLinkedImageDataUrl(productId, dataUrl, file.name);
+    } catch (err) {
+      console.error("[ModalDec] linked local image error", err);
+      setLinkedImageEntry(productId, {
+        busy: false,
+        status: "No se pudo leer la imagen local.",
+      });
+    } finally {
+      e.target.value = "";
+    }
+  };
   const resetImage = () => {
     setImageUrl("");
     setImageFileName("");
     setImageLarge(DEFAULT_IMAGE_SRC);
     setImageSmall(DEFAULT_IMAGE_SRC);
     setImageStatus("");
+  };
+  const resetLinkedImage = (productId) => {
+    setLinkedImageEntry(productId, {
+      url: "",
+      fileName: "",
+      large: DEFAULT_IMAGE_SRC,
+      small: DEFAULT_IMAGE_SRC,
+      busy: false,
+      status: "",
+    });
   };
   const isHtmlStore = store === "ebay" || store === "amazon";
   const htmlSelector = store === "amazon" ? 'data-component="default"' : 'class="gen-tables"';
@@ -1757,28 +1908,45 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       setPublishingTemplate(false);
     }
   };
-  const facturaMarcada = Boolean(productoSel?.facturaDecSubida);
+  const facturaTargets = useMemo(() => {
+    if (!productoSel) return [];
+    return linkedGroup.length > 1 ? linkedGroup : [productoSel];
+  }, [productoSel, linkedGroup]);
+  const facturaMarcada = facturaTargets.length > 0 && facturaTargets.every((p) => Boolean(p?.facturaDecSubida));
+  const facturaButtonLabel = facturaMarcada
+    ? (facturaTargets.length > 1 ? 'Facturas subidas' : 'Factura subida')
+    : (facturaTargets.length > 1 ? 'Subir facturas' : 'Subir factura');
   const toggleFacturaMarcada = async () => {
     if (!productoSel || savingFactura || facturaMarcada) return;
     const nextValue = true;
     setSavingFactura(true);
     try {
-      const updated = await api.patch(`/productos/${productoSel.id}`, {
-        facturaDecSubida: nextValue,
-      });
-      const base = updated?.id ? updated : { ...productoSel, facturaDecSubida: nextValue };
-      const merged = productoSel?.__decResolved != null
-        ? { ...base, __decResolved: productoSel.__decResolved }
-        : base;
-      setProductoSel(merged);
+      const targets = facturaTargets.length ? facturaTargets : [productoSel];
+      const updates = await Promise.all(
+        targets.map(async (item) => {
+          const updated = await api.patch(`/productos/${item.id}`, {
+            facturaDecSubida: nextValue,
+          });
+          const base = updated?.id ? updated : { ...item, facturaDecSubida: nextValue };
+          return item?.__decResolved != null
+            ? { ...base, __decResolved: item.__decResolved }
+            : base;
+        })
+      );
+      const updatedById = new Map(updates.map((item) => [item.id, item]));
+      const selectedUpdated = updatedById.get(productoSel.id);
+      if (selectedUpdated) setProductoSel(selectedUpdated);
       setLocalOverrides((prev) => ({
         ...prev,
-        [merged.id]: { ...(prev[merged.id] || {}), facturaDecSubida: merged.facturaDecSubida },
+        ...updates.reduce((acc, item) => {
+          acc[item.id] = { ...(prev[item.id] || {}), facturaDecSubida: item.facturaDecSubida };
+          return acc;
+        }, {}),
       }));
       setProductosApi((prev) => {
         if (!Array.isArray(prev) || prev.length === 0) return prev;
         return prev.map((item) =>
-          item?.id === merged.id ? { ...item, facturaDecSubida: merged.facturaDecSubida } : item
+          updatedById.has(item?.id) ? { ...item, facturaDecSubida: updatedById.get(item.id).facturaDecSubida } : item
         );
       });
       setTimeout(resetSeleccion, 350);
@@ -1988,21 +2156,37 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
           <div className="grid sm:grid-cols-4 gap-3">
             <label className="text-sm sm:col-span-2">
               <span className="block text-gray-600 mb-1">Item name</span>
-              <div className="flex gap-2">
+              <div className="space-y-2">
                 <input
                   value={itemName}
                   onChange={(e) => onEditItemName(e.target.value)}
-                  className="input flex-1"
+                  className="input w-full"
                   placeholder='Ej. MacBook Pro i7 13" 16GB RAM 512GB Screen cracked'
                 />
-                <button
-                  type="button"
-                  onClick={rollName}
-                  title="Elegir CPU (Mac) + problema aleatorio"
-                  className="px-3 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700"
-                >
-                  <FaDice className="text-base" />
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={rollName}
+                    title="Elegir CPU (Mac) + problema aleatorio"
+                    className="px-3 h-10 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700"
+                  >
+                    <FaDice className="text-base" />
+                  </button>
+                  {store === "amazon" && linkedGroup.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => setGroupLinkedAsSame((prev) => !prev)}
+                      className={`px-3 h-10 rounded-lg text-xs border transition ${
+                        groupLinkedAsSame
+                          ? "bg-emerald-600 text-white border-emerald-600"
+                          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                      }`}
+                      title="Si son iguales, Amazon mostrara un solo item con cantidad"
+                    >
+                      {groupLinkedAsSame ? "Mismo producto: Si" : "Mismo producto"}
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </label>
             {store === "ebay" ? (
@@ -2027,29 +2211,31 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             ) : null}
           </div>
 
-          {linkedGroup.length > 1 ? (
+          {linkedGroup.length > 1 && !groupLinkedAsSame ? (
             <div className="grid sm:grid-cols-2 gap-3">
-              {linkedGroup.filter((p) => p?.id !== productoSel?.id).map((p) => {
+              {linkedGroupOthers.map((p) => {
                 const value = linkedItemNames[p.id] || randomNames[p.id]?.full || buildCoreName(p);
                 return (
                   <label key={p.id} className="text-[11px] text-gray-600">
                     <span className="block mb-1">Item name vinculado #{p.id}</span>
-                    <div className="flex gap-2">
+                    <div className="space-y-2">
                       <input
-                        className="input text-xs py-1.5 flex-1"
+                        className="input text-xs py-1.5 w-full"
                         value={value}
                         onChange={(e) =>
                           setLinkedItemNames((prev) => ({ ...prev, [p.id]: e.target.value }))
                         }
                       />
-                      <button
-                        type="button"
-                        onClick={() => rollLinkedName(p)}
-                        title="Generar item name"
-                        className="px-2 rounded-lg bg-indigo-600 text-white text-xs hover:bg-indigo-700"
-                      >
-                        <FaDice className="text-sm" />
-                      </button>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => rollLinkedName(p)}
+                          title="Generar item name"
+                          className="px-3 h-9 rounded-lg bg-indigo-600 text-white text-xs hover:bg-indigo-700"
+                        >
+                          <FaDice className="text-sm" />
+                        </button>
+                      </div>
                     </div>
                   </label>
                 );
@@ -2119,6 +2305,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                   <span className="block text-gray-600 mb-1">Estado entrega</span>
                   <select className="input" value={deliveryMode} onChange={(e) => setDeliveryMode(e.target.value)}>
                     <option value="tomorrow">Delivered tomorrow</option>
+                    <option value="arrivingToday">Arriving today</option>
                     <option value="delivered">Delivered + fecha</option>
                     <option value="custom">Texto manual</option>
                   </select>
@@ -2128,6 +2315,10 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                     <span className="block text-gray-600 mb-1">Fecha entregada</span>
                     <input type="date" value={deliveredOn} onChange={(e) => setDeliveredOn(e.target.value)} className="input" />
                   </label>
+                ) : deliveryMode === "arrivingToday" ? (
+                  <div className="sm:col-span-2 text-xs text-gray-500 flex items-end pb-2">
+                    Se mostrara &quot;Arriving today&quot; y Amazon contara 15 dias calendario desde hoy para &quot;Eligible through&quot;.
+                  </div>
                 ) : deliveryMode === "custom" ? (
                   <label className="text-sm sm:col-span-2">
                     <span className="block text-gray-600 mb-1">Texto de entrega</span>
@@ -2167,6 +2358,59 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                     <div className="mt-1">{imageStatus || "Usando placeholder hasta que cargues una imagen."}</div>
                   </div>
                 </div>
+                {store === "amazon" && linkedGroupOthers.length > 0 && !groupLinkedAsSame ? (
+                  <div className="pt-2 border-t border-gray-200 space-y-3">
+                    <div className="text-sm font-medium text-gray-700">Imagen por producto vinculado</div>
+                    {linkedGroupOthers.map((p) => {
+                      const entry = getLinkedImageEntry(p.id);
+                      const linkedName = linkedItemNames[p.id] || randomNames[p.id]?.full || buildCoreName(p);
+                      return (
+                        <div key={`img-linked-${p.id}`} className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
+                          <div className="text-xs font-medium text-gray-700">#{p.id} {linkedName || buildCoreName(p)}</div>
+                          <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end">
+                            <label className="text-sm">
+                              <span className="block text-gray-600 mb-1">URL de imagen</span>
+                              <input
+                                value={entry.url || ""}
+                                onChange={(e) => setLinkedImageEntry(p.id, { url: e.target.value })}
+                                className="input"
+                                placeholder="https://..."
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => handleLoadRemoteLinkedImage(p.id)}
+                              disabled={entry.busy || !String(entry.url || "").trim()}
+                              className={`px-3 py-2 rounded text-sm ${entry.busy || !String(entry.url || "").trim() ? "bg-gray-300 text-gray-600" : "bg-black text-white hover:bg-gray-900"}`}
+                            >
+                              {entry.busy ? "Procesando..." : "Cargar URL"}
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <label className="px-3 py-2 rounded border border-gray-300 text-sm cursor-pointer hover:bg-white">
+                              Subir imagen
+                              <input type="file" accept="image/*" className="hidden" onChange={(e) => handleLinkedImageFile(p.id, e)} />
+                            </label>
+                            <button type="button" onClick={() => resetLinkedImage(p.id)} className="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-white">Limpiar imagen</button>
+                            <div className="text-xs text-gray-500">{entry.fileName ? `Archivo: ${entry.fileName}` : "Acepta URL o archivo local."}</div>
+                          </div>
+                          <div className="grid sm:grid-cols-[110px_160px_1fr] gap-4 items-center">
+                            <div className="rounded-lg border border-gray-300 bg-white p-2 flex items-center justify-center">
+                              <img src={entry.small || DEFAULT_IMAGE_SRC} alt={`90x90-${p.id}`} className="w-[90px] h-[90px] object-cover" />
+                            </div>
+                            <div className="rounded-lg border border-gray-300 bg-white p-2 flex items-center justify-center overflow-hidden">
+                              <img src={entry.large || DEFAULT_IMAGE_SRC} alt={`284x284-${p.id}`} className="w-[142px] h-[142px] object-cover" />
+                            </div>
+                            <div className={`text-xs ${String(entry.status || "").includes("No se pudo") ? "text-red-600" : "text-gray-600"}`}>
+                              <div>Proceso aplicado: 284x284 y luego 90x90.</div>
+                              <div className="mt-1">{entry.status || "Usando placeholder hasta que cargues una imagen."}</div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
             </>
           ) : null}
@@ -2186,7 +2430,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                     : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                 } ${(!productoSel || savingFactura || facturaMarcada) ? 'opacity-60 cursor-not-allowed' : ''}`}
               >
-                {facturaMarcada ? 'Factura subida' : 'Subir factura'}
+                {facturaButtonLabel}
               </button>
             </div>
           ) : null}
@@ -2240,9 +2484,9 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                     ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
                     : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                 } ${(!productoSel || savingFactura || facturaMarcada) ? 'opacity-60 cursor-not-allowed' : ''}`}
-                title={productoSel ? 'Marca cuando la factura ya fue subida' : 'Selecciona un producto primero'}
+                title={productoSel ? (facturaTargets.length > 1 ? 'Marca cuando las facturas del grupo ya fueron subidas' : 'Marca cuando la factura ya fue subida') : 'Selecciona un producto primero'}
               >
-                {facturaMarcada ? 'Factura subida' : 'Subir factura'}
+                {facturaButtonLabel}
               </button>
             </div>
           </div>

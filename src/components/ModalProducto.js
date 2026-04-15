@@ -709,6 +709,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                     <option value="MamaRen">MamaRen</option>
                     <option value="Jorge">Jorge</option>
                     <option value="Kenny">Kenny</option>
+                    <option value="Sebastian">Sebastian</option>
                   </select>
                 </div>
               </div>

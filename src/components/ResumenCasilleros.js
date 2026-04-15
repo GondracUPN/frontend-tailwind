@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 
 // Casilleros a mostrar (orden fijo)
-const CASILLEROS = ['Walter','Renato','Christian','Alex','MamaRen','Jorge','Kenny'];
+const CASILLEROS = ['Walter','Renato','Christian','Alex','MamaRen','Jorge','Kenny','Sebastian'];
 
 const fmtUSD = (v) => {
   const n = Number(v);

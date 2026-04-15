@@ -4,6 +4,7 @@ import api from "../api";
 const CASILLEROS = {
   Renato: "Renato Carbajal",
   Jorge: "Jorge Sahid Garcia Sanchez",
+  Sebastian: "Sebastian Arturo Zenteno PEZ105183",
 };
 
 function fmtUSD(n) {
