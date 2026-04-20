@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 
 
-import api from '../api';
 import ProfitTimeSeries from '../components/analytics/ProfitTimeSeries';
 import IncomeCostProfitChart from '../components/analytics/IncomeCostProfitChart';
 import MarginByMonth from '../components/analytics/MarginByMonth';
 import ProfitComparison from '../components/analytics/ProfitComparison';
+import { getAnalyticsSummary, getSunatExchangeRate } from '../services/analytics';
 
 import { TC_FIJO } from '../utils/tipoCambio';
 
@@ -897,7 +897,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  const fromYear = yearStart(yearKey);
  const toYear = yearEnd(yearKey);
  const q = buildSummaryQuery({ fromDate: fromYear, toDate: toYear });
- const res = await api.get(`/analytics/summary?${q.toString()}`);
+ const res = await getAnalyticsSummary(Object.fromEntries(q.entries()));
  setYearlyData(res);
  } catch (e) {
  setYearlyError(e.message || 'Error');
@@ -907,9 +907,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  const loadSunatFx = useCallback(async () => {
  setSunatFxError('');
  try {
- const q = new URLSearchParams();
- if (sunatFxDate) q.set('date', sunatFxDate);
- const res = await api.get(`/analytics/sunat/exchange-rate?${q.toString()}`);
+ const res = await getSunatExchangeRate(sunatFxDate ? { date: sunatFxDate } : {});
  setSunatFx({
  buy: Number(res?.buy ?? TC_FIJO) || TC_FIJO,
  sell: Number(res?.sell ?? TC_FIJO) || TC_FIJO,
@@ -960,7 +958,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
 
- const res = await api.get(`/analytics/summary?${q.toString()}`);
+ const res = await getAnalyticsSummary(Object.fromEntries(q.entries()));
 
 
 
@@ -1033,9 +1031,10 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  }, [load]);
 
  useEffect(() => {
+ if (tab !== 'ganancias') return;
  if (dateMode === 'year') return;
  loadYearly();
- }, [dateMode, loadYearly]);
+ }, [dateMode, loadYearly, tab]);
 
  useEffect(() => {
  loadSunatFx();
@@ -1075,6 +1074,21 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  () => generalInvRows.reduce((s, x) => s + (Number(x.unidades || 0) || 0), 0),
  [generalInvRows],
  );
+
+ const generalTypeEconomicsRows = useMemo(() => {
+ const rows = Array.isArray(data?.sales?.financialByType) ? data.sales.financialByType : [];
+ return rows.map((x) => ({
+ tipo: x.tipo,
+ unidadesCompradas: Number(x.unidadesCompradas || 0),
+ unidadesVendidas: Number(x.unidadesVendidas || 0),
+ porcentajeSobreTotalProductos: Number(x.porcentajeSobreTotalProductos || 0),
+ compradoTotal: Number(x.compradoTotal || 0),
+ vendidoTotal: Number(x.vendidoTotal || 0),
+ gananciaTotal: Number(x.gananciaTotal || 0),
+ margenPromedio: Number(x.margenPromedio || 0),
+ rotacionMedia: x.rotacionMedia == null ? null : Number(x.rotacionMedia),
+ }));
+ }, [data?.sales?.financialByType]);
 
  const yearMonthKeyFromCompras = useMemo(() => {
  if (dateMode !== 'year') return '';
@@ -1136,12 +1150,107 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  return Array.from(map.values()).sort((a, b) => b.unidades - a.unidades);
  }, [comprasPeriodoVista, data?.noVendidosDelPeriodo, dateMode, yearMonthKeyFromCompras, appliedDates.from]);
 
- const comprasPeriodoVistaLabel = useMemo(() => {
+const comprasPeriodoVistaLabel = useMemo(() => {
  if (dateMode === 'year') {
  return yearMonthKeyFromCompras ? `Mes: ${yearMonthKeyFromCompras}` : `A${'\u00f1'}o: ${appliedDates.from || yearKey}`;
  }
  return appliedDates.from ? `Mes: ${appliedDates.from}` : 'Mes seleccionado';
- }, [dateMode, yearMonthKeyFromCompras, appliedDates.from, yearKey]);
+}, [dateMode, yearMonthKeyFromCompras, appliedDates.from, yearKey]);
+
+const gananciasResumen = useMemo(() => {
+ const useAllMonths = dateMode !== 'year' && !appliedDates.from && !appliedDates.to;
+ const salesSource = dateMode === 'year'
+ ? (yearlyData?.sales?.perMonth || [])
+ : (data?.sales?.perMonth || []);
+ const purchasesSource = dateMode === 'year'
+ ? (yearlyData?.comprasPeriodo || [])
+ : (data?.comprasPeriodo || []);
+ const salesRowsRaw = salesSource
+ .filter((m) => useAllMonths || String(m?.month || '').startsWith(`${yearKey}-`));
+ const purchaseRowsRaw = purchasesSource
+ .filter((p) => useAllMonths || String(p?.fechaCompra || '').startsWith(`${yearKey}-`));
+
+ const ingresosByMonth = new Map();
+ const gananciaByMonth = new Map();
+ for (const row of salesRowsRaw) {
+ const month = String(row?.month || '').slice(0, 7);
+ if (!month) continue;
+ ingresosByMonth.set(month, Number(row?.ingresos || 0) || 0);
+ gananciaByMonth.set(month, Number(row?.ganancia || 0) || 0);
+ }
+
+ const gastosByMonth = new Map();
+ for (const row of purchaseRowsRaw) {
+ const month = String(row?.fechaCompra || '').slice(0, 7);
+ if (!month) continue;
+ gastosByMonth.set(month, (gastosByMonth.get(month) || 0) + (Number(row?.costoTotal || 0) || 0));
+ }
+
+ const months = Array.from(new Set([
+ ...Array.from(ingresosByMonth.keys()),
+ ...Array.from(gastosByMonth.keys()),
+ ])).sort();
+
+ const rows = months.map((month) => {
+ const ingresos = +(Number(ingresosByMonth.get(month) || 0)).toFixed(2);
+ const ganancia = +(Number(gananciaByMonth.get(month) || 0)).toFixed(2);
+ const gastos = +(Number(gastosByMonth.get(month) || 0)).toFixed(2);
+ const gananciaReal = +(ingresos - gastos).toFixed(2);
+ const costoVentas = +(ingresos - ganancia).toFixed(2);
+ const utilidad = ingresos > 0 ? +((ganancia / ingresos) * 100).toFixed(2) : 0;
+ const markup = costoVentas > 0 ? +((ganancia / costoVentas) * 100).toFixed(2) : 0;
+ return { month, ingresos, ganancia, gastos, gananciaReal, utilidad, markup };
+ });
+
+ const totalIngresos = +rows.reduce((s, x) => s + x.ingresos, 0).toFixed(2);
+ const totalGanancia = +rows.reduce((s, x) => s + x.ganancia, 0).toFixed(2);
+ const totalGastos = +rows.reduce((s, x) => s + x.gastos, 0).toFixed(2);
+ const totalGananciaReal = +rows.reduce((s, x) => s + x.gananciaReal, 0).toFixed(2);
+ const mesesConMovimiento = rows.filter((x) => x.ingresos !== 0 || x.gastos !== 0).length;
+ const mesesConGanancia = rows.filter((x) => x.ingresos !== 0 || x.ganancia !== 0).length;
+ const mesesConGasto = rows.filter((x) => x.gastos !== 0).length;
+ const mesesConIngreso = rows.filter((x) => x.ingresos !== 0).length;
+ const promedioIngresoMensual = mesesConIngreso ? +(totalIngresos / mesesConIngreso).toFixed(2) : null;
+ const promedioGananciaMensualNormal = mesesConGanancia ? +(totalGanancia / mesesConGanancia).toFixed(2) : null;
+ const promedioGananciaMensual = mesesConMovimiento ? +(totalGananciaReal / mesesConMovimiento).toFixed(2) : null;
+ const promedioGastoMensual = mesesConGasto ? +(totalGastos / mesesConGasto).toFixed(2) : null;
+ const promedioUtilidad = mesesConGanancia
+ ? +(rows.filter((x) => x.ingresos !== 0 || x.ganancia !== 0).reduce((s, x) => s + (Number(x.utilidad) || 0), 0) / mesesConGanancia).toFixed(2)
+ : null;
+ const promedioMarkup = mesesConGanancia
+ ? +(rows.filter((x) => x.ingresos !== 0 || x.ganancia !== 0).reduce((s, x) => s + (Number(x.markup) || 0), 0) / mesesConGanancia).toFixed(2)
+ : null;
+ const selectedMonthKey = dateMode === 'month' ? (appliedDates.from || '') : '';
+ const mesSeleccionado = selectedMonthKey ? rows.find((x) => x.month === selectedMonthKey) || null : null;
+
+ return {
+ rows,
+ totalIngresos,
+ totalGanancia,
+ totalGastos,
+ totalGananciaReal,
+ promedioIngresoMensual,
+ mesesConGanancia,
+ mesesConIngreso,
+ mesesConMovimiento,
+ promedioGananciaMensualNormal,
+ mesesConGasto,
+ promedioGananciaMensual,
+ promedioGastoMensual,
+ promedioUtilidad,
+ promedioMarkup,
+ mesSeleccionado,
+ };
+ }, [
+ dateMode,
+ appliedDates.from,
+ appliedDates.to,
+ yearlyData?.sales?.perMonth,
+ yearlyData?.comprasPeriodo,
+ data?.sales?.perMonth,
+ data?.comprasPeriodo,
+ yearKey,
+ ]);
 
 
 
@@ -1447,6 +1556,9 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
 
+ {tab === 'economico' && (
+ <div className="flex flex-col">
+
  {/* Inventario por tipo (general) */}
 
 
@@ -1455,7 +1567,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
 
- <div className={`${tab !== 'economico' ? 'hidden ' : ''}bg-white rounded-xl border shadow-sm p-5 mb-6`}>
+ <div className={`${tab !== 'economico' ? 'hidden ' : ''}order-2 bg-white rounded-xl border shadow-sm p-5 mb-6`}>
 
 
 
@@ -1510,6 +1622,7 @@ Activo
 
 
 
+ <div>
  <div className="overflow-x-auto">
  <table className="min-w-[420px] w-full text-sm">
 
@@ -1591,6 +1704,174 @@ Activo
 
 
 
+ <div className="mt-6">
+
+
+
+ <div className="flex items-center justify-between mb-2">
+
+
+
+ <h3 className="text-sm font-semibold text-gray-800">Resumen económico por tipo</h3>
+
+
+
+ <div className="text-[11px] text-gray-500">Compras, ventas, ganancia y rotación</div>
+
+
+
+ </div>
+
+
+
+ <div className="overflow-x-auto">
+
+
+
+ <table className="w-full text-xs">
+
+
+
+ <thead>
+
+
+
+ <tr className="text-left text-gray-500">
+
+
+
+ <th className="py-1">Tipo</th>
+
+
+
+ <th className="py-1">Comprado</th>
+
+
+
+ <th className="py-1">Vendido</th>
+
+
+
+ <th className="py-1">Ganancia</th>
+
+
+
+ <th className="py-1 whitespace-nowrap">U. C/V</th>
+
+
+
+ <th className="py-1">% del total</th>
+
+
+
+ <th className="py-1">% gan. / equipo</th>
+
+
+
+ <th className="py-1">Rotación media</th>
+
+
+
+ </tr>
+
+
+
+ </thead>
+
+
+
+ <tbody>
+
+
+
+ {generalTypeEconomicsRows.map((x) => (
+
+
+
+ <tr key={`eco-tipo-${x.tipo}`} className="border-t">
+
+
+
+ <td className="py-1">{x.tipo}</td>
+
+
+
+ <td className="py-1"><Currency v={x.compradoTotal} /></td>
+
+
+
+ <td className="py-1"><Currency v={x.vendidoTotal} /></td>
+
+
+
+ <td className="py-1"><Currency v={x.gananciaTotal} /></td>
+
+
+
+ <td className="py-1 whitespace-nowrap">{x.unidadesCompradas}/{x.unidadesVendidas}</td>
+
+
+
+ <td className="py-1"><Percent v={x.porcentajeSobreTotalProductos} /></td>
+
+
+
+ <td className="py-1"><Percent v={x.margenPromedio} /></td>
+
+
+
+ <td className="py-1">{x.rotacionMedia != null ? `${x.rotacionMedia} dias` : '-'}</td>
+
+
+
+ </tr>
+
+
+
+ ))}
+
+
+
+ {generalTypeEconomicsRows.length === 0 && (
+
+
+
+ <tr>
+
+
+
+ <td className="py-2 text-sm text-gray-500" colSpan={8}>No hay datos económicos por tipo para los filtros actuales.</td>
+
+
+
+ </tr>
+
+
+
+ )}
+
+
+
+ </tbody>
+
+
+
+ </table>
+
+
+
+ </div>
+
+
+
+ </div>
+
+
+
+ </div>
+
+
+
  </div>
 
 
@@ -1615,7 +1896,7 @@ Activo
 
 
 
- <div className={`${tab !== 'economico' ? 'hidden ' : ''}bg-white rounded-xl border shadow-sm p-5 mb-6`}>
+ <div className={`${tab !== 'economico' ? 'hidden ' : ''}order-4 bg-white rounded-xl border shadow-sm p-5 mb-6`}>
 
 
 
@@ -1773,8 +2054,8 @@ Activo
 
  {/* Compras del mes (modo Mes) */}
  {!isGeneral && (
- <div className={`${tab !== 'economico' ? 'hidden ' : ''}grid grid-cols-1 xl:grid-cols-2 gap-5 mb-6`}>
- <div className="bg-white rounded-xl border shadow-sm p-5 min-h-[430px]">
+ <div className={`${tab !== 'economico' ? 'hidden ' : ''}order-2 grid grid-cols-1 xl:grid-cols-2 gap-5 mb-6`}>
+ <div className="bg-white rounded-xl border shadow-sm p-5">
  <div className="flex items-center justify-between mb-3">
  <h2 className="text-lg font-semibold">Compras del mes</h2>
  <div className="text-xs text-gray-500">
@@ -1811,8 +2092,49 @@ Activo
  </tbody>
  </table>
  </div>
+ <div className="mt-6">
+ <div className="flex items-center justify-between mb-2">
+ <h3 className="text-sm font-semibold text-gray-800">Resumen económico por tipo</h3>
+ <div className="text-[11px] text-gray-500">Compras, ventas, ganancia y rotación</div>
  </div>
- <div className="bg-white rounded-xl border shadow-sm p-5 min-h-[430px]">
+ <div className="overflow-x-auto">
+ <table className="w-full text-xs">
+ <thead>
+ <tr className="text-left text-gray-500">
+ <th className="py-1">Tipo</th>
+ <th className="py-1">Comprado</th>
+ <th className="py-1">Vendido</th>
+ <th className="py-1">Ganancia</th>
+ <th className="py-1 whitespace-nowrap">U. C/V</th>
+ <th className="py-1">% del total</th>
+ <th className="py-1">% gan. / equipo</th>
+ <th className="py-1">Rotación media</th>
+ </tr>
+ </thead>
+ <tbody>
+ {generalTypeEconomicsRows.map((x) => (
+ <tr key={`eco-vista-tipo-${x.tipo}`} className="border-t">
+ <td className="py-1">{x.tipo}</td>
+ <td className="py-1"><Currency v={x.compradoTotal} /></td>
+ <td className="py-1"><Currency v={x.vendidoTotal} /></td>
+ <td className="py-1"><Currency v={x.gananciaTotal} /></td>
+ <td className="py-1 whitespace-nowrap">{x.unidadesCompradas}/{x.unidadesVendidas}</td>
+ <td className="py-1"><Percent v={x.porcentajeSobreTotalProductos} /></td>
+ <td className="py-1"><Percent v={x.margenPromedio} /></td>
+ <td className="py-1">{x.rotacionMedia != null ? `${x.rotacionMedia} dias` : '-'}</td>
+ </tr>
+ ))}
+ {generalTypeEconomicsRows.length === 0 && (
+ <tr>
+ <td className="py-2 text-sm text-gray-500" colSpan={8}>No hay datos economicos por tipo para el periodo seleccionado.</td>
+ </tr>
+ )}
+ </tbody>
+ </table>
+ </div>
+ </div>
+ </div>
+ <div className="bg-white rounded-xl border shadow-sm p-5">
  <div className="flex items-center justify-between mb-3">
  <h2 className="text-lg font-semibold">Inventario por tipo</h2>
  <div className="text-xs text-gray-500">Unidades y capital del mismo mes</div>
@@ -1870,7 +2192,7 @@ Activo
 
 
 
- <div className={`${tab !== 'economico' ? 'hidden ' : ''}bg-white rounded-xl border shadow-sm p-5 mb-6`}>
+ <div className={`${tab !== 'economico' ? 'hidden ' : ''}order-3 bg-white rounded-xl border shadow-sm p-5 mb-6`}>
 
 
 
@@ -2226,7 +2548,7 @@ Activo
 
 
 
- <div className={`${tab !== 'economico' ? 'hidden ' : ''}bg-white rounded-xl border shadow-sm p-5 mb-6`}>
+ <div className={`${tab !== 'economico' ? 'hidden ' : ''}order-6 bg-white rounded-xl border shadow-sm p-5 mb-6`}>
 
 
 
@@ -2394,7 +2716,7 @@ Activo
 
 
 
- <div className={`${tab !== 'economico' ? 'hidden ' : ''}bg-white rounded-xl border shadow-sm p-5 mb-6`}>
+ <div className={`${tab !== 'economico' ? 'hidden ' : ''}order-1 bg-white rounded-xl border shadow-sm p-5 mb-6`}>
 
 
 
@@ -2487,46 +2809,70 @@ Activo
 
  ) : null}
 
- {tab === 'ganancias' && (
+ </div>
+ )}
+
+{tab === 'ganancias' && (
  <div className="bg-white rounded-xl border shadow-sm p-5 mb-6">
  <h2 className="text-lg font-semibold mb-3">Resumen de ganancias</h2>
  {(() => {
- const perMonth = data?.sales?.perMonth || [];
- const perYearMonth = yearlyData?.sales?.perMonth || [];
+ const valueWithAvg = (total, avg) => (
+ <div className="flex items-end justify-between gap-4">
+ <span><Currency v={total} /></span>
+ <span className="text-right text-sm font-medium text-gray-500 leading-tight">
+ Prom.
+ <span className="block text-lg text-gray-800"><Currency v={avg} /></span>
+ </span>
+ </div>
+ );
  const monthKey = dateMode === 'month' ? (appliedDates.from || '') : '';
- const perYear = perYearMonth.filter((m) => String(m.month || '').startsWith(`${yearKey}-`));
- const totalIngresos = perYear.reduce((s, m) => s + (Number(m.ingresos) || 0), 0);
- const totalGanancia = perYear.reduce((s, m) => s + (Number(m.ganancia) || 0), 0);
- const totalCosto = totalIngresos - totalGanancia;
- const totalUtilidad = totalIngresos > 0 ? (totalGanancia / totalIngresos) * 100 : 0;
- const totalMarkup = totalCosto > 0 ? (totalGanancia / totalCosto) * 100 : 0;
- const yearGastos = Number(data?.summary?.comprasPeriodoCapital ?? 0);
- const monthRow = monthKey ? perMonth.find((m) => m.month === monthKey) : null;
+ const totalIngresos = Number(gananciasResumen?.totalIngresos || 0);
+ const totalGanancia = Number(gananciasResumen?.totalGanancia || 0);
+ const totalGastos = Number(gananciasResumen?.totalGastos || 0);
+ const promedioIngresoMensual = gananciasResumen?.promedioIngresoMensual;
+ const promedioGananciaMensualNormal = gananciasResumen?.promedioGananciaMensualNormal;
+ const promedioGastoMensual = gananciasResumen?.promedioGastoMensual;
+ const promedioUtilidad = gananciasResumen?.promedioUtilidad;
+ const promedioMarkup = gananciasResumen?.promedioMarkup;
+ const mesesConIngreso = Number(gananciasResumen?.mesesConIngreso || 0);
+ const mesesConGanancia = Number(gananciasResumen?.mesesConGanancia || 0);
+ const mesesConGasto = Number(gananciasResumen?.mesesConGasto || 0);
+ const monthRow = monthKey ? gananciasResumen?.mesSeleccionado || null : null;
  const monthIngresos = monthRow ? Number(monthRow.ingresos || 0) : null;
  const monthGanancia = monthRow ? Number(monthRow.ganancia || 0) : null;
- const monthCosto = monthIngresos != null && monthGanancia != null ? (monthIngresos - monthGanancia) : null;
- const monthUtilidad = monthRow && monthIngresos ? (monthGanancia / monthIngresos) * 100 : null;
- const monthMarkup = monthRow && monthCosto ? (monthGanancia / monthCosto) * 100 : null;
- const monthGastos = monthKey ? Number(data?.summary?.comprasPeriodoCapital ?? 0) : null;
+ const monthGastos = monthRow ? Number(monthRow.gastos || 0) : null;
+ const monthUtilidad = monthRow ? Number(monthRow.utilidad || 0) : null;
+ const monthMarkup = monthRow ? Number(monthRow.markup || 0) : null;
  if (dateMode === 'year') {
  return (
- <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+ <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
  <div className="scale-[0.98] origin-top-left">
  <Card
- title={`Ganancia ${yearKey}`}
- value={<Currency v={totalGanancia} />}
+ title={`Ingreso ${yearKey}`}
+ value={valueWithAvg(totalIngresos, promedioIngresoMensual)}
  sub={
  yearlyError
  ? <span className="text-red-600">{yearlyError}</span>
- : <span>Ingresos: <Currency v={totalIngresos} /> - Utilidad: <Percent v={totalUtilidad} /> - Markup: <Percent v={totalMarkup} /></span>
+ : <span>Meses con ingreso: {mesesConIngreso}</span>
  }
  />
  </div>
  <div className="scale-[0.98] origin-top-left">
  <Card
  title={`Gastos ${yearKey}`}
- value={<Currency v={yearGastos} />}
- sub={<span>Total comprado en el a{'\u00f1'}o.</span>}
+ value={valueWithAvg(totalGastos, promedioGastoMensual)}
+ sub={<span>Meses con gasto: {mesesConGasto}</span>}
+ />
+ </div>
+ <div className="scale-[0.98] origin-top-left">
+ <Card
+ title={`Ganancia ${yearKey}`}
+ value={valueWithAvg(totalGanancia, promedioGananciaMensualNormal)}
+ sub={
+ yearlyError
+ ? <span className="text-red-600">{yearlyError}</span>
+ : <span>Utilidad prom.: <Percent v={promedioUtilidad} /> - Markup prom.: <Percent v={promedioMarkup} /> - Meses con ganancia: {mesesConGanancia}</span>
+ }
  />
  </div>
  </div>
@@ -2536,35 +2882,35 @@ Activo
  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
  <div className="scale-[0.98] origin-top-left">
  <Card
- title={`Ganancia ${yearKey}`}
- value={<Currency v={totalGanancia} />}
+ title={monthKey ? `Ingreso ${monthKey}` : (isGeneral ? 'Ingreso total' : 'Promedio ingreso mensual')}
+ value={monthKey ? <Currency v={monthIngresos} /> : valueWithAvg(totalIngresos, promedioIngresoMensual)}
  sub={
  yearlyError
  ? <span className="text-red-600">{yearlyError}</span>
- : <span>Ingresos: <Currency v={totalIngresos} /> - Utilidad: <Percent v={totalUtilidad} /> - Markup: <Percent v={totalMarkup} /></span>
+ : monthKey ? <span>Total de ingresos del mes.</span> : <span>{mesesConIngreso} meses con ingreso{isGeneral ? '' : ` en ${yearKey}` }.</span>
  }
  />
  </div>
  <div className="scale-[0.98] origin-top-left">
  <Card
- title={monthKey ? `Ganancia ${monthKey}` : 'Selecciona un mes'}
- value={monthRow ? <Currency v={monthGanancia} /> : '-'}
+ title={monthKey ? `Gastos ${monthKey}` : (isGeneral ? 'Gastos totales' : 'Promedio gasto mensual')}
+ value={monthKey ? <Currency v={monthGastos} /> : valueWithAvg(totalGastos, promedioGastoMensual)}
  sub={
  monthKey
- ? (
- <span>
- {monthRow ? <>Ingresos: <Currency v={monthIngresos} /> - Utilidad: <Percent v={monthUtilidad} /> - Markup: <Percent v={monthMarkup} /></> : null}
- </span>
- )
- : <span>Usa el filtro de mes para ver el detalle.</span>
+ ? <span>Total comprado en el mes.</span>
+ : <span>{mesesConGasto} meses con gasto{isGeneral ? '' : ` en ${yearKey}` }.</span>
  }
  />
  </div>
  <div className="scale-[0.98] origin-top-left">
  <Card
- title={monthKey ? `Gastos ${monthKey}` : 'Gastos del mes'}
- value={monthKey ? <Currency v={monthGastos} /> : '-'}
- sub={monthKey ? <span>Total comprado en el mes.</span> : <span>Selecciona un mes para ver gastos.</span>}
+ title={monthKey ? `Ganancia ${monthKey}` : (isGeneral ? 'Ganancia total' : 'Promedio ganancia mensual')}
+ value={monthKey ? <Currency v={monthGanancia} /> : valueWithAvg(totalGanancia, promedioGananciaMensualNormal)}
+ sub={
+ monthKey
+ ? <span>Utilidad: <Percent v={monthUtilidad} /> - Markup: <Percent v={monthMarkup} /></span>
+ : <span>Utilidad prom.: <Percent v={promedioUtilidad} /> - Markup prom.: <Percent v={promedioMarkup} /> - {mesesConGanancia} meses</span>
+ }
  />
  </div>
  </div>
@@ -2599,7 +2945,7 @@ Activo
 
 
 
- <div className={`${tab !== 'economico' ? 'hidden ' : ''}bg-white rounded-xl border shadow-sm p-5 mb-6`}>
+ <div className={`${tab !== 'economico' ? 'hidden ' : ''}order-7 bg-white rounded-xl border shadow-sm p-5 mb-6`}>
 
 
 
@@ -3035,7 +3381,7 @@ Activo
 
 
 
- <div className={`${tab !== 'economico' ? 'hidden ' : ''}grid grid-cols-1 md:grid-cols-2 gap-6 mb-10`}>
+ <div className={`${tab !== 'economico' ? 'hidden ' : ''}order-5 grid grid-cols-1 md:grid-cols-2 gap-6 mb-10`}>
 
 
 

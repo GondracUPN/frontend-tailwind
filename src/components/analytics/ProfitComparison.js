@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { getProfitComparison } from '../../services/analytics';
+import { getAnalyticsSummary, getProfitComparison } from '../../services/analytics';
 import { formatCurrency, formatPercent } from './format';
 
 function trendMeta(value) {
@@ -122,13 +122,37 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
     setError('');
     try {
       const res = await getProfitComparison(params);
-      setData(res);
+      const currentSummaryParams = {
+        ...filters,
+        fromVenta: from,
+        toVenta: to,
+        fromCompra: from,
+        toCompra: to,
+      };
+      const previousSummaryParams = {
+        ...filters,
+        fromVenta: res?.previousRange?.from,
+        toVenta: res?.previousRange?.to,
+        fromCompra: res?.previousRange?.from,
+        toCompra: res?.previousRange?.to,
+      };
+      const [currentSummary, previousSummary] = await Promise.all([
+        getAnalyticsSummary(currentSummaryParams),
+        res?.previousRange?.from && res?.previousRange?.to
+          ? getAnalyticsSummary(previousSummaryParams)
+          : Promise.resolve(null),
+      ]);
+      setData({
+        ...res,
+        currentSummary,
+        previousSummary,
+      });
     } catch (e) {
       setError(e.message || 'Error');
     } finally {
       setLoading(false);
     }
-  }, [from, to, params]);
+  }, [filters, from, to, params]);
 
   useEffect(() => {
     load();
@@ -179,8 +203,8 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
   const markupCurr = calcMarkup(current);
   const markupPrev = calcMarkup(previous);
   const markupPp = +(markupCurr - markupPrev).toFixed(2);
-  const purchasesCurr = Number(current.purchases || 0);
-  const purchasesPrev = Number(previous.purchases || 0);
+  const purchasesCurr = Number(data?.currentSummary?.summary?.comprasPeriodoCapital ?? current.purchases ?? 0);
+  const purchasesPrev = Number(data?.previousSummary?.summary?.comprasPeriodoCapital ?? previous.purchases ?? 0);
   const realProfitCurr = +(current.income - purchasesCurr).toFixed(2);
   const realProfitPrev = +(previous.income - purchasesPrev).toFixed(2);
   const realProfitAbs = +(realProfitCurr - realProfitPrev).toFixed(2);

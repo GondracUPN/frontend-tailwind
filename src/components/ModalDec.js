@@ -275,6 +275,29 @@ function buildCoreName(p, cpuOverride = "") {
     .join(" ");
 }
 
+function resolveProductHref(p) {
+  if (!p) return "";
+  const candidates = [
+    p?.url,
+    p?.href,
+    p?.link,
+    p?.productUrl,
+    p?.amazonUrl,
+    p?.ebayUrl,
+    p?.detalle?.url,
+    p?.detalle?.href,
+    p?.detalle?.link,
+    p?.valor?.url,
+    p?.valor?.href,
+    p?.valor?.link,
+  ];
+  for (const value of candidates) {
+    const href = cleanItemHref(value);
+    if (href) return href;
+  }
+  return "";
+}
+
 /* --------- Problema aleatorio según tipo --------- */
 function randomProblemForProduct(p) {
   const tipo = String(p?.tipo || "").toLowerCase();
@@ -626,40 +649,48 @@ function buildAmazonTemplateHTML({
   price,
   itemName,
   items,
+  deliveryMode,
+  deliveredOn,
   deliveryHeadline,
   imageSmall,
   imageLarge,
+  itemLinkHref,
 }) {
   const safeItems = Array.isArray(items) && items.length
     ? items
-    : [{ qty: Math.max(1, Number(qty) || 1), name: itemName || "", price: Number(price) || 0 }];
+    : [{ qty: Math.max(1, Number(qty) || 1), name: itemName || "", price: Number(price) || 0, linkHref: itemLinkHref || "" }];
   const subtotal = safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1), 0);
   const grandTotal = subtotal;
   const shipName = CASILLEROS[casilleroKey] || "";
   const placedOnTxt = fmtDateUSLong(placedOn);
   const deliveryText = String(deliveryHeadline || "Delivered tomorrow").trim();
-  const eligibleThroughTxt = amazonEligibleThroughFor(deliveryText, placedOn);
-  const showEligibleLine = shouldShowAmazonEligibleLine(deliveryText);
+  const eligibleThroughTxt = amazonEligibleThroughFor(deliveryMode, deliveryText, deliveredOn, placedOn);
+  const showEligibleLine = shouldShowAmazonEligibleLine();
   const deliveryHeading = deliveryText.toLowerCase().startsWith("delivered ")
     ? deliveryText.replace(/^Delivered\s*/i, '<span class="a-text-bold">Delivered </span><span class="a-text-bold a-nowrap">')
         .replace(/$/, "</span>")
     : `<span class="a-text-bold">${esc(deliveryText)}</span>`;
 
-  const itemsHtml = safeItems.map((it) => `
+  const itemsHtml = safeItems.map((it) => {
+    const itemQty = Math.max(1, Number(it.qty) || 1);
+    const showQtyBadge = itemQty > 1;
+    const itemHref = amazonHrefForItem(it, itemLinkHref);
+    return `
   <div class="a-row a-spacing-top-base">
     <div class="a-fixed-left-grid a-spacing-none"><div class="a-fixed-left-grid-inner" style="padding-left:100px">
       <div class="a-fixed-left-grid-col a-col-left" style="width:100px;margin-left:-100px;float:left;">
         <div class="" data-component="itemImage">
           <div class="aok-relative">
-            <a class="a-link-normal" href="#" keepapreview="pf_prevImg">
+            <a class="a-link-normal" href="${esc(itemHref)}">
               <img alt="${esc(it.name || "")}" src="${esc(it.imageSmall || imageSmall || DEFAULT_IMAGE_SRC)}" height="90" width="90" data-a-hires="${esc(it.imageLarge || it.imageSmall || imageLarge || imageSmall || DEFAULT_IMAGE_SRC)}">
             </a>
+            ${showQtyBadge ? `<div class="od-item-view-qty"><span>${itemQty}</span></div>` : ""}
           </div>
         </div>
       </div>
       <div class="a-fixed-left-grid-col a-col-right" style="padding-left:1.5%;float:left;">
         <div class="" data-component="itemTitle">
-          <div class="a-row"><a class="a-link-normal" href="#" keepapreview="pf_prevImg">${esc(it.name || "")}</a></div>
+          <div class="a-row"><a class="a-link-normal" href="${esc(itemHref)}">${esc(it.name || "")}</a></div>
         </div>
         <div class="" data-component="orderedMerchant">
           <span class="a-size-small a-color-secondary">Sold by: Amazon.com</span>
@@ -673,10 +704,6 @@ function buildAmazonTemplateHTML({
             <span class="a-size-small">Return or replace items: Eligible through ${esc(eligibleThroughTxt || "")}</span>
           </div>
         </div>` : ""}
-        ${Math.max(1, Number(it.qty) || 1) > 1 ? `<div class="od-item-view-qty"><span>${Math.max(1, Number(it.qty) || 1)}</span></div>` : ""}
-        <div class="" data-component="quantity">
-          <span class="a-size-small">Quantity: ${Math.max(1, Number(it.qty) || 1)}</span>
-        </div>
         <div class="" data-component="unitPrice">
           <span class="a-price a-text-price" data-a-size="s" data-a-color="base">
             <span class="a-offscreen">${esc(fmtUSD(Number(it.price) || 0))}</span>
@@ -685,10 +712,14 @@ function buildAmazonTemplateHTML({
         </div>
       </div>
     </div></div>
-  </div>`).join("");
+  </div>`;
+  }).join("");
 
   return `
 <div class="" data-component="default">
+  <style>
+    .aok-relative > .od-item-view-qty { margin: 6px 0 0 8px; }
+  </style>
   <div class="" data-component="debugBanner"></div>
   <div class="" data-component="aapiDebug"></div>
   <div class="" data-component="title">
@@ -871,7 +902,9 @@ const PRINT_CSS = `
   .amazon-item{display:grid;grid-template-columns:108px minmax(0,1fr) 130px;gap:18px;padding:14px 18px;border-top:1px solid #eaeded}
   .amazon-item:first-of-type{border-top:0}
   .amazon-thumb{width:108px;height:100px;display:flex;align-items:flex-start;justify-content:center}
+  .amazon-thumb-wrap{position:relative;width:90px;height:90px}
   .amazon-thumb img{width:90px;height:90px;object-fit:cover;display:block}
+  .amazon-qty-badge{position:absolute;left:-8px;bottom:-8px;z-index:2;display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border:1px solid #d5d9d9;border-radius:999px;background:#fff;color:#111;font-size:12px;line-height:1;font-weight:500}
   .amazon-item-title{margin:0 0 8px;font-size:15px;line-height:1.45;color:#2162a1}
   .amazon-item-meta{display:grid;gap:4px;font-size:13px;line-height:1.4;color:#565959}
   .amazon-item-meta .primary{color:#111}
@@ -916,23 +949,54 @@ function fmtDateUSNoYear(d) {
   if (isNaN(dt)) return "";
   return dt.toLocaleDateString("en-US", { month: "long", day: "numeric" });
 }
-function amazonEligibleThroughFor(deliveryHeadline, placedOn) {
-  const normalizedHeadline = String(deliveryHeadline || "").trim().toLowerCase();
-  if (normalizedHeadline === "arriving today") {
-    const todayYmd = dateToYMD(new Date());
-    return fmtDateUSLong(addDaysYMD(todayYmd, 15));
-  }
-  return fmtDateUSLong(placedOn);
+function parseMonthDayFromDeliveryText(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  const direct = raw.match(/\b([A-Za-z]+)\s+(\d{1,2})(?:,\s*(\d{4}))?\b/);
+  if (!direct) return "";
+  const monthName = direct[1];
+  const day = direct[2];
+  const year = direct[3] || String(new Date().getFullYear());
+  const dt = new Date(`${monthName} ${day}, ${year} 00:00:00`);
+  return Number.isNaN(dt.getTime()) ? "" : dateToYMD(dt);
 }
-function shouldShowAmazonEligibleLine(deliveryHeadline) {
-  return String(deliveryHeadline || "").trim().toLowerCase() === "arriving today";
+function amazonDeliveryDateYmdFor(deliveryMode, deliveryHeadline, deliveredOn, placedOn) {
+  if (deliveryMode === "arrivingToday") return dateToYMD(new Date());
+  if (deliveryMode === "tomorrow") return addDaysYMD(dateToYMD(new Date()), 1);
+  if (deliveryMode === "delivered" && deliveredOn) return deliveredOn;
+  const parsed = parseMonthDayFromDeliveryText(deliveryHeadline);
+  if (parsed) return parsed;
+  return deliveredOn || placedOn || dateToYMD(new Date());
+}
+function amazonEligibleThroughFor(deliveryMode, deliveryHeadline, deliveredOn, placedOn) {
+  const deliveryYmd = amazonDeliveryDateYmdFor(deliveryMode, deliveryHeadline, deliveredOn, placedOn);
+  return fmtDateUSLong(addDaysYMD(deliveryYmd, 15));
+}
+function shouldShowAmazonEligibleLine() {
+  return true;
 }
 function docWrap(storeClass, html) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>DEC Preview</title><style>${PRINT_CSS}</style></head><body class="${esc(storeClass)}">${html}</body></html>`;
 }
+const AMAZON_ITEM_HREF_FALLBACK = "/dp/B0GR19X8DC?ref_=ppx_printOD_image_dt_b_fed_asin_title_0_0";
+function cleanItemHref(value) {
+  const href = String(value || "").trim();
+  if (!href) return "";
+  if (/^https?:\/\//i.test(href)) return href;
+  if (href.startsWith("/")) return href;
+  return "";
+}
+function amazonHrefForItem(item, fallback = "") {
+  return cleanItemHref(item?.linkHref) || cleanItemHref(fallback) || AMAZON_ITEM_HREF_FALLBACK;
+}
 function ensureItems({ items, qty, itemName, price, shippingSvc }) {
   if (Array.isArray(items) && items.length) return items;
-  return [{ qty: Math.max(1, Number(qty) || 1), name: String(itemName || "").trim(), price: Number(price) || 0, shippingSvc: shippingSvc || "Standard Shipping" }];
+  return [{
+    qty: Math.max(1, Number(qty) || 1),
+    name: String(itemName || "").trim(),
+    price: Number(price) || 0,
+    shippingSvc: shippingSvc || "Standard Shipping",
+  }];
 }
 function totalsFor(items) {
   const safe = ensureItems({ items });
@@ -987,32 +1051,42 @@ function buildPrintableEbayDoc({ seller, placedOn, orderNumber, casilleroKey, qt
       </div></section>
     </div></div></div></div>`);
 }
-function buildPrintableMarketDoc({ store, placedOn, orderNumber, casilleroKey, qty, price, itemName, items, deliveryHeadline, imageSmall }) {
-  const safe = ensureItems({ items, qty, itemName, price });
+function buildPrintableMarketDoc({ store, placedOn, orderNumber, casilleroKey, qty, price, itemName, itemLinkHref, items, deliveryMode, deliveredOn, deliveryHeadline, imageSmall }) {
+  const safe = ensureItems({ items, qty, itemName, price }).map((it) => ({
+    ...it,
+    linkHref: cleanItemHref(it?.linkHref) || cleanItemHref(itemLinkHref) || "",
+  }));
   const { subtotal, grandTotal } = totalsFor(safe);
   const shipName = CASILLEROS[casilleroKey] || "";
   const isApple = store === "apple";
   const soldBy = isApple ? "Apple" : "Amazon.com";
   const title = isApple ? "Order Details" : "Order Summary";
-  const eligibleThroughTxt = amazonEligibleThroughFor(deliveryHeadline, placedOn);
-  const showEligibleLine = shouldShowAmazonEligibleLine(deliveryHeadline);
+  const eligibleThroughTxt = amazonEligibleThroughFor(deliveryMode, deliveryHeadline, deliveredOn, placedOn);
+  const showEligibleLine = shouldShowAmazonEligibleLine();
   if (!isApple) {
-    const cards = safe.map((it) => `
+    const cards = safe.map((it) => {
+      const itemQty = Math.max(1, Number(it.qty) || 1);
+      const showQtyBadge = itemQty > 1;
+      const itemHref = amazonHrefForItem(it, itemLinkHref);
+      return `
       <div class="amazon-item">
         <div class="amazon-thumb">
-          <img src="${esc(it.imageSmall || imageSmall || DEFAULT_IMAGE_SRC)}" alt="Product" />
+          <div class="amazon-thumb-wrap">
+            <a class="a-link-normal" href="${esc(itemHref)}"><img src="${esc(it.imageSmall || imageSmall || DEFAULT_IMAGE_SRC)}" alt="Product" /></a>
+            ${showQtyBadge ? `<div class="amazon-qty-badge">${esc(itemQty)}</div>` : ""}
+          </div>
         </div>
         <div>
-          <div class="amazon-item-title">${esc(it.name || "")}</div>
+          <div class="amazon-item-title"><a class="a-link-normal" href="${esc(itemHref)}">${esc(it.name || "")}</a></div>
           <div class="amazon-item-meta">
             <div>Sold by: Amazon.com</div>
             <div>Supplied by: Other</div>
             ${showEligibleLine ? `<div class="primary">Return or replace items: Eligible through ${esc(eligibleThroughTxt || "-")}</div>` : ""}
-            <div class="primary">Quantity: ${esc(Math.max(1, Number(it.qty) || 1))}</div>
           </div>
         </div>
         <div class="amazon-price">${esc(fmtUSD(Number(it.price) || 0))}</div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
     return docWrap("store-amazon", `
       <div class="doc">
         <div class="page">
@@ -1123,13 +1197,15 @@ function loadImg(src) {
     img.src = src;
   });
 }
-function squareFromImage(img, size) {
+function squareFromImage(img, size, fitRatio = 0.87) {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("No se pudo preparar el canvas.");
-  const scale = Math.min(size / img.width, size / img.height);
+  const safeRatio = Math.max(0.1, Math.min(1, Number(fitRatio) || 1));
+  const targetSize = size * safeRatio;
+  const scale = Math.min(targetSize / img.width, targetSize / img.height);
   const drawWidth = img.width * scale;
   const drawHeight = img.height * scale;
   const offsetX = (size - drawWidth) / 2;
@@ -1141,9 +1217,9 @@ function squareFromImage(img, size) {
 }
 async function normalizeImagePipeline(src) {
   const original = await loadImg(src);
-  const large = squareFromImage(original, 284);
+  const large = squareFromImage(original, 284, 0.87);
   const resized = await loadImg(large);
-  const small = squareFromImage(resized, 90);
+  const small = squareFromImage(resized, 90, 0.87);
   return { large, small };
 }
 async function fetchUrlAsDataUrl(url) {
@@ -1180,6 +1256,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [qty, setQty] = useState(1);
   const [price, setPrice] = useState("0.00"); // DEC
   const [itemName, setItemName] = useState("");
+  const [itemLinkHref, setItemLinkHref] = useState("");
   const [manualMainDecRef, setManualMainDecRef] = useState("");
   const [manualCarrier, setManualCarrier] = useState("");
   const [manualCarrierTracking, setManualCarrierTracking] = useState("");
@@ -1191,6 +1268,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [autofillTargetUrl, setAutofillTargetUrl] = useState("");
   const [randomNames, setRandomNames] = useState({});
   const [linkedItemNames, setLinkedItemNames] = useState({});
+  const [linkedItemLinks, setLinkedItemLinks] = useState({});
   const [groupLinkedAsSame, setGroupLinkedAsSame] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState("tomorrow");
   const [deliveredOn, setDeliveredOn] = useState("");
@@ -1212,6 +1290,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         id: `manual-${nextId}`,
         name: "",
         decRef: "",
+        linkHref: "",
       },
     ]));
   };
@@ -1225,6 +1304,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setNameCore("");
     setProblemSuffix("");
     setItemName("");
+    setItemLinkHref("");
     setPlacedOn("");
     setOrderNumber("");
     setQty(1);
@@ -1236,6 +1316,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setCasilleroKey("Renato");
     setGroupLinkedAsSame(false);
     setLinkedImages({});
+    setLinkedItemLinks({});
     setManualLinkedLines([]);
     setDeliveryMode("tomorrow");
     setDeliveredOn("");
@@ -1326,10 +1407,12 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       setNameCore("");
       setProblemSuffix("");
       setItemName("");
+      setItemLinkHref("");
       setPrice("0.00");
       setManualMainDecRef("");
       setRandomNames({});
       setLinkedItemNames({});
+      setLinkedItemLinks({});
       setGroupLinkedAsSame(false);
       setLinkedImages({});
       setManualLinkedLines([]);
@@ -1354,8 +1437,10 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
 
     setNameCore(core);
     setProblemSuffix("");               // limpia el problema al cambiar de producto
+    setItemLinkHref(resolveProductHref(p));
     setRandomNames({});
     setLinkedItemNames({});
+    setLinkedItemLinks({});
     setGroupLinkedAsSame(false);
     setLinkedImages({});
     setManualMainDecRef("");
@@ -1546,12 +1631,17 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         ? (itemName || override || buildCoreName(p))
         : (override || randomNames[p.id]?.full || buildCoreName(p));
       const linkedImage = p?.id === productoSel?.id ? null : linkedImages[p.id];
+      const hasCustomLinkedHref = Object.prototype.hasOwnProperty.call(linkedItemLinks, p?.id);
+      const linkHref = p?.id === productoSel?.id
+        ? itemLinkHref
+        : (hasCustomLinkedHref ? linkedItemLinks[p.id] : resolveProductHref(p));
       return {
         qty: 1,
         name,
         price,
         shippingSvc,
         productId: p?.id ?? null,
+        linkHref,
         imageSmall: p?.id === productoSel?.id ? imageSmall : (linkedImage?.small || DEFAULT_IMAGE_SRC),
         imageLarge: p?.id === productoSel?.id ? imageLarge : (linkedImage?.large || DEFAULT_IMAGE_SRC),
       };
@@ -1567,7 +1657,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       grouped: true,
       groupedIds: rawItems.map((it) => it.productId).filter(Boolean),
     }];
-  }, [productoSel, linkedGroup, shippingSvc, itemName, randomNames, linkedItemNames, linkedImages, imageSmall, imageLarge, groupLinkedAsSame]);
+  }, [productoSel, linkedGroup, shippingSvc, itemName, itemLinkHref, randomNames, linkedItemNames, linkedItemLinks, linkedImages, imageSmall, imageLarge, groupLinkedAsSame]);
 
   const manualItems = useMemo(() => {
     if (productoSel) return null;
@@ -1576,10 +1666,11 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       return Number.isFinite(n) && n > 0 ? n : 0;
     };
     const namedLines = [
-      { name: itemName, decRef: parseRef(manualMainDecRef) },
+      { name: itemName, decRef: parseRef(manualMainDecRef), linkHref: itemLinkHref },
       ...manualLinkedLines.map((line) => ({
         name: line?.name || "",
         decRef: parseRef(line?.decRef),
+        linkHref: line?.linkHref || "",
       })),
     ]
       .map((line) => ({ ...line, name: String(line.name || "").trim() }))
@@ -1603,9 +1694,10 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         name: line.name || "",
         price: linePrice,
         shippingSvc: shippingSvc || "Standard Shipping",
+        linkHref: line.linkHref || "",
       };
     });
-  }, [productoSel, itemName, manualMainDecRef, manualLinkedLines, price, shippingSvc]);
+  }, [productoSel, itemName, itemLinkHref, manualMainDecRef, manualLinkedLines, price, shippingSvc]);
 
   const htmlItems = useMemo(() => {
     if (productoSel) {
@@ -1639,7 +1731,10 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
           qty,
           price,
           itemName,
+          itemLinkHref,
           items: htmlItems,
+          deliveryMode,
+          deliveredOn,
           deliveryHeadline,
           imageSmall,
         })),
@@ -1652,8 +1747,11 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       qty,
       price,
       itemName,
+      itemLinkHref,
       shippingSvc,
       htmlItems,
+      deliveryMode,
+      deliveredOn,
       deliveryHeadline,
       imageSmall,
     ]
@@ -1819,7 +1917,10 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         qty,
         price,
         itemName,
+        itemLinkHref,
         items: htmlItems,
+        deliveryMode,
+        deliveredOn,
         deliveryHeadline,
         imageSmall,
         imageLarge,
@@ -2189,6 +2290,17 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                 </div>
               </div>
             </label>
+            {store === "amazon" ? (
+              <label className="text-sm sm:col-span-2">
+                <span className="block text-gray-600 mb-1">Link producto</span>
+                <input
+                  value={itemLinkHref}
+                  onChange={(e) => setItemLinkHref(e.target.value)}
+                  className="input w-full"
+                  placeholder="https://www.amazon.com/dp/..."
+                />
+              </label>
+            ) : null}
             {store === "ebay" ? (
               <label className="text-sm">
                 <span className="block text-gray-600 mb-1">Shipping service</span>
@@ -2215,6 +2327,9 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             <div className="grid sm:grid-cols-2 gap-3">
               {linkedGroupOthers.map((p) => {
                 const value = linkedItemNames[p.id] || randomNames[p.id]?.full || buildCoreName(p);
+                const linkValue = Object.prototype.hasOwnProperty.call(linkedItemLinks, p.id)
+                  ? (linkedItemLinks[p.id] || "")
+                  : resolveProductHref(p);
                 return (
                   <label key={p.id} className="text-[11px] text-gray-600">
                     <span className="block mb-1">Item name vinculado #{p.id}</span>
@@ -2236,6 +2351,14 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                           <FaDice className="text-sm" />
                         </button>
                       </div>
+                      <input
+                        className="input text-xs py-1.5 w-full"
+                        value={linkValue}
+                        onChange={(e) =>
+                          setLinkedItemLinks((prev) => ({ ...prev, [p.id]: e.target.value }))
+                        }
+                        placeholder="https://www.amazon.com/dp/..."
+                      />
                     </div>
                   </label>
                 );
@@ -2265,7 +2388,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                   {manualLinkedLines.map((line, idx) => (
                     <label key={line.id} className="text-[11px] text-gray-600">
                       <span className="block mb-1">Item name manual #{idx + 2}</span>
-                      <div className={`grid ${manualHasMultiple ? "grid-cols-[1fr_130px_auto]" : "grid-cols-[1fr_auto]"} gap-2`}>
+                      <div className="space-y-2">
+                        <div className={`grid ${manualHasMultiple ? "grid-cols-[1fr_130px_auto]" : "grid-cols-[1fr_auto]"} gap-2`}>
                         <input
                           className="input text-xs py-1.5 flex-1"
                           value={line.name}
@@ -2290,6 +2414,15 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                         >
                           <FaDice className="text-sm" />
                         </button>
+                        </div>
+                        {store === "amazon" ? (
+                          <input
+                            className="input text-xs py-1.5 w-full"
+                            value={line.linkHref || ""}
+                            onChange={(e) => updateManualLinkedLine(line.id, { linkHref: e.target.value })}
+                            placeholder="https://www.amazon.com/dp/..."
+                          />
+                        ) : null}
                       </div>
                     </label>
                   ))}
@@ -2317,7 +2450,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                   </label>
                 ) : deliveryMode === "arrivingToday" ? (
                   <div className="sm:col-span-2 text-xs text-gray-500 flex items-end pb-2">
-                    Se mostrara &quot;Arriving today&quot; y Amazon contara 15 dias calendario desde hoy para &quot;Eligible through&quot;.
+                    Amazon contara 15 dias calendario desde la fecha de entrega para &quot;Eligible through&quot;.
                   </div>
                 ) : deliveryMode === "custom" ? (
                   <label className="text-sm sm:col-span-2">
