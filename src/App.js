@@ -8,6 +8,7 @@ import Analisis from './pages/Analisis';
 import GastosIndex from './pages/GastosIndex';
 import AnalisisGastos from './pages/AnalisisGastos';
 import PresupuestoGastos from './pages/PresupuestoGastos';
+import Ebay from './pages/Ebay';
 import api from './api';
 
 const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
@@ -296,6 +297,7 @@ function App() {
       {vista === 'productos'   && <Productos setVista={setVista} setAnalisisBack={setAnalisisBack} />} 
       {vista === 'servicios'   && <Servicios setVista={setVista} />}
       {vista === 'calculadora' && <Calculadora setVista={setVista} />}
+      {vista === 'ebay'        && <Ebay setVista={setVista} />}
       {vista === 'ganancias'   && <Ganancias setVista={setVista} />}
       {vista === 'gastos'      && <GastosIndex setVista={setVista} />}
       {vista === 'analisis'    && <Analisis setVista={setVista} analisisBack={analisisBack} />}
