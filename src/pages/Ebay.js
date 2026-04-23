@@ -259,14 +259,40 @@ const buildBulkPawnPasteText = (currentText, pastedText, selectionStart, selecti
   return `${before}${needsLeadingBreak ? '\n' : ''}${normalizedPaste}${needsTrailingBreak ? '\n' : ''}${after}`;
 };
 
-const sanitizePawnInput = (value) =>
+const normalizePawnInputText = (value) =>
   String(value || '')
-    .trim()
-    .replace(/\s+/g, '')
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/[\u200B-\u200D\uFEFF\u200E\u200F\u2060]/g, '')
+    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' ')
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2018\u2019]/g, "'")
+    .trim()
     .replace(/^["'`]+|["'`]+$/g, '');
+
+const compactPawnInput = (value) => String(value || '').replace(/\s+/g, '');
+
+const stripTrailingPawnUrlJunk = (value) => String(value || '').replace(/[)\],;:!?]+$/g, '');
+
+const sanitizePawnInput = (value) => {
+  const normalized = normalizePawnInputText(value);
+  const directMatch = normalized.match(/https?:\/\/[^\s"'`<>]+/i)?.[0];
+  if (directMatch) return stripTrailingPawnUrlJunk(compactPawnInput(directMatch));
+
+  const hostMatch = normalized.match(/(?:www\.)?ebay\.[a-z.]+\/[^\s"'`<>]+/i)?.[0];
+  if (hostMatch) {
+    const candidate = stripTrailingPawnUrlJunk(compactPawnInput(hostMatch));
+    return candidate.startsWith('http') ? candidate : `https://${candidate}`;
+  }
+
+  const pathMatch =
+    normalized.match(/(?:^|[\s"'`(])((?:\/)?(?:str|usr)\/[^\s/?#"'`<>]+)/i)?.[1] ||
+    normalized.match(/^\/(?:str|usr)\/[^/]+$/i)?.[0];
+  if (pathMatch) {
+    return `https://www.ebay.com/${stripTrailingPawnUrlJunk(compactPawnInput(pathMatch)).replace(/^\/?/, '')}`;
+  }
+
+  const compacted = compactPawnInput(normalized);
+  return stripTrailingPawnUrlJunk(compacted);
+};
 
 const sanitizePawnBulkText = (value) => {
   const lines = String(value || '')
