@@ -259,6 +259,23 @@ const buildBulkPawnPasteText = (currentText, pastedText, selectionStart, selecti
   return `${before}${needsLeadingBreak ? '\n' : ''}${normalizedPaste}${needsTrailingBreak ? '\n' : ''}${after}`;
 };
 
+const sanitizePawnInput = (value) =>
+  String(value || '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/^["'`]+|["'`]+$/g, '');
+
+const sanitizePawnBulkText = (value) => {
+  const lines = String(value || '')
+    .split(/[\r\n,;]+/)
+    .map((line) => sanitizePawnInput(line))
+    .filter(Boolean);
+  return Array.from(new Set(lines)).join('\n');
+};
+
 const ACCESSORY_KEYWORDS = [
   'keyboard',
   'magic keyboard',
@@ -772,7 +789,8 @@ function Ebay({ setVista }) {
   );
 
   const saveSinglePawnStore = async () => {
-    const url = String(pawnStoreUrl || '').trim();
+    if (pawnStoreSaving) return;
+    const url = sanitizePawnInput(pawnStoreUrl);
     if (!url) return;
     setPawnStoreSaving(true);
     setPawnStoreError('');
@@ -795,7 +813,8 @@ function Ebay({ setVista }) {
   };
 
   const saveBulkPawnStores = async () => {
-    const text = String(pawnStoreBulkText || '').trim();
+    if (pawnStoreSaving) return;
+    const text = sanitizePawnBulkText(pawnStoreBulkText);
     if (!text) return;
     setPawnStoreSaving(true);
     setPawnStoreError('');
@@ -930,12 +949,13 @@ function Ebay({ setVista }) {
             {pawnStoreMode === 'single' && (
               <div className="mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:grid-cols-[minmax(0,1fr),auto]">
                 <FieldShell label="Link completo">
-                  <input
-                    value={pawnStoreUrl}
-                    onChange={(e) => setPawnStoreUrl(e.target.value)}
-                    placeholder="https://www.ebay.com/str/... o /usr/..."
-                    className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-sky-500"
-                  />
+                    <input
+                      value={pawnStoreUrl}
+                      onChange={(e) => setPawnStoreUrl(e.target.value)}
+                      onBlur={(e) => setPawnStoreUrl(sanitizePawnInput(e.target.value))}
+                      placeholder="https://www.ebay.com/str/... o /usr/..."
+                      className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-sky-500"
+                    />
                 </FieldShell>
                 <button
                   type="button"
@@ -951,18 +971,19 @@ function Ebay({ setVista }) {
             {pawnStoreMode === 'bulk' && (
               <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <FieldShell label="Links completos">
-                  <textarea
-                    value={pawnStoreBulkText}
-                    onChange={(e) => setPawnStoreBulkText(normalizeBulkPawnText(e.target.value))}
-                    onPaste={(e) => {
-                      const pastedText = e.clipboardData?.getData('text') || '';
-                      if (!pastedText) return;
-                      e.preventDefault();
-                      const { selectionStart = 0, selectionEnd = 0 } = e.currentTarget;
-                      const currentText = String(pawnStoreBulkText || '');
-                      const nextText = buildBulkPawnPasteText(currentText, pastedText, selectionStart, selectionEnd);
-                      setPawnStoreBulkText(normalizeBulkPawnText(nextText));
-                    }}
+                    <textarea
+                      value={pawnStoreBulkText}
+                      onChange={(e) => setPawnStoreBulkText(normalizeBulkPawnText(e.target.value))}
+                      onBlur={(e) => setPawnStoreBulkText(sanitizePawnBulkText(e.target.value))}
+                      onPaste={(e) => {
+                        const pastedText = e.clipboardData?.getData('text') || '';
+                        if (!pastedText) return;
+                        e.preventDefault();
+                        const { selectionStart = 0, selectionEnd = 0 } = e.currentTarget;
+                        const currentText = String(pawnStoreBulkText || '');
+                        const nextText = buildBulkPawnPasteText(currentText, pastedText, selectionStart, selectionEnd);
+                        setPawnStoreBulkText(sanitizePawnBulkText(normalizeBulkPawnText(nextText)));
+                      }}
                     placeholder={'https://www.ebay.com/str/tienda-1\nhttps://www.ebay.com/usr/usuario-2'}
                     rows={5}
                     className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-sky-500"
