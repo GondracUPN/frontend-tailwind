@@ -618,6 +618,22 @@ function Ebay({ setVista }) {
     }
   };
 
+  const exportPawnStores = () => {
+    const lines = pawnStores
+      .map((store) => String(store?.originalUrl || store?.storeUrl || '').trim())
+      .filter(Boolean);
+    if (!lines.length) return;
+    const blob = new Blob([`${lines.join('\r\n')}\r\n`], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'pawns-ebay.txt';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   const loadPawns = async ({ append = false, query = pawnQuery } = {}) => {
     const offset = append ? pawnResult.items.length : 0;
     const trimmedQuery = String(query || '').trim() || 'apple';
@@ -881,6 +897,14 @@ function Ebay({ setVista }) {
               </button>
               <button
                 type="button"
+                onClick={exportPawnStores}
+                disabled={!pawnStores.length}
+                className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Exportar txt
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setPawnStoreMode((prev) => (prev === 'single' ? '' : 'single'));
                   setPawnStoreMessage('');
@@ -1108,13 +1132,23 @@ function Ebay({ setVista }) {
                   <h3 className="text-lg font-semibold text-slate-900">Pawns guardados</h3>
                   <div className="text-sm text-slate-500">{pawnStores.length} tiendas persistidas</div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setPawnStoresModalOpen(false)}
-                  className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-                >
-                  Cerrar
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={exportPawnStores}
+                    disabled={!pawnStores.length}
+                    className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Exportar txt
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPawnStoresModalOpen(false)}
+                    className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Cerrar
+                  </button>
+                </div>
               </div>
 
               <div className="max-h-[calc(80vh-88px)] overflow-auto p-5">
