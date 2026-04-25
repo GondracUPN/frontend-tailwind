@@ -22,6 +22,7 @@ const CARD_LABEL = {
   bcp: 'BCP',
   bcp_amex: 'BCP Amex',
   bcp_visa: 'BCP Visa',
+  visa_qore: 'Visa Qore',
   bbva: 'BBVA',
   io: 'IO',
   saga: 'Saga',

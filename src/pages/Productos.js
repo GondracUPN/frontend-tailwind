@@ -958,6 +958,22 @@ const confirmAction = async () => {
     return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   };
 
+  const parseEshopexPeso = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    if (/^null$/i.test(raw)) return null;
+    const normalized = raw
+      .replace(/,/g, '.')
+      .replace(/[^0-9.]+/g, ' ')
+      .trim();
+    if (!normalized) return null;
+    const token = normalized.split(/\s+/).find(Boolean) || '';
+    if (!token) return null;
+    const parsed = Number(token);
+    if (!Number.isFinite(parsed) || parsed <= 0) return null;
+    return Number(parsed.toFixed(2));
+  };
+
   const handleEshopexPrepago = async (row) => {
     const accountKey = String(row?.account || '').trim().toLowerCase();
     const code = String(row?.guia || '').trim();
@@ -1025,14 +1041,27 @@ const confirmAction = async () => {
     markVincularLoading(key, true);
     try {
       const fecha = parseEshopexFecha(row?.fechaRecepcion || '');
+      const peso = parseEshopexPeso(row?.peso || '');
+      const currentValor = producto?.valor || {};
       const payload = {
         trackingEshop: code,
         estatusEsho: normalizeCargaStatus(row?.estado || ''),
       };
       if (fecha) payload.fechaRecepcion = fecha;
       const res = await api.put(`/tracking/producto/${productoId}`, payload);
+      if (peso != null) {
+        await api.patch(`/productos/${productoId}`, {
+          valor: {
+            valorProducto: currentValor?.valorProducto,
+            valorDec: currentValor?.valorDec,
+            peso,
+            fechaCompra: currentValor?.fechaCompra,
+          },
+        });
+      }
       const updated = res?.data ?? res;
       applyTrackingUpdate(productoId, updated);
+      await refreshProductos({ force: true, useCache: false, silent: true });
       setEshopexVincularOpen(false);
     } catch (err) {
       console.error(err);

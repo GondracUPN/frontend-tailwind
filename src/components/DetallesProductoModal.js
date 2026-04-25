@@ -28,12 +28,16 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
   // ----- 2. Cargar datos al montar / cambiar producto -----
   useEffect(() => {
     if (!producto) return;
+    const detalle = { ...(producto.detalle || {}) };
+    if (!detalle.descripcionOtro) {
+      detalle.descripcionOtro = detalle.descripcion || producto.descripcion || '';
+    }
     setForm({
       tipo: producto.tipo,
       estado: producto.estado,
       vendedor: producto.vendedor || '',
       accesorios: Array.isArray(producto.accesorios) ? producto.accesorios : [],
-      detalle: { ...producto.detalle }, // viene con 'id' -> se filtrar en handleSave
+      detalle, // viene con 'id' -> se filtrar en handleSave
     });
     setIsEditing(false);
     setVincularConList([]);
@@ -250,7 +254,10 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                   <FormProductoWatch detalle={form.detalle} onChange={handleDetalleChange} />
                 )}
                 {form.tipo === 'otro' && (
-                  <FormProductoOtro onChange={v => handleDetalleChange('descripcionOtro', v)} />
+                  <FormProductoOtro
+                    value={form.detalle?.descripcionOtro || ''}
+                    onChange={v => handleDetalleChange('descripcionOtro', v)}
+                  />
                 )}
 
                 <div>

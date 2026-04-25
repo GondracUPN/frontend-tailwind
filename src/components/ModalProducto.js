@@ -235,6 +235,9 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       detalle.tamano = detalle.tamanio;
       delete detalle.tamanio;
     }
+    if (!detalle.descripcionOtro) {
+      detalle.descripcionOtro = detalle.descripcion || producto.descripcion || '';
+    }
     setForm({
       tipo: producto.tipo || '',
       estado: producto.estado || '',

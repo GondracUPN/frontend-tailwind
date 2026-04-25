@@ -7,6 +7,7 @@ const CARD_OPTIONS = [
   { value: 'interbank', label: 'Interbank' },
   { value: 'bcp_amex',  label: 'BCP Amex'  },
   { value: 'bcp_visa',  label: 'BCP Visa'  },
+  { value: 'visa_qore', label: 'Visa Qore' },
   { value: 'bbva',      label: 'BBVA'      },
   { value: 'io',        label: 'IO'        },
   { value: 'saga',      label: 'Saga'      },

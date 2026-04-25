@@ -72,8 +72,8 @@ const AUCTION_CONDITION_OPTIONS = [
   { value: 'auction_for_parts', label: 'No funciona' },
 ];
 const PAWN_OFFER_OPTIONS = [
-  { value: '', label: 'Todas' },
   { value: 'BEST_OFFER', label: 'Mejor oferta' },
+  { value: '', label: 'Todos' },
 ];
 
 const formatPrice = (value, currency = 'USD') => {
@@ -303,12 +303,16 @@ const sanitizePawnBulkText = (value) => {
 };
 
 const ACCESSORY_KEYWORDS = [
+  'sleeve',
   'keyboard',
   'magic keyboard',
   'folio',
   'smart folio',
   'case',
   'cover',
+  'bag',
+  'shell',
+  'skin',
   'pencil',
   'charger',
   'cable',
@@ -322,17 +326,67 @@ const ACCESSORY_KEYWORDS = [
   'digitizer',
   'lcd',
   'glass',
+  'bundle only',
 ];
 
-const titleHasAccessoryKeyword = (title) => {
+const ACCESSORY_PRIMARY_PATTERNS = [
+  /^(?:apple\s+)?(?:(?:laptop|tablet|phone|cell\s+phone|smartphone)\s+)?(?:case|sleeve|cover|folio|keyboard|magic keyboard|smart folio|screen protector|protector|pencil|charger|adapter|cable|bag|shell|skin|housing|digitizer|lcd|glass)\b/,
+  /\bcompatible with\b/,
+  /\bdesigned for\b/,
+  /\bfits?\s+(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch)\b/,
+  /\bfor\s+(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch)\b/,
+  /\breplacement\b/,
+];
+
+const DEVICE_SIGNAL_PATTERNS = [
+  /\bm[1-5](?:\s+(?:pro|max))?\b/,
+  /\b\d+(?:gb|tb)\b/,
+  /\b\d+gb\s+ram\b/,
+  /\b(?:wifi|cellular|gps|unlocked|ssd|ram|cycles)\b/,
+  /\ba\d{4}\b/,
+  /\b[a-z0-9]{3,}ll\/a\b/,
+];
+
+const hasAccessoryKeyword = (normalized) =>
+  ACCESSORY_KEYWORDS.some((keyword) => normalized.includes(keyword));
+
+const hasDeviceSignals = (normalized) =>
+  DEVICE_SIGNAL_PATTERNS.some((pattern) => pattern.test(normalized));
+
+const isAccessoryPrimaryForFamily = (normalized, family) => {
+  if (family === 'ipad') {
+    return /\bipad(?:\s+(?:pro|air|mini|\d+(?:\.\d+)?))?(?:\s+\w+){0,2}\s+(?:case|sleeve|cover|folio|keyboard|magic keyboard|smart folio|screen protector|protector|pencil)\b/.test(normalized);
+  }
+  if (family === 'iphone') {
+    return /\biphone(?:\s+\d{2})?(?:\s+(?:pro|max|plus|mini|e)){0,2}(?:\s+\w+){0,1}\s+(?:case|cover|screen protector|protector|charger|cable)\b/.test(normalized);
+  }
+  if (family === 'macbook') {
+    return /\bmacbook(?:\s+(?:air|pro))?(?:\s+\w+){0,2}\s+(?:case|sleeve|cover|bag|shell)\b/.test(normalized);
+  }
+  return false;
+};
+
+const isPrimaryAccessoryTitle = (title, family = '') => {
   const normalized = normalizeTitleText(title);
-  return ACCESSORY_KEYWORDS.some((keyword) => normalized.includes(keyword));
+  if (!hasAccessoryKeyword(normalized)) return false;
+  if (ACCESSORY_PRIMARY_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
+  if (family && isAccessoryPrimaryForFamily(normalized, family)) return true;
+  if (!hasDeviceSignals(normalized)) return true;
+  return false;
+};
+
+const isLikelyAppleDeviceTitle = (title, family) => {
+  const normalized = normalizeTitleText(title);
+  if (isPrimaryAccessoryTitle(normalized, family)) return false;
+  if (family === 'ipad') return normalized.includes('ipad');
+  if (family === 'iphone') return normalized.includes('iphone');
+  if (family === 'macbook') return normalized.includes('macbook');
+  return false;
 };
 
 const matchIpadItem = (item, form) => {
   const title = normalizeTitleText(item?.title || '');
-  if (!title.includes('ipad')) return false;
-  if (titleHasAccessoryKeyword(title)) return false;
+  if (!isLikelyAppleDeviceTitle(title, 'ipad')) return false;
   if (compactValue(form.processor) && !title.includes(compactValue(form.processor).toLowerCase())) return false;
   if (compactValue(form.screen) && !title.includes(compactValue(form.screen).toLowerCase())) return false;
   if (compactValue(form.storage) && !title.includes(compactValue(form.storage).toLowerCase().replace('gb', ' gb').replace('tb', ' tb').trim())) {
@@ -402,7 +456,7 @@ const matchesAnalyticsGroup = (title, group) => {
   const screen = String(group?.pantalla || '').trim();
 
   if (type === 'iphone') {
-    if (!normalizedTitle.includes('iphone')) return false;
+    if (!isLikelyAppleDeviceTitle(normalizedTitle, 'iphone')) return false;
     const number = normalizeIphoneNumber(group?.gama || '');
     const model = normalizeIphoneModel(group?.gama || '');
     if (number) {
@@ -418,8 +472,7 @@ const matchesAnalyticsGroup = (title, group) => {
   }
 
   if (type === 'ipad') {
-    if (!normalizedTitle.includes('ipad')) return false;
-    if (titleHasAccessoryKeyword(normalizedTitle)) return false;
+    if (!isLikelyAppleDeviceTitle(normalizedTitle, 'ipad')) return false;
     if (gama && gama !== 'normal' && !new RegExp(`\\b${escapeRegex(gama)}\\b`).test(normalizedTitle)) return false;
     if (gama === 'normal' && /\b(pro|air|mini)\b/.test(normalizedTitle)) return false;
     if (processor && !new RegExp(`\\b${escapeRegex(processor)}\\b`).test(normalizedTitle)) return false;
@@ -428,7 +481,7 @@ const matchesAnalyticsGroup = (title, group) => {
   }
 
   if (type === 'macbook') {
-    if (!normalizedTitle.includes('macbook')) return false;
+    if (!isLikelyAppleDeviceTitle(normalizedTitle, 'macbook')) return false;
     if (gama && !new RegExp(`\\b${escapeRegex(gama)}\\b`).test(normalizedTitle)) return false;
     if (processor && !new RegExp(`\\b${escapeRegex(processor)}\\b`).test(normalizedTitle)) return false;
     if (screen && !titleHasScreen(normalizedTitle, screen)) return false;
@@ -452,6 +505,7 @@ const buildRecommendationForItem = (item, analyticsGroups = [], priceMode = 'sta
   const title = String(item?.title || '');
   const itemType = inferTypeFromTitle(title);
   if (!itemType) return null;
+  if (['ipad', 'iphone', 'macbook'].includes(itemType) && isPrimaryAccessoryTitle(title, itemType)) return null;
 
   const currentPrice = Number(priceMode === 'bid' ? item?.currentBidPriceUSD : item?.priceUSD);
   if (!Number.isFinite(currentPrice) || currentPrice <= 0) return null;
@@ -627,7 +681,7 @@ function Ebay({ setVista }) {
 
   const [pawnQuery, setPawnQuery] = useState('apple');
   const [pawnCondition, setPawnCondition] = useState('');
-  const [pawnBuyingOptions, setPawnBuyingOptions] = useState('');
+  const [pawnBuyingOptions, setPawnBuyingOptions] = useState('BEST_OFFER');
   const [pawnResult, setPawnResult] = useState(EMPTY_RESULT);
   const [pawnStores, setPawnStores] = useState([]);
   const [pawnStoreMode, setPawnStoreMode] = useState('');
@@ -640,6 +694,7 @@ function Ebay({ setVista }) {
 
   const [productType, setProductType] = useState('all');
   const [productCondition, setProductCondition] = useState('');
+  const [productBuyingOptions, setProductBuyingOptions] = useState('BEST_OFFER');
   const [productResult, setProductResult] = useState(EMPTY_RESULT);
   const [ipadForm, setIpadForm] = useState({ screen: '', processor: '', storage: '', connectivity: '' });
   const [iphoneForm, setIphoneForm] = useState({ number: '16', model: '' });
@@ -720,11 +775,16 @@ function Ebay({ setVista }) {
     setErrors((prev) => ({ ...prev, product: '' }));
     try {
       const endpoint = productType === 'all'
-        ? `/utils/ebay/apple-collection?family=all&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(productCondition)}`
-        : `/utils/ebay/search?q=${encodeURIComponent(productQuery)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(productCondition)}`;
+        ? `/utils/ebay/apple-collection?family=all&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}`
+        : `/utils/ebay/search?q=${encodeURIComponent(productQuery)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}`;
       const data = await api.get(endpoint);
       const rawItems = Array.isArray(data?.items) ? data.items : [];
-      const filteredItems = productType === 'ipad' ? rawItems.filter((item) => matchIpadItem(item, ipadForm)) : rawItems;
+      const familyFilteredItems = productType === 'all'
+        ? rawItems
+        : rawItems.filter((item) => isLikelyAppleDeviceTitle(item?.title || '', productType));
+      const filteredItems = productType === 'ipad'
+        ? familyFilteredItems.filter((item) => matchIpadItem(item, ipadForm))
+        : familyFilteredItems;
       setProductResult((prev) => ({
         items: append ? mergeUniqueItems(prev.items, filteredItems) : filteredItems,
         sellers: [],
@@ -735,6 +795,7 @@ function Ebay({ setVista }) {
         offset: Number(data?.offset || offset),
         groups: Array.isArray(data?.groups) ? data.groups : [],
         family: String(data?.family || productType),
+        buyingOptions: String(data?.buyingOptions || productBuyingOptions),
       }));
     } catch (err) {
       setErrors((prev) => ({ ...prev, product: String(err?.message || 'No se pudo cargar la busqueda por producto.') }));
@@ -874,7 +935,7 @@ function Ebay({ setVista }) {
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [activeTab, currentHasMore, currentLoading, currentAppending, pawnResult.items.length, productResult.items.length, auctionResult.items.length, pawnCondition, pawnBuyingOptions, productCondition, auctionFamily, auctionCondition, productType]);
+  }, [activeTab, currentHasMore, currentLoading, currentAppending, pawnResult.items.length, productResult.items.length, auctionResult.items.length, pawnCondition, pawnBuyingOptions, productCondition, productBuyingOptions, auctionFamily, auctionCondition, productType]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#eff6ff_0%,_#f8fafc_45%,_#e2e8f0_100%)] p-4 sm:p-6">
@@ -1062,17 +1123,18 @@ function Ebay({ setVista }) {
             </div>
 
             {productType === 'ipad' && (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <FieldShell label="Pantalla"><SelectField value={ipadForm.screen} onChange={(e) => setIpadForm((prev) => ({ ...prev, screen: e.target.value }))} options={IPAD_SCREEN_OPTIONS} /></FieldShell>
                 <FieldShell label="Procesador"><SelectField value={ipadForm.processor} onChange={(e) => setIpadForm((prev) => ({ ...prev, processor: e.target.value }))} options={IPAD_PROCESSOR_OPTIONS} /></FieldShell>
                 <FieldShell label="Almacenamiento"><SelectField value={ipadForm.storage} onChange={(e) => setIpadForm((prev) => ({ ...prev, storage: e.target.value }))} options={IPAD_STORAGE_OPTIONS} /></FieldShell>
                 <FieldShell label="Conectividad"><MappedSelectField value={ipadForm.connectivity} onChange={(e) => setIpadForm((prev) => ({ ...prev, connectivity: e.target.value }))} options={IPAD_CONNECTIVITY_OPTIONS} /></FieldShell>
                 <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={COMMON_CONDITION_OPTIONS} /></FieldShell>
+                <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
               </div>
             )}
 
             {productType === 'iphone' && (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <FieldShell label="Numero">
                   <SelectField
                     value={iphoneForm.number}
@@ -1087,24 +1149,27 @@ function Ebay({ setVista }) {
                 </FieldShell>
                 <FieldShell label="Modelo"><MappedSelectField value={iphoneForm.model} onChange={(e) => setIphoneForm((prev) => ({ ...prev, model: e.target.value }))} options={getIphoneModelOptions(iphoneForm.number)} /></FieldShell>
                 <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={COMMON_CONDITION_OPTIONS} /></FieldShell>
+                <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
               </div>
             )}
 
             {productType === 'macbook' && (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
                 <FieldShell label="Linea"><MappedSelectField value={macbookForm.line} onChange={(e) => setMacbookForm((prev) => ({ ...prev, line: e.target.value }))} options={MACBOOK_LINE_OPTIONS} /></FieldShell>
                 <FieldShell label="Pantalla"><SelectField value={macbookForm.screen} onChange={(e) => setMacbookForm((prev) => ({ ...prev, screen: e.target.value }))} options={MACBOOK_SCREEN_OPTIONS} /></FieldShell>
                 <FieldShell label="Procesador"><SelectField value={macbookForm.processor} onChange={(e) => setMacbookForm((prev) => ({ ...prev, processor: e.target.value }))} options={MACBOOK_PROCESSOR_OPTIONS} /></FieldShell>
                 <FieldShell label="RAM"><SelectField value={macbookForm.ram} onChange={(e) => setMacbookForm((prev) => ({ ...prev, ram: e.target.value }))} options={MACBOOK_RAM_OPTIONS} /></FieldShell>
                 <FieldShell label="Almacenamiento"><SelectField value={macbookForm.storage} onChange={(e) => setMacbookForm((prev) => ({ ...prev, storage: e.target.value }))} options={MACBOOK_STORAGE_OPTIONS} /></FieldShell>
                 <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={COMMON_CONDITION_OPTIONS} /></FieldShell>
+                <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
               </div>
             )}
 
             {productType === 'all' && (
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-2xl bg-slate-100/80 p-4 text-sm text-slate-600">Busca todo junto: iPad, iPhone unlocked y MacBook, ordenado de mas reciente a mas antiguo.</div>
                 <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={COMMON_CONDITION_OPTIONS} /></FieldShell>
+                <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
               </div>
             )}
 

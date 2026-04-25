@@ -1260,8 +1260,17 @@ const gananciasResumen = useMemo(() => {
 
  const isGeneral = !appliedDates.from && !appliedDates.to;
  const sunatSellTc = Number(sunatFx?.sell ?? TC_FIJO) || TC_FIJO;
- const sunatDecUsd = Number(data?.summary?.sunat?.valorDecTotal || 0) || 0;
+ const sunatGastoPeriodo = Number((data?.summary?.sunat?.gastoPeriodo ?? data?.summary?.sunat?.gastoProductos ?? 0)) || 0;
+ const sunatEnviosRecogidos = Number((data?.summary?.sunat?.enviosRecogidos ?? data?.summary?.sunat?.gastoEnvio ?? 0)) || 0;
+ const sunatDecUsd = Number((data?.summary?.sunat?.valorDecPeriodoTotal ?? data?.summary?.sunat?.valorDecTotal ?? 0)) || 0;
  const sunatDecPen = +(sunatDecUsd * sunatSellTc).toFixed(2);
+ const sunatTotalGastado = +(sunatDecPen + sunatEnviosRecogidos).toFixed(2);
+ const sunatTotalVendidoPeriodo = +(
+  dateMode === 'month' && appliedDates.from
+   ? Number(gananciasResumen?.mesSeleccionado?.ingresos || 0)
+   : Number(gananciasResumen?.totalIngresos || 0)
+ ).toFixed(2);
+ const sunatGanancia = +(sunatTotalVendidoPeriodo - sunatTotalGastado).toFixed(2);
 
 
 
@@ -1518,32 +1527,44 @@ const gananciasResumen = useMemo(() => {
  ? `Periodo: A${'\u00f1'}o ${appliedDates.from || yearKey}`
  : `Periodo: ${appliedDates.from || 'Mes seleccionado'}`}
  </div>
- <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+ <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
  <Card
- title="Gasto del periodo"
- value={<Currency v={data.summary?.sunat?.gastoProductos} />}
- sub={<span>Solo costo de productos del periodo.</span>}
- />
- <Card
- title="Envios recogidos"
- value={<Currency v={data.summary?.sunat?.gastoEnvio} />}
- sub={<span>Costo de envio solo de productos recogidos.</span>}
- />
- <Card
- title="Ganancia del periodo"
- value={<Currency v={data.summary?.sunat?.gananciaTotal} />}
+ title="Gasto real del periodo"
+ value={<Currency v={sunatGastoPeriodo} />}
+ sub={<span>Solo costo de productos comprados en el periodo.</span>}
  />
  <Card
  title="Valor DEC del periodo"
  value={fmtUSD(sunatDecUsd)}
  sub={
  <>
- <span>Soles (TC SUNAT {sunatSellTc.toFixed(3)}): <Currency v={sunatDecPen} /></span>
+ <span>Suma del valor DEC de todos los productos comprados en el periodo.</span>
+ <span className="block">Soles (TC SUNAT {sunatSellTc.toFixed(3)}): <Currency v={sunatDecPen} /></span>
  <span className="block">Fecha TC: {sunatFx?.date || '-'}</span>
  {sunatFx?.fallback ? <span className="block text-amber-700">TC fallback aplicado ({TC_FIJO}). {sunatFx?.reason ? `Motivo: ${sunatFx.reason}` : ''}</span> : null}
  {sunatFxError ? <span className="block text-red-600">{sunatFxError}</span> : null}
  </>
  }
+ />
+ <Card
+ title="Envios recogidos"
+ value={<Currency v={sunatEnviosRecogidos} />}
+ sub={<span>Costo de envio solo de productos recogidos.</span>}
+ />
+ <Card
+ title="Total Gastado Sunat"
+ value={<Currency v={sunatTotalGastado} />}
+ sub={<span>Valor DEC en soles + envios recogidos.</span>}
+ />
+ <Card
+ title="Total vendido del periodo"
+ value={<Currency v={sunatTotalVendidoPeriodo} />}
+ sub={<span>Total de ventas del periodo seleccionado.</span>}
+ />
+ <Card
+ title="Ganancia Sunat"
+ value={<Currency v={sunatGanancia} />}
+ sub={<span>Total vendido del periodo - Total Gastado Sunat.</span>}
  />
  </div>
  <div className="text-[11px] text-gray-400 mt-3">Envio SUNAT: solo se cuenta para productos recogidos.</div>
