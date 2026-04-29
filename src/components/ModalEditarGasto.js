@@ -33,6 +33,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
         { value: 'comida', label: 'Comida' },
         { value: 'gusto', label: 'Gusto' },
         { value: 'transporte', label: 'Transporte' },
+        { value: 'reinicio', label: 'Reinicio' },
         { value: 'gastos_recurrentes', label: 'Gastos mensuales' },
         { value: 'desgravamen', label: 'Desgravamen' },
         { value: 'deuda_cuotas', label: 'Deuda en cuotas' },

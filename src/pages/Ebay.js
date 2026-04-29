@@ -16,6 +16,7 @@ const EMPTY_RESULT = {
   groups: [],
   buyingOptions: '',
   family: 'all',
+  hasMore: false,
 };
 
 const FAMILY_OPTIONS = [
@@ -331,10 +332,12 @@ const ACCESSORY_KEYWORDS = [
 
 const ACCESSORY_PRIMARY_PATTERNS = [
   /^(?:apple\s+)?(?:(?:laptop|tablet|phone|cell\s+phone|smartphone)\s+)?(?:case|sleeve|cover|folio|keyboard|magic keyboard|smart folio|screen protector|protector|pencil|charger|adapter|cable|bag|shell|skin|housing|digitizer|lcd|glass)\b/,
+  /\b(?:laptop|tablet|phone|cell\s+phone|smartphone)\s+(?:case|sleeve|cover|folio|keyboard|screen protector|protector|bag|shell)\b/,
+  /\b(?:case|sleeve|cover|folio|keyboard|screen protector|protector|bag|shell)\b.{0,80}\bfor\s+(?:new\s+)?(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch)\b/,
   /\bcompatible with\b/,
   /\bdesigned for\b/,
-  /\bfits?\s+(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch)\b/,
-  /\bfor\s+(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch)\b/,
+  /\bfits?\s+(?:new\s+)?(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch)\b/,
+  /\bfor\s+(?:new\s+)?(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch)\b/,
   /\breplacement\b/,
 ];
 
@@ -695,6 +698,7 @@ function Ebay({ setVista }) {
   const [productType, setProductType] = useState('all');
   const [productCondition, setProductCondition] = useState('');
   const [productBuyingOptions, setProductBuyingOptions] = useState('BEST_OFFER');
+  const [productPawnOnly, setProductPawnOnly] = useState(false);
   const [productResult, setProductResult] = useState(EMPTY_RESULT);
   const [ipadForm, setIpadForm] = useState({ screen: '', processor: '', storage: '', connectivity: '' });
   const [iphoneForm, setIphoneForm] = useState({ number: '16', model: '' });
@@ -750,6 +754,7 @@ function Ebay({ setVista }) {
         sort: String(data?.sort || 'newlyListed'),
         limit: Number(data?.limit || PAGE_SIZE),
         offset: Number(data?.offset || offset),
+        hasMore: Boolean(data?.hasMore),
       }));
     } catch (err) {
       setErrors((prev) => ({ ...prev, pawns: String(err?.message || 'No se pudo cargar la busqueda por pawns.') }));
@@ -774,9 +779,10 @@ function Ebay({ setVista }) {
     else setLoadingTab('product');
     setErrors((prev) => ({ ...prev, product: '' }));
     try {
+      const pawnOnlyParam = productPawnOnly ? '&pawnOnly=1' : '';
       const endpoint = productType === 'all'
-        ? `/utils/ebay/apple-collection?family=all&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}`
-        : `/utils/ebay/search?q=${encodeURIComponent(productQuery)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}`;
+        ? `/utils/ebay/apple-collection?family=all&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}`
+        : `/utils/ebay/search?q=${encodeURIComponent(productQuery)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}`;
       const data = await api.get(endpoint);
       const rawItems = Array.isArray(data?.items) ? data.items : [];
       const familyFilteredItems = productType === 'all'
@@ -796,6 +802,7 @@ function Ebay({ setVista }) {
         groups: Array.isArray(data?.groups) ? data.groups : [],
         family: String(data?.family || productType),
         buyingOptions: String(data?.buyingOptions || productBuyingOptions),
+        hasMore: typeof data?.hasMore === 'boolean' ? data.hasMore : undefined,
       }));
     } catch (err) {
       setErrors((prev) => ({ ...prev, product: String(err?.message || 'No se pudo cargar la busqueda por producto.') }));
@@ -825,6 +832,7 @@ function Ebay({ setVista }) {
         groups: Array.isArray(data?.groups) ? data.groups : [],
         buyingOptions: String(data?.buyingOptions || 'AUCTION'),
         family: String(data?.family || auctionFamily),
+        hasMore: typeof data?.hasMore === 'boolean' ? data.hasMore : undefined,
       }));
     } catch (err) {
       setErrors((prev) => ({ ...prev, auctions: String(err?.message || 'No se pudo cargar la vista de subastas.') }));
@@ -866,7 +874,11 @@ function Ebay({ setVista }) {
   const currentError = activeTab === 'pawns' ? errors.pawns : activeTab === 'product' ? errors.product : errors.auctions;
   const currentLoading = loadingTab === activeTab;
   const currentAppending = appendLoadingTab === activeTab;
-  const currentHasMore = currentResult.items.length > 0 && currentResult.items.length < currentResult.total;
+  const currentHasMore = currentResult.items.length > 0 && (
+    typeof currentResult.hasMore === 'boolean'
+      ? currentResult.hasMore
+      : currentResult.items.length < currentResult.total
+  );
   const currentItems = useMemo(
     () => currentResult.items.map((item) => ({
       ...item,
@@ -931,11 +943,11 @@ function Ebay({ setVista }) {
       if (activeTab === 'pawns') loadPawns({ append: true });
       if (activeTab === 'product') loadProductSearch({ append: true });
       if (activeTab === 'auctions') loadAppleAuctions({ append: true });
-    }, { rootMargin: '2600px 0px', threshold: 0.01 });
+    }, { rootMargin: '5200px 0px', threshold: 0.01 });
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [activeTab, currentHasMore, currentLoading, currentAppending, pawnResult.items.length, productResult.items.length, auctionResult.items.length, pawnCondition, pawnBuyingOptions, productCondition, productBuyingOptions, auctionFamily, auctionCondition, productType]);
+  }, [activeTab, currentHasMore, currentLoading, currentAppending, pawnResult.items.length, productResult.items.length, auctionResult.items.length, pawnCondition, pawnBuyingOptions, productCondition, productBuyingOptions, productPawnOnly, auctionFamily, auctionCondition, productType]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#eff6ff_0%,_#f8fafc_45%,_#e2e8f0_100%)] p-4 sm:p-6">
@@ -1173,7 +1185,16 @@ function Ebay({ setVista }) {
               </div>
             )}
 
-            <div className="mt-4 flex flex-wrap gap-3">
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <label className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={productPawnOnly}
+                  onChange={(e) => setProductPawnOnly(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
+                />
+                Solo tiendas Pawn
+              </label>
               <button
                 type="button"
                 onClick={() => { setActiveTab('product'); loadProductSearch({ append: false }); }}
@@ -1217,7 +1238,7 @@ function Ebay({ setVista }) {
             </div>
           </div>
           <div className="text-sm text-slate-600">
-            {currentAppending ? 'Precargando...' : currentHasMore ? 'Carga anticipada activa' : `${currentResult.total} totales`}
+            {currentAppending ? `Precargando... ${currentResult.total} totales` : `${currentResult.total} totales`}
           </div>
         </div>
 

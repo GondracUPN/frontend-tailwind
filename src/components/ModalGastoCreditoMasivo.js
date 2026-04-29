@@ -11,6 +11,7 @@ const CREDIT_CONCEPTS = [
   'gastos_recurrentes',
   'desgravamen',
   'transporte',
+  'reinicio',
   'cashback',
 ];
 
@@ -27,6 +28,7 @@ const CONCEPT_ALIASES = {
   gastos_recurrentes: 'gastos_recurrentes',
   desgravamen: 'desgravamen',
   transporte: 'transporte',
+  reinicio: 'reinicio',
   cashback: 'cashback',
   'cashback reembolso': 'cashback',
 };

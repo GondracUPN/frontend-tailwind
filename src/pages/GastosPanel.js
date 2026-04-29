@@ -359,7 +359,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                     Presupuesto de gastos
                   </button>
                 )}
-                <button onClick={openTar} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 min-h-[40px]">Ingresar lnea de crdito / Tarjeta</button>
+                <button onClick={openTar} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 min-h-[40px]">Ingresar linea de credito / Tarjeta</button>
               </div>
             </div>
 
@@ -370,7 +370,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                 {cardsSummary.map((c) => (
                   <div key={c.id} className="rounded-xl ring-1 ring-gray-200 bg-white p-4 hover:shadow-sm transition">
                     <div className="text-sm text-gray-600">{CARD_LABEL[c.tipo] || c.tipo}</div>
-                    <div className="mt-1 text-xs text-gray-500">Lnea: S/ {Number(c.creditLine).toFixed(2)}</div>
+                    <div className="mt-1 text-xs text-gray-500">Linea: S/ {Number(c.creditLine).toFixed(2)}</div>
                     <div className="text-xs text-gray-500">Usado: S/ {Number(c.usedPen ?? 0).toFixed(2)}  $ {Number(c.usedUsd ?? 0).toFixed(2)}</div>
                     <div className="text-sm font-semibold mt-1">Disponible: S/ {Number(c.available).toFixed(2)}</div>
                     <div className="text-xs text-gray-500 mt-0.5">Consumido en soles: S/ {(Number(c.usedPen || 0) + Number(c.usedUsd || 0) * TIPO_CAMBIO).toFixed(2)}</div>
