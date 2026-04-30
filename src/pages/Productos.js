@@ -1017,6 +1017,7 @@ const confirmAction = async () => {
           casLabel,
           accountKey: accountKey || '',
           total: 0,
+          ready: 0,
           payable: 0,
         };
       }
@@ -1024,11 +1025,16 @@ const confirmAction = async () => {
       if (!map[key].accountKey && accountKey) {
         map[key].accountKey = accountKey;
       }
+      if (isEnSucursal(estatusEsho) || isEntregado(estatusEsho)) {
+        map[key].ready += 1;
+      }
       if (cargaRow && accountKey && isEnSucursal(estatusEsho)) {
         map[key].payable += 1;
       }
     }
-    return Object.values(map).sort((a, b) => a.casLabel.localeCompare(b.casLabel));
+    return Object.values(map)
+      .filter((item) => item.ready > 0)
+      .sort((a, b) => a.casLabel.localeCompare(b.casLabel));
   }, [recojoList, eshopexCargaByGuia, accountByCasillero, casilleroByAccount, getLastTracking]);
 
   const handleEshopexVincular = async (row, producto) => {
@@ -2428,7 +2434,7 @@ const confirmAction = async () => {
                         className={`${(!canPay || pagoLoading) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-3 py-2 rounded whitespace-nowrap`}
                         title={!canPay ? 'Sin paquetes disponibles para pagar' : `Pagar casillero ${c.casLabel}`}
                       >
-                        {pagoLoading ? 'Procesando...' : `${c.casLabel} (${c.total || 0})`}
+                        {pagoLoading ? 'Procesando...' : `${c.casLabel} (${c.ready || 0})`}
                       </button>
                     );
                   })}
