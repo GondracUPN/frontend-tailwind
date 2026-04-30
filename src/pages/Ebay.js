@@ -918,7 +918,7 @@ function Ebay({ setVista }) {
         filteredItems = filterProductItems(Array.isArray(data?.items) ? data.items : []);
       } else {
         const seen = new Set(productResult.items.map((item) => getItemKey(item)).filter(Boolean));
-        const maxAppendPages = productPawnOnly ? 5 : 2;
+        const maxAppendPages = 2;
 
         for (let page = 0; page < maxAppendPages; page += 1) {
           data = await api.get(buildEndpoint(offset));
@@ -1147,6 +1147,7 @@ function Ebay({ setVista }) {
   useEffect(() => {
     const node = sentinelRef.current;
     if (!node || currentLoading || currentAppending || !currentHasMore) return () => {};
+    if (activeTab === 'product' && productPawnOnly) return () => {};
 
     const observer = new IntersectionObserver((entries) => {
       if (!entries[0]?.isIntersecting) return;

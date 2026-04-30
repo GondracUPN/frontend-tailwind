@@ -2428,7 +2428,7 @@ const confirmAction = async () => {
                         className={`${(!canPay || pagoLoading) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-3 py-2 rounded whitespace-nowrap`}
                         title={!canPay ? 'Sin paquetes disponibles para pagar' : `Pagar casillero ${c.casLabel}`}
                       >
-                        {pagoLoading ? 'Procesando...' : `${c.casLabel}`}
+                        {pagoLoading ? 'Procesando...' : `${c.casLabel} (${c.total || 0})`}
                       </button>
                     );
                   })}
