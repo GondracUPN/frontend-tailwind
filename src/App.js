@@ -10,6 +10,20 @@ import AnalisisGastos from './pages/AnalisisGastos';
 import PresupuestoGastos from './pages/PresupuestoGastos';
 import Ebay from './pages/Ebay';
 import api from './api';
+import {
+  FiActivity,
+  FiBarChart2,
+  FiBox,
+  FiBriefcase,
+  FiDollarSign,
+  FiGrid,
+  FiHash,
+  FiHome,
+  FiMenu,
+  FiPieChart,
+  FiSettings,
+  FiX,
+} from 'react-icons/fi';
 
 const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
 const ESHOPEX_BG_REQUESTED_KEY = 'eshopex-carga-requested';
@@ -19,6 +33,7 @@ const ESHOPEX_CARGA_CACHE_KEY = 'eshopex-carga-cache';
 const ESHOPEX_BG_OPEN_MODAL_KEY = 'eshopex-carga-open-modal';
 const ESHOPEX_BG_COUNT_KEY = 'eshopex-carga-pendientes-count';
 const ESHOPEX_BG_CONSUMED_KEY = 'eshopex-carga-trigger-consumed-ts';
+const SIDEBAR_HIDDEN_KEY = 'app-sidebar-hidden';
 const EMPTY_ESH_PROGRESS = {
   status: 'idle',
   total: 0,
@@ -61,6 +76,22 @@ const isPendingCargaRow = (row) => {
 
 const pendingFromRows = (rows) => (Array.isArray(rows) ? rows.filter(isPendingCargaRow) : []);
 
+const SIDEBAR_NAV = [
+  { id: 'home', label: 'Inicio', icon: FiHome },
+  { id: 'productos', label: 'Productos', icon: FiBox },
+  { id: 'analisis', label: 'Analisis', icon: FiActivity },
+  { id: 'calculadora', label: 'Calculadora', icon: FiHash },
+  { id: 'ganancias', label: 'Ganancias', icon: FiDollarSign },
+  { id: 'gastos', label: 'Gastos', icon: FiPieChart },
+  { id: 'ebay', label: 'Ebay', icon: FiBriefcase },
+  { id: 'servicios', label: 'Servicios', icon: FiSettings },
+];
+
+const SIDEBAR_SECONDARY_NAV = [
+  { id: 'analisisGastos', label: 'Analisis gastos', icon: FiBarChart2 },
+  { id: 'presupuestoGastos', label: 'Presupuesto', icon: FiGrid },
+];
+
 function App() {
   // Leer la última vista guardada; si no hay, usa 'home'
   const [vista, setVista] = useState(() => localStorage.getItem('vista') || 'home');
@@ -75,11 +106,29 @@ function App() {
   const [eshopexProgress, setEshopexProgress] = useState(() => ({ ...EMPTY_ESH_PROGRESS }));
   const [eshopexModalOpen, setEshopexModalOpen] = useState(false);
   const [eshopexModalRows, setEshopexModalRows] = useState([]);
+  const [sidebarHidden, setSidebarHidden] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_HIDDEN_KEY);
+      if (saved === '1') return true;
+      if (saved === '0') return false;
+      return window.matchMedia('(max-width: 1023px)').matches;
+    } catch {
+      return false;
+    }
+  });
 
   // Guardar la vista cada vez que cambie
   useEffect(() => {
     localStorage.setItem('vista', vista);
   }, [vista]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_HIDDEN_KEY, sidebarHidden ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarHidden]);
 
   // Si hay token en localStorage, deja el header Authorization por defecto (axios)
   useEffect(() => {
@@ -291,10 +340,24 @@ function App() {
     return target ? `${target} · faltan ${remaining}` : 'Buscando...';
   }, [eshopexUi.loading, eshopexProgress]);
 
-  return (
+  const navigateTo = (nextVista) => {
+    if (nextVista === 'analisis') {
+      setAnalisisBack(vista === 'analisis' ? analisisBack : vista);
+    }
+    setVista(nextVista);
+    try {
+      if (window.matchMedia('(max-width: 1023px)').matches) {
+        setSidebarHidden(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const renderVista = () => (
     <>
       {vista === 'home'        && <Home setVista={setVista} setAnalisisBack={setAnalisisBack} />}
-      {vista === 'productos'   && <Productos setVista={setVista} setAnalisisBack={setAnalisisBack} />} 
+      {vista === 'productos'   && <Productos setVista={setVista} setAnalisisBack={setAnalisisBack} />}
       {vista === 'servicios'   && <Servicios setVista={setVista} />}
       {vista === 'calculadora' && <Calculadora setVista={setVista} />}
       {vista === 'ebay'        && <Ebay setVista={setVista} />}
@@ -303,6 +366,95 @@ function App() {
       {vista === 'analisis'    && <Analisis setVista={setVista} analisisBack={analisisBack} />}
       {vista === 'analisisGastos' && <AnalisisGastos setVista={setVista} />}
       {vista === 'presupuestoGastos' && <PresupuestoGastos setVista={setVista} />}
+    </>
+  );
+
+  const renderNavItem = ({ id, label, icon: Icon }) => {
+    const active = vista === id;
+    return (
+      <button
+        key={id}
+        type="button"
+        title={label}
+        aria-current={active ? 'page' : undefined}
+        onClick={() => navigateTo(id)}
+        className={`group flex h-11 w-full items-center justify-start gap-3 rounded-lg px-3 text-sm font-medium transition ${
+          active
+            ? 'bg-slate-900 text-white shadow-sm'
+            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
+        }`}
+      >
+        <Icon className={`h-5 w-5 shrink-0 ${active ? 'text-white' : 'text-slate-500 group-hover:text-slate-800'}`} />
+        <span className="truncate">{label}</span>
+      </button>
+    );
+  };
+
+  return (
+    <>
+      <div className="min-h-screen bg-macGray">
+        {sidebarHidden && (
+          <button
+            type="button"
+            className="fixed left-3 top-3 z-50 inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+            onClick={() => setSidebarHidden(false)}
+            aria-label="Mostrar menu"
+            title="Mostrar menu"
+          >
+            <FiMenu className="h-5 w-5" />
+          </button>
+        )}
+
+        {!sidebarHidden && (
+          <button
+            type="button"
+            className="fixed inset-0 z-40 bg-slate-900/35 lg:hidden"
+            onClick={() => setSidebarHidden(true)}
+            aria-label="Cerrar menu"
+          />
+        )}
+
+        <aside
+          className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-white/95 px-4 py-4 shadow-sm backdrop-blur transition-transform duration-200 lg:w-64 ${
+            sidebarHidden ? '-translate-x-full' : 'translate-x-0'
+          }`}
+        >
+          <div className="mb-5 flex h-12 items-center justify-between gap-3 rounded-lg px-2">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-sm font-bold text-white">
+                MS
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-slate-950">MacSomenos</div>
+                <div className="truncate text-xs text-slate-500">Panel rapido</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+              onClick={() => setSidebarHidden(true)}
+              aria-label="Ocultar menu"
+              title="Ocultar menu"
+            >
+              <FiX className="h-5 w-5" />
+            </button>
+          </div>
+
+          <nav className="flex flex-1 flex-col gap-1">
+            {SIDEBAR_NAV.map(renderNavItem)}
+
+            <div className="my-3 h-px bg-slate-200" />
+            <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Herramientas
+            </div>
+            {SIDEBAR_SECONDARY_NAV.map(renderNavItem)}
+          </nav>
+        </aside>
+
+        <main className={`min-h-screen transition-[padding] duration-200 ${sidebarHidden ? 'pl-0' : 'lg:pl-64'}`}>
+          {renderVista()}
+        </main>
+      </div>
       {!eshopexWidgetHidden && (
         <div className="fixed bottom-4 right-4 z-40 w-[calc(100vw-2rem)] max-w-[22rem]">
           <div className="rounded-xl border border-slate-200/80 bg-white/95 p-3 shadow-[0_14px_35px_-18px_rgba(15,23,42,0.45)] backdrop-blur transition-colors hover:border-slate-300 dark:border-slate-700/70 dark:bg-slate-900/90 dark:hover:border-slate-600">
