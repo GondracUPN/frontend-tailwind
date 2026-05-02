@@ -5,6 +5,8 @@ import { getAnalyticsSummary } from '../services/analytics';
 import { TC_FIJO } from '../utils/tipoCambio';
 
 const PAGE_SIZE = 140;
+const PRODUCT_SEARCH_CACHE_PREFIX = 'ebay:product-search:v1';
+const PRODUCT_SEARCH_CACHE_TTL_MS = 30 * 60 * 1000;
 const EMPTY_RESULT = {
   items: [],
   sellers: [],
@@ -17,6 +19,40 @@ const EMPTY_RESULT = {
   buyingOptions: '',
   family: 'all',
   hasMore: false,
+};
+
+const productSearchCacheKey = (params) => {
+  try {
+    return `${PRODUCT_SEARCH_CACHE_PREFIX}:${encodeURIComponent(JSON.stringify(params))}`;
+  } catch {
+    return '';
+  }
+};
+
+const readProductSearchCache = (key) => {
+  if (!key) return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.ts || Date.now() - Number(parsed.ts) > PRODUCT_SEARCH_CACHE_TTL_MS) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    if (!Array.isArray(parsed?.result?.items)) return null;
+    return parsed.result;
+  } catch {
+    return null;
+  }
+};
+
+const writeProductSearchCache = (key, result) => {
+  if (!key || !result) return;
+  try {
+    localStorage.setItem(key, JSON.stringify({ ts: Date.now(), result }));
+  } catch {
+    /* ignore */
+  }
 };
 
 const FAMILY_OPTIONS = [
@@ -763,6 +799,7 @@ function Ebay({ setVista }) {
   const [productBuyingOptions, setProductBuyingOptions] = useState('BEST_OFFER');
   const [productPawnOnly, setProductPawnOnly] = useState(false);
   const [productResult, setProductResult] = useState(EMPTY_RESULT);
+  const [productCacheNotice, setProductCacheNotice] = useState('');
   const [ipadForm, setIpadForm] = useState({ screen: '', processor: '', storage: '', connectivity: '' });
   const [iphoneForm, setIphoneForm] = useState({ number: '16', model: '' });
   const [macbookForm, setMacbookForm] = useState({ line: '', screen: '', processor: '', ram: '', storage: '' });
@@ -887,10 +924,46 @@ function Ebay({ setVista }) {
           ? buildMacbookQuery(macbookForm)
           : 'apple ipad iphone macbook';
 
-  const loadProductSearch = async ({ append = false } = {}) => {
+  const currentProductSearchCacheKey = useMemo(() => productSearchCacheKey({
+    type: productType,
+    query: productQuery,
+    condition: productCondition,
+    buyingOptions: productBuyingOptions,
+    pawnOnly: productPawnOnly,
+    ipadForm,
+    iphoneForm,
+    macbookForm,
+    limit: PAGE_SIZE,
+    offset: 0,
+  }), [
+    productType,
+    productQuery,
+    productCondition,
+    productBuyingOptions,
+    productPawnOnly,
+    ipadForm,
+    iphoneForm,
+    macbookForm,
+  ]);
+
+  useEffect(() => {
+    setProductCacheNotice('');
+  }, [currentProductSearchCacheKey]);
+
+  const loadProductSearch = async ({ append = false, forceRefresh = false } = {}) => {
     const initialOffset = append ? getNextResultOffset(productResult) : 0;
+    if (!append && !forceRefresh) {
+      const cached = readProductSearchCache(currentProductSearchCacheKey);
+      if (cached) {
+        setErrors((prev) => ({ ...prev, product: '' }));
+        setProductResult(cached);
+        setProductCacheNotice('Mostrando resultados guardados. Usa "Actualizar API" para renovar.');
+        return;
+      }
+    }
     if (append) setAppendLoadingTab('product');
     else setLoadingTab('product');
+    setProductCacheNotice('');
     loadEbayRateLimits({ silent: false });
     setErrors((prev) => ({ ...prev, product: '' }));
     try {
@@ -937,8 +1010,8 @@ function Ebay({ setVista }) {
       }
 
       const finalOffset = Number(data?.offset || initialOffset);
-      setProductResult((prev) => ({
-        items: append ? mergeUniqueItems(prev.items, filteredItems) : filteredItems,
+      const nextResult = {
+        items: filteredItems,
         sellers: Array.isArray(data?.sellers) ? data.sellers : [],
         total: Number(data?.total || 0),
         query: String(data?.query || productQuery),
@@ -951,7 +1024,14 @@ function Ebay({ setVista }) {
         buyingOptions: String(data?.buyingOptions || productBuyingOptions),
         hasMore: data?.rateLimited ? false : (typeof data?.hasMore === 'boolean' ? data.hasMore : undefined),
         rateLimited: Boolean(data?.rateLimited),
-      }));
+      };
+      setProductResult((prev) => {
+        const mergedResult = append
+          ? { ...nextResult, items: mergeUniqueItems(prev.items, filteredItems) }
+          : nextResult;
+        if (!append) writeProductSearchCache(currentProductSearchCacheKey, mergedResult);
+        return mergedResult;
+      });
     } catch (err) {
       if (/429|limitando|too many requests/i.test(String(err?.message || err))) {
         setProductResult((prev) => ({ ...prev, hasMore: false, rateLimited: true }));
@@ -1419,6 +1499,21 @@ function Ebay({ setVista }) {
               >
                 {loadingTab === 'product' ? 'Buscando...' : 'Buscar producto'}
               </button>
+              {productResult.items.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('product'); loadProductSearch({ append: false, forceRefresh: true }); }}
+                  disabled={loadingTab === 'product'}
+                  className="rounded-2xl border border-amber-200 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Actualizar API
+                </button>
+              )}
+              {productCacheNotice && activeTab === 'product' && (
+                <div className="text-sm font-medium text-emerald-700">
+                  {productCacheNotice}
+                </div>
+              )}
             </div>
           </div>
         </div>

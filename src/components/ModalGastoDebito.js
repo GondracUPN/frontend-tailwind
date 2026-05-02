@@ -5,8 +5,8 @@ import { convertPenToUsd, TC_FIJO } from '../utils/tipoCambio';
 import CloseX from './CloseX';
 
 const BANKS_DEBITO = [
-  { value: 'interbank', label: 'Interbank' },
   { value: 'bcp', label: 'BCP' },
+  { value: 'interbank', label: 'Interbank' },
   { value: 'bbva', label: 'BBVA' },
 ];
 
@@ -26,6 +26,7 @@ const BASE_CONCEPTOS_DEBITO = [
   { value: 'comida', label: 'Comida' },
   { value: 'gustos', label: 'Gustos' },
   { value: 'ingresos', label: 'Ingresos' },
+  { value: 'inversion', label: 'Inversion' },
   { value: 'transporte', label: 'Transporte' },
   { value: 'pago_envios', label: 'Pago de envios' },
   { value: 'retiro_agente', label: 'Retiro agente' },
@@ -40,6 +41,7 @@ const normConcept = (raw) => {
     comida: 'comida',
     gusto: 'gusto',
     gustos: 'gusto',
+    inversion: 'inversion',
     ingreso: 'ingreso',
     ingresos: 'ingreso',
     transporte: 'transporte',
@@ -61,7 +63,7 @@ const normConcept = (raw) => {
 
 const isFlexibleMoneda = (c) => {
   const n = normConcept(c);
-  return ['ingreso', 'gasto_recurrente', 'gastos_recurrentes', 'gusto', 'cashback'].some((k) => n.startsWith(k));
+  return ['ingreso', 'inversion', 'gasto_recurrente', 'gastos_recurrentes', 'gusto', 'cashback'].some((k) => n.startsWith(k));
 };
 
 
@@ -71,7 +73,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
   const [monto, setMonto] = useState('');
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [pagoObjetivo, setPagoObjetivo] = useState('PEN'); // 'PEN' | 'USD'
-  const [banco, setBanco] = useState('interbank');
+  const [banco, setBanco] = useState('bcp');
 
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(true);
@@ -111,6 +113,11 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
   // En conceptos distintos a pago_tarjeta, forzar soles
   useEffect(() => {
+    if (concepto === 'inversion') {
+      setMoneda('USD');
+      setPagoObjetivo('PEN');
+      return;
+    }
     if (concepto !== 'pago_tarjeta' && !isFlexibleMoneda(concepto)) {
       setMoneda('PEN');
       setPagoObjetivo('PEN');
