@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import CloseX from './CloseX';
 import { API_URL } from '../api';
+import { addMonthsToDateInput, localDateInputValue } from '../utils/dates';
 
 const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
@@ -11,14 +12,7 @@ const fmtMoney = (moneda, monto) => {
 
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '_');
 
-function addMonths(dateStr, months) {
-  const d = new Date(dateStr);
-  const day = d.getDate();
-  const m = d.getMonth();
-  const y = d.getFullYear();
-  const nd = new Date(y, m + months, day);
-  return nd.toISOString().slice(0, 10);
-}
+const addMonths = addMonthsToDateInput;
 
 export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChanged }) {
   const [tab, setTab] = useState('mensuales'); // 'cuotas' | 'mensuales'
@@ -58,7 +52,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
   }, [token]);
 
   const cuotasList = useMemo(() => {
-    const today = new Date().toISOString().slice(0,10);
+    const today = localDateInputValue();
     const deudas = rows
       .filter(r => r.metodoPago === 'credito' && norm(r.concepto) === 'deuda_cuotas')
       .sort((a,b)=> a.fecha.localeCompare(b.fecha));
@@ -152,7 +146,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
     const keys = Object.keys(selKeys).filter(k => selKeys[k]);
     if (!keys.length || !token) return;
     try {
-      const today = new Date().toISOString().slice(0,10);
+      const today = localDateInputValue();
       for (const k of keys) {
         const it = mensualesGroups.find(x => x.key === k);
         if (!it) continue;
@@ -184,7 +178,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
     const g = mensualesGroups.find((x) => x.key === k);
     if (!g || !token) return;
     try {
-      const baseDate = g.last?.fecha || new Date().toISOString().slice(0,10);
+      const baseDate = g.last?.fecha || localDateInputValue();
       const next = addMonths(baseDate, 1);
       const body = {
         metodoPago: g.metodoPago,

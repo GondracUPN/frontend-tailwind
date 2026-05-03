@@ -1,6 +1,7 @@
 // src/components/ModalGastoCredito.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
+import { localDateInputValue } from '../utils/dates';
 import CloseX from './CloseX';
 
 const TC_CREDITO = 3.7;
@@ -53,9 +54,6 @@ const findConcept = (apiValue) => {
 const toDisplayConcept = (apiValue) => findConcept(apiValue)?.value || 'Comida';
 const toApiConcept = (displayValue) => findConcept(displayValue)?.api || 'comida';
 
-
-const today = () => new Date().toISOString().slice(0, 10);
-
 export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'create', initial = null, defaultCard = '' }) {
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(true);
@@ -64,7 +62,7 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
   const defaultMoneda = (() => (normConcept(initial?.concepto) === 'inversion' ? 'USD' : 'PEN'))();
   const [moneda, setMoneda] = useState(initial?.moneda || defaultMoneda);
   const [monto, setMonto] = useState(initial?.monto != null ? String(initial.monto) : '');
-  const [fecha, setFecha] = useState(initial?.fecha || today());
+  const [fecha, setFecha] = useState(initial?.fecha || localDateInputValue());
   const [nota, setNota] = useState(initial?.notas || initial?.detalleGusto || '');
 
   const [detalleMensual, setDetalleMensual] = useState('');

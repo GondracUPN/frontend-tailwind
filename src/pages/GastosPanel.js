@@ -181,6 +181,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     const n = String(c || '').toLowerCase().replace(/\s+/g,'_');
     if (n === 'gastos_recurrentes') return 'Gastos mensuales';
     if (n === 'cashback') return 'Devo/Cash';
+    if (n === 'inversion') return 'Bolsa';
     return String(c || '').replace(/_/g,' ');
   };
 

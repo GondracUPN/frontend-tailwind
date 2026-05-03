@@ -7,7 +7,11 @@ const SPLIT_VENDOR = 'ambos';
 const SPLIT_SHARE = 0.5;
 
 const normalizeConcept = (c) => String(c || '').trim().toLowerCase().replace(/\s+/g, '_');
-const displayConcepto = (c) => String(c || '').replace(/_/g, ' ');
+const displayConcepto = (c) => {
+  const n = normalizeConcept(c);
+  if (n === 'inversion') return 'Bolsa';
+  return String(c || '').replace(/_/g, ' ');
+};
 const sumValues = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]);
 const normalizeSeller = (s) => (s == null ? '' : String(s).trim().toLowerCase());
 const getVentaSeller = (venta) =>

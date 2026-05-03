@@ -1,17 +1,18 @@
 // src/components/ModalEditarGasto.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
+import { localDateInputValue } from '../utils/dates';
 import CloseX from './CloseX';
 
 const BANKS_DEBITO = [
-  { value: 'interbank', label: 'Interbank' },
   { value: 'bcp', label: 'BCP' },
+  { value: 'interbank', label: 'Interbank' },
   { value: 'bbva', label: 'BBVA' },
 ];
 
 export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
   const [monto, setMonto] = useState(String(gasto?.monto ?? ''));
-  const [fecha, setFecha] = useState(gasto?.fecha || new Date().toISOString().slice(0,10));
+  const [fecha, setFecha] = useState(gasto?.fecha || localDateInputValue());
   const [notas, setNotas] = useState(gasto?.notas || '');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -44,6 +45,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
       { value: 'comida', label: 'Comida' },
       { value: 'gustos', label: 'Gustos' },
       { value: 'ingresos', label: 'Ingresos' },
+      { value: 'inversion', label: 'Bolsa' },
       { value: 'retiro_agente', label: 'Retiro agente' },
       { value: 'transporte', label: 'Transporte' },
       { value: 'gastos_recurrentes', label: 'Gastos mensuales' },
@@ -127,7 +129,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
         {err && <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</div>}
 
         <div className="mb-2 text-xs text-gray-600">
-          <div>Concepto: <b className="capitalize">{String(gasto.concepto || '').replace(/_/g,' ')}</b></div>
+          <div>Concepto: <b className="capitalize">{String(gasto.concepto || '').toLowerCase() === 'inversion' ? 'Bolsa' : String(gasto.concepto || '').replace(/_/g,' ')}</b></div>
           <div>Método: <b className="capitalize">{gasto.metodoPago}</b> • Moneda: <b>{gasto.moneda}</b> • Tarjeta/Banco: <b>{gasto.tarjeta || '-'}</b></div>
         </div>
 
