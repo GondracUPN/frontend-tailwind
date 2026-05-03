@@ -7,10 +7,15 @@ const SPLIT_VENDOR = 'ambos';
 const SPLIT_SHARE = 0.5;
 
 const normalizeConcept = (c) => String(c || '').trim().toLowerCase().replace(/\s+/g, '_');
-const displayConcepto = (c) => {
+const displayConcepto = (c, metodoPago = '') => {
   const n = normalizeConcept(c);
-  if (n === 'inversion') return 'Bolsa';
+  if (n === 'bolsa') return 'Bolsa';
+  if (n === 'inversion') return metodoPago === 'debito' ? 'Bolsa' : 'Inversion';
   return String(c || '').replace(/_/g, ' ');
+};
+const isInvestmentLike = (c) => {
+  const n = normalizeConcept(c);
+  return n === 'inversion' || n === 'bolsa';
 };
 const sumValues = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]);
 const normalizeSeller = (s) => (s == null ? '' : String(s).trim().toLowerCase());
@@ -131,14 +136,14 @@ export default function AnalisisGastos({ setVista }) {
   const byConceptCredito = gastosSolo
     .filter((r) => r.metodoPago === 'credito')
     .reduce((acc, r) => {
-      const key = displayConcepto(r.concepto || 'otros');
+      const key = displayConcepto(r.concepto || 'otros', r.metodoPago);
       acc[key] = (acc[key] || 0) + toPen(r);
       return acc;
     }, {});
   const byConceptDebito = gastosSolo
     .filter((r) => r.metodoPago === 'debito')
     .reduce((acc, r) => {
-      const key = displayConcepto(r.concepto || 'otros');
+      const key = displayConcepto(r.concepto || 'otros', r.metodoPago);
       acc[key] = (acc[key] || 0) + toPen(r);
       return acc;
     }, {});
@@ -152,10 +157,10 @@ export default function AnalisisGastos({ setVista }) {
   const byConceptVida = gastosSolo
     .filter((r) => {
       const c = normalizeConcept(r.concepto);
-      return c !== 'inversion' && c !== 'pago_envios';
+      return !isInvestmentLike(c) && c !== 'pago_envios';
     })
     .reduce((acc, r) => {
-      const key = displayConcepto(r.concepto || 'otros');
+      const key = displayConcepto(r.concepto || 'otros', r.metodoPago);
       acc[key] = (acc[key] || 0) + toPen(r);
       return acc;
     }, {});
@@ -242,7 +247,7 @@ export default function AnalisisGastos({ setVista }) {
       gastosSolo
         .filter((r) => {
           const c = normalizeConcept(r.concepto);
-          return c !== 'inversion' && c !== 'pago_envios';
+          return !isInvestmentLike(c) && c !== 'pago_envios';
         })
         .reduce((s, r) => s + toPen(r), 0),
     [gastosSolo],
@@ -251,7 +256,7 @@ export default function AnalisisGastos({ setVista }) {
     () =>
       gastosSolo.filter((r) => {
         const c = normalizeConcept(r.concepto);
-        return c !== 'inversion' && c !== 'pago_envios';
+        return !isInvestmentLike(c) && c !== 'pago_envios';
       }),
     [gastosSolo],
   );
@@ -502,7 +507,7 @@ export default function AnalisisGastos({ setVista }) {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h3 className="font-semibold text-gray-800">Gastos de vida</h3>
-                    <span className="text-xs text-gray-500">Incluye debito y credito (sin inversion ni envios)</span>
+                    <span className="text-xs text-gray-500">Incluye debito y credito (sin inversion, bolsa ni envios)</span>
                   </div>
                   <button
                     onClick={() => setShowPieVida(true)}
@@ -606,7 +611,7 @@ export default function AnalisisGastos({ setVista }) {
           </button>
           <h3 className="text-xl font-semibold mb-2">Gastos de vida por concepto (%)</h3>
           <p className="text-sm text-gray-600 mb-4">
-            Incluye debito y credito (sin inversion ni envios)
+            Incluye debito y credito (sin inversion, bolsa ni envios)
           </p>
           <PieBlock title="Gastos de vida" total={gastosVidaPen} data={pieDataVida} gradient={pieGradientVida} />
         </div>

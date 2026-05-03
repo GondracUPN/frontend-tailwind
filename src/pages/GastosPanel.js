@@ -177,11 +177,12 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   };
   const refreshTotals = async () => reloadAll({ includeGastos: false, useCache: false, silent: true });
 
-  const displayConcepto = (c) => {
+  const displayConcepto = (c, metodoPago = '') => {
     const n = String(c || '').toLowerCase().replace(/\s+/g,'_');
     if (n === 'gastos_recurrentes') return 'Gastos mensuales';
     if (n === 'cashback') return 'Devo/Cash';
-    if (n === 'inversion') return 'Bolsa';
+    if (n === 'bolsa') return 'Bolsa';
+    if (n === 'inversion') return metodoPago === 'debito' ? 'Bolsa' : 'Inversion';
     return String(c || '').replace(/_/g,' ');
   };
 
@@ -413,7 +414,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   {debitRows.map((g) => {
                     const conceptoCell = g.concepto === 'pago_tarjeta'
                       ? `Pago Tarjeta  ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
-                      : displayConcepto(g.concepto);
+                      : displayConcepto(g.concepto, g.metodoPago);
                     const detalle = g.notas || '-';
                     return (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
@@ -490,7 +491,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                       return (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
                       <td className="p-2 align-top">{g.fecha}</td>
-                      <td className="p-2 align-top capitalize">{displayConcepto(g.concepto)}</td>
+                      <td className="p-2 align-top capitalize">{displayConcepto(g.concepto, g.metodoPago)}</td>
                       <td className="p-2 align-top">{CARD_LABEL[g.tarjeta] || g.tarjeta || '-'}</td>
                       <td className="p-2 align-top">{detalle}</td>
                       <td className="p-2 align-top font-semibold">{fmtMoney(g.moneda, g.monto)}</td>

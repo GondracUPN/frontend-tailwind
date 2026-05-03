@@ -9,6 +9,7 @@ import GastosIndex from './pages/GastosIndex';
 import AnalisisGastos from './pages/AnalisisGastos';
 import PresupuestoGastos from './pages/PresupuestoGastos';
 import Ebay from './pages/Ebay';
+import ModalFotosManual from './components/ModalFotosManual';
 import api from './api';
 import {
   FiActivity,
@@ -16,12 +17,16 @@ import {
   FiBox,
   FiBriefcase,
   FiDollarSign,
+  FiEye,
   FiGrid,
   FiHash,
   FiHome,
   FiMenu,
   FiPieChart,
+  FiRefreshCw,
+  FiSearch,
   FiSettings,
+  FiTruck,
   FiX,
 } from 'react-icons/fi';
 
@@ -34,6 +39,8 @@ const ESHOPEX_BG_OPEN_MODAL_KEY = 'eshopex-carga-open-modal';
 const ESHOPEX_BG_COUNT_KEY = 'eshopex-carga-pendientes-count';
 const ESHOPEX_BG_CONSUMED_KEY = 'eshopex-carga-trigger-consumed-ts';
 const SIDEBAR_HIDDEN_KEY = 'app-sidebar-hidden';
+const PRODUCTOS_CACHE_KEY = 'productos:cache:v2';
+const PRODUCTOS_CACHE_TTL_MS = 2 * 60 * 1000;
 const EMPTY_ESH_PROGRESS = {
   status: 'idle',
   total: 0,
@@ -43,6 +50,17 @@ const EMPTY_ESH_PROGRESS = {
   currentCasillero: '',
   message: '',
   error: null,
+};
+
+const CASILLERO_BY_ACCOUNT = {
+  'gongarc2001@gmail.com': 'Walter',
+  'renato1carbajal@gmail.com': 'Renato',
+  'limonimofelip@gmail.com': 'Christian',
+  'dracgonic12@gmail.com': 'Alex',
+  'renato1carbajal@outlook.com': 'MamaRen',
+  'goneba2526@gmail.com': 'Jorge',
+  'gondrac10@gmail.com': 'Kenny',
+  'macsominus@gmail.com': 'Sebastian',
 };
 
 const normalizeEshopexProgress = (raw) => {
@@ -64,6 +82,111 @@ const normalizeEshopexProgress = (raw) => {
   };
 };
 
+const getLastTrackingGlobal = (p) => {
+  const trk = Array.isArray(p?.tracking) ? [...p.tracking] : [];
+  if (!trk.length) return null;
+  trk.sort((a, b) => {
+    if (a.createdAt && b.createdAt) return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    return (b.id || 0) - (a.id || 0);
+  });
+  return trk[0] || null;
+};
+
+const buildNombreProductoGlobal = (p) => {
+  if (!p) return '';
+  const keyTamano = 'tama\u00f1o';
+  if (p.tipo === 'otro') return (p.detalle?.descripcionOtro || '').trim() || 'Otros';
+  if (String(p.tipo || '').toLowerCase() === 'iphone') {
+    const numero = String(p.detalle?.numero || '').trim();
+    const modelo = String(p.detalle?.modelo || '').trim();
+    return ['iPhone', numero, modelo].filter(Boolean).join(' ');
+  }
+  const parts = [
+    p.tipo,
+    p.detalle?.gama,
+    p.detalle?.procesador,
+    (p.detalle || {})['tamano'] || (p.detalle || {})[keyTamano] || (p.detalle || {})['tamanio'],
+  ].filter(Boolean);
+  return parts.join(' ');
+};
+
+const readProductosCache = () => {
+  try {
+    const raw = localStorage.getItem(PRODUCTOS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.ts) return null;
+    if (Date.now() - parsed.ts > PRODUCTOS_CACHE_TTL_MS) return null;
+    return Array.isArray(parsed.productos) ? parsed.productos : [];
+  } catch {
+    return null;
+  }
+};
+
+const writeProductosCache = (productos) => {
+  try {
+    const raw = localStorage.getItem(PRODUCTOS_CACHE_KEY);
+    const prev = raw ? JSON.parse(raw) : {};
+    localStorage.setItem(
+      PRODUCTOS_CACHE_KEY,
+      JSON.stringify({
+        ...prev,
+        productos,
+        ts: Date.now(),
+      }),
+    );
+  } catch {
+    /* ignore */
+  }
+};
+
+const getFilteredEshopexPendientes = (rows, productos) => {
+  if (!Array.isArray(productos) || productos.length === 0) return [];
+
+  const productosByEshopex = {};
+  const trackingUsaEnEshopex = new Set();
+  const casillerosEnCamino = new Set();
+
+  for (const p of productos || []) {
+    const t = getLastTrackingGlobal(p);
+    const estadoProducto = String(t?.estado || '').toLowerCase();
+    const trackingEshop = String(t?.trackingEshop || '').trim();
+    if (trackingEshop) productosByEshopex[trackingEshop] = p;
+    if (estadoProducto === 'en_eshopex') {
+      const digits = String(t?.trackingUsa || '').replace(/\D+/g, '');
+      if (digits) trackingUsaEnEshopex.add(digits);
+    }
+    if (estadoProducto === 'comprado_en_camino') {
+      const cas = String(t?.casillero || '').trim().toLowerCase();
+      if (cas) casillerosEnCamino.add(cas);
+    }
+  }
+
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => {
+      const estado = String(row?.estado || '').trim().toUpperCase();
+      const guiaRaw = String(row?.guia || '').trim();
+      const guiaDigits = guiaRaw.replace(/\D+/g, '');
+      if (guiaDigits.length < 6) return false;
+      if (productosByEshopex[guiaRaw]) return false;
+      if (guiaDigits && trackingUsaEnEshopex.has(guiaDigits)) return false;
+      if (estado.includes('PAGADO')) return false;
+      return estado !== 'ENTREGADO';
+    })
+    .map((row, idx) => ({ row, idx }))
+    .sort((a, b) => {
+      const accountA = String(a.row?.account || '').trim().toLowerCase();
+      const accountB = String(b.row?.account || '').trim().toLowerCase();
+      const casA = String(CASILLERO_BY_ACCOUNT[accountA] || '').trim().toLowerCase();
+      const casB = String(CASILLERO_BY_ACCOUNT[accountB] || '').trim().toLowerCase();
+      const priA = casA && casillerosEnCamino.has(casA) ? 0 : 1;
+      const priB = casB && casillerosEnCamino.has(casB) ? 0 : 1;
+      if (priA !== priB) return priA - priB;
+      return a.idx - b.idx;
+    })
+    .map((item) => item.row);
+};
+
 const isPendingCargaRow = (row) => {
   const estado = String(row?.estado || '').trim().toUpperCase();
   const guiaRaw = String(row?.guia || '').trim();
@@ -74,7 +197,20 @@ const isPendingCargaRow = (row) => {
   return true;
 };
 
-const pendingFromRows = (rows) => (Array.isArray(rows) ? rows.filter(isPendingCargaRow) : []);
+const pendingFromRows = (rows, productos = readProductosCache() || []) => {
+  if (Array.isArray(productos) && productos.length) return getFilteredEshopexPendientes(rows, productos);
+  return Array.isArray(rows) ? rows.filter(isPendingCargaRow) : [];
+};
+
+const readCachedCargaRows = () => {
+  try {
+    const raw = localStorage.getItem(ESHOPEX_CARGA_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed?.rows) ? parsed.rows : [];
+  } catch {
+    return [];
+  }
+};
 
 const SIDEBAR_NAV = [
   { id: 'home', label: 'Inicio', icon: FiHome },
@@ -96,7 +232,6 @@ function App() {
   // Leer la última vista guardada; si no hay, usa 'home'
   const [vista, setVista] = useState(() => localStorage.getItem('vista') || 'home');
   const [analisisBack, setAnalisisBack] = useState('home');
-  const [eshopexWidgetHidden, setEshopexWidgetHidden] = useState(false);
   const [eshopexUi, setEshopexUi] = useState(() => ({
     requested: false,
     loading: false,
@@ -105,7 +240,14 @@ function App() {
   }));
   const [eshopexProgress, setEshopexProgress] = useState(() => ({ ...EMPTY_ESH_PROGRESS }));
   const [eshopexModalOpen, setEshopexModalOpen] = useState(false);
-  const [eshopexModalRows, setEshopexModalRows] = useState([]);
+  const [eshopexModalRows, setEshopexModalRows] = useState(() => readCachedCargaRows());
+  const [productosGlobal, setProductosGlobal] = useState(() => readProductosCache() || []);
+  const [fotosManualSeed, setFotosManualSeed] = useState({ trackingEshop: '', fechaRecepcion: '' });
+  const [fotosManualOpen, setFotosManualOpen] = useState(false);
+  const [eshopexPagoLoading, setEshopexPagoLoading] = useState(() => new Set());
+  const [eshopexVincularOpen, setEshopexVincularOpen] = useState(false);
+  const [eshopexVincularRow, setEshopexVincularRow] = useState(null);
+  const [eshopexVincularLoading, setEshopexVincularLoading] = useState(() => new Set());
   const [sidebarHidden, setSidebarHidden] = useState(() => {
     try {
       const saved = localStorage.getItem(SIDEBAR_HIDDEN_KEY);
@@ -138,6 +280,27 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    let alive = true;
+    const cached = readProductosCache();
+    if (cached) setProductosGlobal(cached);
+    (async () => {
+      if (cached && cached.length) return;
+      try {
+        const data = await api.get('/productos');
+        if (!alive) return;
+        const lista = Array.isArray(data)
+          ? data
+          : (Array.isArray(data?.items) ? data.items : []);
+        setProductosGlobal(lista);
+        writeProductosCache(lista);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   // Al iniciar la app, no auto-disparar busquedas pendientes de sesiones anteriores.
   useEffect(() => {
     try {
@@ -154,16 +317,6 @@ function App() {
     setEshopexUi({ requested: false, loading: false, error: '', count: 0 });
   }, []);
 
-  const readCachedCargaRows = () => {
-    try {
-      const raw = localStorage.getItem(ESHOPEX_CARGA_CACHE_KEY);
-      const parsed = raw ? JSON.parse(raw) : null;
-      return Array.isArray(parsed?.rows) ? parsed.rows : [];
-    } catch {
-      return [];
-    }
-  };
-
   useEffect(() => {
     const readUi = () => {
       const requested = localStorage.getItem(ESHOPEX_BG_REQUESTED_KEY) === '1';
@@ -177,7 +330,7 @@ function App() {
       let count = countRaw == null ? NaN : Number(countRaw);
       if (!Number.isFinite(count)) {
         const cachedRows = readCachedCargaRows();
-        count = pendingFromRows(cachedRows).length;
+        count = pendingFromRows(cachedRows, productosGlobal).length;
       }
       if (!hasPendingTrigger && loadingRaw) {
         try {
@@ -192,7 +345,7 @@ function App() {
     const timer = window.setInterval(readUi, 1000);
     readUi();
     return () => window.clearInterval(timer);
-  }, []);
+  }, [productosGlobal]);
 
   const triggerEshopexBg = () => {
     const nowTs = Date.now();
@@ -211,22 +364,20 @@ function App() {
       message: 'Iniciando busqueda...',
       error: null,
     }));
-    setEshopexWidgetHidden(false);
   };
 
   const openEshopexInProductos = () => {
-    if (vista === 'productos') {
-      try {
-        localStorage.setItem(ESHOPEX_BG_OPEN_MODAL_KEY, String(Date.now()));
-      } catch {
-        /* ignore */
-      }
-      setEshopexWidgetHidden(false);
-      return;
-    }
+    const cachedProductos = readProductosCache();
+    if (cachedProductos) setProductosGlobal(cachedProductos);
     setEshopexModalRows(readCachedCargaRows());
-    setEshopexWidgetHidden(false);
     setEshopexModalOpen(true);
+    try {
+      if (window.matchMedia('(max-width: 1023px)').matches) {
+        setSidebarHidden(true);
+      }
+    } catch {
+      /* ignore */
+    }
   };
 
   // Worker global: mantiene la busqueda de pendientes Eshopex aunque cambies de vista.
@@ -256,7 +407,7 @@ function App() {
         if (!alive) return;
         const rows = Array.isArray(data) ? data : (data?.data || []);
         try {
-          const pendingCount = pendingFromRows(rows).length;
+          const pendingCount = pendingFromRows(rows, readProductosCache() || []).length;
           localStorage.setItem(
             ESHOPEX_CARGA_CACHE_KEY,
             JSON.stringify({ ts: Date.now(), rows: Array.isArray(rows) ? rows : [] }),
@@ -294,13 +445,32 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!eshopexModalOpen) return;
-    const syncRows = () => {
+    if (!eshopexModalOpen) return () => {};
+    let alive = true;
+    const sync = () => {
       setEshopexModalRows(readCachedCargaRows());
+      const cachedProductos = readProductosCache();
+      if (cachedProductos) setProductosGlobal(cachedProductos);
     };
-    const timer = window.setInterval(syncRows, 1000);
-    syncRows();
-    return () => window.clearInterval(timer);
+    sync();
+    (async () => {
+      try {
+        const data = await api.get('/productos');
+        if (!alive) return;
+        const lista = Array.isArray(data)
+          ? data
+          : (Array.isArray(data?.items) ? data.items : []);
+        setProductosGlobal(lista);
+        writeProductosCache(lista);
+      } catch {
+        /* ignore */
+      }
+    })();
+    const timer = window.setInterval(sync, 1000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
   }, [eshopexModalOpen]);
 
   useEffect(() => {
@@ -324,9 +494,174 @@ function App() {
   }, [eshopexUi.loading]);
 
   const eshopexModalPendientes = useMemo(
-    () => pendingFromRows(eshopexModalRows),
-    [eshopexModalRows],
+    () => getFilteredEshopexPendientes(eshopexModalRows, productosGlobal),
+    [eshopexModalRows, productosGlobal],
   );
+
+  const productosByEshopexGlobal = useMemo(() => {
+    const map = {};
+    for (const p of productosGlobal || []) {
+      const code = String(getLastTrackingGlobal(p)?.trackingEshop || '').trim();
+      if (code) map[code] = p;
+    }
+    return map;
+  }, [productosGlobal]);
+
+  useEffect(() => {
+    const count = eshopexModalPendientes.length;
+    try {
+      localStorage.setItem(ESHOPEX_BG_COUNT_KEY, String(count));
+    } catch {
+      /* ignore */
+    }
+    setEshopexUi((prev) => ({ ...prev, count }));
+  }, [eshopexModalPendientes.length]);
+
+  const openFotosManualGlobal = (row) => {
+    setFotosManualSeed({
+      trackingEshop: String(row?.guia || '').trim(),
+      fechaRecepcion: String(row?.fechaRecepcion || '').trim(),
+    });
+    setFotosManualOpen(true);
+  };
+
+  const markPagoLoading = (key, active) => {
+    setEshopexPagoLoading((prev) => {
+      const next = new Set(prev);
+      if (active) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const markVincularLoading = (key, active) => {
+    setEshopexVincularLoading((prev) => {
+      const next = new Set(prev);
+      if (active) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const parseEshopexFecha = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const monthMap = {
+      jan: '01', ene: '01',
+      feb: '02',
+      mar: '03',
+      apr: '04', abr: '04',
+      may: '05',
+      jun: '06',
+      jul: '07',
+      aug: '08', ago: '08',
+      sep: '09', set: '09',
+      oct: '10',
+      nov: '11',
+      dec: '12', dic: '12',
+    };
+    const match = raw.match(/^([A-Za-z]{3,})\s*[-/ ]?\s*(\d{1,2})\s*[-/ ]?\s*(\d{4})$/);
+    if (match) {
+      const mm = monthMap[match[1].slice(0, 3).toLowerCase()];
+      if (mm) return `${match[3]}-${mm}-${String(match[2]).padStart(2, '0')}`;
+    }
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+      const yyyy = parsed.getFullYear();
+      const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+      const dd = String(parsed.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    return '';
+  };
+
+  const parseEshopexPeso = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw || /^null$/i.test(raw)) return null;
+    const normalized = raw.replace(/,/g, '.').replace(/[^0-9.]+/g, ' ').trim();
+    const token = normalized.split(/\s+/).find(Boolean) || '';
+    const parsed = Number(token);
+    if (!Number.isFinite(parsed) || parsed <= 0) return null;
+    return Number(parsed.toFixed(2));
+  };
+
+  const openEshopexVincularModalGlobal = (row) => {
+    setEshopexVincularRow(row || null);
+    setEshopexVincularOpen(true);
+  };
+
+  const refreshProductosGlobal = async () => {
+    try {
+      const data = await api.get('/productos');
+      const lista = Array.isArray(data)
+        ? data
+        : (Array.isArray(data?.items) ? data.items : []);
+      setProductosGlobal(lista);
+      writeProductosCache(lista);
+      return lista;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleEshopexVincularGlobal = async (row, producto) => {
+    const code = String(row?.guia || '').trim();
+    const productoId = producto?.id;
+    const key = `${code}-vincular-${productoId || 'na'}`;
+    if (!code || !productoId || eshopexVincularLoading.has(key)) return;
+    markVincularLoading(key, true);
+    try {
+      const fecha = parseEshopexFecha(row?.fechaRecepcion || '');
+      const peso = parseEshopexPeso(row?.peso || '');
+      const currentValor = producto?.valor || {};
+      const payload = {
+        trackingEshop: code,
+        estatusEsho: String(row?.estado || '').trim(),
+      };
+      if (fecha) payload.fechaRecepcion = fecha;
+      await api.put(`/tracking/producto/${productoId}`, payload);
+      if (peso != null) {
+        await api.patch(`/productos/${productoId}`, {
+          valor: {
+            valorProducto: currentValor?.valorProducto,
+            valorDec: currentValor?.valorDec,
+            peso,
+            fechaCompra: currentValor?.fechaCompra,
+          },
+        });
+      }
+      await refreshProductosGlobal();
+      setEshopexVincularOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo vincular el tracking Eshopex.');
+    } finally {
+      markVincularLoading(key, false);
+    }
+  };
+
+  const handleEshopexPrepagoGlobal = async (row) => {
+    const accountKey = String(row?.account || '').trim().toLowerCase();
+    const code = String(row?.guia || '').trim();
+    const key = `${code}-${accountKey}`;
+    if (!accountKey) {
+      alert('No se encontro la cuenta de Eshopex para este registro.');
+      return;
+    }
+    if (eshopexPagoLoading.has(key)) return;
+    markPagoLoading(key, true);
+    try {
+      const res = await api.post('/tracking/eshopex-prepago', { account: accountKey });
+      const url = res?.url || res?.confirmUrl || '';
+      if (!url) throw new Error('Sin URL de confirmacion');
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo iniciar el pago en Eshopex.');
+    } finally {
+      markPagoLoading(key, false);
+    }
+  };
 
   const eshopexProgressText = useMemo(() => {
     if (!eshopexUi.loading) return '';
@@ -390,6 +725,79 @@ function App() {
     );
   };
 
+  const renderEshopexSidebarPanel = () => (
+    <section className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <div className="flex items-start gap-2.5">
+        <div className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-slate-700 shadow-sm ring-1 ring-slate-200">
+          {eshopexUi.loading ? (
+            <FiRefreshCw className="h-4 w-4 animate-spin text-sky-600" />
+          ) : (
+            <FiTruck className="h-4 w-4" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="truncate text-sm font-semibold text-slate-950">Pendientes Eshopex</h2>
+            {eshopexUi.requested && !eshopexUi.loading && !eshopexUi.error && (
+              <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-slate-900 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                {eshopexUi.count}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 truncate text-xs text-slate-500">
+            {!eshopexUi.requested
+              ? 'Sin buscar'
+              : eshopexUi.loading
+                ? (eshopexProgressText || 'Buscando...')
+                : (eshopexUi.error || `${eshopexUi.count} pendientes`)}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 h-1 overflow-hidden rounded-full bg-slate-200">
+        <div
+          className={`h-full transition-all ${
+            eshopexUi.loading
+              ? 'w-full animate-pulse bg-gradient-to-r from-sky-500/15 via-sky-500/60 to-sky-500/15'
+              : eshopexUi.error
+                ? 'w-full bg-rose-500'
+                : eshopexUi.requested
+                  ? 'w-full bg-emerald-500'
+                  : 'w-1/5 bg-slate-400'
+          }`}
+        />
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={triggerEshopexBg}
+          disabled={eshopexUi.loading}
+          title={eshopexUi.requested ? 'Actualizar pendientes' : 'Buscar pendientes'}
+        >
+          {eshopexUi.loading ? (
+            <FiRefreshCw className="h-4 w-4 animate-spin" />
+          ) : eshopexUi.requested ? (
+            <FiRefreshCw className="h-4 w-4" />
+          ) : (
+            <FiSearch className="h-4 w-4" />
+          )}
+          <span className="truncate">{eshopexUi.requested ? 'Actualizar' : 'Buscar'}</span>
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-slate-900 px-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+          onClick={openEshopexInProductos}
+          title="Ver pendientes"
+        >
+          <FiEye className="h-4 w-4" />
+          <span className="truncate">Ver</span>
+        </button>
+      </div>
+    </section>
+  );
+
   return (
     <>
       <div className="min-h-screen bg-macGray">
@@ -444,6 +852,9 @@ function App() {
             {SIDEBAR_NAV.map(renderNavItem)}
 
             <div className="my-3 h-px bg-slate-200" />
+            {renderEshopexSidebarPanel()}
+
+            <div className="my-3 h-px bg-slate-200" />
             <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               Herramientas
             </div>
@@ -455,103 +866,9 @@ function App() {
           {renderVista()}
         </main>
       </div>
-      {!eshopexWidgetHidden && (
-        <div className="fixed bottom-4 right-4 z-40 w-[calc(100vw-2rem)] max-w-[22rem]">
-          <div className="rounded-xl border border-slate-200/80 bg-white/95 p-3 shadow-[0_14px_35px_-18px_rgba(15,23,42,0.45)] backdrop-blur transition-colors hover:border-slate-300 dark:border-slate-700/70 dark:bg-slate-900/90 dark:hover:border-slate-600">
-            <div className="flex items-start gap-2.5">
-              <div className="mt-1 shrink-0">
-                {!eshopexUi.requested ? (
-                  <div className="mt-1.5 h-2.5 w-2.5 rounded-full bg-slate-300 dark:bg-slate-600" />
-                ) : eshopexUi.loading ? (
-                  <div className="h-4 w-4 rounded-full border-2 border-sky-500 border-t-transparent animate-spin" />
-                ) : (
-                  <div className={`mt-1.5 h-2.5 w-2.5 rounded-full ${eshopexUi.error ? 'bg-rose-500' : 'bg-emerald-500'}`} />
-                )}
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-xs font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-                      Pendientes Eshopex
-                    </div>
-                    <div className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
-                      {!eshopexUi.requested
-                        ? 'Aun no se ha buscado.'
-                        : eshopexUi.loading
-                          ? (eshopexProgressText || 'Buscando en segundo plano...')
-                          : (eshopexUi.error || `Listo: ${eshopexUi.count} pendientes`)}
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/70 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                    onClick={() => setEshopexWidgetHidden(true)}
-                    aria-label="Ocultar"
-                  >
-                    <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden="true">
-                      <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                    </svg>
-                  </button>
-                </div>
-
-                <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-200/90 dark:bg-slate-700/80">
-                  <div
-                    className={`h-full transition-all ${
-                      eshopexUi.loading
-                        ? 'w-full animate-pulse bg-gradient-to-r from-sky-500/15 via-sky-500/55 to-sky-500/15'
-                        : eshopexUi.error
-                          ? 'w-full bg-rose-500/70'
-                          : eshopexUi.requested
-                            ? 'w-full bg-emerald-500/70'
-                            : 'w-1/6 bg-slate-400/60 dark:bg-slate-500/70'
-                    }`}
-                  />
-                </div>
-
-                <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                  {!eshopexUi.requested && (
-                    <button
-                      type="button"
-                      className="inline-flex items-center justify-center rounded-lg border border-sky-200 bg-white px-2.5 py-1 text-xs font-medium text-sky-700 shadow-sm transition hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:border-sky-700 dark:bg-slate-900 dark:text-sky-300 dark:hover:bg-slate-800 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-slate-900"
-                      onClick={triggerEshopexBg}
-                    >
-                      Buscar
-                    </button>
-                  )}
-
-                  {eshopexUi.requested && (
-                    <>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-slate-900"
-                        onClick={triggerEshopexBg}
-                        disabled={eshopexUi.loading}
-                      >
-                        {eshopexUi.loading && <span className="h-2 w-2 rounded-full bg-sky-500 animate-pulse" />}
-                        {eshopexUi.loading ? 'Buscando...' : 'Actualizar'}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="inline-flex items-center justify-center rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-60 dark:bg-sky-500 dark:hover:bg-sky-400 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-slate-900"
-                        onClick={openEshopexInProductos}
-                        disabled={eshopexUi.loading && eshopexUi.count === 0}
-                      >
-                        Ver
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       {eshopexModalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white w-full max-w-5xl rounded-xl shadow-lg p-6 relative max-h-[92vh] overflow-auto">
+          <div className="bg-white w-full max-w-6xl rounded-xl shadow-lg p-6 relative max-h-[92vh] overflow-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">Pendientes Eshopex</h2>
               <div className="flex items-center gap-2">
@@ -572,6 +889,11 @@ function App() {
                 </button>
               </div>
             </div>
+            {eshopexUi.loading && (
+              <div className="text-sm text-gray-700 mb-2">
+                {eshopexProgressText || 'Buscando pendientes...'}
+              </div>
+            )}
             {eshopexUi.error && (
               <div className="text-sm text-red-600 mb-2">{eshopexUi.error}</div>
             )}
@@ -579,64 +901,169 @@ function App() {
               <div className="text-sm text-gray-600">
                 Aun no se ha buscado. Usa <b>Buscar</b> o <b>Actualizar</b>.
               </div>
-            ) : eshopexModalPendientes.length === 0 ? (
-              <div className="text-sm text-gray-500">
-                {eshopexUi.loading ? (eshopexProgressText || 'Buscando pendientes...') : 'No hay cargas pendientes.'}
-              </div>
+            ) : productosGlobal.length === 0 ? (
+              <div className="text-sm text-gray-500">Cargando productos para filtrar pendientes...</div>
+            ) : !eshopexUi.loading && eshopexModalPendientes.length === 0 ? (
+              <div className="text-sm text-gray-500">No hay cargas pendientes.</div>
             ) : (
-              <>
-                {eshopexUi.loading && (
-                  <div className="text-xs text-gray-600 mb-2">
-                    {eshopexProgressText || 'Buscando pendientes...'}
+              <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm max-h-[65vh] overflow-y-auto">
+                <table className="min-w-[1100px] w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="p-2 text-left">Producto</th>
+                      <th className="p-2 text-left">Tracking Eshopex</th>
+                      <th className="p-2 text-left">Descripcion</th>
+                      <th className="p-2 text-left">Peso</th>
+                      <th className="p-2 text-left">Valor DEC</th>
+                      <th className="p-2 text-left">EstatusEsho</th>
+                      <th className="p-2 text-left">Fecha recepcion MIAMI</th>
+                      <th className="p-2 text-left">Ver foto</th>
+                      <th className="p-2 text-left">Casillero</th>
+                      <th className="p-2 text-left">Vincular</th>
+                      <th className="p-2 text-left">Pago</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {eshopexModalPendientes.map((row) => {
+                      const code = String(row?.guia || '').trim();
+                      const producto = productosByEshopexGlobal[code];
+                      const accountKey = String(row?.account || '').trim().toLowerCase();
+                      const pagoKey = `${code}-${accountKey}`;
+                      const pagoLoading = eshopexPagoLoading.has(pagoKey);
+                      const cas = accountKey ? (CASILLERO_BY_ACCOUNT[accountKey] || '-') : '-';
+                      return (
+                        <tr key={`${code}-${row?.account || ''}`} className="border-t">
+                          <td className="p-2">{producto ? (buildNombreProductoGlobal(producto) || producto.tipo) : '-'}</td>
+                          <td className="p-2">{code || '-'}</td>
+                          <td className="p-2">{row?.descripcion || '-'}</td>
+                          <td className="p-2">{row?.peso || '-'}</td>
+                          <td className="p-2">{row?.valor || '-'}</td>
+                          <td className="p-2">{String(row?.estado || '').trim() || '-'}</td>
+                          <td className="p-2">{row?.fechaRecepcion || '-'}</td>
+                          <td className="p-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openFotosManualGlobal(row);
+                              }}
+                              className="bg-indigo-600 text-white hover:bg-indigo-700 px-2 py-1 rounded"
+                              title="Ver fotos Eshopex"
+                            >
+                              Ver foto
+                            </button>
+                          </td>
+                          <td className="p-2">{cas}</td>
+                          <td className="p-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEshopexVincularModalGlobal(row);
+                              }}
+                              className="bg-blue-600 text-white hover:bg-blue-700 px-2 py-1 rounded"
+                            >
+                              Vincular
+                            </button>
+                          </td>
+                          <td className="p-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEshopexPrepagoGlobal(row);
+                              }}
+                              disabled={!accountKey || pagoLoading}
+                              className={`${!accountKey || pagoLoading ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-2 py-1 rounded`}
+                            >
+                              {pagoLoading ? 'Procesando...' : 'Pagar'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {eshopexVincularOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white w-full max-w-3xl rounded-xl shadow-lg p-6 relative max-h-[92vh] overflow-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Vincular con producto</h2>
+              <button
+                className="w-9 h-9 flex items-center justify-center text-xl font-bold rounded-full hover:bg-gray-100"
+                onClick={() => setEshopexVincularOpen(false)}
+                aria-label="Cerrar"
+              >
+                x
+              </button>
+            </div>
+            {(() => {
+              const row = eshopexVincularRow || {};
+              const accountKey = String(row?.account || '').trim().toLowerCase();
+              const cas = String(CASILLERO_BY_ACCOUNT[accountKey] || '').trim().toLowerCase();
+              const candidates = (productosGlobal || []).filter((p) => {
+                const t = getLastTrackingGlobal(p);
+                if (String(t?.estado || '').toLowerCase() !== 'comprado_en_camino') return false;
+                if (!cas) return false;
+                return String(t?.casillero || '').trim().toLowerCase() === cas;
+              });
+              if (!candidates.length) {
+                return (
+                  <div className="text-sm text-gray-500">
+                    No hay productos en camino para ese casillero.
                   </div>
-                )}
-                <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm max-h-[65vh] overflow-y-auto">
-                  <table className="min-w-[920px] w-full text-sm">
+                );
+              }
+              return (
+                <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm max-h-[60vh] overflow-y-auto">
+                  <table className="min-w-[700px] w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="p-2 text-left">Tracking Eshopex</th>
-                        <th className="p-2 text-left">Descripcion</th>
-                        <th className="p-2 text-left">Peso</th>
-                        <th className="p-2 text-left">Valor DEC</th>
-                        <th className="p-2 text-left">Estado</th>
-                        <th className="p-2 text-left">Fecha recepcion MIAMI</th>
-                        <th className="p-2 text-left">Cuenta</th>
+                        <th className="p-2 text-left">Producto</th>
+                        <th className="p-2 text-left">Tracking USA</th>
+                        <th className="p-2 text-left">Casillero</th>
+                        <th className="p-2 text-left">Accion</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {eshopexModalPendientes.map((row) => {
+                      {candidates.map((p) => {
+                        const t = getLastTrackingGlobal(p);
                         const code = String(row?.guia || '').trim();
-                        const estado = String(row?.estado || '').trim() || '-';
+                        const key = `${code}-vincular-${p.id || 'na'}`;
+                        const loading = eshopexVincularLoading.has(key);
                         return (
-                          <tr key={`${code}-${String(row?.account || '')}`} className="border-t">
+                          <tr key={p.id} className="border-t">
+                            <td className="p-2">{buildNombreProductoGlobal(p) || p.tipo || '-'}</td>
+                            <td className="p-2">{t?.trackingUsa || '-'}</td>
+                            <td className="p-2">{t?.casillero || '-'}</td>
                             <td className="p-2">
-                              {code ? (
-                                <a
-                                  href={`https://usamybox.com/internacional/tracking_box.php?nrotrack=${encodeURIComponent(code)}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-600 underline"
-                                >
-                                  {code}
-                                </a>
-                              ) : '-'}
+                              <button
+                                onClick={() => handleEshopexVincularGlobal(row, p)}
+                                disabled={loading}
+                                className={`${loading ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'} px-2 py-1 rounded`}
+                              >
+                                {loading ? 'Vinculando...' : 'Vincular'}
+                              </button>
                             </td>
-                            <td className="p-2">{row?.descripcion || '-'}</td>
-                            <td className="p-2">{row?.peso || '-'}</td>
-                            <td className="p-2">{row?.valor || '-'}</td>
-                            <td className="p-2">{estado}</td>
-                            <td className="p-2">{row?.fechaRecepcion || '-'}</td>
-                            <td className="p-2">{row?.account || '-'}</td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
                 </div>
-              </>
-            )}
+              );
+            })()}
           </div>
         </div>
+      )}
+      {fotosManualOpen && (
+        <ModalFotosManual
+          onClose={() => setFotosManualOpen(false)}
+          initialTrackingEshop={fotosManualSeed.trackingEshop}
+          initialFechaRecepcion={fotosManualSeed.fechaRecepcion}
+        />
       )}
     </>
   );

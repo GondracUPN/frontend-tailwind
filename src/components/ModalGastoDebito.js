@@ -27,7 +27,7 @@ const BASE_CONCEPTOS_DEBITO = [
   { value: 'comida', label: 'Comida' },
   { value: 'gustos', label: 'Gustos' },
   { value: 'ingresos', label: 'Ingresos' },
-  { value: 'inversion', label: 'Bolsa' },
+  { value: 'bolsa', label: 'Bolsa' },
   { value: 'transporte', label: 'Transporte' },
   { value: 'pago_envios', label: 'Pago de envios' },
   { value: 'retiro_agente', label: 'Retiro agente' },
@@ -42,7 +42,7 @@ const normConcept = (raw) => {
     comida: 'comida',
     gusto: 'gusto',
     gustos: 'gusto',
-    bolsa: 'inversion',
+    bolsa: 'bolsa',
     inversion: 'inversion',
     ingreso: 'ingreso',
     ingresos: 'ingreso',
@@ -65,7 +65,7 @@ const normConcept = (raw) => {
 
 const isFlexibleMoneda = (c) => {
   const n = normConcept(c);
-  return ['ingreso', 'inversion', 'gasto_recurrente', 'gastos_recurrentes', 'gusto', 'cashback'].some((k) => n.startsWith(k));
+  return ['ingreso', 'bolsa', 'gasto_recurrente', 'gastos_recurrentes', 'gusto', 'cashback'].some((k) => n.startsWith(k));
 };
 
 
@@ -117,7 +117,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
   // En conceptos distintos a pago_tarjeta, forzar soles
   useEffect(() => {
-    if (concepto === 'inversion') {
+    if (concepto === 'bolsa') {
       setMoneda('USD');
       setPagoObjetivo('PEN');
       return;
@@ -146,7 +146,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     const n = Number(monto);
     if (!isFinite(n) || n <= 0) return setError('Monto inválido.');
     if (!fecha) return setError('Selecciona fecha.');
-    const isBolsa = concepto === 'inversion';
+    const isBolsa = concepto === 'bolsa';
 
     if (concepto === 'pago_tarjeta' && !tarjetaPagar) {
       return setError('Selecciona la tarjeta a la que vas a pagar.');
@@ -233,7 +233,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
   const showPagoTarjeta = concepto === 'pago_tarjeta';
   const showTarjetaDestino = showPagoTarjeta;
-  const showBolsa = concepto === 'inversion';
+  const showBolsa = concepto === 'bolsa';
 
   return (
     <div className="fixed inset-0 z-50 bg-neutral-900/50 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={(e)=>{ if(e.target===e.currentTarget) onClose?.(); }}>

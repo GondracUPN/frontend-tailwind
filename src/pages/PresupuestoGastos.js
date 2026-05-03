@@ -59,7 +59,7 @@ export default function PresupuestoGastos({ setVista }) {
         (r) =>
           (r.fecha || '').startsWith(month) &&
           String(r.concepto || '').toLowerCase() !== 'ingreso' &&
-          !['inversion', 'pago_envios', 'pago_tarjeta'].includes(String(r.concepto || '').toLowerCase()),
+          !['inversion', 'bolsa', 'pago_envios', 'pago_tarjeta'].includes(String(r.concepto || '').toLowerCase()),
       ),
     [rows, month],
   );

@@ -10,20 +10,26 @@ const BANKS_DEBITO = [
   { value: 'bbva', label: 'BBVA' },
 ];
 
+const normalizeEditConcept = (g, isCredito) => (
+  !isCredito && String(g?.concepto || '').toLowerCase() === 'inversion'
+    ? 'bolsa'
+    : (g?.concepto || '')
+);
+
 export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
+  const isCredito = gasto?.metodoPago === 'credito';
   const [monto, setMonto] = useState(String(gasto?.monto ?? ''));
   const [fecha, setFecha] = useState(gasto?.fecha || localDateInputValue());
   const [notas, setNotas] = useState(gasto?.notas || '');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
-  const [concepto, setConcepto] = useState(gasto?.concepto || '');
+  const [concepto, setConcepto] = useState(() => normalizeEditConcept(gasto, isCredito));
   const [tarjeta, setTarjeta] = useState(gasto?.tarjeta || '');
   const [tarjetaPago, setTarjetaPago] = useState(gasto?.tarjetaPago || '');
   const [moneda, setMoneda] = useState(gasto?.moneda || 'PEN');
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(false);
 
-  const isCredito = gasto?.metodoPago === 'credito';
   const titulo = isCredito ? 'Editar gasto (Crédito)' : 'Editar gasto (Débito)';
 
   const conceptoOptions = useMemo(() => {
@@ -45,7 +51,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
       { value: 'comida', label: 'Comida' },
       { value: 'gustos', label: 'Gustos' },
       { value: 'ingresos', label: 'Ingresos' },
-      { value: 'inversion', label: 'Bolsa' },
+      { value: 'bolsa', label: 'Bolsa' },
       { value: 'retiro_agente', label: 'Retiro agente' },
       { value: 'transporte', label: 'Transporte' },
       { value: 'gastos_recurrentes', label: 'Gastos mensuales' },
@@ -54,11 +60,11 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
   }, [isCredito]);
 
   useEffect(() => {
-    setConcepto(gasto.concepto || '');
+    setConcepto(normalizeEditConcept(gasto, isCredito));
     setTarjeta(gasto.tarjeta || '');
     setTarjetaPago(gasto.tarjetaPago || '');
     setMoneda(gasto.moneda || 'PEN');
-  }, [gasto]);
+  }, [gasto, isCredito]);
 
   useEffect(() => {
     const needCards = isCredito || (!isCredito && (concepto === 'pago_tarjeta'));
@@ -129,7 +135,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
         {err && <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</div>}
 
         <div className="mb-2 text-xs text-gray-600">
-          <div>Concepto: <b className="capitalize">{String(gasto.concepto || '').toLowerCase() === 'inversion' ? 'Bolsa' : String(gasto.concepto || '').replace(/_/g,' ')}</b></div>
+          <div>Concepto: <b className="capitalize">{String(gasto.concepto || '').toLowerCase() === 'bolsa' || (!isCredito && String(gasto.concepto || '').toLowerCase() === 'inversion') ? 'Bolsa' : String(gasto.concepto || '').replace(/_/g,' ')}</b></div>
           <div>Método: <b className="capitalize">{gasto.metodoPago}</b> • Moneda: <b>{gasto.moneda}</b> • Tarjeta/Banco: <b>{gasto.tarjeta || '-'}</b></div>
         </div>
 
