@@ -2,6 +2,28 @@
 import React from 'react';
 
 const DEFAULT_WATERMARK_URL = `${process.env.PUBLIC_URL || ''}/logo.png`;
+const OUTPUT_PRESETS = [
+  {
+    id: 'general',
+    label: '2K general',
+    detail: 'lado mayor 2048px',
+    maxDim: 2048,
+    quality: 0.98,
+    sharpen: 0.24,
+    exactMax: true,
+    enhance: { contrast: 1.045, saturation: 1.035, brightness: 1.01 },
+  },
+  {
+    id: 'max',
+    label: 'Maxima calidad',
+    detail: 'hasta 4K',
+    maxDim: 3840,
+    quality: 0.98,
+    sharpen: 0.08,
+    exactMax: false,
+    enhance: { contrast: 1.02, saturation: 1.015, brightness: 1 },
+  },
+];
 
 const loadImage = (src) => new Promise((resolve, reject) => {
   const img = new Image();
@@ -11,6 +33,8 @@ const loadImage = (src) => new Promise((resolve, reject) => {
 });
 
 const clamp = (val, min, max) => Math.min(max, Math.max(min, val));
+const imageWidth = (img) => img?.naturalWidth || img?.width || 1;
+const imageHeight = (img) => img?.naturalHeight || img?.height || 1;
 
 const buildOutputName = (name) => {
   if (!name) return 'foto-marca-agua.jpg';
@@ -20,35 +44,161 @@ const buildOutputName = (name) => {
   return `${parts.join('.')}-marca-agua.jpg`;
 };
 
-async function applyWatermark(file, watermarkImg, { opacity, scale, maxDim }) {
+const drawImageHighQuality = (ctx, img, outWidth, outHeight) => {
+  const srcWidth = imageWidth(img);
+  const srcHeight = imageHeight(img);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  if (outWidth === srcWidth && outHeight === srcHeight) {
+    ctx.drawImage(img, 0, 0);
+    return;
+  }
+
+  let current = document.createElement('canvas');
+  current.width = srcWidth;
+  current.height = srcHeight;
+  let currentCtx = current.getContext('2d');
+  currentCtx.imageSmoothingEnabled = true;
+  currentCtx.imageSmoothingQuality = 'high';
+  currentCtx.drawImage(img, 0, 0);
+
+  while (current.width * 0.5 > outWidth && current.height * 0.5 > outHeight) {
+    const next = document.createElement('canvas');
+    next.width = Math.max(outWidth, Math.round(current.width * 0.5));
+    next.height = Math.max(outHeight, Math.round(current.height * 0.5));
+    const nextCtx = next.getContext('2d');
+    nextCtx.imageSmoothingEnabled = true;
+    nextCtx.imageSmoothingQuality = 'high';
+    nextCtx.drawImage(current, 0, 0, next.width, next.height);
+    current = next;
+    currentCtx = nextCtx;
+  }
+
+  while (current.width * 1.5 < outWidth && current.height * 1.5 < outHeight) {
+    const next = document.createElement('canvas');
+    next.width = Math.min(outWidth, Math.round(current.width * 1.5));
+    next.height = Math.min(outHeight, Math.round(current.height * 1.5));
+    const nextCtx = next.getContext('2d');
+    nextCtx.imageSmoothingEnabled = true;
+    nextCtx.imageSmoothingQuality = 'high';
+    nextCtx.drawImage(current, 0, 0, next.width, next.height);
+    current = next;
+    currentCtx = nextCtx;
+  }
+
+  ctx.drawImage(current, 0, 0, outWidth, outHeight);
+};
+
+const sharpenCanvas = (ctx, width, height, amount) => {
+  const strength = clamp(Number(amount) || 0, 0, 0.4);
+  if (!strength) return;
+
+  try {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const src = imageData.data;
+    const out = new Uint8ClampedArray(src);
+    const centerWeight = 1 + (4 * strength);
+
+    for (let y = 1; y < height - 1; y += 1) {
+      for (let x = 1; x < width - 1; x += 1) {
+        const idx = (y * width + x) * 4;
+        const left = idx - 4;
+        const right = idx + 4;
+        const top = idx - width * 4;
+        const bottom = idx + width * 4;
+
+        for (let c = 0; c < 3; c += 1) {
+          out[idx + c] = clamp(
+            (src[idx + c] * centerWeight) -
+              ((src[left + c] + src[right + c] + src[top + c] + src[bottom + c]) * strength),
+            0,
+            255,
+          );
+        }
+      }
+    }
+
+    imageData.data.set(out);
+    ctx.putImageData(imageData, 0, 0);
+  } catch {
+    // Canvas may reject pixel access for some image sources; keep the resized output.
+  }
+};
+
+const enhanceCanvas = (ctx, width, height, options = {}) => {
+  const contrast = clamp(Number(options.contrast) || 1, 0.8, 1.2);
+  const saturation = clamp(Number(options.saturation) || 1, 0.8, 1.25);
+  const brightness = clamp(Number(options.brightness) || 1, 0.9, 1.12);
+  if (contrast === 1 && saturation === 1 && brightness === 1) return;
+
+  try {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    const contrastOffset = 128 * (1 - contrast);
+
+    for (let i = 0; i < data.length; i += 4) {
+      let r = data[i] * brightness;
+      let g = data[i + 1] * brightness;
+      let b = data[i + 2] * brightness;
+
+      r = (r * contrast) + contrastOffset;
+      g = (g * contrast) + contrastOffset;
+      b = (b * contrast) + contrastOffset;
+
+      const gray = (r * 0.299) + (g * 0.587) + (b * 0.114);
+      data[i] = clamp(gray + ((r - gray) * saturation), 0, 255);
+      data[i + 1] = clamp(gray + ((g - gray) * saturation), 0, 255);
+      data[i + 2] = clamp(gray + ((b - gray) * saturation), 0, 255);
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  } catch {
+    // Keep resized output if the browser blocks pixel access.
+  }
+};
+
+async function applyWatermark(file, watermarkImg, { opacity, scale, maxDim, quality, sharpen, exactMax, enhance }) {
   const baseUrl = URL.createObjectURL(file);
   try {
     const baseImg = await loadImage(baseUrl);
     const targetMax = Math.max(1, Number(maxDim) || 0);
-    const baseMax = Math.max(baseImg.width, baseImg.height);
-    const factor = targetMax > 0 ? (targetMax / baseMax) : 1;
-    const outWidth = Math.max(1, Math.round(baseImg.width * factor));
-    const outHeight = Math.max(1, Math.round(baseImg.height * factor));
+    const baseWidth = imageWidth(baseImg);
+    const baseHeight = imageHeight(baseImg);
+    const baseMax = Math.max(baseWidth, baseHeight);
+    const factor = targetMax > 0
+      ? (exactMax ? targetMax / baseMax : Math.min(1, targetMax / baseMax))
+      : 1;
+    const outWidth = Math.max(1, Math.round(baseWidth * factor));
+    const outHeight = Math.max(1, Math.round(baseHeight * factor));
     const canvas = document.createElement('canvas');
     canvas.width = outWidth;
     canvas.height = outHeight;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('No canvas context');
 
-    ctx.drawImage(baseImg, 0, 0, outWidth, outHeight);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, outWidth, outHeight);
+    drawImageHighQuality(ctx, baseImg, outWidth, outHeight);
+    enhanceCanvas(ctx, outWidth, outHeight, enhance);
+    if (factor !== 1) sharpenCanvas(ctx, outWidth, outHeight, sharpen);
 
     const wmScale = clamp(scale, 0.05, 1);
+    const wmSourceWidth = imageWidth(watermarkImg);
+    const wmSourceHeight = imageHeight(watermarkImg);
     const wmWidth = outWidth * wmScale;
-    const wmHeight = (watermarkImg.height * wmWidth) / watermarkImg.width;
+    const wmHeight = (wmSourceHeight * wmWidth) / wmSourceWidth;
     const x = (outWidth - wmWidth) / 2;
     const y = (outHeight - wmHeight) / 2;
 
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.globalAlpha = clamp(opacity, 0.1, 1);
     ctx.drawImage(watermarkImg, x, y, wmWidth, wmHeight);
     ctx.globalAlpha = 1;
 
     const blob = await new Promise((resolve) => {
-      canvas.toBlob(resolve, 'image/jpeg', 0.92);
+      canvas.toBlob(resolve, 'image/jpeg', clamp(Number(quality) || 0.96, 0.9, 1));
     });
     if (!blob) throw new Error('No output blob');
     return URL.createObjectURL(blob);
@@ -65,7 +215,9 @@ export default function ModalMarcaAgua({ onClose }) {
   const [processing, setProcessing] = React.useState(false);
   const [opacity, setOpacity] = React.useState(0.5);
   const [scale, setScale] = React.useState(1);
-  const maxDim = 3840;
+  const [outputPresetId, setOutputPresetId] = React.useState('general');
+  const outputPreset = OUTPUT_PRESETS.find((preset) => preset.id === outputPresetId) || OUTPUT_PRESETS[0];
+  const maxDim = outputPreset.maxDim;
   const [watermarkError, setWatermarkError] = React.useState('');
   const prevUrlsRef = React.useRef([]);
 
@@ -111,7 +263,15 @@ export default function ModalMarcaAgua({ onClose }) {
         const results = [];
         for (const file of images) {
           if (!active) return;
-          const url = await applyWatermark(file, wmImg, { opacity, scale, maxDim });
+          const url = await applyWatermark(file, wmImg, {
+            opacity,
+            scale,
+            maxDim,
+            quality: outputPreset.quality,
+            sharpen: outputPreset.sharpen,
+            exactMax: outputPreset.exactMax,
+            enhance: outputPreset.enhance,
+          });
           results.push({ name: buildOutputName(file.name), url });
         }
         if (active) setOutputs(results);
@@ -128,7 +288,7 @@ export default function ModalMarcaAgua({ onClose }) {
     return () => {
       active = false;
     };
-  }, [images, loadWatermark, opacity, scale]);
+  }, [images, loadWatermark, opacity, scale, maxDim, outputPreset.quality, outputPreset.sharpen, outputPreset.exactMax, outputPreset.enhance]);
 
   React.useEffect(() => () => {
     prevUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -219,6 +379,29 @@ export default function ModalMarcaAgua({ onClose }) {
               </label>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 space-y-4">
+                <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                  2K general reescala a 2048px y mejora nitidez, contraste y color de forma suave para publicar. Maxima calidad conserva mas detalle para casos puntuales.
+                </div>
+                <div>
+                  <div className="mb-2 text-sm font-medium">Calidad de salida</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {OUTPUT_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => setOutputPresetId(preset.id)}
+                        className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
+                          outputPresetId === preset.id
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className="block font-semibold">{preset.label}</span>
+                        <span className="block text-xs opacity-75">{preset.detail}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <label className="block text-sm font-medium">
                   Opacidad: {Math.round(opacity * 100)}%
                   <input
@@ -233,7 +416,7 @@ export default function ModalMarcaAgua({ onClose }) {
                 </label>
 
                 <label className="block text-sm font-medium">
-                  Tamano: {Math.round(scale * 100)}%
+                  Tamano maximo del logo: {Math.round(scale * 100)}%
                   <input
                     type="range"
                     min="0.1"
@@ -310,7 +493,7 @@ export default function ModalMarcaAgua({ onClose }) {
               <div className="text-lg font-semibold">{outputs.length}</div>
             </div>
             <div className="text-sm text-gray-600 flex items-center">
-              {processing ? 'Procesando...' : 'Listo para descargar'}
+              {processing ? 'Procesando...' : `${outputPreset.label} (${outputPreset.detail})`}
             </div>
           </div>
           <button

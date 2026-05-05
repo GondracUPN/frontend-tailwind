@@ -52,11 +52,11 @@ const findConcept = (apiValue) => {
 };
 
 const toDisplayConcept = (apiValue) => findConcept(apiValue)?.value || 'Comida';
-const toApiConcept = (displayValue) => findConcept(displayValue)?.api || 'comida';
 
 export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'create', initial = null, defaultCard = '' }) {
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(true);
+  const [customConcepts, setCustomConcepts] = useState([]);
 
   const [concepto, setConcepto] = useState(initial?.concepto ? toDisplayConcept(initial?.concepto) : (CREDIT_CONCEPTS[0]?.value || 'Comida'));
   const defaultMoneda = (() => (normConcept(initial?.concepto) === 'inversion' ? 'USD' : 'PEN'))();
@@ -96,14 +96,45 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
     return () => { alive = false; };
   }, [userId, initial, defaultCard]);
 
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/catalog/expense-concepts`, {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error('catalog');
+        const rows = await res.json();
+        if (!alive) return;
+        setCustomConcepts((Array.isArray(rows) ? rows : []).filter((item) => item.appliesCredit));
+      } catch {
+        if (alive) setCustomConcepts([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   const handleConceptChange = (val) => {
     setConcepto(val);
   };
 
   const isCompra = true;
+  const conceptOptions = useMemo(() => [
+    ...CREDIT_CONCEPTS,
+    ...customConcepts.map((item) => ({
+      value: item.label,
+      api: item.value,
+      metadata: item.metadata || {},
+    })),
+  ], [customConcepts]);
+  const toApiConceptLocal = (displayValue) => {
+    const n = normConcept(displayValue);
+    return conceptOptions.find((c) => c.value === displayValue || c.api === n)?.api || n || 'comida';
+  };
   const selectedConcept = useMemo(
-    () => CREDIT_CONCEPTS.find((c) => c.value === concepto) || CREDIT_CONCEPTS.find((c) => c.api === normConcept(concepto)) || CREDIT_CONCEPTS[0],
-    [concepto],
+    () => conceptOptions.find((c) => c.value === concepto) || conceptOptions.find((c) => c.api === normConcept(concepto)) || conceptOptions[0],
+    [conceptOptions, concepto],
   );
   const isCuotas = !!selectedConcept?.needsCuotas;
   const [cuotas, setCuotas] = useState('3');
@@ -114,8 +145,8 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
 
   useEffect(() => {
     const api = selectedConcept?.api;
-    setMoneda(api === 'inversion' ? 'USD' : 'PEN');
-  }, [concepto, selectedConcept?.api]);
+    setMoneda(selectedConcept?.metadata?.defaultCurrency === 'USD' || api === 'inversion' ? 'USD' : 'PEN');
+  }, [concepto, selectedConcept?.api, selectedConcept?.metadata?.defaultCurrency]);
 
   const onSubmit = async (e) => {
     e?.preventDefault?.();
@@ -129,7 +160,7 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
     if (!token) return setError('No hay sesión.');
     if (!cards.length) return setError('No tienes tarjetas registradas.');
 
-    const conceptoApi = toApiConcept(concepto);
+    const conceptoApi = toApiConceptLocal(concepto);
 
     const body = {
       concepto: conceptoApi,
@@ -186,7 +217,7 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
           <label className="text-sm">
                         <span className="block text-gray-600 mb-1">Concepto</span>
             <select className="w-full border rounded px-3 py-2" value={concepto} onChange={(e) => handleConceptChange(e.target.value)}>
-              {CREDIT_CONCEPTS.map((c) => (<option key={c.value} value={c.value}>{c.value}</option>))}
+              {conceptOptions.map((c) => (<option key={c.api || c.value} value={c.value}>{c.value}</option>))}
             </select>
           </label>
 

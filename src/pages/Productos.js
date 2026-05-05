@@ -11,6 +11,7 @@ import ModalVenta from '../components/ModalVenta';
 import ModalFotos from '../components/ModalFotos';
 import ModalFotosManual from '../components/ModalFotosManual';
 import ModalMarcaAgua from '../components/ModalMarcaAgua';
+import ModalSnImeiScanner from '../components/ModalSnImeiScanner';
 import ModalCalculadora from '../components/ModalCalculadora';
 import ModalDec from '../components/ModalDec';
 import ModalFacu from '../components/ModalFacu';
@@ -220,6 +221,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [selectedCasillero, setSelectedCasillero] = useState(null);
   const [productoEnCasillero, setProductoEnCasillero] = useState(null);
   const [fotosManualSeed, setFotosManualSeed] = useState({ trackingEshop: '', fechaRecepcion: '' });
+  const [snImeiScannerOpen, setSnImeiScannerOpen] = useState(false);
   const [savingProductos, setSavingProductos] = useState(() => new Set());
   const [adelantoModo, setAdelantoModo] = useState(null); // 'select' | 'create' | 'detail' | 'complete'
   const [adelantoProducto, setAdelantoProducto] = useState(null);
@@ -631,13 +633,14 @@ const confirmAction = async () => {
 
   useEffect(() => {
     if (!eshopexCargaRequested && !recojoOpen) return;
+    const forceFresh = recojoOpen || eshopexCargaRefreshKey > 0;
     const cachedRows = readEshopexCargaCache();
     if (cachedRows && cachedRows.length) {
       setEshopexCargaRows(cachedRows);
       setEshopexCargaLoading(false);
       setEshopexCargaError(null);
     }
-    if (cachedRows && cachedRows.length && eshopexCargaRefreshKey === 0) {
+    if (cachedRows && cachedRows.length && !forceFresh) {
       return () => {};
     }
     let alive = true;
@@ -652,7 +655,9 @@ const confirmAction = async () => {
         writeEshopexCargaCache(rows);
       } catch (e) {
         if (!alive) return;
-        setEshopexCargaError('No se pudo cargar la informacion de Eshopex.');
+        setEshopexCargaError(cachedRows?.length
+          ? 'No se pudo actualizar la informacion de Eshopex. Se muestran datos guardados.'
+          : 'No se pudo cargar la informacion de Eshopex.');
       } finally {
         if (!alive) return;
         try {
@@ -1436,6 +1441,7 @@ const confirmAction = async () => {
     }
     setModalModo('fotosManual');
   };
+  const abrirSnImeiScanner = () => setSnImeiScannerOpen(true);
   const cerrarModal = () => { setModalModo(null); setProductoSeleccionado(null); setProductoEnCasillero(null); };
   const abrirCasillero = (cas) => { setSelectedCasillero(cas); setModalModo('casillero'); };
   const abrirAdelantoSelect = (p) => {
@@ -2003,6 +2009,13 @@ const confirmAction = async () => {
                 title="Ingresar tracking y fecha para consultar fotos en Eshopex"
               >
                 Fotos
+              </button>
+              <button
+                onClick={abrirSnImeiScanner}
+                className="w-full sm:w-auto bg-cyan-700 text-white px-5 py-2 rounded hover:bg-cyan-800"
+                title="Escanear una imagen para extraer SN e IMEIs"
+              >
+                Scan SN/IMEI
               </button>
               <button
                 onClick={abrirMarcaAgua}
@@ -2777,6 +2790,9 @@ const confirmAction = async () => {
           initialTrackingEshop={fotosManualSeed.trackingEshop}
           initialFechaRecepcion={fotosManualSeed.fechaRecepcion}
         />
+      )}
+      {snImeiScannerOpen && (
+        <ModalSnImeiScanner onClose={() => setSnImeiScannerOpen(false)} />
       )}
       {modalModo === 'costos' && <ModalCostos producto={productoSeleccionado} onClose={cerrarModal} onSaved={handleSaved} />}
       {modalModo === 'track' && (

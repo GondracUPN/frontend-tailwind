@@ -71,6 +71,7 @@ const isFlexibleMoneda = (c) => {
 
 export default function ModalGastoDebito({ onClose, onSaved, userId }) {
   const [concepto, setConcepto] = useState(BASE_CONCEPTOS_DEBITO[0]?.value || 'comida');
+  const [customConcepts, setCustomConcepts] = useState([]);
   const [moneda, setMoneda] = useState('PEN');
   const [monto, setMonto] = useState('');
   const [fecha, setFecha] = useState(() => localDateInputValue());
@@ -115,8 +116,33 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     return () => { alive = false; };
   }, [userId]);
 
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/catalog/expense-concepts`, {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error('catalog');
+        const rows = await res.json();
+        if (!alive) return;
+        setCustomConcepts((Array.isArray(rows) ? rows : []).filter((item) => item.appliesDebit));
+      } catch {
+        if (alive) setCustomConcepts([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   // En conceptos distintos a pago_tarjeta, forzar soles
   useEffect(() => {
+    const custom = customConcepts.find((item) => item.value === normConcept(concepto));
+    if (custom) {
+      setMoneda(custom?.metadata?.defaultCurrency === 'USD' ? 'USD' : 'PEN');
+      setPagoObjetivo('PEN');
+      return;
+    }
     if (concepto === 'bolsa') {
       setMoneda('USD');
       setPagoObjetivo('PEN');
@@ -126,7 +152,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
       setMoneda('PEN');
       setPagoObjetivo('PEN');
     }
-  }, [concepto]);
+  }, [concepto, customConcepts]);
 
   // ESC para cerrar
   useEffect(() => {
@@ -230,6 +256,10 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
       setSaving(false);
     }
   };
+  const conceptoOptions = [
+    ...BASE_CONCEPTOS_DEBITO,
+    ...customConcepts.map((item) => ({ value: item.value, label: item.label })),
+  ];
 
   const showPagoTarjeta = concepto === 'pago_tarjeta';
   const showTarjetaDestino = showPagoTarjeta;
@@ -247,7 +277,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
           <label className="text-sm">
                         <span className="block text-gray-600 mb-1">Concepto</span>
             <select className="w-full border rounded px-3 py-2" value={concepto} onChange={(e)=>handleConceptChange(e.target.value)}>
-              {BASE_CONCEPTOS_DEBITO.map((c) => (
+              {conceptoOptions.map((c) => (
                 <option key={c.value} value={c.value}>{c.label}</option>
               ))}
             </select>

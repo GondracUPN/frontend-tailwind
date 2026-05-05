@@ -41,6 +41,22 @@ const ESHOPEX_BG_CONSUMED_KEY = 'eshopex-carga-trigger-consumed-ts';
 const SIDEBAR_HIDDEN_KEY = 'app-sidebar-hidden';
 const PRODUCTOS_CACHE_KEY = 'productos:cache:v2';
 const PRODUCTOS_CACHE_TTL_MS = 2 * 60 * 1000;
+const CALCU_RAPIDA_DEC_USD = 90;
+const CALCU_RAPIDA_TC_DEFAULT = '3.75';
+const PAGE_KEEP_ALIVE_TTL_MS = 10 * 60 * 1000;
+const CALCU_RAPIDA_TARIFAS = [
+  { maxKg: 0.5, precio: 30.60 }, { maxKg: 1.0, precio: 55.00 },
+  { maxKg: 1.5, precio: 74.00 }, { maxKg: 2.0, precio: 90.00 },
+  { maxKg: 2.5, precio: 110.00 }, { maxKg: 3.0, precio: 120.00 },
+  { maxKg: 3.5, precio: 130.00 }, { maxKg: 4.0, precio: 140.00 },
+  { maxKg: 4.5, precio: 150.00 }, { maxKg: 5.0, precio: 160.00 },
+  { maxKg: 5.5, precio: 170.00 }, { maxKg: 6.0, precio: 180.00 },
+  { maxKg: 6.5, precio: 190.00 }, { maxKg: 7.0, precio: 200.00 },
+  { maxKg: 7.5, precio: 210.00 }, { maxKg: 8.0, precio: 220.00 },
+  { maxKg: 8.5, precio: 230.00 }, { maxKg: 9.0, precio: 240.00 },
+  { maxKg: 9.5, precio: 250.00 }, { maxKg: 10.0, precio: 260.00 },
+];
+const CALCU_RAPIDA_ADICIONAL_05KG = 10;
 const EMPTY_ESH_PROGRESS = {
   status: 'idle',
   total: 0,
@@ -212,6 +228,53 @@ const readCachedCargaRows = () => {
   }
 };
 
+const calcNum = (value) => {
+  if (value == null || value === '') return 0;
+  const parsed = Number.parseFloat(String(value).replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const fmtSolesCalc = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? `S/ ${parsed.toFixed(2)}` : '-';
+};
+
+const fmtUsdCalc = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? `$ ${parsed.toFixed(2)}` : '-';
+};
+
+const ceil10Calc = (value) => Math.ceil((Number(value) || 0) / 10) * 10;
+
+const roundTenth05DownCalc = (kg) => {
+  const value = Number(String(kg).replace(',', '.')) || 0;
+  if (value <= 0) return 0;
+  const centi = Math.round(value * 100);
+  const tens = Math.floor(centi / 10);
+  const rem = centi - tens * 10;
+  return (rem <= 5 ? tens : tens + 1) / 10;
+};
+
+const tarifaEshopexCalc = (pesoKg) => {
+  if (!pesoKg || pesoKg <= 0) return 0;
+  const points = CALCU_RAPIDA_TARIFAS;
+  if (pesoKg <= points[0].maxKg) return (points[0].precio * pesoKg) / points[0].maxKg;
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = points[i - 1];
+    const next = points[i];
+    if (pesoKg <= next.maxKg) {
+      const t = (pesoKg - prev.maxKg) / (next.maxKg - prev.maxKg);
+      return prev.precio + t * (next.precio - prev.precio);
+    }
+  }
+  const extraKg = pesoKg - 10;
+  return points[points.length - 1].precio + (extraKg / 0.5) * CALCU_RAPIDA_ADICIONAL_05KG;
+};
+
+const tarifaHasta3KgCalc = (pesoKg) => tarifaEshopexCalc(Math.min(Math.max(pesoKg || 0, 0), 3));
+const honorariosPorDecCalc = (dec) => (dec <= 100 ? 16.30 : dec <= 200 ? 25.28 : dec <= 1000 ? 39.76 : 60.16);
+const seguroPorDecCalc = (dec) => (dec <= 100 ? 8.86 : dec <= 200 ? 15.98 : 21.10);
+
 const SIDEBAR_NAV = [
   { id: 'home', label: 'Inicio', icon: FiHome },
   { id: 'productos', label: 'Productos', icon: FiBox },
@@ -230,8 +293,9 @@ const SIDEBAR_SECONDARY_NAV = [
 
 function App() {
   // Leer la última vista guardada; si no hay, usa 'home'
-  const [vista, setVista] = useState(() => localStorage.getItem('vista') || 'home');
+  const [vista, setVista] = useState('home');
   const [analisisBack, setAnalisisBack] = useState('home');
+  const [keptVistas, setKeptVistas] = useState(() => ({ home: Date.now() }));
   const [eshopexUi, setEshopexUi] = useState(() => ({
     requested: false,
     loading: false,
@@ -248,6 +312,14 @@ function App() {
   const [eshopexVincularOpen, setEshopexVincularOpen] = useState(false);
   const [eshopexVincularRow, setEshopexVincularRow] = useState(null);
   const [eshopexVincularLoading, setEshopexVincularLoading] = useState(() => new Set());
+  const [calcuRapidaOpen, setCalcuRapidaOpen] = useState(false);
+  const [calcuRapida, setCalcuRapida] = useState(() => ({
+    precioUsd: '',
+    envioUsaUsd: '',
+    pesoKg: '',
+    tipoCambio: CALCU_RAPIDA_TC_DEFAULT,
+    precioVenta: '',
+  }));
   const [sidebarHidden, setSidebarHidden] = useState(() => {
     try {
       const saved = localStorage.getItem(SIDEBAR_HIDDEN_KEY);
@@ -259,9 +331,43 @@ function App() {
     }
   });
 
-  // Guardar la vista cada vez que cambie
   useEffect(() => {
-    localStorage.setItem('vista', vista);
+    try {
+      localStorage.removeItem('vista');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    const now = Date.now();
+    setKeptVistas((prev) => {
+      const next = { ...prev, [vista]: now };
+      Object.keys(next).forEach((key) => {
+        if (key !== vista && now - Number(next[key] || 0) > PAGE_KEEP_ALIVE_TTL_MS) {
+          delete next[key];
+        }
+      });
+      return next;
+    });
+  }, [vista]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setKeptVistas((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        Object.keys(next).forEach((key) => {
+          if (key !== vista && now - Number(next[key] || 0) > PAGE_KEEP_ALIVE_TTL_MS) {
+            delete next[key];
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    }, 60 * 1000);
+    return () => window.clearInterval(timer);
   }, [vista]);
 
   useEffect(() => {
@@ -663,6 +769,68 @@ function App() {
     }
   };
 
+  const calcuRapidaResultados = useMemo(() => {
+    const precioUsd = calcNum(calcuRapida.precioUsd);
+    const envioUsaUsd = calcNum(calcuRapida.envioUsaUsd);
+    const decUsd = CALCU_RAPIDA_DEC_USD;
+    const pesoFacturable = roundTenth05DownCalc(calcNum(calcuRapida.pesoKg));
+    const tc = calcNum(calcuRapida.tipoCambio);
+    const baseUsd = precioUsd + envioUsaUsd;
+    const precioSoles = baseUsd * tc;
+    const transporteBruto = tarifaEshopexCalc(pesoFacturable);
+    const promoDescuento = tarifaHasta3KgCalc(pesoFacturable) * 0.35;
+    const transporteConPromo = Math.max(0, transporteBruto - promoDescuento);
+    const honorarios = honorariosPorDecCalc(decUsd);
+    const seguro = seguroPorDecCalc(decUsd);
+    const costoEnvio = transporteConPromo + honorarios + seguro;
+    const costoTotal = precioSoles + costoEnvio;
+    const precioVentaMin = ceil10Calc(costoTotal * 1.2);
+    const ganancia = precioVentaMin - costoTotal;
+    const precioVentaManual = calcNum(calcuRapida.precioVenta);
+    const gananciaManual = Math.max(0, precioVentaManual - costoTotal);
+    const margenManual = costoTotal > 0 && precioVentaManual > 0
+      ? (gananciaManual / costoTotal) * 100
+      : 0;
+
+    return {
+      precioUsd,
+      envioUsaUsd,
+      decUsd,
+      pesoFacturable,
+      tc,
+      baseUsd,
+      precioSoles,
+      transporteBruto,
+      promoDescuento,
+      transporteConPromo,
+      honorarios,
+      seguro,
+      costoEnvio,
+      costoTotal,
+      precioVentaMin,
+      ganancia,
+      precioVentaManual,
+      gananciaManual,
+      margenManual,
+    };
+  }, [calcuRapida]);
+
+  const setCalcuRapidaField = (field) => (event) => {
+    const value = event?.target?.value ?? '';
+    setCalcuRapida((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const openCalcuRapida = () => {
+    setCalcuRapidaOpen(true);
+    try {
+      if (window.matchMedia('(max-width: 1023px)').matches) {
+        setSidebarHidden(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
   const eshopexProgressText = useMemo(() => {
     if (!eshopexUi.loading) return '';
     const target = eshopexProgress.currentCasillero || eshopexProgress.currentAccount;
@@ -689,20 +857,48 @@ function App() {
     }
   };
 
-  const renderVista = () => (
-    <>
-      {vista === 'home'        && <Home setVista={setVista} setAnalisisBack={setAnalisisBack} />}
-      {vista === 'productos'   && <Productos setVista={setVista} setAnalisisBack={setAnalisisBack} />}
-      {vista === 'servicios'   && <Servicios setVista={setVista} />}
-      {vista === 'calculadora' && <Calculadora setVista={setVista} />}
-      {vista === 'ebay'        && <Ebay setVista={setVista} />}
-      {vista === 'ganancias'   && <Ganancias setVista={setVista} />}
-      {vista === 'gastos'      && <GastosIndex setVista={setVista} />}
-      {vista === 'analisis'    && <Analisis setVista={setVista} analisisBack={analisisBack} />}
-      {vista === 'analisisGastos' && <AnalisisGastos setVista={setVista} />}
-      {vista === 'presupuestoGastos' && <PresupuestoGastos setVista={setVista} />}
-    </>
-  );
+  const renderVistaContent = (id) => {
+    switch (id) {
+      case 'home':
+        return <Home setVista={navigateTo} setAnalisisBack={setAnalisisBack} />;
+      case 'productos':
+        return <Productos setVista={navigateTo} setAnalisisBack={setAnalisisBack} />;
+      case 'servicios':
+        return <Servicios setVista={navigateTo} />;
+      case 'calculadora':
+        return <Calculadora setVista={navigateTo} />;
+      case 'ebay':
+        return <Ebay setVista={navigateTo} />;
+      case 'ganancias':
+        return <Ganancias setVista={navigateTo} />;
+      case 'gastos':
+        return <GastosIndex setVista={navigateTo} />;
+      case 'analisis':
+        return <Analisis setVista={navigateTo} analisisBack={analisisBack} />;
+      case 'analisisGastos':
+        return <AnalisisGastos setVista={navigateTo} />;
+      case 'presupuestoGastos':
+        return <PresupuestoGastos setVista={navigateTo} />;
+      default:
+        return <Home setVista={navigateTo} setAnalisisBack={setAnalisisBack} />;
+    }
+  };
+
+  const renderVista = () => {
+    const renderedVistas = Array.from(new Set([...Object.keys(keptVistas), vista]));
+    return (
+      <>
+        {renderedVistas.map((id) => {
+          const active = vista === id;
+          return (
+            <section key={id} className={active ? 'block' : 'hidden'} aria-hidden={!active}>
+              {renderVistaContent(id)}
+            </section>
+          );
+        })}
+      </>
+    );
+  };
 
   const renderNavItem = ({ id, label, icon: Icon }) => {
     const active = vista === id;
@@ -798,6 +994,29 @@ function App() {
     </section>
   );
 
+  const renderCalcuRapidaPanel = () => (
+    <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="flex items-start gap-2.5">
+        <div className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white shadow-sm">
+          <FiHash className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-sm font-semibold text-slate-950">Calcu Rapida</h2>
+          <p className="mt-1 truncate text-xs text-slate-500">Compras con DEC 90</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+        onClick={openCalcuRapida}
+        title="Abrir calculadora rapida"
+      >
+        <FiHash className="h-4 w-4" />
+        <span>Calcular compra</span>
+      </button>
+    </section>
+  );
+
   return (
     <>
       <div className="min-h-screen bg-macGray">
@@ -823,7 +1042,7 @@ function App() {
         )}
 
         <aside
-          className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-white/95 px-4 py-4 shadow-sm backdrop-blur transition-transform duration-200 lg:w-64 ${
+          className={`fixed inset-y-0 left-0 z-50 flex w-72 max-w-[calc(100vw-1rem)] flex-col border-r border-slate-200 bg-white/95 px-4 py-4 shadow-sm backdrop-blur transition-transform duration-200 lg:w-64 ${
             sidebarHidden ? '-translate-x-full' : 'translate-x-0'
           }`}
         >
@@ -848,17 +1067,21 @@ function App() {
             </button>
           </div>
 
-          <nav className="flex flex-1 flex-col gap-1">
-            {SIDEBAR_NAV.map(renderNavItem)}
+          <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+            <div className="flex flex-col gap-1 pb-4">
+              {SIDEBAR_NAV.map(renderNavItem)}
 
-            <div className="my-3 h-px bg-slate-200" />
-            {renderEshopexSidebarPanel()}
+              <div className="my-3 h-px shrink-0 bg-slate-200" />
+              {renderEshopexSidebarPanel()}
+              <div className="mt-3" />
+              {renderCalcuRapidaPanel()}
 
-            <div className="my-3 h-px bg-slate-200" />
-            <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Herramientas
+              <div className="my-3 h-px shrink-0 bg-slate-200" />
+              <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Herramientas
+              </div>
+              {SIDEBAR_SECONDARY_NAV.map(renderNavItem)}
             </div>
-            {SIDEBAR_SECONDARY_NAV.map(renderNavItem)}
           </nav>
         </aside>
 
@@ -866,6 +1089,136 @@ function App() {
           {renderVista()}
         </main>
       </div>
+      {calcuRapidaOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white w-full max-w-2xl rounded-xl shadow-lg p-6 relative max-h-[92vh] overflow-auto">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">Calcu Rapida</h2>
+                <p className="text-sm text-gray-500">Compras con DEC fijo en {fmtUsdCalc(CALCU_RAPIDA_DEC_USD)}.</p>
+              </div>
+              <button
+                className="w-9 h-9 flex items-center justify-center text-xl font-bold rounded-full hover:bg-gray-100"
+                onClick={() => setCalcuRapidaOpen(false)}
+                aria-label="Cerrar"
+              >
+                x
+              </button>
+            </div>
+
+            <div className="bg-white/90 rounded-xl border border-gray-200 shadow-sm p-5">
+              <h3 className="text-lg font-semibold mb-3 text-gray-900">Resultados</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Precio del Producto (USD)</span>
+                  <input
+                    className="w-full rounded-lg p-2.5 border border-gray-300 bg-white shadow-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={calcuRapida.precioUsd}
+                    onChange={setCalcuRapidaField('precioUsd')}
+                    placeholder="p.ej. 180"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Envio USA (USD)</span>
+                  <input
+                    className="w-full rounded-lg p-2.5 border border-gray-300 bg-white shadow-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={calcuRapida.envioUsaUsd}
+                    onChange={setCalcuRapidaField('envioUsaUsd')}
+                    placeholder="p.ej. 12"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Precio DEC (USD)</span>
+                  <input
+                    className="w-full rounded-lg p-2.5 border border-gray-200 bg-gray-50 text-gray-600 shadow-sm"
+                    value={String(CALCU_RAPIDA_DEC_USD)}
+                    disabled
+                    readOnly
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Peso estimado (Kg)</span>
+                  <input
+                    className="w-full rounded-lg p-2.5 border border-gray-300 bg-white shadow-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={calcuRapida.pesoKg}
+                    onChange={setCalcuRapidaField('pesoKg')}
+                    placeholder="p.ej. 1.8"
+                  />
+                </label>
+                <label className="text-sm sm:col-span-2">
+                  <span className="block text-gray-600 mb-1">TC compras</span>
+                  <input
+                    className="w-full rounded-lg p-2.5 border border-gray-300 bg-white shadow-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={calcuRapida.tipoCambio}
+                    onChange={setCalcuRapidaField('tipoCambio')}
+                    placeholder={CALCU_RAPIDA_TC_DEFAULT}
+                  />
+                </label>
+              </div>
+
+              <div className="space-y-3 text-sm">
+                <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-slate-600">Precio en soles + envio USA</span>
+                    <strong className="text-slate-950">{fmtSolesCalc(calcuRapidaResultados.precioSoles)}</strong>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-4">
+                    <span className="text-slate-600">Costo de envio</span>
+                    <strong className="text-slate-950">{fmtSolesCalc(calcuRapidaResultados.costoEnvio)}</strong>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-4 border-t border-slate-200 pt-2">
+                    <span className="font-medium text-slate-800">Costo total</span>
+                    <strong className="text-base text-slate-950">{fmtSolesCalc(calcuRapidaResultados.costoTotal)}</strong>
+                  </div>
+                </div>
+
+                <div className="rounded-xl bg-emerald-50 p-3 ring-1 ring-emerald-100">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="font-medium text-emerald-950">Precio minimo venta +20%</span>
+                    <strong className="text-lg text-emerald-950">{fmtSolesCalc(calcuRapidaResultados.precioVentaMin)}</strong>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-4 text-emerald-700">
+                    <span>Ganancia</span>
+                    <strong>{fmtSolesCalc(calcuRapidaResultados.ganancia)}</strong>
+                  </div>
+                </div>
+
+                <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200">
+                  <label className="block text-sm">
+                    <span className="block text-slate-600 mb-1">Precio</span>
+                    <input
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      value={calcuRapida.precioVenta}
+                      onChange={setCalcuRapidaField('precioVenta')}
+                      placeholder="S/ 0.00"
+                    />
+                  </label>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs text-slate-500">Ganancia estimada</div>
+                      <div className="mt-1 font-semibold text-slate-950">{fmtSolesCalc(calcuRapidaResultados.gananciaManual)}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500">% ganancia</div>
+                      <div className="mt-1 font-semibold text-slate-950">{calcuRapidaResultados.margenManual.toFixed(1)}%</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {eshopexModalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-6xl rounded-xl shadow-lg p-6 relative max-h-[92vh] overflow-auto">

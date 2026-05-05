@@ -62,8 +62,21 @@ const FAMILY_OPTIONS = [
   { id: 'macbook', label: 'MacBook' },
 ];
 
+const IPAD_LINE_OPTIONS = [
+  { value: '', label: 'Cualquiera' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'air', label: 'Air' },
+  { value: 'pro', label: 'Pro' },
+  { value: 'mini', label: 'Mini' },
+];
+const IPAD_NUMBER_OPTIONS = ['', '10', '11'];
+const IPAD_MINI_NUMBER_OPTIONS = ['', '6', '7'];
 const IPAD_SCREEN_OPTIONS = ['', '11', '12.9', '13'];
+const IPAD_AIR_SCREEN_OPTIONS = ['', '10.9', '11', '13'];
+const IPAD_PRO_SCREEN_OPTIONS = ['', '11', '12.9', '13'];
 const IPAD_PROCESSOR_OPTIONS = ['', 'A16', 'M1', 'M2', 'M3', 'M4', 'M5'];
+const IPAD_AIR_PROCESSOR_OPTIONS = ['', 'M1', 'M2', 'M3', 'M4', 'M5'];
+const IPAD_PRO_PROCESSOR_OPTIONS = ['', 'M1', 'M2', 'M4', 'M5'];
 const IPAD_STORAGE_OPTIONS = ['', '64GB', '128GB', '256GB', '512GB', '1TB', '2TB'];
 const IPAD_CONNECTIVITY_OPTIONS = [
   { value: '', label: 'Cualquiera' },
@@ -77,6 +90,8 @@ const MACBOOK_LINE_OPTIONS = [
   { value: 'Pro', label: 'Pro' },
 ];
 const MACBOOK_SCREEN_OPTIONS = ['', '13', '14', '15', '16'];
+const MACBOOK_AIR_SCREEN_OPTIONS = ['', '13', '15'];
+const MACBOOK_PRO_SCREEN_OPTIONS = ['', '13', '14', '16'];
 const MACBOOK_PROCESSOR_OPTIONS = [
   '',
   'M1',
@@ -95,6 +110,8 @@ const MACBOOK_PROCESSOR_OPTIONS = [
   'M5 Pro',
   'M5 Max',
 ];
+const MACBOOK_AIR_PROCESSOR_OPTIONS = ['', 'M1', 'M2', 'M3', 'M4', 'M5'];
+const MACBOOK_PRO_PROCESSOR_OPTIONS = MACBOOK_PROCESSOR_OPTIONS;
 const MACBOOK_RAM_OPTIONS = ['', '8GB', '16GB', '18GB', '24GB', '32GB', '36GB', '48GB', '64GB'];
 const MACBOOK_STORAGE_OPTIONS = ['', '256GB', '512GB', '1TB', '2TB', '4TB', '8TB'];
 const COMMON_CONDITION_OPTIONS = [
@@ -182,8 +199,39 @@ const roundUp10 = (value) => {
 
 const compactValue = (value) => String(value || '').trim();
 
+const getIpadNumberOptions = (line) => (line === 'mini' ? IPAD_MINI_NUMBER_OPTIONS : IPAD_NUMBER_OPTIONS);
+
+const getIpadScreenOptions = (line) => {
+  if (line === 'air') return IPAD_AIR_SCREEN_OPTIONS;
+  if (line === 'pro') return IPAD_PRO_SCREEN_OPTIONS;
+  return IPAD_SCREEN_OPTIONS;
+};
+
+const getIpadProcessorOptions = (line) => {
+  if (line === 'air') return IPAD_AIR_PROCESSOR_OPTIONS;
+  if (line === 'pro') return IPAD_PRO_PROCESSOR_OPTIONS;
+  return IPAD_PROCESSOR_OPTIONS;
+};
+
+const getMacbookScreenOptions = (line) => {
+  if (line === 'Air') return MACBOOK_AIR_SCREEN_OPTIONS;
+  if (line === 'Pro') return MACBOOK_PRO_SCREEN_OPTIONS;
+  return MACBOOK_SCREEN_OPTIONS;
+};
+
+const getMacbookProcessorOptions = (line) => {
+  if (line === 'Air') return MACBOOK_AIR_PROCESSOR_OPTIONS;
+  if (line === 'Pro') return MACBOOK_PRO_PROCESSOR_OPTIONS;
+  return MACBOOK_PROCESSOR_OPTIONS;
+};
+
 const buildIpadQuery = (form) => {
   const parts = ['apple', 'ipad'];
+  if (compactValue(form.line) && form.line !== 'normal') parts.push(form.line);
+  if (compactValue(form.number)) {
+    const number = compactValue(form.number);
+    parts.push(form.line === 'mini' ? `${number}th generation` : `${number}th generation`);
+  }
   if (compactValue(form.screen)) parts.push(`${form.screen}-inch`);
   if (compactValue(form.processor)) parts.push(form.processor);
   if (compactValue(form.storage)) parts.push(form.storage);
@@ -274,6 +322,38 @@ const titleHasScreen = (title, screen) => {
   if (!target) return true;
   const pattern = new RegExp(`\\b${escapeRegex(target)}(?:\\s|-)?(?:inch|in)?\\b`);
   return pattern.test(normalized);
+};
+
+const titleHasStorage = (title, storage) => {
+  const normalized = normalizeTitleText(title);
+  const target = compactValue(storage).toLowerCase();
+  if (!target) return true;
+  const spaced = target.replace('gb', ' gb').replace('tb', ' tb').trim();
+  return normalized.includes(spaced) || normalized.includes(target);
+};
+
+const titleHasRam = (title, ram) => {
+  const normalized = normalizeTitleText(title);
+  const target = compactValue(ram).toLowerCase();
+  if (!target) return true;
+  const spaced = target.replace('gb', ' gb').trim();
+  return normalized.includes(spaced) || normalized.includes(target);
+};
+
+const titleHasProcessor = (title, processor) => {
+  const normalized = normalizeTitleText(title);
+  const target = compactValue(processor).toLowerCase();
+  if (!target) return true;
+  const pattern = target.split(/\s+/).map((part) => escapeRegex(part)).join('\\s+');
+  return new RegExp(`\\b${pattern}\\b`).test(normalized);
+};
+
+const titleHasGenerationNumber = (title, number) => {
+  const normalized = normalizeTitleText(title);
+  const target = compactValue(number);
+  if (!target) return true;
+  const ordinal = `${target}(?:st|nd|rd|th)`;
+  return new RegExp(`\\b(?:${ordinal}\\s*(?:gen|generation)?|gen(?:eration)?\\s*${target}|${target}\\s*(?:gen|generation))\\b`).test(normalized);
 };
 
 const normalizeBulkPawnText = (value) =>
@@ -432,15 +512,51 @@ const isLikelyAppleDeviceTitle = (title, family) => {
 const matchIpadItem = (item, form) => {
   const title = normalizeTitleText(item?.title || '');
   if (!isLikelyAppleDeviceTitle(title, 'ipad')) return false;
-  if (compactValue(form.processor) && !title.includes(compactValue(form.processor).toLowerCase())) return false;
-  if (compactValue(form.screen) && !title.includes(compactValue(form.screen).toLowerCase())) return false;
-  if (compactValue(form.storage) && !title.includes(compactValue(form.storage).toLowerCase().replace('gb', ' gb').replace('tb', ' tb').trim())) {
-    const storageRaw = compactValue(form.storage).toLowerCase();
-    if (!title.includes(storageRaw)) return false;
-  }
-  if (form.connectivity === 'wifi' && !title.includes('wifi')) return false;
-  if (form.connectivity === 'cellular' && !title.includes('cellular')) return false;
+  if (form.line === 'normal' && /\b(air|pro|mini)\b/.test(title)) return false;
+  if (form.line === 'air' && !/\bair\b/.test(title)) return false;
+  if (form.line === 'pro' && !/\bpro\b/.test(title)) return false;
+  if (form.line === 'mini' && !/\bmini\b/.test(title)) return false;
+  if ((form.line === 'normal' || form.line === 'mini') && !titleHasGenerationNumber(title, form.number)) return false;
+  if ((form.line === 'air' || form.line === 'pro' || !form.line) && !titleHasProcessor(title, form.processor)) return false;
+  if (compactValue(form.screen) && !titleHasScreen(title, form.screen)) return false;
+  if (!titleHasStorage(title, form.storage)) return false;
+  if (form.connectivity === 'wifi' && !/\bwifi\b|\bwi fi\b/.test(title)) return false;
+  if (form.connectivity === 'cellular' && !/\bcellular\b|\b5g\b|\blte\b|\bunlocked\b/.test(title)) return false;
   return true;
+};
+
+const matchMacbookItem = (item, form) => {
+  const title = normalizeTitleText(item?.title || '');
+  if (!isLikelyAppleDeviceTitle(title, 'macbook')) return false;
+  if (form.line === 'Air' && !/\bair\b/.test(title)) return false;
+  if (form.line === 'Pro' && !/\bpro\b/.test(title)) return false;
+  if (!titleHasProcessor(title, form.processor)) return false;
+  if (compactValue(form.screen) && !titleHasScreen(title, form.screen)) return false;
+  if (!titleHasRam(title, form.ram)) return false;
+  if (!titleHasStorage(title, form.storage)) return false;
+  return true;
+};
+
+const normalizeIpadFormForLine = (prev, nextLine) => {
+  const next = { ...prev, line: nextLine };
+  const numberOptions = getIpadNumberOptions(nextLine);
+  const screenOptions = getIpadScreenOptions(nextLine);
+  const processorOptions = getIpadProcessorOptions(nextLine);
+  if (nextLine !== 'normal' && nextLine !== 'mini') next.number = '';
+  if ((nextLine === 'normal' || nextLine === 'mini')) next.processor = '';
+  if (!numberOptions.includes(next.number)) next.number = '';
+  if (!screenOptions.includes(next.screen)) next.screen = '';
+  if (!processorOptions.includes(next.processor)) next.processor = '';
+  return next;
+};
+
+const normalizeMacbookFormForLine = (prev, nextLine) => {
+  const next = { ...prev, line: nextLine };
+  const screenOptions = getMacbookScreenOptions(nextLine);
+  const processorOptions = getMacbookProcessorOptions(nextLine);
+  if (!screenOptions.includes(next.screen)) next.screen = '';
+  if (!processorOptions.includes(next.processor)) next.processor = '';
+  return next;
 };
 
 const computeSuggestedBuyRange = (group) => {
@@ -601,13 +717,13 @@ function SectionToggle({ activeTab, onChange }) {
   ];
 
   return (
-    <div className="inline-flex rounded-2xl bg-slate-200 p-1">
+    <div className="grid w-full grid-cols-3 rounded-2xl bg-slate-200 p-1 sm:inline-flex sm:w-auto">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           type="button"
           onClick={() => onChange(tab.id)}
-          className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
+          className={`rounded-2xl px-2 py-2 text-xs font-semibold leading-tight transition sm:px-4 sm:text-sm ${
             activeTab === tab.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
           }`}
         >
@@ -620,7 +736,7 @@ function SectionToggle({ activeTab, onChange }) {
 
 function FieldShell({ label, children }) {
   return (
-    <label className="block">
+    <label className="block min-w-0">
       <div className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div>
       {children}
     </label>
@@ -664,7 +780,7 @@ function ResultsGrid({ items, titleSource = 'store', dateField = 'origin', price
   };
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7">
       {items.map((item) => {
         const sellerLabel = titleSource === 'seller' ? (item.seller || 'eBay') : (item.storeName || item.seller || 'eBay');
         const feedbackPercent = Number(item.sellerFeedbackPercentage);
@@ -691,9 +807,9 @@ function ResultsGrid({ items, titleSource = 'store', dateField = 'origin', price
               )}
             </div>
 
-            <div className="space-y-2 p-3">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{sellerLabel}</div>
+            <div className="min-w-0 space-y-2 p-3">
+              <div className="min-w-0">
+                <div className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{sellerLabel}</div>
                 {(Number.isFinite(feedbackPercent) || Number.isFinite(feedbackScore)) && (
                   <div className="mt-1 text-[11px] text-slate-500">
                     {Number.isFinite(feedbackPercent) ? `${feedbackPercent.toFixed(1)}%` : '-'} | {Number.isFinite(feedbackScore) ? `${Math.round(feedbackScore)} reviews` : '0 reviews'}
@@ -701,7 +817,7 @@ function ResultsGrid({ items, titleSource = 'store', dateField = 'origin', price
                 )}
               </div>
 
-              <div className="line-clamp-3 min-h-[3.6rem] text-sm font-semibold leading-5 text-slate-900">{item.title}</div>
+              <div className="line-clamp-3 min-h-[3.6rem] break-words text-sm font-semibold leading-5 text-slate-900">{item.title}</div>
 
               {item.priceReview && (
                 <div className={`inline-flex w-fit rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${recommendationTone[item.priceReview.tone] || 'bg-slate-100 text-slate-700'}`}>
@@ -713,7 +829,7 @@ function ResultsGrid({ items, titleSource = 'store', dateField = 'origin', price
                 {priceMode === 'bid' ? `Oferta: ${formatPrice(bidAmount, item.currency)}` : formatPrice(item.priceUSD, item.currency)}
               </div>
 
-              <div className="space-y-1 text-[11px] text-slate-500">
+              <div className="space-y-1 break-words text-[11px] text-slate-500">
                 <div>{item.condition || 'Sin condicion'}</div>
                 <div>{dateField === 'end' ? `Restante: ${formatRemainingTime(item.itemEndDate)}` : formatDate(item.itemOriginDate || item.itemCreationDate)}</div>
               </div>
@@ -743,7 +859,7 @@ function EbayRateLimitPanel({ data, loading, error, onRefresh }) {
   const barTone = exhausted ? 'bg-red-500' : boundedPercent >= 85 ? 'bg-amber-500' : 'bg-emerald-500';
 
   return (
-    <div className={`mb-6 rounded-[2rem] border px-5 py-4 shadow-sm ${tone}`}>
+    <div className={`mb-4 rounded-2xl border px-4 py-4 shadow-sm sm:mb-6 sm:rounded-[2rem] sm:px-5 ${tone}`}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -766,10 +882,56 @@ function EbayRateLimitPanel({ data, loading, error, onRefresh }) {
           type="button"
           onClick={onRefresh}
           disabled={loading}
-          className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto"
         >
           Actualizar limite
         </button>
+      </div>
+    </div>
+  );
+}
+
+function EbayLoadingPanel({ progress, tab, compact = false }) {
+  if (!progress?.visible) return null;
+
+  const labels = {
+    pawns: progress.mode === 'append' ? 'Cargando mas pawns' : 'Buscando en tiendas pawn',
+    product: progress.mode === 'append' ? 'Cargando mas productos' : 'Buscando productos',
+    auctions: progress.mode === 'append' ? 'Cargando mas subastas' : 'Buscando subastas',
+  };
+  const percent = Math.max(0, Math.min(100, Math.round(Number(progress.percent || 0))));
+  const statusText = percent >= 100
+    ? 'Finalizando resultados...'
+    : progress.mode === 'append'
+      ? 'Cargando el siguiente bloque de resultados...'
+      : 'Consultando eBay y preparando resultados...';
+  const shellClass = compact
+    ? 'mt-3 w-full max-w-md overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm'
+    : 'mb-4 overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm';
+
+  return (
+    <div className={shellClass}>
+      <div className={`flex gap-3 px-4 ${compact ? 'py-3' : 'py-4'} ${compact ? 'items-center justify-between' : 'flex-col sm:flex-row sm:items-center sm:justify-between'}`}>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-slate-900">{labels[tab] || 'Cargando eBay'}</div>
+          <div className="mt-1 text-xs text-slate-500">
+            {statusText}
+          </div>
+        </div>
+        <div className="shrink-0 text-right text-sm font-bold text-sky-700">
+          {percent}%
+          {!compact && (
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-600">
+              {progress.mode === 'append' ? 'Cargando mas' : 'En proceso'}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="h-2 bg-slate-100">
+        <div
+          className="h-full rounded-r-full bg-sky-500 transition-all duration-500"
+          style={{ width: `${percent}%` }}
+        />
       </div>
     </div>
   );
@@ -779,6 +941,7 @@ function Ebay({ setVista }) {
   const [activeTab, setActiveTab] = useState('pawns');
   const [loadingTab, setLoadingTab] = useState('');
   const [appendLoadingTab, setAppendLoadingTab] = useState('');
+  const [loadingProgress, setLoadingProgress] = useState({ visible: false, tab: '', mode: '', percent: 0 });
   const [errors, setErrors] = useState({ pawns: '', product: '', auctions: '' });
 
   const [pawnQuery, setPawnQuery] = useState('apple');
@@ -800,7 +963,7 @@ function Ebay({ setVista }) {
   const [productPawnOnly, setProductPawnOnly] = useState(false);
   const [productResult, setProductResult] = useState(EMPTY_RESULT);
   const [productCacheNotice, setProductCacheNotice] = useState('');
-  const [ipadForm, setIpadForm] = useState({ screen: '', processor: '', storage: '', connectivity: '' });
+  const [ipadForm, setIpadForm] = useState({ line: '', number: '', screen: '', processor: '', storage: '', connectivity: '' });
   const [iphoneForm, setIphoneForm] = useState({ number: '16', model: '' });
   const [macbookForm, setMacbookForm] = useState({ line: '', screen: '', processor: '', ram: '', storage: '' });
 
@@ -814,6 +977,15 @@ function Ebay({ setVista }) {
 
   const sentinelRef = useRef(null);
   const appendRequestKeyRef = useRef('');
+  const progressHideTimeoutRef = useRef(null);
+  const activeProgressTab = appendLoadingTab || loadingTab;
+  const activeProgressMode = appendLoadingTab ? 'append' : loadingTab ? 'initial' : '';
+  const ipadUsesNumber = ipadForm.line === 'normal' || ipadForm.line === 'mini';
+  const ipadNumberOptions = getIpadNumberOptions(ipadForm.line);
+  const ipadScreenOptions = getIpadScreenOptions(ipadForm.line);
+  const ipadProcessorOptions = getIpadProcessorOptions(ipadForm.line);
+  const macbookScreenOptions = getMacbookScreenOptions(macbookForm.line);
+  const macbookProcessorOptions = getMacbookProcessorOptions(macbookForm.line);
 
   const loadEbayRateLimits = async ({ silent = false } = {}) => {
     if (!silent) setEbayRateLoading(true);
@@ -979,6 +1151,8 @@ function Ebay({ setVista }) {
           : rawItems.filter((item) => isLikelyAppleDeviceTitle(item?.title || '', productType));
         return productType === 'ipad'
           ? familyFilteredItems.filter((item) => matchIpadItem(item, ipadForm))
+          : productType === 'macbook'
+            ? familyFilteredItems.filter((item) => matchMacbookItem(item, macbookForm))
           : familyFilteredItems;
       };
 
@@ -1104,6 +1278,50 @@ function Ebay({ setVista }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (progressHideTimeoutRef.current) {
+      clearTimeout(progressHideTimeoutRef.current);
+      progressHideTimeoutRef.current = null;
+    }
+
+    if (activeProgressTab) {
+      setLoadingProgress({ visible: true, tab: activeProgressTab, mode: activeProgressMode, percent: 4 });
+      return undefined;
+    }
+
+    setLoadingProgress((prev) => {
+      if (!prev.visible) return prev;
+      return { ...prev, percent: 100 };
+    });
+    progressHideTimeoutRef.current = setTimeout(() => {
+      setLoadingProgress((prev) => {
+        if (!prev.visible || prev.percent < 100) return prev;
+        return { visible: false, tab: '', mode: '', percent: 0 };
+      });
+      progressHideTimeoutRef.current = null;
+    }, 650);
+
+    return undefined;
+  }, [activeProgressMode, activeProgressTab]);
+
+  useEffect(() => {
+    if (!loadingProgress.visible || loadingProgress.percent >= 94) return undefined;
+
+    const timer = setInterval(() => {
+      setLoadingProgress((prev) => {
+        if (!prev.visible || prev.percent >= 94) return prev;
+        const nextPercent = Math.min(94, prev.percent + Math.max(1, Math.round((94 - prev.percent) * 0.09)));
+        return { ...prev, percent: nextPercent };
+      });
+    }, 280);
+
+    return () => clearInterval(timer);
+  }, [loadingProgress.mode, loadingProgress.tab, loadingProgress.visible]);
+
+  useEffect(() => () => {
+    if (progressHideTimeoutRef.current) clearTimeout(progressHideTimeoutRef.current);
+  }, []);
+
   const currentResult = activeTab === 'pawns' ? pawnResult : activeTab === 'product' ? productResult : auctionResult;
   const currentError = activeTab === 'pawns' ? errors.pawns : activeTab === 'product' ? errors.product : errors.auctions;
   const currentLoading = loadingTab === activeTab;
@@ -1112,6 +1330,15 @@ function Ebay({ setVista }) {
     typeof currentResult.hasMore === 'boolean'
       ? currentResult.hasMore
       : currentResult.items.length < currentResult.total
+  );
+  const currentInitialProgress = loadingProgress.visible && loadingProgress.mode === 'initial' && loadingProgress.tab === activeTab
+    ? loadingProgress
+    : null;
+  const currentAppendProgress = loadingProgress.visible && loadingProgress.mode === 'append' && loadingProgress.tab === activeTab
+    ? loadingProgress
+    : null;
+  const showLoadMoreControls = !currentLoading && currentResult.items.length > 0 && (
+    currentHasMore || currentAppending || Boolean(currentAppendProgress)
   );
   const currentItems = useMemo(
     () => currentResult.items.map((item) => ({
@@ -1239,21 +1466,21 @@ function Ebay({ setVista }) {
   }, [activeTab, currentHasMore, currentLoading, currentAppending, pawnResult.items.length, productResult.items.length, auctionResult.items.length, pawnCondition, pawnBuyingOptions, productCondition, productBuyingOptions, productPawnOnly, auctionFamily, auctionCondition, productType]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#eff6ff_0%,_#f8fafc_45%,_#e2e8f0_100%)] p-4 sm:p-6">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#eff6ff_0%,_#f8fafc_45%,_#e2e8f0_100%)] p-3 sm:p-6">
       <div className="mx-auto max-w-[1800px]">
-        <div className="mb-6 rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_24px_80px_-38px_rgba(15,23,42,0.35)] backdrop-blur">
+        <div className="mb-4 rounded-2xl border border-white/70 bg-white/85 p-4 shadow-[0_24px_80px_-38px_rgba(15,23,42,0.35)] backdrop-blur sm:mb-6 sm:rounded-[2rem] sm:p-5">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-3xl">
-              <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">eBay Explorer</div>
-              <h1 className="mt-2 text-3xl font-semibold text-slate-900 sm:text-4xl">Busqueda Apple</h1>
+            <div className="max-w-3xl min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 sm:tracking-[0.24em]">eBay Explorer</div>
+              <h1 className="mt-2 text-2xl font-semibold text-slate-900 sm:text-4xl">Busqueda Apple</h1>
               <p className="mt-3 text-sm leading-6 text-slate-600">Carga {PAGE_SIZE} resultados y sigue trayendo mas al bajar.</p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
               <SectionToggle activeTab={activeTab} onChange={setActiveTab} />
               <button
                 type="button"
                 onClick={() => setVista('home')}
-                className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 sm:w-auto"
               >
                 Volver
               </button>
@@ -1268,8 +1495,8 @@ function Ebay({ setVista }) {
           onRefresh={() => loadEbayRateLimits({ silent: false })}
         />
 
-        <div className="mb-6 grid gap-4 xl:grid-cols-[1.2fr,1fr]">
-          <div className={`rounded-[2rem] border p-5 shadow-sm transition ${activeTab === 'pawns' ? 'border-sky-200 bg-white' : 'border-slate-200 bg-white/80'}`}>
+        <div className="mb-4 grid gap-4 sm:mb-6 xl:grid-cols-[1.2fr,1fr]">
+          <div className={`rounded-2xl border p-4 shadow-sm transition sm:rounded-[2rem] sm:p-5 ${activeTab === 'pawns' ? 'border-sky-200 bg-white' : 'border-slate-200 bg-white/80'}`}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">Buscar por pawns</h2>
@@ -1295,13 +1522,13 @@ function Ebay({ setVista }) {
                 type="button"
                 onClick={() => { setActiveTab('pawns'); loadPawns({ append: false }); }}
                 disabled={loadingTab === 'pawns'}
-                className="self-end rounded-2xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full self-end rounded-2xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto"
               >
                 {loadingTab === 'pawns' ? 'Buscando...' : 'Buscar pawns'}
               </button>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-3">
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
               <button
                 type="button"
                 onClick={() => setPawnStoresModalOpen(true)}
@@ -1356,7 +1583,7 @@ function Ebay({ setVista }) {
                   type="button"
                   onClick={saveSinglePawnStore}
                   disabled={pawnStoreSaving || !String(pawnStoreUrl || '').trim()}
-                  className="self-end rounded-2xl bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full self-end rounded-2xl bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto"
                 >
                   {pawnStoreSaving ? 'Guardando...' : 'Guardar pawn'}
                 </button>
@@ -1389,7 +1616,7 @@ function Ebay({ setVista }) {
                     type="button"
                     onClick={saveBulkPawnStores}
                     disabled={pawnStoreSaving || !String(pawnStoreBulkText || '').trim()}
-                    className="rounded-2xl bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full rounded-2xl bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                   >
                     {pawnStoreSaving ? 'Guardando...' : 'Guardar bulk'}
                   </button>
@@ -1410,20 +1637,20 @@ function Ebay({ setVista }) {
             )}
           </div>
 
-          <div className={`rounded-[2rem] border p-5 shadow-sm transition ${activeTab === 'product' ? 'border-amber-200 bg-white' : 'border-slate-200 bg-white/80'}`}>
+          <div className={`rounded-2xl border p-4 shadow-sm transition sm:rounded-[2rem] sm:p-5 ${activeTab === 'product' ? 'border-amber-200 bg-white' : 'border-slate-200 bg-white/80'}`}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">Buscar por producto</h2>
               </div>
             </div>
 
-            <div className="mb-4 flex flex-wrap gap-2">
+            <div className="mb-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
               {FAMILY_OPTIONS.map((option) => (
                 <button
                   key={option.id}
                   type="button"
                   onClick={() => setProductType(option.id)}
-                  className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${productType === option.id ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-600 hover:text-slate-900'}`}
+                  className={`rounded-2xl px-3 py-2 text-sm font-semibold transition sm:px-4 ${productType === option.id ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-600 hover:text-slate-900'}`}
                 >
                   {option.label}
                 </button>
@@ -1431,9 +1658,31 @@ function Ebay({ setVista }) {
             </div>
 
             {productType === 'ipad' && (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                <FieldShell label="Pantalla"><SelectField value={ipadForm.screen} onChange={(e) => setIpadForm((prev) => ({ ...prev, screen: e.target.value }))} options={IPAD_SCREEN_OPTIONS} /></FieldShell>
-                <FieldShell label="Procesador"><SelectField value={ipadForm.processor} onChange={(e) => setIpadForm((prev) => ({ ...prev, processor: e.target.value }))} options={IPAD_PROCESSOR_OPTIONS} /></FieldShell>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+                <FieldShell label="Linea">
+                  <MappedSelectField
+                    value={ipadForm.line}
+                    onChange={(e) => setIpadForm((prev) => normalizeIpadFormForLine(prev, e.target.value))}
+                    options={IPAD_LINE_OPTIONS}
+                  />
+                </FieldShell>
+                <FieldShell label={ipadUsesNumber ? 'Numero' : 'Procesador'}>
+                  {ipadUsesNumber ? (
+                    <SelectField
+                      value={ipadForm.number}
+                      onChange={(e) => setIpadForm((prev) => ({ ...prev, number: e.target.value }))}
+                      options={ipadNumberOptions}
+                      placeholder="Numero"
+                    />
+                  ) : (
+                    <SelectField
+                      value={ipadForm.processor}
+                      onChange={(e) => setIpadForm((prev) => ({ ...prev, processor: e.target.value }))}
+                      options={ipadProcessorOptions}
+                    />
+                  )}
+                </FieldShell>
+                <FieldShell label="Pantalla"><SelectField value={ipadForm.screen} onChange={(e) => setIpadForm((prev) => ({ ...prev, screen: e.target.value }))} options={ipadScreenOptions} /></FieldShell>
                 <FieldShell label="Almacenamiento"><SelectField value={ipadForm.storage} onChange={(e) => setIpadForm((prev) => ({ ...prev, storage: e.target.value }))} options={IPAD_STORAGE_OPTIONS} /></FieldShell>
                 <FieldShell label="Conectividad"><MappedSelectField value={ipadForm.connectivity} onChange={(e) => setIpadForm((prev) => ({ ...prev, connectivity: e.target.value }))} options={IPAD_CONNECTIVITY_OPTIONS} /></FieldShell>
                 <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={COMMON_CONDITION_OPTIONS} /></FieldShell>
@@ -1463,9 +1712,9 @@ function Ebay({ setVista }) {
 
             {productType === 'macbook' && (
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
-                <FieldShell label="Linea"><MappedSelectField value={macbookForm.line} onChange={(e) => setMacbookForm((prev) => ({ ...prev, line: e.target.value }))} options={MACBOOK_LINE_OPTIONS} /></FieldShell>
-                <FieldShell label="Pantalla"><SelectField value={macbookForm.screen} onChange={(e) => setMacbookForm((prev) => ({ ...prev, screen: e.target.value }))} options={MACBOOK_SCREEN_OPTIONS} /></FieldShell>
-                <FieldShell label="Procesador"><SelectField value={macbookForm.processor} onChange={(e) => setMacbookForm((prev) => ({ ...prev, processor: e.target.value }))} options={MACBOOK_PROCESSOR_OPTIONS} /></FieldShell>
+                <FieldShell label="Linea"><MappedSelectField value={macbookForm.line} onChange={(e) => setMacbookForm((prev) => normalizeMacbookFormForLine(prev, e.target.value))} options={MACBOOK_LINE_OPTIONS} /></FieldShell>
+                <FieldShell label="Pantalla"><SelectField value={macbookForm.screen} onChange={(e) => setMacbookForm((prev) => ({ ...prev, screen: e.target.value }))} options={macbookScreenOptions} /></FieldShell>
+                <FieldShell label="Procesador"><SelectField value={macbookForm.processor} onChange={(e) => setMacbookForm((prev) => ({ ...prev, processor: e.target.value }))} options={macbookProcessorOptions} /></FieldShell>
                 <FieldShell label="RAM"><SelectField value={macbookForm.ram} onChange={(e) => setMacbookForm((prev) => ({ ...prev, ram: e.target.value }))} options={MACBOOK_RAM_OPTIONS} /></FieldShell>
                 <FieldShell label="Almacenamiento"><SelectField value={macbookForm.storage} onChange={(e) => setMacbookForm((prev) => ({ ...prev, storage: e.target.value }))} options={MACBOOK_STORAGE_OPTIONS} /></FieldShell>
                 <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={COMMON_CONDITION_OPTIONS} /></FieldShell>
@@ -1481,8 +1730,8 @@ function Ebay({ setVista }) {
               </div>
             )}
 
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <label className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700">
+            <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
+              <label className="inline-flex w-full items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 sm:w-auto">
                 <input
                   type="checkbox"
                   checked={productPawnOnly}
@@ -1495,7 +1744,7 @@ function Ebay({ setVista }) {
                 type="button"
                 onClick={() => { setActiveTab('product'); loadProductSearch({ append: false }); }}
                 disabled={loadingTab === 'product'}
-                className="rounded-2xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-2xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
               >
                 {loadingTab === 'product' ? 'Buscando...' : 'Buscar producto'}
               </button>
@@ -1504,7 +1753,7 @@ function Ebay({ setVista }) {
                   type="button"
                   onClick={() => { setActiveTab('product'); loadProductSearch({ append: false, forceRefresh: true }); }}
                   disabled={loadingTab === 'product'}
-                  className="rounded-2xl border border-amber-200 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full rounded-2xl border border-amber-200 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 >
                   Actualizar API
                 </button>
@@ -1518,20 +1767,20 @@ function Ebay({ setVista }) {
           </div>
         </div>
 
-        <div className={`mb-6 rounded-[2rem] border p-5 shadow-sm transition ${activeTab === 'auctions' ? 'border-violet-200 bg-white' : 'border-slate-200 bg-white/80'}`}>
+        <div className={`mb-4 rounded-2xl border p-4 shadow-sm transition sm:mb-6 sm:rounded-[2rem] sm:p-5 ${activeTab === 'auctions' ? 'border-violet-200 bg-white' : 'border-slate-200 bg-white/80'}`}>
           <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div>
+            <div className="min-w-0">
               <h2 className="text-xl font-semibold text-slate-900">Buscar todos en subastas</h2>
               <p className="mt-2 text-sm text-slate-600">Subastas Apple ordenadas por las primeras en terminar. En iPad se limita a 11, 12.9 y 13 pulgadas con chips A16 y M1 a M5.</p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid w-full gap-2 sm:grid-cols-3 xl:w-auto">
               <MappedSelectField value={auctionFamily} onChange={(e) => setAuctionFamily(e.target.value)} options={FAMILY_OPTIONS.map((item) => ({ value: item.id, label: item.label }))} />
               <MappedSelectField value={auctionCondition} onChange={(e) => setAuctionCondition(e.target.value)} options={AUCTION_CONDITION_OPTIONS} />
               <button
                 type="button"
                 onClick={() => { setActiveTab('auctions'); loadAppleAuctions({ append: false }); }}
                 disabled={loadingTab === 'auctions'}
-                className="rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loadingTab === 'auctions' ? 'Buscando...' : 'Cargar subastas'}
               </button>
@@ -1541,14 +1790,19 @@ function Ebay({ setVista }) {
 
         {currentError && <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{currentError}</div>}
 
-        <div className="mb-4 flex flex-col gap-2 rounded-[2rem] border border-slate-200 bg-white px-5 py-4 shadow-sm md:flex-row md:items-center md:justify-between">
-          <div>
+        <EbayLoadingPanel
+          progress={currentInitialProgress}
+          tab={activeTab}
+        />
+
+        <div className="mb-4 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:rounded-[2rem] sm:px-5 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
             <div className="mt-1 text-lg font-semibold text-slate-900">{currentLoading && currentResult.items.length === 0 ? 'Cargando resultados...' : `${currentResult.items.length} resultados visibles`}</div>
             <div className="mt-1 text-sm text-slate-600">
               Orden: <strong>{activeTab === 'auctions' ? 'primeros en terminar' : 'mas reciente a mas antiguo'}</strong>
             </div>
           </div>
-          <div className="text-sm text-slate-600">
+          <div className="text-sm text-slate-600 md:text-right">
             {currentAppending ? `Precargando... ${currentResult.total} totales` : `${currentResult.total} totales`}
           </div>
         </div>
@@ -1562,34 +1816,39 @@ function Ebay({ setVista }) {
           />
         )}
 
-        {!currentLoading && currentResult.items.length > 0 && currentHasMore && (
-          <div className="my-6 flex justify-center">
+        {showLoadMoreControls && (
+          <div className="my-6 flex flex-col items-center justify-center">
             <button
               type="button"
               onClick={loadMoreCurrent}
-              disabled={currentAppending}
+              disabled={currentAppending || !currentHasMore}
               className="rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {currentAppending ? 'Cargando mas...' : 'Cargar mas'}
             </button>
+            <EbayLoadingPanel
+              progress={currentAppendProgress}
+              tab={activeTab}
+              compact
+            />
           </div>
         )}
 
         {!currentLoading && !currentError && currentResult.items.length === 0 && (
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 shadow-sm sm:rounded-[2rem] sm:p-10">
             No se encontraron productos para esa combinacion.
           </div>
         )}
 
         {pawnStoresModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-            <div className="max-h-[80vh] w-full max-w-3xl overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl">
-              <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-                <div>
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-2 sm:items-center sm:p-4">
+            <div className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:max-h-[80vh] sm:rounded-[2rem]">
+              <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                <div className="min-w-0">
                   <h3 className="text-lg font-semibold text-slate-900">Pawns guardados</h3>
                   <div className="text-sm text-slate-500">{pawnStores.length} tiendas persistidas</div>
                 </div>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:flex">
                   <button
                     type="button"
                     onClick={exportPawnStores}
@@ -1608,16 +1867,16 @@ function Ebay({ setVista }) {
                 </div>
               </div>
 
-              <div className="max-h-[calc(80vh-88px)] overflow-auto p-5">
+              <div className="max-h-[calc(92vh-132px)] overflow-auto p-4 sm:max-h-[calc(80vh-88px)] sm:p-5">
                 {pawnStores.length > 0 ? (
                   <div className="space-y-3">
                     {pawnStores.map((store) => (
                       <div
                         key={`${store.seller}-${store.storeUrl}`}
-                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                        className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 p-4"
                       >
-                        <div className="text-base font-semibold text-slate-900">{store.storeName}</div>
-                        <div className="mt-1 text-sm text-slate-500">Seller: {store.seller}</div>
+                        <div className="break-words text-base font-semibold text-slate-900">{store.storeName}</div>
+                        <div className="mt-1 break-words text-sm text-slate-500">Seller: {store.seller}</div>
                         <a
                           href={store.storeUrl}
                           target="_blank"

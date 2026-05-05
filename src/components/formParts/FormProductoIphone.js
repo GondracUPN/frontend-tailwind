@@ -1,7 +1,26 @@
 // src/components/formParts/FormProductoIphone.js
+import { useEffect, useMemo, useState } from 'react';
+import api from '../../api';
+
+const uniq = (items) => Array.from(new Set((items || []).map((x) => String(x || '').trim()).filter(Boolean)));
+const metaList = (item, key) => Array.isArray(item?.metadata?.[key]) ? item.metadata[key] : [];
+const NUMEROS_BASE = ['11','12','13','14','15','16','17'];
+
 export default function FormProductoIphone({ detalle, onChange }) {
   const { numero, modelo, almacenamiento } = detalle;
-  const numeros = ['11','12','13','14','15','16','17'];
+  const [customOptions, setCustomOptions] = useState([]);
+  const customForNumber = customOptions.find((item) => item.family === numero);
+  const numeros = useMemo(() => uniq([...NUMEROS_BASE, ...customOptions.map((item) => item.family)]).sort((a, b) => Number(a) - Number(b)), [customOptions]);
+
+  useEffect(() => {
+    let alive = true;
+    api.get('/catalog/product-options')
+      .then((rows) => {
+        if (alive) setCustomOptions((Array.isArray(rows) ? rows : []).filter((item) => item.productType === 'iphone'));
+      })
+      .catch(() => { if (alive) setCustomOptions([]); });
+    return () => { alive = false; };
+  }, []);
 
   const modelosDisponibles = (num) => {
     const n = parseInt(num, 10);
@@ -11,10 +30,11 @@ export default function FormProductoIphone({ detalle, onChange }) {
     if (n >= 12 && n <= 13) ops.push('Mini');
     if (n >= 14 && n <= 16) ops.push('Plus');
     if (n >= 16 && n <= 17) ops.push('E');
-    return Array.from(new Set(ops));
+    return uniq([...ops, ...metaList(customForNumber, 'models')]);
   };
 
   const getAlmacenamiento = () => {
+    if (customForNumber && metaList(customForNumber, 'storages').length) return metaList(customForNumber, 'storages');
     const n = parseInt(numero, 10);
     if (n >= 11 && n <= 12) return ['64', '128', '256'];
     if (n >= 13 && n <= 16) {

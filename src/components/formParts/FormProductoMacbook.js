@@ -1,6 +1,23 @@
 // src/components/formParts/FormProductoMacbook.js
+import { useEffect, useMemo, useState } from 'react';
+import api from '../../api';
+
+const uniq = (items) => Array.from(new Set((items || []).map((x) => String(x || '').trim()).filter(Boolean)));
+const metaList = (item, key) => Array.isArray(item?.metadata?.[key]) ? item.metadata[key] : [];
+
 export default function FormProductoMacbook({ detalle, onChange }) {
   const { gama, procesador } = detalle;
+  const [customOptions, setCustomOptions] = useState([]);
+
+  useEffect(() => {
+    let alive = true;
+    api.get('/catalog/product-options')
+      .then((rows) => {
+        if (alive) setCustomOptions((Array.isArray(rows) ? rows : []).filter((item) => item.productType === 'macbook'));
+      })
+      .catch(() => { if (alive) setCustomOptions([]); });
+    return () => { alive = false; };
+  }, []);
 
   // Opciones clásicas; se agrega M5 solo en variante base (sin Pro/Max)
   const procesadoresAir = ['M1', 'M2', 'M3', 'M4', 'M5'];
@@ -10,6 +27,8 @@ export default function FormProductoMacbook({ detalle, onChange }) {
     'M1 Pro', 'M2 Pro', 'M3 Pro', 'M4 Pro',
     'M1 Max', 'M2 Max', 'M3 Max', 'M4 Max',
   ];
+  const customFamilies = useMemo(() => uniq(customOptions.map((item) => item.family)), [customOptions]);
+  const customForSelection = customOptions.find((item) => item.family === gama && item.value === procesador);
 
   const getConfig = () => {
     const p = String(procesador || '').trim();
@@ -39,10 +58,20 @@ export default function FormProductoMacbook({ detalle, onChange }) {
       else if (p === 'M4 Max') { sizes=['14','16']; rams=['48','64','128']; ssds=['1TB','2TB','4TB','8TB']; }
       else if (p === 'M5') { sizes=['14']; rams=['16','24']; ssds=['512','1TB','2TB']; }
     }
+    if (customForSelection) {
+      sizes = uniq([...sizes, ...metaList(customForSelection, 'sizes')]);
+      rams = uniq([...rams, ...metaList(customForSelection, 'rams')]);
+      ssds = uniq([...ssds, ...metaList(customForSelection, 'storages')]);
+    }
     return { sizes, rams, ssds };
   };
 
   const { sizes, rams, ssds } = getConfig();
+  const procesadoresCustom = uniq(customOptions.filter((item) => item.family === gama).map((item) => item.value));
+  const procesadores = uniq([
+    ...(gama === 'Air' ? procesadoresAir : gama === 'Neo' ? procesadoresNeo : procesadoresPro),
+    ...procesadoresCustom,
+  ]);
 
   return (
     <>
@@ -55,9 +84,9 @@ export default function FormProductoMacbook({ detalle, onChange }) {
           onChange={e => { onChange('gama', e.target.value); onChange('procesador',''); onChange('tamano',''); onChange('ram',''); onChange('almacenamiento',''); }}
         >
           <option value="">Seleccione</option>
-          <option value="Air">Air</option>
-          <option value="Neo">Neo</option>
-          <option value="Pro">Pro</option>
+          {uniq(['Air', 'Neo', 'Pro', ...customFamilies]).map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
         </select>
       </div>
 
@@ -70,7 +99,7 @@ export default function FormProductoMacbook({ detalle, onChange }) {
           onChange={e => { onChange('procesador', e.target.value); onChange('tamano',''); onChange('ram',''); onChange('almacenamiento',''); }}
         >
           <option value="">Seleccione</option>
-          {(gama === 'Air' ? procesadoresAir : gama === 'Neo' ? procesadoresNeo : procesadoresPro).map(p => (
+          {procesadores.map(p => (
             <option key={p} value={p}>{p}</option>
           ))}
         </select>

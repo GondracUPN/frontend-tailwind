@@ -260,6 +260,259 @@ function InventarioAdmin({ onIrProductos }) {
   );
 }
 
+const catalogCsvHint = 'Separado por comas';
+
+function CatalogosAdmin() {
+  const [productItems, setProductItems] = useState([]);
+  const [expenseItems, setExpenseItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const [productForm, setProductForm] = useState({
+    productType: 'macbook',
+    family: 'Air',
+    value: '',
+    label: '',
+    sizes: '',
+    rams: '',
+    storages: '',
+    models: '',
+  });
+  const [expenseForm, setExpenseForm] = useState({
+    label: '',
+    appliesDebit: true,
+    appliesCredit: false,
+    defaultCurrency: 'PEN',
+  });
+
+  const load = async () => {
+    try {
+      setLoading(true);
+      setMessage('');
+      const [products, expenses] = await Promise.all([
+        api.get('/catalog/product-options'),
+        api.get('/catalog/expense-concepts'),
+      ]);
+      setProductItems(Array.isArray(products) ? products : []);
+      setExpenseItems(Array.isArray(expenses) ? expenses : []);
+    } catch {
+      setMessage('No se pudieron cargar los catalogos.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const saveProduct = async (e) => {
+    e.preventDefault();
+    try {
+      setLoading(true);
+      await api.post('/catalog/product-options', productForm);
+      setProductForm((prev) => ({ ...prev, value: '', label: '', sizes: '', rams: '', storages: '', models: '' }));
+      await load();
+      setMessage('Opcion de producto agregada.');
+    } catch (err) {
+      setMessage(String(err?.message || 'No se pudo guardar la opcion de producto.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveExpense = async (e) => {
+    e.preventDefault();
+    try {
+      setLoading(true);
+      await api.post('/catalog/expense-concepts', expenseForm);
+      setExpenseForm({ label: '', appliesDebit: true, appliesCredit: false, defaultCurrency: 'PEN' });
+      await load();
+      setMessage('Concepto de gasto agregado.');
+    } catch (err) {
+      setMessage(String(err?.message || 'No se pudo guardar el concepto.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const disableItem = async (id) => {
+    try {
+      await api.del(`/catalog/items/${id}`);
+      await load();
+    } catch {
+      setMessage('No se pudo desactivar el item.');
+    }
+  };
+
+  const baseProductFamilyOptions = productForm.productType === 'macbook'
+    ? ['Air', 'Pro', 'Neo']
+    : productForm.productType === 'ipad'
+      ? ['Normal', 'Mini', 'Air', 'Pro']
+      : ['17', '18'];
+  const productFamilyOptions = Array.from(new Set([
+    ...baseProductFamilyOptions,
+    ...productItems
+      .filter((item) => item.productType === productForm.productType)
+      .map((item) => item.family)
+      .filter(Boolean),
+  ]));
+  const productFamilySelectValue = productFamilyOptions.includes(productForm.family)
+    ? productForm.family
+    : '__custom__';
+  const productValueLabel = productForm.productType === 'iphone'
+    ? 'Numero'
+    : productForm.productType === 'ipad' && ['Normal', 'Mini'].includes(productForm.family)
+      ? 'Generacion'
+      : 'Procesador';
+
+  return (
+    <div className="md:col-span-2 rounded-2xl bg-white p-4 shadow">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Catalogos editables</h2>
+          <p className="text-sm text-gray-500">Agrega nuevos modelos de producto y conceptos de gasto sin tocar codigo.</p>
+        </div>
+        <button onClick={load} disabled={loading} className="rounded bg-gray-200 px-3 py-2 text-sm hover:bg-gray-300 disabled:opacity-60">Refrescar</button>
+      </div>
+
+      {message && <div className="mb-4 rounded border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm text-indigo-800">{message}</div>}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <form onSubmit={saveProduct} className="rounded-2xl border border-gray-200 p-4">
+          <h3 className="mb-3 font-semibold">Nuevo modelo / opcion de producto</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-sm">
+              <span className="mb-1 block text-gray-600">Producto</span>
+              <select
+                className="w-full rounded border px-3 py-2"
+                value={productForm.productType}
+                onChange={(e) => setProductForm((prev) => ({ ...prev, productType: e.target.value, family: e.target.value === 'iphone' ? '18' : 'Air', value: '' }))}
+              >
+                <option value="macbook">MacBook</option>
+                <option value="ipad">iPad</option>
+                <option value="iphone">iPhone</option>
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-gray-600">{productForm.productType === 'iphone' ? 'Numero' : 'Linea / gama'}</span>
+              <select
+                className="w-full rounded border px-3 py-2"
+                value={productFamilySelectValue}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setProductForm((prev) => ({
+                    ...prev,
+                    family: next === '__custom__' ? '' : next,
+                    value: '',
+                  }));
+                }}
+              >
+                {productFamilyOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+                <option value="__custom__">Nueva gama / linea</option>
+              </select>
+              {productFamilySelectValue === '__custom__' && (
+                <input
+                  className="mt-2 w-full rounded border px-3 py-2"
+                  value={productForm.family}
+                  onChange={(e) => setProductForm((prev) => ({ ...prev, family: e.target.value }))}
+                  placeholder={productForm.productType === 'iphone' ? 'Ej. 18' : 'Ej. Ultra'}
+                  required
+                />
+              )}
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-gray-600">{productValueLabel}</span>
+              <input
+                className="w-full rounded border px-3 py-2"
+                value={productForm.value}
+                onChange={(e) => setProductForm((prev) => ({ ...prev, value: e.target.value }))}
+                placeholder={productForm.productType === 'iphone' ? productForm.family : 'M6'}
+              />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-gray-600">Etiqueta opcional</span>
+              <input className="w-full rounded border px-3 py-2" value={productForm.label} onChange={(e) => setProductForm((prev) => ({ ...prev, label: e.target.value }))} placeholder="MacBook Air M6" />
+            </label>
+            {productForm.productType === 'iphone' && (
+              <label className="text-sm sm:col-span-2">
+                <span className="mb-1 block text-gray-600">Modelos permitidos ({catalogCsvHint})</span>
+                <input className="w-full rounded border px-3 py-2" value={productForm.models} onChange={(e) => setProductForm((prev) => ({ ...prev, models: e.target.value }))} placeholder="Normal, Plus, Pro, Pro Max, Air" />
+              </label>
+            )}
+            {productForm.productType !== 'iphone' && (
+              <>
+                <label className="text-sm">
+                  <span className="mb-1 block text-gray-600">Pantallas ({catalogCsvHint})</span>
+                  <input className="w-full rounded border px-3 py-2" value={productForm.sizes} onChange={(e) => setProductForm((prev) => ({ ...prev, sizes: e.target.value }))} placeholder="13, 15" />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-gray-600">RAM ({catalogCsvHint})</span>
+                  <input className="w-full rounded border px-3 py-2" value={productForm.rams} onChange={(e) => setProductForm((prev) => ({ ...prev, rams: e.target.value }))} placeholder="16, 24, 32" />
+                </label>
+              </>
+            )}
+            <label className="text-sm sm:col-span-2">
+              <span className="mb-1 block text-gray-600">Almacenamiento ({catalogCsvHint})</span>
+              <input className="w-full rounded border px-3 py-2" value={productForm.storages} onChange={(e) => setProductForm((prev) => ({ ...prev, storages: e.target.value }))} placeholder="256, 512, 1TB, 2TB" />
+            </label>
+          </div>
+          <button disabled={loading} className="mt-3 rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">Agregar opcion</button>
+        </form>
+
+        <form onSubmit={saveExpense} className="rounded-2xl border border-gray-200 p-4">
+          <h3 className="mb-3 font-semibold">Nuevo concepto de gasto</h3>
+          <div className="grid gap-3">
+            <label className="text-sm">
+              <span className="mb-1 block text-gray-600">Concepto</span>
+              <input className="w-full rounded border px-3 py-2" value={expenseForm.label} onChange={(e) => setExpenseForm((prev) => ({ ...prev, label: e.target.value }))} placeholder="Servicios" required />
+            </label>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <label className="inline-flex items-center gap-2 rounded border px-3 py-2 text-sm">
+                <input type="checkbox" checked={expenseForm.appliesDebit} onChange={(e) => setExpenseForm((prev) => ({ ...prev, appliesDebit: e.target.checked }))} />
+                Debito
+              </label>
+              <label className="inline-flex items-center gap-2 rounded border px-3 py-2 text-sm">
+                <input type="checkbox" checked={expenseForm.appliesCredit} onChange={(e) => setExpenseForm((prev) => ({ ...prev, appliesCredit: e.target.checked }))} />
+                Credito
+              </label>
+              <select className="rounded border px-3 py-2 text-sm" value={expenseForm.defaultCurrency} onChange={(e) => setExpenseForm((prev) => ({ ...prev, defaultCurrency: e.target.value }))}>
+                <option value="PEN">Soles</option>
+                <option value="USD">Dolares</option>
+              </select>
+            </div>
+          </div>
+          <button disabled={loading} className="mt-3 rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">Agregar concepto</button>
+        </form>
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border border-gray-200 p-4">
+          <h3 className="mb-3 font-semibold">Opciones agregadas</h3>
+          <div className="max-h-72 overflow-auto text-sm">
+            {productItems.length === 0 ? <p className="text-gray-500">Sin opciones personalizadas.</p> : productItems.map((item) => (
+              <div key={item.id} className="flex items-center justify-between gap-3 border-t py-2">
+                <span>{item.productType} · {item.family} · {item.value}</span>
+                <button onClick={() => disableItem(item.id)} className="text-red-600 hover:underline">Quitar</button>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-gray-200 p-4">
+          <h3 className="mb-3 font-semibold">Conceptos agregados</h3>
+          <div className="max-h-72 overflow-auto text-sm">
+            {expenseItems.length === 0 ? <p className="text-gray-500">Sin conceptos personalizados.</p> : expenseItems.map((item) => (
+              <div key={item.id} className="flex items-center justify-between gap-3 border-t py-2">
+                <span>{item.label} · {[item.appliesDebit ? 'Debito' : '', item.appliesCredit ? 'Credito' : ''].filter(Boolean).join(' / ')}</span>
+                <button onClick={() => disableItem(item.id)} className="text-red-600 hover:underline">Quitar</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Servicios({ setVista }) {
   const [user, setUser] = useState(() => {
     try {
@@ -346,6 +599,7 @@ export default function Servicios({ setVista }) {
       <div className="grid md:grid-cols-2 gap-6">
         <UsuariosAdmin />
         <InventarioAdmin onIrProductos={() => setVista('productos')} />
+        <CatalogosAdmin />
       </div>
     </div>
   );

@@ -1,20 +1,41 @@
 // src/components/formParts/FormProductoIpad.js
+import { useEffect, useMemo, useState } from 'react';
+import api from '../../api';
+
+const uniq = (items) => Array.from(new Set((items || []).map((x) => String(x || '').trim()).filter(Boolean)));
+const metaList = (item, key) => Array.isArray(item?.metadata?.[key]) ? item.metadata[key] : [];
+
 export default function FormProductoIpad({ detalle, onChange }) {
   const { gama, procesador, generacion, almacenamiento, conexion } = detalle;
   const tamano = detalle.tamano || '';
+  const [customOptions, setCustomOptions] = useState([]);
+
+  useEffect(() => {
+    let alive = true;
+    api.get('/catalog/product-options')
+      .then((rows) => {
+        if (alive) setCustomOptions((Array.isArray(rows) ? rows : []).filter((item) => item.productType === 'ipad'));
+      })
+      .catch(() => { if (alive) setCustomOptions([]); });
+    return () => { alive = false; };
+  }, []);
 
   const generacionesNormales = ['8', '9', '10', '11'];
   const generacionesMini = ['6', '7'];
   const procesadoresAir = ['M1', 'M2', 'M3'];
   const procesadoresPro = ['M1', 'M2', 'M4', 'M5'];
+  const customFamilies = useMemo(() => uniq(customOptions.map((item) => item.family)), [customOptions]);
+  const customForSelection = customOptions.find((item) => item.family === gama && item.value === (gama === 'Normal' || gama === 'Mini' ? generacion : procesador));
 
   const getProcesadores = () => {
-    if (gama === 'Air') return procesadoresAir;
-    if (gama === 'Pro') return procesadoresPro;
+    const custom = customOptions.filter((item) => item.family === gama).map((item) => item.value);
+    if (gama === 'Air') return uniq([...procesadoresAir, ...custom]);
+    if (gama === 'Pro') return uniq([...procesadoresPro, ...custom]);
     return [];
   };
 
   const getTamanos = () => {
+    if (customForSelection && metaList(customForSelection, 'sizes').length) return metaList(customForSelection, 'sizes');
     if (gama === 'Air' && ['M2', 'M3'].includes(procesador)) return ['11', '13'];
     if (gama === 'Pro') {
       if (['M1', 'M2'].includes(procesador)) return ['11', '12.9'];
@@ -24,6 +45,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
   };
 
   const getAlmacenamiento = () => {
+    if (customForSelection && metaList(customForSelection, 'storages').length) return metaList(customForSelection, 'storages');
     if (gama === 'Normal') return [];
     if (gama === 'Mini') {
       if (generacion === '6') return ['64', '256'];
@@ -61,10 +83,9 @@ export default function FormProductoIpad({ detalle, onChange }) {
           }}
         >
           <option value="">Seleccione</option>
-          <option value="Normal">Normal</option>
-          <option value="Mini">Mini</option>
-          <option value="Air">Air</option>
-          <option value="Pro">Pro</option>
+          {uniq(['Normal', 'Mini', 'Air', 'Pro', ...customFamilies]).map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
         </select>
       </div>
 
@@ -78,7 +99,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
             onChange={e => onChange('generacion', e.target.value)}
           >
             <option value="">Seleccione</option>
-            {(gama === 'Normal' ? generacionesNormales : generacionesMini).map(g => (
+            {uniq([...(gama === 'Normal' ? generacionesNormales : generacionesMini), ...customOptions.filter((item) => item.family === gama).map((item) => item.value)]).map(g => (
               <option key={g} value={g}>{g}</option>
             ))}
           </select>
