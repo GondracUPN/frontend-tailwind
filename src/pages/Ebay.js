@@ -1305,15 +1305,23 @@ function Ebay({ setVista }) {
   }, [activeProgressMode, activeProgressTab]);
 
   useEffect(() => {
-    if (!loadingProgress.visible || loadingProgress.percent >= 94) return undefined;
+    if (!loadingProgress.visible || loadingProgress.percent >= 99) return undefined;
 
     const timer = setInterval(() => {
       setLoadingProgress((prev) => {
-        if (!prev.visible || prev.percent >= 94) return prev;
-        const nextPercent = Math.min(94, prev.percent + Math.max(1, Math.round((94 - prev.percent) * 0.09)));
+        if (!prev.visible || prev.percent >= 99) return prev;
+        const current = Number(prev.percent || 0);
+        const step = current < 55
+          ? 6
+          : current < 82
+            ? 3
+            : current < 94
+              ? 1
+              : 0.35;
+        const nextPercent = Math.min(99, +(current + step).toFixed(2));
         return { ...prev, percent: nextPercent };
       });
-    }, 280);
+    }, 420);
 
     return () => clearInterval(timer);
   }, [loadingProgress.mode, loadingProgress.tab, loadingProgress.visible]);
@@ -1724,7 +1732,7 @@ function Ebay({ setVista }) {
 
             {productType === 'all' && (
               <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl bg-slate-100/80 p-4 text-sm text-slate-600">Busca todo junto: iPad, iPhone unlocked y MacBook, ordenado de mas reciente a mas antiguo.</div>
+                <div className="rounded-2xl bg-slate-100/80 p-4 text-sm text-slate-600">Busca todo junto: iPad, iPhone unlocked, MacBook, AirPods, Apple Watch, iMac, Mac mini y accesorios, ordenado de mas reciente a mas antiguo.</div>
                 <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={COMMON_CONDITION_OPTIONS} /></FieldShell>
                 <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
               </div>
