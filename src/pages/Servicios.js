@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import api from '../api';
-import ModalProducto from '../components/ModalProducto';
 import LoginGastos from './LoginGastos';
+
+const ModalProducto = lazy(() => import('../components/ModalProducto'));
 
 function UsuariosAdmin() {
   const [users, setUsers] = useState([]);
@@ -9,7 +10,7 @@ function UsuariosAdmin() {
   const [error, setError] = useState('');
   const [form, setForm] = useState({ username: '', password: '', role: 'user' });
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -20,9 +21,9 @@ function UsuariosAdmin() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const createUser = async (e) => {
     e.preventDefault();
@@ -108,7 +109,7 @@ function InventarioAdmin({ onIrProductos }) {
   const [openModal, setOpenModal] = useState(false);
   const [ventasMap, setVentasMap] = useState({}); // { [productoId]: venta | null }
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -120,9 +121,9 @@ function InventarioAdmin({ onIrProductos }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
   // Cargar estado de venta por producto (ultima venta) en batch
   useEffect(() => {
     let alive = true;
@@ -194,6 +195,30 @@ function InventarioAdmin({ onIrProductos }) {
     [statusById],
   );
 
+  const upsertProducto = useCallback((saved, tracking) => {
+    if (!saved?.id) {
+      load();
+      return;
+    }
+    const withTracking = tracking
+      ? {
+          ...saved,
+          tracking: [
+            ...(Array.isArray(saved.tracking) ? saved.tracking : []),
+            { ...tracking, productoId: saved.id },
+          ],
+        }
+      : saved;
+    setProductos((prev) => {
+      const exists = prev.some((p) => p.id === saved.id);
+      return exists
+        ? prev.map((p) => (p.id === saved.id ? { ...p, ...withTracking } : p))
+        : [withTracking, ...prev];
+    });
+    setVentasMap((prev) => ({ ...prev, [saved.id]: prev[saved.id] ?? null }));
+    setOpenModal(false);
+  }, [load]);
+
   const enviarDisponiblesAlCatalogo = async () => {
     try {
       setLoading(true);
@@ -251,21 +276,51 @@ function InventarioAdmin({ onIrProductos }) {
       )}
 
       {openModal && (
-        <ModalProducto
-          onClose={() => setOpenModal(false)}
-          onSaved={() => { setOpenModal(false); load(); }}
-        />
+        <Suspense fallback={null}>
+          <ModalProducto
+            onClose={() => setOpenModal(false)}
+            onSaved={upsertProducto}
+          />
+        </Suspense>
       )}
     </div>
   );
 }
 
 const catalogCsvHint = 'Separado por comas';
+const readCatalogPayload = (data) => ({
+  productOptions: Array.isArray(data?.productOptions)
+    ? data.productOptions
+    : (Array.isArray(data?.products) ? data.products : []),
+  expenseConcepts: Array.isArray(data?.expenseConcepts)
+    ? data.expenseConcepts
+    : (Array.isArray(data?.expenses) ? data.expenses : []),
+});
+const sortProductOptions = (items) => [...items].sort((a, b) => (
+  String(a.productType || '').localeCompare(String(b.productType || '')) ||
+  String(a.family || '').localeCompare(String(b.family || '')) ||
+  String(a.value || '').localeCompare(String(b.value || '')) ||
+  Number(a.id || 0) - Number(b.id || 0)
+));
+const sortExpenseConcepts = (items) => [...items].sort((a, b) => (
+  String(a.label || '').localeCompare(String(b.label || '')) ||
+  Number(a.id || 0) - Number(b.id || 0)
+));
+const upsertCatalogItem = (items, item, sorter) => {
+  if (!item?.id) return items;
+  const next = items.some((current) => current.id === item.id)
+    ? items.map((current) => (current.id === item.id ? item : current))
+    : [...items, item];
+  return sorter(next);
+};
 
 function CatalogosAdmin() {
   const [productItems, setProductItems] = useState([]);
   const [expenseItems, setExpenseItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [savingExpense, setSavingExpense] = useState(false);
   const [message, setMessage] = useState('');
   const [productForm, setProductForm] = useState({
     productType: 'macbook',
@@ -284,59 +339,69 @@ function CatalogosAdmin() {
     defaultCurrency: 'PEN',
   });
 
-  const load = async () => {
+  const load = useCallback(async ({ refresh = false } = {}) => {
     try {
-      setLoading(true);
+      if (refresh) setRefreshing(true);
+      else setLoading(true);
       setMessage('');
-      const [products, expenses] = await Promise.all([
-        api.get('/catalog/product-options'),
-        api.get('/catalog/expense-concepts'),
-      ]);
-      setProductItems(Array.isArray(products) ? products : []);
-      setExpenseItems(Array.isArray(expenses) ? expenses : []);
+      let data;
+      try {
+        data = await api.get('/catalog');
+      } catch {
+        const [products, expenses] = await Promise.all([
+          api.get('/catalog/product-options'),
+          api.get('/catalog/expense-concepts'),
+        ]);
+        data = { productOptions: products, expenseConcepts: expenses };
+      }
+      const { productOptions, expenseConcepts } = readCatalogPayload(data);
+      setProductItems(sortProductOptions(productOptions));
+      setExpenseItems(sortExpenseConcepts(expenseConcepts));
     } catch {
       setMessage('No se pudieron cargar los catalogos.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const saveProduct = async (e) => {
     e.preventDefault();
     try {
-      setLoading(true);
-      await api.post('/catalog/product-options', productForm);
+      setSavingProduct(true);
+      const created = await api.post('/catalog/product-options', productForm);
+      setProductItems((prev) => upsertCatalogItem(prev, created?.data ?? created, sortProductOptions));
       setProductForm((prev) => ({ ...prev, value: '', label: '', sizes: '', rams: '', storages: '', models: '' }));
-      await load();
       setMessage('Opcion de producto agregada.');
     } catch (err) {
       setMessage(String(err?.message || 'No se pudo guardar la opcion de producto.'));
     } finally {
-      setLoading(false);
+      setSavingProduct(false);
     }
   };
 
   const saveExpense = async (e) => {
     e.preventDefault();
     try {
-      setLoading(true);
-      await api.post('/catalog/expense-concepts', expenseForm);
+      setSavingExpense(true);
+      const created = await api.post('/catalog/expense-concepts', expenseForm);
+      setExpenseItems((prev) => upsertCatalogItem(prev, created?.data ?? created, sortExpenseConcepts));
       setExpenseForm({ label: '', appliesDebit: true, appliesCredit: false, defaultCurrency: 'PEN' });
-      await load();
       setMessage('Concepto de gasto agregado.');
     } catch (err) {
       setMessage(String(err?.message || 'No se pudo guardar el concepto.'));
     } finally {
-      setLoading(false);
+      setSavingExpense(false);
     }
   };
 
   const disableItem = async (id) => {
     try {
       await api.del(`/catalog/items/${id}`);
-      await load();
+      setProductItems((prev) => prev.filter((item) => item.id !== id));
+      setExpenseItems((prev) => prev.filter((item) => item.id !== id));
     } catch {
       setMessage('No se pudo desactivar el item.');
     }
@@ -370,7 +435,7 @@ function CatalogosAdmin() {
           <h2 className="text-xl font-semibold">Catalogos editables</h2>
           <p className="text-sm text-gray-500">Agrega nuevos modelos de producto y conceptos de gasto sin tocar codigo.</p>
         </div>
-        <button onClick={load} disabled={loading} className="rounded bg-gray-200 px-3 py-2 text-sm hover:bg-gray-300 disabled:opacity-60">Refrescar</button>
+        <button onClick={() => load({ refresh: true })} disabled={loading || refreshing} className="rounded bg-gray-200 px-3 py-2 text-sm hover:bg-gray-300 disabled:opacity-60">{refreshing ? 'Refrescando...' : 'Refrescar'}</button>
       </div>
 
       {message && <div className="mb-4 rounded border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm text-indigo-800">{message}</div>}
@@ -456,7 +521,7 @@ function CatalogosAdmin() {
               <input className="w-full rounded border px-3 py-2" value={productForm.storages} onChange={(e) => setProductForm((prev) => ({ ...prev, storages: e.target.value }))} placeholder="256, 512, 1TB, 2TB" />
             </label>
           </div>
-          <button disabled={loading} className="mt-3 rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">Agregar opcion</button>
+          <button disabled={loading || savingProduct} className="mt-3 rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">{savingProduct ? 'Guardando...' : 'Agregar opcion'}</button>
         </form>
 
         <form onSubmit={saveExpense} className="rounded-2xl border border-gray-200 p-4">
@@ -481,7 +546,7 @@ function CatalogosAdmin() {
               </select>
             </div>
           </div>
-          <button disabled={loading} className="mt-3 rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">Agregar concepto</button>
+          <button disabled={loading || savingExpense} className="mt-3 rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">{savingExpense ? 'Guardando...' : 'Agregar concepto'}</button>
         </form>
       </div>
 

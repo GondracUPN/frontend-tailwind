@@ -1,5 +1,6 @@
 // src/api.js
 const API_URL = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_BASE || 'http://localhost:3001';
+const inflightGets = new Map();
 
 async function request(path, opts = {}) {
   const token = localStorage.getItem('token'); // 👈 lee el token guardado
@@ -35,7 +36,12 @@ async function request(path, opts = {}) {
 }
 
 const api = {
-  get:   (p)    => request(p),
+  get:   (p)    => {
+    if (inflightGets.has(p)) return inflightGets.get(p);
+    const promise = request(p).finally(() => inflightGets.delete(p));
+    inflightGets.set(p, promise);
+    return promise;
+  },
   post:  (p, b) => request(p, { method: 'POST', body: JSON.stringify(b) }),
   patch: (p, b) => request(p, { method: 'PATCH', body: JSON.stringify(b) }),
   put:   (p, b) => request(p, { method: 'PUT',   body: JSON.stringify(b) }),

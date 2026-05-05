@@ -1,27 +1,40 @@
 import React, { useEffect } from 'react';
 import api from '../api';
 
+const PRODUCTOS_CACHE_KEY = 'productos:cache:v2';
+const PRODUCTOS_CACHE_TTL_MS = 2 * 60 * 1000;
+
 function Home({ setVista, setAnalisisBack }) {
   useEffect(() => {
-    const cacheKey = 'productos:lastList:v1';
+    let cancelled = false;
     const prefetch = async () => {
       try {
-        const rawTs = localStorage.getItem(`${cacheKey}:ts`);
-        const freshMs = 60000; // 60s para mantenerlo caliente
-        const isFresh = rawTs && (Date.now() - Number(rawTs)) < freshMs;
+        const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        if (connection?.saveData || /(^|-)2g$/.test(String(connection?.effectiveType || ''))) return;
+        const raw = localStorage.getItem(PRODUCTOS_CACHE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        const isFresh = parsed?.ts && (Date.now() - Number(parsed.ts)) < PRODUCTOS_CACHE_TTL_MS;
         if (isFresh) return;
         const data = await api.get('/productos');
+        if (cancelled) return;
         const lista = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
-        localStorage.setItem(cacheKey, JSON.stringify(lista));
-        localStorage.setItem(`${cacheKey}:ts`, String(Date.now()));
+        const prev = raw ? JSON.parse(raw) : {};
+        localStorage.setItem(PRODUCTOS_CACHE_KEY, JSON.stringify({ ...prev, productos: lista, ts: Date.now() }));
       } catch {}
     };
+    const run = () => { if (!cancelled) prefetch(); };
+    let timerId;
+    let idleId;
     if ('requestIdleCallback' in window) {
-      // @ts-ignore
-      window.requestIdleCallback(prefetch);
+      idleId = window.requestIdleCallback(run, { timeout: 5000 });
     } else {
-      setTimeout(prefetch, 500);
+      timerId = setTimeout(run, 3000);
     }
+    return () => {
+      cancelled = true;
+      if (timerId) clearTimeout(timerId);
+      if (idleId && 'cancelIdleCallback' in window) window.cancelIdleCallback(idleId);
+    };
   }, []);
 
   return (

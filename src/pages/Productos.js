@@ -1,26 +1,27 @@
 // src/pages/Productos.js
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import ModalProducto from '../components/ModalProducto';
-import DetallesProductoModal from '../components/DetallesProductoModal';
-import ModalCostos from '../components/ModalCostos';
-import ModalTracking from '../components/ModalTracking';
+import React, { Suspense, lazy, useState, useEffect, useCallback, useRef } from 'react';
 import api from '../api';  // cliente fetch centralizado
 import ResumenCasilleros from '../components/ResumenCasilleros';
-import ModalCasillero from '../components/ModalCasillero';
-import ModalVenta from '../components/ModalVenta';
-import ModalFotos from '../components/ModalFotos';
-import ModalFotosManual from '../components/ModalFotosManual';
-import ModalMarcaAgua from '../components/ModalMarcaAgua';
-import ModalSnImeiScanner from '../components/ModalSnImeiScanner';
-import ModalCalculadora from '../components/ModalCalculadora';
-import ModalDec from '../components/ModalDec';
-import ModalFacu from '../components/ModalFacu';
-import ModalAdelantarTipo from '../components/ModalAdelantarTipo';
-import ModalAdelantoCreate from '../components/ModalAdelantoCreate';
-import ModalAdelantoDetalle from '../components/ModalAdelantoDetalle';
-import ModalAdelantoCompletar from '../components/ModalAdelantoCompletar';
-import ModalVentaMensaje from '../components/ModalVentaMensaje';
 import { FiFileText } from 'react-icons/fi';
+
+const ModalProducto = lazy(() => import('../components/ModalProducto'));
+const DetallesProductoModal = lazy(() => import('../components/DetallesProductoModal'));
+const ModalCostos = lazy(() => import('../components/ModalCostos'));
+const ModalTracking = lazy(() => import('../components/ModalTracking'));
+const ModalCasillero = lazy(() => import('../components/ModalCasillero'));
+const ModalVenta = lazy(() => import('../components/ModalVenta'));
+const ModalFotos = lazy(() => import('../components/ModalFotos'));
+const ModalFotosManual = lazy(() => import('../components/ModalFotosManual'));
+const ModalMarcaAgua = lazy(() => import('../components/ModalMarcaAgua'));
+const ModalSnImeiScanner = lazy(() => import('../components/ModalSnImeiScanner'));
+const ModalCalculadora = lazy(() => import('../components/ModalCalculadora'));
+const ModalDec = lazy(() => import('../components/ModalDec'));
+const ModalFacu = lazy(() => import('../components/ModalFacu'));
+const ModalAdelantarTipo = lazy(() => import('../components/ModalAdelantarTipo'));
+const ModalAdelantoCreate = lazy(() => import('../components/ModalAdelantoCreate'));
+const ModalAdelantoDetalle = lazy(() => import('../components/ModalAdelantoDetalle'));
+const ModalAdelantoCompletar = lazy(() => import('../components/ModalAdelantoCompletar'));
+const ModalVentaMensaje = lazy(() => import('../components/ModalVentaMensaje'));
 
 const CACHE_KEY = 'productos:cache:v2';
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos para revalidar
@@ -2772,114 +2773,116 @@ const confirmAction = async () => {
         </div>
       )}
       {/* Modales */}
-      {modalModo === 'crear' && <ModalProducto onClose={cerrarModal} onSaved={handleSaved} />}
-      {modalModo === 'detalle' && (
-        <DetallesProductoModal
-          producto={productoSeleccionado}
-          productosAll={productos}
-          onClose={cerrarModal}
-          onSaved={handleSaved}
-          onSaveOutside={guardarDetalleProducto}
-        />
-      )}
-      {modalModo === 'fotos' && (<ModalFotos producto={productoSeleccionado} onClose={cerrarModal} />)}
-      {modalModo === 'marca' && (<ModalMarcaAgua onClose={cerrarModal} />)}
-      {modalModo === 'fotosManual' && (
-        <ModalFotosManual
-          onClose={cerrarModal}
-          initialTrackingEshop={fotosManualSeed.trackingEshop}
-          initialFechaRecepcion={fotosManualSeed.fechaRecepcion}
-        />
-      )}
-      {snImeiScannerOpen && (
-        <ModalSnImeiScanner onClose={() => setSnImeiScannerOpen(false)} />
-      )}
-      {modalModo === 'costos' && <ModalCostos producto={productoSeleccionado} onClose={cerrarModal} onSaved={handleSaved} />}
-      {modalModo === 'track' && (
-        <ModalTracking
-          producto={productoSeleccionado}
-          onClose={cerrarModal}
-          onSaved={(savedTracking) => {
-            applyTrackingUpdate(productoSeleccionado?.id, savedTracking);
-            refreshProductos({ force: true, useCache: false, silent: true });
-          }}
-        />
-      )}
-      {modalModo === 'casillero' && (
-        <ModalCasillero
-          casillero={selectedCasillero}
-          productos={productos}
-          onClose={() => { setSelectedCasillero(null); cerrarModal(); }}
-          onOpenProducto={(p) => { setProductoEnCasillero(p); setProductoSeleccionado(p); }}
-        />
-      )}
-      {modalModo === 'venta' && (
-        <ModalVenta
-          producto={productoSeleccionado}
-          venta={ventasMap[productoSeleccionado?.id] || null}
-          onClose={cerrarModal}
-          onSaved={handleVentaSaved}
-        />
-      )}
-      {adelantoModo === 'select' && (
-        <ModalAdelantarTipo
-          producto={adelantoProducto}
-          onClose={cerrarAdelanto}
-          onVentaCompleta={() => {
-            cerrarAdelanto();
-            setModalModo('venta');
-          }}
-          onAdelanto={() => abrirAdelantoCreate(adelantoProducto)}
-        />
-      )}
-      {adelantoModo === 'create' && (
-        <ModalAdelantoCreate
-          producto={adelantoProducto}
-          onClose={cerrarAdelanto}
-          onSaved={handleAdelantoSaved}
-        />
-      )}
-      {adelantoModo === 'detail' && (
-        <ModalAdelantoDetalle
-          producto={adelantoProducto}
-          adelanto={adelantoActivo}
-          onClose={cerrarAdelanto}
-          onCompletar={() => abrirAdelantoCompletar(adelantoProducto, adelantoActivo)}
-        />
-      )}
-      {adelantoModo === 'complete' && (
-        <ModalAdelantoCompletar
-          producto={adelantoProducto}
-          adelanto={adelantoActivo}
-          onClose={cerrarAdelanto}
-          onSaved={(venta) => handleAdelantoCompleto(venta, adelantoProducto?.id)}
-        />
-      )}
-      {modalModo === 'calc' && (
-        <ModalCalculadora
-          producto={productoSeleccionado}
-          onClose={cerrarModal}
-        />
-      )}
-      {modalModo === 'casillero' && productoEnCasillero && (
-        <DetallesProductoModal
-          producto={productoEnCasillero}
-          productosAll={productos}
-          onClose={() => setProductoEnCasillero(null)}
-          onSaved={handleSavedEnCasillero}
-          onSaveOutside={guardarDetalleProducto}
-        />
-      )}
-      {modalModo === 'dec' && (
-        <ModalDec
-          onClose={cerrarModal}
-          productos={productos}   // ?o. le pasas lo que ya cargaste arriba
-          loading={cargando}      // ?o. estado de carga del padre
-        />
-      )}
-      {modalModo === 'facu' && (
-        <ModalFacu onClose={cerrarModal} />
-      )}
+      <Suspense fallback={null}>
+        {modalModo === 'crear' && <ModalProducto onClose={cerrarModal} onSaved={handleSaved} />}
+        {modalModo === 'detalle' && (
+          <DetallesProductoModal
+            producto={productoSeleccionado}
+            productosAll={productos}
+            onClose={cerrarModal}
+            onSaved={handleSaved}
+            onSaveOutside={guardarDetalleProducto}
+          />
+        )}
+        {modalModo === 'fotos' && (<ModalFotos producto={productoSeleccionado} onClose={cerrarModal} />)}
+        {modalModo === 'marca' && (<ModalMarcaAgua onClose={cerrarModal} />)}
+        {modalModo === 'fotosManual' && (
+          <ModalFotosManual
+            onClose={cerrarModal}
+            initialTrackingEshop={fotosManualSeed.trackingEshop}
+            initialFechaRecepcion={fotosManualSeed.fechaRecepcion}
+          />
+        )}
+        {snImeiScannerOpen && (
+          <ModalSnImeiScanner onClose={() => setSnImeiScannerOpen(false)} />
+        )}
+        {modalModo === 'costos' && <ModalCostos producto={productoSeleccionado} onClose={cerrarModal} onSaved={handleSaved} />}
+        {modalModo === 'track' && (
+          <ModalTracking
+            producto={productoSeleccionado}
+            onClose={cerrarModal}
+            onSaved={(savedTracking) => {
+              applyTrackingUpdate(productoSeleccionado?.id, savedTracking);
+              refreshProductos({ force: true, useCache: false, silent: true });
+            }}
+          />
+        )}
+        {modalModo === 'casillero' && (
+          <ModalCasillero
+            casillero={selectedCasillero}
+            productos={productos}
+            onClose={() => { setSelectedCasillero(null); cerrarModal(); }}
+            onOpenProducto={(p) => { setProductoEnCasillero(p); setProductoSeleccionado(p); }}
+          />
+        )}
+        {modalModo === 'venta' && (
+          <ModalVenta
+            producto={productoSeleccionado}
+            venta={ventasMap[productoSeleccionado?.id] || null}
+            onClose={cerrarModal}
+            onSaved={handleVentaSaved}
+          />
+        )}
+        {adelantoModo === 'select' && (
+          <ModalAdelantarTipo
+            producto={adelantoProducto}
+            onClose={cerrarAdelanto}
+            onVentaCompleta={() => {
+              cerrarAdelanto();
+              setModalModo('venta');
+            }}
+            onAdelanto={() => abrirAdelantoCreate(adelantoProducto)}
+          />
+        )}
+        {adelantoModo === 'create' && (
+          <ModalAdelantoCreate
+            producto={adelantoProducto}
+            onClose={cerrarAdelanto}
+            onSaved={handleAdelantoSaved}
+          />
+        )}
+        {adelantoModo === 'detail' && (
+          <ModalAdelantoDetalle
+            producto={adelantoProducto}
+            adelanto={adelantoActivo}
+            onClose={cerrarAdelanto}
+            onCompletar={() => abrirAdelantoCompletar(adelantoProducto, adelantoActivo)}
+          />
+        )}
+        {adelantoModo === 'complete' && (
+          <ModalAdelantoCompletar
+            producto={adelantoProducto}
+            adelanto={adelantoActivo}
+            onClose={cerrarAdelanto}
+            onSaved={(venta) => handleAdelantoCompleto(venta, adelantoProducto?.id)}
+          />
+        )}
+        {modalModo === 'calc' && (
+          <ModalCalculadora
+            producto={productoSeleccionado}
+            onClose={cerrarModal}
+          />
+        )}
+        {modalModo === 'casillero' && productoEnCasillero && (
+          <DetallesProductoModal
+            producto={productoEnCasillero}
+            productosAll={productos}
+            onClose={() => setProductoEnCasillero(null)}
+            onSaved={handleSavedEnCasillero}
+            onSaveOutside={guardarDetalleProducto}
+          />
+        )}
+        {modalModo === 'dec' && (
+          <ModalDec
+            onClose={cerrarModal}
+            productos={productos}   // ?o. le pasas lo que ya cargaste arriba
+            loading={cargando}      // ?o. estado de carga del padre
+          />
+        )}
+        {modalModo === 'facu' && (
+          <ModalFacu onClose={cerrarModal} />
+        )}
+      </Suspense>
       {sellerAssignOpen && (
         <div className="fixed inset-0 z-40 bg-black/45 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl max-h-[88vh] overflow-hidden">
@@ -3041,10 +3044,12 @@ const confirmAction = async () => {
         </div>
       )}
       {ventaMsgOpen && (
-        <ModalVentaMensaje
-          onClose={() => setVentaMsgOpen(false)}
-          productos={productosVentaMensaje}
-        />
+        <Suspense fallback={null}>
+          <ModalVentaMensaje
+            onClose={() => setVentaMsgOpen(false)}
+            productos={productosVentaMensaje}
+          />
+        </Suspense>
       )}
 
 

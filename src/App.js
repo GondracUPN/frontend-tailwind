@@ -1,15 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useMemo } from 'react';
 import Home from './pages/Home';
-import Productos from './pages/Productos';
-import Servicios from './pages/Servicios';
-import Calculadora from './pages/Calculadora';
-import Ganancias from './pages/Ganancias';
-import Analisis from './pages/Analisis';
-import GastosIndex from './pages/GastosIndex';
-import AnalisisGastos from './pages/AnalisisGastos';
-import PresupuestoGastos from './pages/PresupuestoGastos';
-import Ebay from './pages/Ebay';
-import ModalFotosManual from './components/ModalFotosManual';
 import api from './api';
 import {
   FiActivity,
@@ -29,6 +19,17 @@ import {
   FiTruck,
   FiX,
 } from 'react-icons/fi';
+
+const Productos = lazy(() => import('./pages/Productos'));
+const Servicios = lazy(() => import('./pages/Servicios'));
+const Calculadora = lazy(() => import('./pages/Calculadora'));
+const Ganancias = lazy(() => import('./pages/Ganancias'));
+const Analisis = lazy(() => import('./pages/Analisis'));
+const GastosIndex = lazy(() => import('./pages/GastosIndex'));
+const AnalisisGastos = lazy(() => import('./pages/AnalisisGastos'));
+const PresupuestoGastos = lazy(() => import('./pages/PresupuestoGastos'));
+const Ebay = lazy(() => import('./pages/Ebay'));
+const ModalFotosManual = lazy(() => import('./components/ModalFotosManual'));
 
 const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
 const ESHOPEX_BG_REQUESTED_KEY = 'eshopex-carga-requested';
@@ -78,6 +79,20 @@ const CASILLERO_BY_ACCOUNT = {
   'gondrac10@gmail.com': 'Kenny',
   'macsominus@gmail.com': 'Sebastian',
 };
+
+const getKeepAliveEnabled = () => {
+  try {
+    return window.matchMedia('(min-width: 1024px)').matches;
+  } catch {
+    return true;
+  }
+};
+
+const PageFallback = () => (
+  <div className="min-h-screen flex items-center justify-center p-6 text-sm text-slate-500">
+    Cargando...
+  </div>
+);
 
 const normalizeEshopexProgress = (raw) => {
   const total = Number(raw?.total || 0);
@@ -304,8 +319,8 @@ function App() {
   }));
   const [eshopexProgress, setEshopexProgress] = useState(() => ({ ...EMPTY_ESH_PROGRESS }));
   const [eshopexModalOpen, setEshopexModalOpen] = useState(false);
-  const [eshopexModalRows, setEshopexModalRows] = useState(() => readCachedCargaRows());
-  const [productosGlobal, setProductosGlobal] = useState(() => readProductosCache() || []);
+  const [eshopexModalRows, setEshopexModalRows] = useState([]);
+  const [productosGlobal, setProductosGlobal] = useState([]);
   const [fotosManualSeed, setFotosManualSeed] = useState({ trackingEshop: '', fechaRecepcion: '' });
   const [fotosManualOpen, setFotosManualOpen] = useState(false);
   const [eshopexPagoLoading, setEshopexPagoLoading] = useState(() => new Set());
@@ -330,6 +345,7 @@ function App() {
       return false;
     }
   });
+  const [keepAliveEnabled, setKeepAliveEnabled] = useState(getKeepAliveEnabled);
 
   useEffect(() => {
     try {
@@ -378,33 +394,20 @@ function App() {
     }
   }, [sidebarHidden]);
 
-  // Si hay token en localStorage, deja el header Authorization por defecto (axios)
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token && api?.defaults) {
-      api.defaults.headers.common.Authorization = `Bearer ${token}`;
-    }
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    const cached = readProductosCache();
-    if (cached) setProductosGlobal(cached);
-    (async () => {
-      if (cached && cached.length) return;
-      try {
-        const data = await api.get('/productos');
-        if (!alive) return;
-        const lista = Array.isArray(data)
-          ? data
-          : (Array.isArray(data?.items) ? data.items : []);
-        setProductosGlobal(lista);
-        writeProductosCache(lista);
-      } catch {
-        /* ignore */
+    const onChange = () => setKeepAliveEnabled(getKeepAliveEnabled());
+    onChange();
+    try {
+      const media = window.matchMedia('(min-width: 1024px)');
+      if (media.addEventListener) {
+        media.addEventListener('change', onChange);
+        return () => media.removeEventListener('change', onChange);
       }
-    })();
-    return () => { alive = false; };
+      media.addListener(onChange);
+      return () => media.removeListener(onChange);
+    } catch {
+      return () => {};
+    }
   }, []);
 
   // Al iniciar la app, no auto-disparar busquedas pendientes de sesiones anteriores.
@@ -477,6 +480,9 @@ function App() {
     if (cachedProductos) setProductosGlobal(cachedProductos);
     setEshopexModalRows(readCachedCargaRows());
     setEshopexModalOpen(true);
+    if (!cachedProductos?.length) {
+      refreshProductosGlobal();
+    }
     try {
       if (window.matchMedia('(max-width: 1023px)').matches) {
         setSidebarHidden(true);
@@ -885,14 +891,18 @@ function App() {
   };
 
   const renderVista = () => {
-    const renderedVistas = Array.from(new Set([...Object.keys(keptVistas), vista]));
+    const renderedVistas = keepAliveEnabled
+      ? Array.from(new Set([...Object.keys(keptVistas), vista]))
+      : [vista];
     return (
       <>
         {renderedVistas.map((id) => {
           const active = vista === id;
           return (
             <section key={id} className={active ? 'block' : 'hidden'} aria-hidden={!active}>
-              {renderVistaContent(id)}
+              <Suspense fallback={<PageFallback />}>
+                {renderVistaContent(id)}
+              </Suspense>
             </section>
           );
         })}
@@ -1412,11 +1422,13 @@ function App() {
         </div>
       )}
       {fotosManualOpen && (
-        <ModalFotosManual
-          onClose={() => setFotosManualOpen(false)}
-          initialTrackingEshop={fotosManualSeed.trackingEshop}
-          initialFechaRecepcion={fotosManualSeed.fechaRecepcion}
-        />
+        <Suspense fallback={null}>
+          <ModalFotosManual
+            onClose={() => setFotosManualOpen(false)}
+            initialTrackingEshop={fotosManualSeed.trackingEshop}
+            initialFechaRecepcion={fotosManualSeed.fechaRecepcion}
+          />
+        </Suspense>
       )}
     </>
   );
