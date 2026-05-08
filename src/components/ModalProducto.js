@@ -71,14 +71,22 @@ const inferIphoneMeta = (title) => {
 
 const inferWatchMeta = (title) => {
   const t = normalizeText(title);
+  let gama = '';
   let generacion = '';
   let conexion = '';
   const serie = t.match(/\bseries\s*(\d{1,2})\b/);
   const ultra = t.match(/\bultra\s*(\d{1,2})\b/);
   const se = t.match(/\bse\s*(\d)?\b/);
-  if (ultra) generacion = `Ultra ${ultra[1]}`;
-  else if (serie) generacion = serie[1];
-  else if (se) generacion = `SE${se[1] ? ` ${se[1]}` : ''}`.trim();
+  if (ultra) {
+    gama = 'Ultra';
+    generacion = ultra[1];
+  } else if (serie) {
+    gama = 'Series';
+    generacion = serie[1];
+  } else if (se) {
+    gama = 'SE';
+    generacion = se[1] || '';
+  }
   if (t.includes('cellular') || t.includes('gps + cel') || t.includes('gps+cel')) {
     conexion = 'GPS + Cel';
   } else if (t.includes('gps')) {
@@ -86,7 +94,7 @@ const inferWatchMeta = (title) => {
   }
   const size = t.match(/\b(40|41|42|44|45|46|49)\s*mm\b/);
   const tamano = size ? `${size[1]} mm` : '';
-  return { generacion, conexion, tamano };
+  return { gama, generacion, conexion, tamano };
 };
 
 const inferProcesador = (title) => {
@@ -115,8 +123,32 @@ const inferPantalla = (title) => {
 
 const inferIpadConexion = (title) => {
   const t = normalizeText(title);
-  if (t.includes('cellular')) return 'Wifi + Cel';
-  if (t.includes('wi-fi') || t.includes('wifi')) return 'Wifi';
+  if (
+    t.includes('cellular') ||
+    t.includes('wifi + cel') ||
+    t.includes('wifi+cel') ||
+    t.includes('wi-fi + cel') ||
+    t.includes('wi-fi+cel') ||
+    t.includes('lte') ||
+    /\b5g\b/.test(t)
+  ) return 'Wifi + Cel';
+  if (t.includes('wi-fi') || t.includes('wifi') || t.includes('wlan')) return 'Wifi';
+  return '';
+};
+
+const normalizeIpadConexion = (value) => {
+  const raw = normalizeText(value);
+  if (!raw) return '';
+  if (
+    raw.includes('cellular') ||
+    raw.includes('wifi + cel') ||
+    raw.includes('wifi+cel') ||
+    raw.includes('wi-fi + cel') ||
+    raw.includes('wi-fi+cel') ||
+    raw.includes('lte') ||
+    /\b5g\b/.test(raw)
+  ) return 'Wifi + Cel';
+  if (raw.includes('wi-fi') || raw.includes('wifi') || raw.includes('wlan')) return 'Wifi';
   return '';
 };
 
@@ -306,6 +338,9 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
   const describeProducto = (p) => {
     const tipo = String(p?.tipo || '').trim();
     const d = p?.detalle || {};
+    if (tipo.toLowerCase() === 'watch') {
+      return ['Apple Watch', d.gama, d.generacion, d.tamano || d.tamanio, d.conexion].filter(Boolean).join(' ');
+    }
     if (tipo.toLowerCase() === 'iphone') {
       return ['iPhone', d.numero, d.modelo, d.almacenamiento].filter(Boolean).join(' ');
     }
@@ -388,10 +423,21 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       const proc = parsed?.proc || inferProcesador(title);
       const pantalla = parsed?.pantalla || inferPantalla(title);
       const ram = extractRamValue(parsed?.ram || '') || inferRamFromTitle(title);
-      const ssd = extractStorageValue(parsed?.ssd || '') || inferStorageFromTitle(title);
+      const ssd = extractStorageValue(
+        parsed?.ssd ||
+          parsed?.storage ||
+          parsed?.almacenamiento ||
+          parsed?.capacidad ||
+          '',
+      ) || inferStorageFromTitle(title);
       const iphoneMeta = inferIphoneMeta(title);
       const watchMeta = inferWatchMeta(title);
-      const ipadConexion = inferIpadConexion(title);
+      const ipadConexion = normalizeIpadConexion(
+        parsed?.conexion ||
+          parsed?.conectividad ||
+          parsed?.connectivity ||
+          '',
+      ) || inferIpadConexion(title);
 
       setEbayTitle(title);
       setEbayPrice(price);
@@ -417,6 +463,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
           nextDetalle.modelo = iphoneMeta.modelo || nextDetalle.modelo;
           nextDetalle.almacenamiento = ssd || nextDetalle.almacenamiento;
         } else if (tipo === 'watch') {
+          nextDetalle.gama = watchMeta.gama || nextDetalle.gama;
           nextDetalle.generacion = watchMeta.generacion || nextDetalle.generacion;
           nextDetalle.tamano = watchMeta.tamano || nextDetalle.tamano;
           nextDetalle.conexion = watchMeta.conexion || nextDetalle.conexion;
@@ -844,7 +891,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                                 />
                               </div>
                               <div className="text-xs text-gray-700">
-                                {[d.gama, d.procesador, d.tamano, p.estado].filter(Boolean).join(' - ')}
+                                {[d.gama, d.generacion, d.procesador, d.tamano || d.tamanio, d.conexion, p.estado].filter(Boolean).join(' - ')}
                               </div>
                               <div className="text-xs text-gray-600">
                                 Casillero: {p.tracking?.[0]?.casillero || 'N/A'} - Tracking: {getLastTrackingEstado(p) || 'N/A'}

@@ -56,8 +56,12 @@ export default function GastosIndex({ setVista }) {
   useEffect(() => {
     if (isLogged && user?.id) {
       setSelectedUserId(user.id);
+      try {
+        localStorage.setItem('gastos:selectedUserId', String(user.id));
+        localStorage.setItem('gastos:selectedUser', JSON.stringify(user));
+      } catch {}
     }
-  }, [isLogged, user?.id]);
+  }, [isLogged, user]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -181,6 +185,10 @@ export default function GastosIndex({ setVista }) {
                               disabled={isViewing}
                               onClick={() => {
                                 setSelectedUserId(u.id);
+                                try {
+                                  localStorage.setItem('gastos:selectedUserId', String(u.id));
+                                  localStorage.setItem('gastos:selectedUser', JSON.stringify(u));
+                                } catch {}
                                 setShowUsersModal(false);
                                 setMode(null);
                               }}

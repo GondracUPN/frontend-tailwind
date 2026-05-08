@@ -62,6 +62,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
     }
     return [];
   };
+  const almacenamientoOptions = uniq([...getAlmacenamiento(), almacenamiento]);
 
   return (
     <>
@@ -148,7 +149,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
       )}
 
       {/* Almacenamiento dinamico (Air/Pro/Mini) */}
-      {getAlmacenamiento().length > 0 && (
+      {almacenamientoOptions.length > 0 && (
         <div>
           <label className="block font-medium">Almacenamiento</label>
           <select
@@ -157,8 +158,8 @@ export default function FormProductoIpad({ detalle, onChange }) {
             onChange={e => onChange('almacenamiento', e.target.value)}
           >
             <option value="">Seleccione</option>
-            {getAlmacenamiento().map(a => (
-              <option key={a} value={a}>{a} GB</option>
+            {almacenamientoOptions.map(a => (
+              <option key={a} value={a}>{String(a).includes('TB') ? a : `${a} GB`}</option>
             ))}
           </select>
         </div>

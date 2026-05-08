@@ -45,6 +45,7 @@ const PRODUCTOS_CACHE_TTL_MS = 2 * 60 * 1000;
 const CALCU_RAPIDA_DEC_USD = 90;
 const CALCU_RAPIDA_TC_DEFAULT = '3.75';
 const PAGE_KEEP_ALIVE_TTL_MS = 10 * 60 * 1000;
+const APP_LOGO_URL = `${process.env.PUBLIC_URL || ''}/logo.png`;
 const CALCU_RAPIDA_TARIFAS = [
   { maxKg: 0.5, precio: 30.60 }, { maxKg: 1.0, precio: 55.00 },
   { maxKg: 1.5, precio: 74.00 }, { maxKg: 2.0, precio: 90.00 },
@@ -131,6 +132,15 @@ const buildNombreProductoGlobal = (p) => {
     const numero = String(p.detalle?.numero || '').trim();
     const modelo = String(p.detalle?.modelo || '').trim();
     return ['iPhone', numero, modelo].filter(Boolean).join(' ');
+  }
+  if (String(p.tipo || '').toLowerCase() === 'watch') {
+    return [
+      'Apple Watch',
+      p.detalle?.gama,
+      p.detalle?.generacion,
+      (p.detalle || {})['tamano'] || (p.detalle || {})[keyTamano] || (p.detalle || {})['tamanio'],
+      p.detalle?.conexion,
+    ].filter(Boolean).join(' ');
   }
   const parts = [
     p.tipo,
@@ -1058,9 +1068,11 @@ function App() {
         >
           <div className="mb-5 flex h-12 items-center justify-between gap-3 rounded-lg px-2">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-sm font-bold text-white">
-                MS
-              </div>
+              <img
+                src={APP_LOGO_URL}
+                alt="MacServicios"
+                className="h-10 w-10 shrink-0 rounded-lg object-contain"
+              />
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-slate-950">MacSomenos</div>
                 <div className="truncate text-xs text-slate-500">Panel rapido</div>

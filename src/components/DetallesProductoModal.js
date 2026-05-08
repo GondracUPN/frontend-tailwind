@@ -29,6 +29,10 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
   useEffect(() => {
     if (!producto) return;
     const detalle = { ...(producto.detalle || {}) };
+    if (detalle.tamanio && !detalle.tamano) {
+      detalle.tamano = detalle.tamanio;
+      delete detalle.tamanio;
+    }
     if (!detalle.descripcionOtro) {
       detalle.descripcionOtro = detalle.descripcion || producto.descripcion || '';
     }
@@ -180,7 +184,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                         {vinculados.map((v) => {
                           const d = v.detalle || {};
                           const accesorios = Array.isArray(v.accesorios) ? v.accesorios.join(', ') : 'N/A';
-                          const specs = [d.gama, d.procesador, d.tamano, d.almacenamiento, d.ram, d.conexion]
+                          const specs = [d.gama, d.generacion, d.procesador, d.tamano || d.tamanio, d.almacenamiento, d.ram, d.conexion]
                             .filter(Boolean)
                             .join(' | ');
                           return (
@@ -423,7 +427,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                                 />
                               </div>
                               <div className="text-xs text-gray-600">
-                                {[d.gama, d.procesador, d.tamano, p.estado].filter(Boolean).join('   ')}
+                                {[d.gama, d.generacion, d.procesador, d.tamano || d.tamanio, d.conexion, p.estado].filter(Boolean).join('   ')}
                               </div>
                               <div className="text-xs text-gray-500">
                                 Casillero: {p.tracking?.[0]?.casillero || 'N/A'}   Tracking: {getLastTrackingEstado(p) || 'N/A'}

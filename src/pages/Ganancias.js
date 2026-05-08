@@ -100,12 +100,13 @@ function nombreProducto(p) {
 
   // Apple Watch: incluir Generacion, Tamano (mm) y Conexion
   if (tipoKey.includes('applewatch') || tipoKey === 'watch') {
+    const linea = d.gama ? String(d.gama).trim() : null;
     const gen = d.generacion ? String(d.generacion).trim() : null;
     const sizeVal = d.tamano ?? d.tamanio ?? d['tamano'];
-    const size = sizeVal ? `${sizeVal}mm` : null; // milimetros
+    const size = sizeVal ? String(sizeVal).trim() : null;
     const conn = (d.conexion ?? d.conectividad) ? String(d.conexion ?? d.conectividad).trim() : null;
 
-    return ['Apple Watch', gen, size, conn].filter(Boolean).join(' ');
+    return ['Apple Watch', linea, gen, size, conn].filter(Boolean).join(' ');
   }
 
   // Otros tipos (Macbook, iPhone, etc.) -> comportamiento anterior

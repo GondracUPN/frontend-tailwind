@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
+import LoginGastos from './LoginGastos';
 
 const TIPO_CAMBIO = 3.7;
 const SELLERS = ['gonzalo', 'renato'];
@@ -17,8 +18,40 @@ const isInvestmentLike = (c) => {
   const n = normalizeConcept(c);
   return n === 'inversion' || n === 'bolsa';
 };
+const isLifeExpenseConcept = (c) => {
+  const n = normalizeConcept(c);
+  return !isInvestmentLike(n) && !['ingreso', 'pago_tarjeta', 'pago_envios', 'deuda_cuotas'].includes(n);
+};
 const sumValues = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]);
 const normalizeSeller = (s) => (s == null ? '' : String(s).trim().toLowerCase());
+const readSessionUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || 'null');
+  } catch {
+    return null;
+  }
+};
+const readSelectedGastosUser = (sessionUser) => {
+  if (sessionUser?.role !== 'admin') return sessionUser;
+  try {
+    const raw = localStorage.getItem('gastos:selectedUser');
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed?.id) return parsed;
+  } catch {}
+  try {
+    const id = Number(localStorage.getItem('gastos:selectedUserId') || 0);
+    if (id > 0) return { id };
+  } catch {}
+  return sessionUser;
+};
+const sellerFromUser = (user) => {
+  const username = normalizeSeller(user?.username);
+  if (username === 'admin') return 'gonzalo';
+  if (username === 'renato') return 'renato';
+  if (username.includes('renato')) return 'renato';
+  if (username.includes('gonzalo') || username.includes('gonga')) return 'gonzalo';
+  return '';
+};
 const getVentaSeller = (venta) =>
   normalizeSeller(venta?.producto?.vendedor ?? venta?.vendedor);
 const getProductoSeller = (producto) => normalizeSeller(producto?.vendedor);
@@ -39,29 +72,14 @@ const shareForProductoSeller = (producto, seller) => {
   return 0;
 };
 
-const getTipoCambioSplit = (venta, seller) => {
-  const slug = normalizeSeller(seller);
-  const base = Number(venta?.tipoCambio ?? 0);
-  if (slug === 'gonzalo') return Number(venta?.tipoCambioGonzalo ?? base) || base || 0;
-  if (slug === 'renato') return Number(venta?.tipoCambioRenato ?? base) || base || 0;
-  return base || 0;
-};
-
-const splitMetrics = (venta, seller) => {
-  const valorUsd = Number(venta?.producto?.valor?.valorProducto ?? 0);
-  const envio = Number(
-    venta?.producto?.valor?.costoEnvioProrrateado ??
-      venta?.producto?.valor?.costoEnvio ??
-      0,
-  );
-  const tc = getTipoCambioSplit(venta, seller);
-  const ingreso = Number(venta?.precioVenta ?? 0) / 2;
-  const costo = (valorUsd / 2) * tc + (envio / 2);
-  const ganancia = ingreso - costo;
-  return { ganancia };
-};
-
 export default function AnalisisGastos({ setVista }) {
+  const [session, setSession] = useState(() => ({
+    user: readSessionUser(),
+    token: localStorage.getItem('token') || '',
+  }));
+  const sessionUser = session.user;
+  const targetUser = useMemo(() => readSelectedGastosUser(sessionUser), [sessionUser]);
+  const userSeller = useMemo(() => sellerFromUser(targetUser?.username ? targetUser : sessionUser), [targetUser, sessionUser]);
   const [rows, setRows] = useState([]);
   const [ventas, setVentas] = useState([]);
   const [productos, setProductos] = useState([]);
@@ -69,23 +87,31 @@ export default function AnalisisGastos({ setVista }) {
   const [err, setErr] = useState('');
   const [showPie, setShowPie] = useState(false);
   const [showPieVida, setShowPieVida] = useState(false);
-  const [selectedPersona, setSelectedPersona] = useState('gonzalo');
+  const [selectedPersona, setSelectedPersona] = useState(() => sellerFromUser(readSelectedGastosUser(readSessionUser())) || 'gonzalo');
 
   const today = new Date();
   const [month, setMonth] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
 
   useEffect(() => {
+    if (!session.token || !sessionUser) {
+      setLoading(false);
+      return;
+    }
     const load = async () => {
       try {
         setErr('');
         setLoading(true);
-        const token = localStorage.getItem('token') || '';
-        const user = (() => { try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; } })();
+        const token = session.token;
+        const user = sessionUser || readSessionUser();
         const isAdmin = user?.role === 'admin';
-        const userIdParam = isAdmin && user?.id ? `?userId=${encodeURIComponent(String(user.id))}` : '';
+        const targetId = targetUser?.id || user?.id;
+        const userIdParam = isAdmin && targetId ? `?userId=${encodeURIComponent(String(targetId))}` : '';
+        const sellerParam = userSeller || sellerFromUser(user);
         const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
         const gastosUrl = isAdmin ? `${API_URL}/gastos/all${userIdParam}` : `${API_URL}/gastos`;
-        const ventasUrl = `${API_URL}/ventas`;
+        const ventasUrl = sellerParam
+          ? `${API_URL}/ventas?vendedor=${encodeURIComponent(sellerParam)}`
+          : `${API_URL}/ventas`;
 
         const [resGastos, resVentas, resProductos] = await Promise.all([
           fetch(gastosUrl, { headers }),
@@ -108,7 +134,11 @@ export default function AnalisisGastos({ setVista }) {
       }
     };
     load();
-  }, []);
+  }, [session.token, sessionUser, targetUser?.id, userSeller]);
+
+  useEffect(() => {
+    if (userSeller) setSelectedPersona(userSeller);
+  }, [userSeller]);
 
   const filtered = useMemo(() => rows.filter((r) => (r.fecha || '').startsWith(month)), [rows, month]);
   const gastosSolo = useMemo(
@@ -155,10 +185,7 @@ export default function AnalisisGastos({ setVista }) {
       return acc;
     }, {});
   const byConceptVida = gastosSolo
-    .filter((r) => {
-      const c = normalizeConcept(r.concepto);
-      return !isInvestmentLike(c) && c !== 'pago_envios';
-    })
+    .filter((r) => isLifeExpenseConcept(r.concepto))
     .reduce((acc, r) => {
       const key = displayConcepto(r.concepto || 'otros', r.metodoPago);
       acc[key] = (acc[key] || 0) + toPen(r);
@@ -183,25 +210,29 @@ export default function AnalisisGastos({ setVista }) {
     [productos, month],
   );
 
-  const ingresosPorPersona = useMemo(() => {
+  const ingresosBrutosPorPersona = useMemo(() => {
     const totales = { gonzalo: 0, renato: 0 };
     ventasMes.forEach((v) => {
-      const gananciaBase =
-        Number(
-          v.ganancia != null
-            ? v.ganancia
-            : v.precioVenta != null && v.costoTotal != null
-              ? Number(v.precioVenta) - Number(v.costoTotal)
-              : 0,
-        ) || 0;
+      const ingresoBruto = Number(v.precioVenta ?? 0) || 0;
       SELLERS.forEach((s) => {
         const share = shareForSeller(v, s);
         if (!share) return;
-        if (share !== 1) {
-          totales[s] += splitMetrics(v, s).ganancia;
-          return;
-        }
-        totales[s] += gananciaBase;
+        totales[s] += ingresoBruto * share;
+      });
+    });
+    return totales;
+  }, [ventasMes]);
+
+  const gananciasNetasPorPersona = useMemo(() => {
+    const totales = { gonzalo: 0, renato: 0 };
+    ventasMes.forEach((v) => {
+      const precioVenta = Number(v.precioVenta ?? 0) || 0;
+      const costoTotal = Number(v?.producto?.valor?.costoTotal ?? 0) || 0;
+      const ganancia = Number(v.ganancia ?? (precioVenta - costoTotal)) || 0;
+      SELLERS.forEach((s) => {
+        const share = shareForSeller(v, s);
+        if (!share) return;
+        totales[s] += ganancia * share;
       });
     });
     return totales;
@@ -220,7 +251,8 @@ export default function AnalisisGastos({ setVista }) {
     return totales;
   }, [productosMes]);
 
-  const ingresoSeleccionado = ingresosPorPersona[selectedPersona] || 0;
+  const ingresoSeleccionado = ingresosBrutosPorPersona[selectedPersona] || 0;
+  const gananciaNetaSeleccionada = gananciasNetasPorPersona[selectedPersona] || 0;
   const comprasInventarioSeleccionado = comprasInventarioPorPersona[selectedPersona] || 0;
   const gastoGeneralSeleccionado = totalPen + comprasInventarioSeleccionado;
   const balanceMes = ingresoSeleccionado - gastoGeneralSeleccionado;
@@ -245,19 +277,13 @@ export default function AnalisisGastos({ setVista }) {
   const gastosVidaPen = useMemo(
     () =>
       gastosSolo
-        .filter((r) => {
-          const c = normalizeConcept(r.concepto);
-          return !isInvestmentLike(c) && c !== 'pago_envios';
-        })
+        .filter((r) => isLifeExpenseConcept(r.concepto))
         .reduce((s, r) => s + toPen(r), 0),
     [gastosSolo],
   );
   const gastosVidaMovs = useMemo(
     () =>
-      gastosSolo.filter((r) => {
-        const c = normalizeConcept(r.concepto);
-        return !isInvestmentLike(c) && c !== 'pago_envios';
-      }),
+      gastosSolo.filter((r) => isLifeExpenseConcept(r.concepto)),
     [gastosSolo],
   );
 
@@ -310,7 +336,16 @@ export default function AnalisisGastos({ setVista }) {
   const pieGradientDeb = useMemo(() => buildGradient(pieDataDeb), [pieDataDeb]);
   const pieGradientCre = useMemo(() => buildGradient(pieDataCre), [pieDataCre]);
   const pieGradientVida = useMemo(() => buildGradient(pieDataVida), [pieDataVida]);
-  const balanceVida = ingresoSeleccionado - gastosVidaPen - comprasInventarioSeleccionado;
+  const balanceVida = gananciaNetaSeleccionada - gastosVidaPen;
+
+  if (!session.token || !sessionUser) {
+    return (
+      <LoginGastos
+        onLoggedIn={(user, token) => setSession({ user: user || null, token: token || '' })}
+        onBack={() => (setVista ? setVista('home') : null)}
+      />
+    );
+  }
 
   return (
     <>
@@ -376,21 +411,27 @@ export default function AnalisisGastos({ setVista }) {
             <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
               <div>
                 <div className="text-sm text-gray-500">Balance ingreso - gasto</div>
-                <div className="text-xs text-gray-500">Usa ganancia bruta por persona (ventas)</div>
+                <div className="text-xs text-gray-500">Usa el ingreso bruto de ventas del usuario</div>
               </div>
-              <select
-                value={selectedPersona}
-                onChange={(e) => setSelectedPersona(e.target.value)}
-                className="border rounded-lg px-3 py-1.5 text-sm"
-              >
-                {SELLERS.map((s) => (
-                  <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-                ))}
-              </select>
+              {userSeller ? (
+                <span className="rounded-lg border bg-gray-50 px-3 py-1.5 text-sm capitalize text-gray-700">
+                  {userSeller}
+                </span>
+              ) : (
+                <select
+                  value={selectedPersona}
+                  onChange={(e) => setSelectedPersona(e.target.value)}
+                  className="border rounded-lg px-3 py-1.5 text-sm"
+                >
+                  {SELLERS.map((s) => (
+                    <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                  ))}
+                </select>
+              )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
               <div className="p-3 bg-gray-50 rounded-lg border">
-                <div className="text-gray-500">Ganancia bruta</div>
+                <div className="text-gray-500">Ingreso bruto</div>
                 <div className="text-lg font-semibold text-gray-900">S/ {ingresoSeleccionado.toFixed(2)}</div>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg border">
@@ -411,27 +452,33 @@ export default function AnalisisGastos({ setVista }) {
             <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
               <div>
                 <div className="text-sm text-gray-500">Balance gastos de vida</div>
-                <div className="text-xs text-gray-500">Ganancia neta vs gasto vida (sin inversión ni envíos)</div>
+                <div className="text-xs text-gray-500">Ganancia neta vs gasto vida (sin compras, inversion ni envios)</div>
               </div>
-              <select
-                value={selectedPersona}
-                onChange={(e) => setSelectedPersona(e.target.value)}
-                className="border rounded-lg px-3 py-1.5 text-sm"
-              >
-                {SELLERS.map((s) => (
-                  <option key={`vida-bal-${s}`} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-                ))}
-              </select>
+              {userSeller ? (
+                <span className="rounded-lg border bg-gray-50 px-3 py-1.5 text-sm capitalize text-gray-700">
+                  {userSeller}
+                </span>
+              ) : (
+                <select
+                  value={selectedPersona}
+                  onChange={(e) => setSelectedPersona(e.target.value)}
+                  className="border rounded-lg px-3 py-1.5 text-sm"
+                >
+                  {SELLERS.map((s) => (
+                    <option key={`vida-bal-${s}`} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                  ))}
+                </select>
+              )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
               <div className="p-3 bg-gray-50 rounded-lg border">
-                <div className="text-gray-500">Ganancia neta</div>
-                <div className="text-lg font-semibold text-gray-900">S/ {ingresoSeleccionado.toFixed(2)}</div>
+                <div className="text-gray-500">Ingreso neto (ganancia)</div>
+                <div className="text-lg font-semibold text-gray-900">S/ {gananciaNetaSeleccionada.toFixed(2)}</div>
               </div>
               <div className="p-3 bg-gray-50 rounded-lg border">
-                <div className="text-gray-500">Gasto vida + compras</div>
-                <div className="text-lg font-semibold text-gray-900">S/ {(gastosVidaPen + comprasInventarioSeleccionado).toFixed(2)}</div>
-                <div className="text-xs text-gray-500 mt-1">Vida: S/ {gastosVidaPen.toFixed(2)} | Compras: S/ {comprasInventarioSeleccionado.toFixed(2)}</div>
+                <div className="text-gray-500">Gasto vida</div>
+                <div className="text-lg font-semibold text-gray-900">S/ {gastosVidaPen.toFixed(2)}</div>
+                <div className="text-xs text-gray-500 mt-1">No incluye compras ni cuotas de compras.</div>
               </div>
               <div className={`p-3 bg-gray-50 rounded-lg border ${balanceVida >= 0 ? 'border-green-200' : 'border-red-200'}`}>
                 <div className="text-gray-500">Resultado</div>

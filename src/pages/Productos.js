@@ -453,6 +453,15 @@ export default function Productos({ setVista, setAnalisisBack }) {
       const modelo = String(p.detalle?.modelo || '').trim();
       return ['iPhone', numero, modelo].filter(Boolean).join(' ');
     }
+    if (String(p.tipo || '').toLowerCase() === 'watch') {
+      return [
+        'Apple Watch',
+        p.detalle?.gama,
+        p.detalle?.generacion,
+        (p.detalle || {})['tamano'] || (p.detalle || {})[keyTamano] || (p.detalle || {})['tamanio'],
+        p.detalle?.conexion,
+      ].filter(Boolean).join(' ');
+    }
     const parts = [
       p.tipo,
       p.detalle?.gama,

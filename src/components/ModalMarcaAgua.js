@@ -193,7 +193,7 @@ async function applyWatermark(file, watermarkImg, { opacity, scale, maxDim, qual
 
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.globalAlpha = clamp(opacity, 0.1, 1);
+    ctx.globalAlpha = clamp(opacity, 0.03, 0.75);
     ctx.drawImage(watermarkImg, x, y, wmWidth, wmHeight);
     ctx.globalAlpha = 1;
 
@@ -213,8 +213,8 @@ export default function ModalMarcaAgua({ onClose }) {
   const [outputs, setOutputs] = React.useState([]);
   const [previewItem, setPreviewItem] = React.useState(null);
   const [processing, setProcessing] = React.useState(false);
-  const [opacity, setOpacity] = React.useState(0.5);
-  const [scale, setScale] = React.useState(1);
+  const [opacity, setOpacity] = React.useState(0.18);
+  const [scale, setScale] = React.useState(0.7);
   const [outputPresetId, setOutputPresetId] = React.useState('general');
   const outputPreset = OUTPUT_PRESETS.find((preset) => preset.id === outputPresetId) || OUTPUT_PRESETS[0];
   const maxDim = outputPreset.maxDim;
@@ -406,9 +406,9 @@ export default function ModalMarcaAgua({ onClose }) {
                   Opacidad: {Math.round(opacity * 100)}%
                   <input
                     type="range"
-                    min="0.1"
-                    max="1"
-                    step="0.05"
+                    min="0.03"
+                    max="0.6"
+                    step="0.01"
                     value={opacity}
                     onChange={(e) => setOpacity(Number(e.target.value))}
                     className="mt-2 w-full"
@@ -420,7 +420,7 @@ export default function ModalMarcaAgua({ onClose }) {
                   <input
                     type="range"
                     min="0.1"
-                    max="1"
+                    max="0.9"
                     step="0.05"
                     value={scale}
                     onChange={(e) => setScale(Number(e.target.value))}

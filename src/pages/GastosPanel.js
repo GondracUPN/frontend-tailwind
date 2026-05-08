@@ -58,6 +58,12 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const isAdmin = user?.role === 'admin';
   const targetUserId = externalUserId ?? user?.id;
   const cacheKey = useMemo(() => `gastos-panel-cache:${targetUserId ?? 'self'}`, [targetUserId]);
+  const rememberTargetUser = () => {
+    if (targetUserId == null) return;
+    try {
+      localStorage.setItem('gastos:selectedUserId', String(targetUserId));
+    } catch {}
+  };
 
   const TIPO_CAMBIO = 3.7;
 
@@ -355,7 +361,10 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                 <button onClick={() => setShowAnalisisMes(true)} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Analisis de gastos</button>
                 {typeof setVista === 'function' && (
                   <button
-                    onClick={() => setVista('presupuestoGastos')}
+                    onClick={() => {
+                      rememberTargetUser();
+                      setVista('presupuestoGastos');
+                    }}
                     className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700 min-h-[40px]"
                   >
                     Presupuesto de gastos
@@ -581,7 +590,10 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         <ModalAnalisisGastosMes
           rows={rows}
           onClose={() => setShowAnalisisMes(false)}
-          onFullAnalysis={setVista ? () => setVista('analisisGastos') : null}
+          onFullAnalysis={setVista ? () => {
+            rememberTargetUser();
+            setVista('analisisGastos');
+          } : null}
         />
       )}
     </div>

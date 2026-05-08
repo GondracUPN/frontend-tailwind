@@ -1,40 +1,67 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
+import LoginGastos from './LoginGastos';
+
+const normalizeConcept = (c) => String(c || '').trim().toLowerCase().replace(/\s+/g, '_');
+const isLifeExpenseConcept = (c) => {
+  const n = normalizeConcept(c);
+  return !['ingreso', 'pago_tarjeta', 'pago_envios', 'inversion', 'bolsa', 'deuda_cuotas'].includes(n);
+};
+const readSessionUser = () => {
+  try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
+};
+const readSelectedGastosUser = (sessionUser) => {
+  if (sessionUser?.role !== 'admin') return sessionUser;
+  try {
+    const raw = localStorage.getItem('gastos:selectedUser');
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed?.id) return parsed;
+  } catch {}
+  try {
+    const id = Number(localStorage.getItem('gastos:selectedUserId') || 0);
+    if (id > 0) return { id };
+  } catch {}
+  return sessionUser;
+};
 
 // Vista de presupuesto mensual de gastos, limitada al usuario autenticado
 export default function PresupuestoGastos({ setVista }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [savingBudget, setSavingBudget] = useState(false);
+  const [budgetReady, setBudgetReady] = useState(false);
   const [err, setErr] = useState('');
 
   const today = new Date();
   const [month, setMonth] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
 
-  // Presupuesto guardado por usuario en localStorage
-  const user = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
-  }, []);
+  const [session, setSession] = useState(() => ({
+    user: readSessionUser(),
+    token: localStorage.getItem('token') || '',
+  }));
+  const user = session.user;
+  const targetUser = useMemo(() => readSelectedGastosUser(user), [user]);
+  const targetUserId = targetUser?.id || user?.id;
   // Clave por usuario y mes: se reinicia cada mes
-  const budgetKey = useMemo(() => `gastos:budget:${user?.id || 'anon'}:${month}`, [user?.id, month]);
-  const [budget, setBudget] = useState(() => {
-    try {
-      const raw = localStorage.getItem(budgetKey);
-      return raw ? Number(raw) : 0;
-    } catch {
-      return 0;
-    }
-  });
+  const budgetKey = useMemo(() => `gastos:budget:${targetUserId || 'anon'}:${month}`, [targetUserId, month]);
+  const [budget, setBudget] = useState(0);
 
   useEffect(() => {
+    if (!session.token || !user) {
+      setLoading(false);
+      return;
+    }
     const load = async () => {
       try {
         setLoading(true);
         setErr('');
-        const token = localStorage.getItem('token') || '';
-        const res = await fetch(`${API_URL}/gastos`, {
+        const token = session.token;
+        const userIdParam = user?.role === 'admin' && targetUserId ? `?userId=${encodeURIComponent(String(targetUserId))}` : '';
+        const gastosUrl = user?.role === 'admin' ? `${API_URL}/gastos/all${userIdParam}` : `${API_URL}/gastos`;
+        const res = await fetch(gastosUrl, {
           headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         });
-        if (!res.ok) throw new Error(`GET /gastos -> ${await res.text()}`);
+        if (!res.ok) throw new Error(`GET ${gastosUrl} -> ${await res.text()}`);
         const data = await res.json();
         setRows(Array.isArray(data) ? data : []);
       } catch (e) {
@@ -45,21 +72,69 @@ export default function PresupuestoGastos({ setVista }) {
       }
     };
     load();
-  }, []);
+  }, [session.token, user, targetUserId]);
 
   useEffect(() => {
+    if (!session.token || !user || !targetUserId) return;
+    let alive = true;
+    setBudgetReady(false);
+    (async () => {
+      try {
+        const userIdParam = user.role === 'admin' ? `&userId=${encodeURIComponent(String(targetUserId))}` : '';
+        const res = await fetch(`${API_URL}/gastos/budget?month=${encodeURIComponent(month)}${userIdParam}`, {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        });
+        if (!res.ok) throw new Error(`GET /gastos/budget -> ${await res.text()}`);
+        const data = await res.json();
+        if (alive) setBudget(Number(data?.amount || 0));
+      } catch (e) {
+        console.error('[PresupuestoGastos] budget load error', e);
+        try {
+          const raw = localStorage.getItem(budgetKey);
+          if (alive) setBudget(raw ? Number(raw) || 0 : 0);
+        } catch {
+          if (alive) setBudget(0);
+        }
+      } finally {
+        if (alive) setBudgetReady(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [session.token, user, targetUserId, month, budgetKey]);
+
+  useEffect(() => {
+    if (!budgetReady || !session.token || !user || !targetUserId) return;
     try {
       localStorage.setItem(budgetKey, String(budget || 0));
     } catch {}
-  }, [budget, budgetKey]);
+    const timer = setTimeout(async () => {
+      try {
+        setSavingBudget(true);
+        const userIdParam = user.role === 'admin' ? `?userId=${encodeURIComponent(String(targetUserId))}` : '';
+        const res = await fetch(`${API_URL}/gastos/budget${userIdParam}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+          body: JSON.stringify({ month, amount: Number(budget) || 0 }),
+        });
+        if (!res.ok) throw new Error(`POST /gastos/budget -> ${await res.text()}`);
+      } catch (e) {
+        console.error('[PresupuestoGastos] budget save error', e);
+        setErr('No se pudo guardar el presupuesto mensual.');
+      } finally {
+        setSavingBudget(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [budget, budgetKey, budgetReady, month, session.token, targetUserId, user]);
 
   const gastosMes = useMemo(
     () =>
       rows.filter(
         (r) =>
           (r.fecha || '').startsWith(month) &&
-          String(r.concepto || '').toLowerCase() !== 'ingreso' &&
-          !['inversion', 'bolsa', 'pago_envios', 'pago_tarjeta'].includes(String(r.concepto || '').toLowerCase()),
+          isLifeExpenseConcept(r.concepto),
       ),
     [rows, month],
   );
@@ -72,6 +147,15 @@ export default function PresupuestoGastos({ setVista }) {
   const totalMesPen = gastosMes.reduce((sum, r) => sum + toPen(r), 0);
   const remaining = (budget || 0) - totalMesPen;
   const remainingPct = budget ? Math.max(0, (remaining / budget) * 100) : 0;
+
+  if (!session.token || !user) {
+    return (
+      <LoginGastos
+        onLoggedIn={(loggedUser, token) => setSession({ user: loggedUser || null, token: token || '' })}
+        onBack={() => (setVista ? setVista('home') : null)}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -114,7 +198,9 @@ export default function PresupuestoGastos({ setVista }) {
               min="0"
               onChange={(e) => setBudget(Number(e.target.value) || 0)}
             />
-            <div className="text-xs text-gray-500 mt-1">Se guarda por usuario y mes.</div>
+            <div className="text-xs text-gray-500 mt-1">
+              {savingBudget ? 'Guardando...' : 'Se guarda fijo por usuario y mes.'}
+            </div>
           </div>
           <div className="bg-white rounded-xl border shadow-sm p-4">
             <div className="text-sm text-gray-500">Gastado en el mes</div>

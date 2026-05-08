@@ -2,9 +2,10 @@ import React, { useMemo, useState, useEffect } from "react";
 import api from "../api";
 
 const CASILLEROS = {
+  Walter: "Walter Garcia",
   Renato: "Renato Carbajal",
   Jorge: "Jorge Sahid Garcia Sanchez",
-  Sebastian: "Sebastian Arturo Zenteno PEZ105183",
+  Sebastian: "Sebastian Arturo Zenteno",
 };
 
 function fmtUSD(n) {

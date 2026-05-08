@@ -50,6 +50,7 @@ export default function FormProductoIphone({ detalle, onChange }) {
     }
     return [];
   };
+  const almacenamientoOptions = uniq([...getAlmacenamiento(), almacenamiento]);
 
   return (
     <>
@@ -98,7 +99,7 @@ export default function FormProductoIphone({ detalle, onChange }) {
             onChange={e => onChange('almacenamiento', e.target.value)}
           >
             <option value="">Seleccione</option>
-            {getAlmacenamiento().map(a => <option key={a} value={a}>{a} GB</option>)}
+            {almacenamientoOptions.map(a => <option key={a} value={a}>{String(a).includes('TB') ? a : `${a} GB`}</option>)}
           </select>
         </div>
       )}

@@ -5,8 +5,6 @@ import { getAnalyticsSummary } from '../services/analytics';
 import { TC_FIJO } from '../utils/tipoCambio';
 
 const PAGE_SIZE = 140;
-const PRODUCT_SEARCH_CACHE_PREFIX = 'ebay:product-search:v1';
-const PRODUCT_SEARCH_CACHE_TTL_MS = 30 * 60 * 1000;
 const EMPTY_RESULT = {
   items: [],
   sellers: [],
@@ -19,40 +17,6 @@ const EMPTY_RESULT = {
   buyingOptions: '',
   family: 'all',
   hasMore: false,
-};
-
-const productSearchCacheKey = (params) => {
-  try {
-    return `${PRODUCT_SEARCH_CACHE_PREFIX}:${encodeURIComponent(JSON.stringify(params))}`;
-  } catch {
-    return '';
-  }
-};
-
-const readProductSearchCache = (key) => {
-  if (!key) return null;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed?.ts || Date.now() - Number(parsed.ts) > PRODUCT_SEARCH_CACHE_TTL_MS) {
-      localStorage.removeItem(key);
-      return null;
-    }
-    if (!Array.isArray(parsed?.result?.items)) return null;
-    return parsed.result;
-  } catch {
-    return null;
-  }
-};
-
-const writeProductSearchCache = (key, result) => {
-  if (!key || !result) return;
-  try {
-    localStorage.setItem(key, JSON.stringify({ ts: Date.now(), result }));
-  } catch {
-    /* ignore */
-  }
 };
 
 const FAMILY_OPTIONS = [
@@ -129,7 +93,6 @@ const PAWN_OFFER_OPTIONS = [
   { value: 'BEST_OFFER', label: 'Mejor oferta' },
   { value: '', label: 'Todos' },
 ];
-
 const formatPrice = (value, currency = 'USD') => {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return '$0.00';
@@ -717,7 +680,7 @@ function SectionToggle({ activeTab, onChange }) {
   ];
 
   return (
-    <div className="grid w-full grid-cols-3 rounded-2xl bg-slate-200 p-1 sm:inline-flex sm:w-auto">
+    <div className="grid w-full grid-cols-2 rounded-2xl bg-slate-200 p-1 sm:inline-flex sm:w-auto">
       {tabs.map((tab) => (
         <button
           key={tab.id}
@@ -772,7 +735,7 @@ function MappedSelectField({ value, onChange, options }) {
   );
 }
 
-function ResultsGrid({ items, titleSource = 'store', dateField = 'origin', priceMode = 'standard' }) {
+function ResultsGrid({ items, titleSource = 'store', dateField = 'origin', priceMode = 'standard', onItemOpen }) {
   const recommendationTone = {
     go: 'bg-emerald-100 text-emerald-800',
     limit: 'bg-amber-100 text-amber-800',
@@ -792,6 +755,7 @@ function ResultsGrid({ items, titleSource = 'store', dateField = 'origin', price
             href={item.itemWebUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => onItemOpen?.(item)}
             className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
           >
             <div className="aspect-square bg-slate-100">
@@ -832,6 +796,8 @@ function ResultsGrid({ items, titleSource = 'store', dateField = 'origin', price
               <div className="space-y-1 break-words text-[11px] text-slate-500">
                 <div>{item.condition || 'Sin condicion'}</div>
                 <div>{dateField === 'end' ? `Restante: ${formatRemainingTime(item.itemEndDate)}` : formatDate(item.itemOriginDate || item.itemCreationDate)}</div>
+                {item.viewedAt && <div>Visto: {formatDate(item.viewedAt)}</div>}
+                {item.status === 'sold_or_ended' && <div className="font-semibold text-rose-600">Vendido o finalizado</div>}
               </div>
             </div>
           </a>
@@ -962,7 +928,6 @@ function Ebay({ setVista }) {
   const [productBuyingOptions, setProductBuyingOptions] = useState('BEST_OFFER');
   const [productPawnOnly, setProductPawnOnly] = useState(false);
   const [productResult, setProductResult] = useState(EMPTY_RESULT);
-  const [productCacheNotice, setProductCacheNotice] = useState('');
   const [ipadForm, setIpadForm] = useState({ line: '', number: '', screen: '', processor: '', storage: '', connectivity: '' });
   const [iphoneForm, setIphoneForm] = useState({ number: '16', model: '' });
   const [macbookForm, setMacbookForm] = useState({ line: '', screen: '', processor: '', ram: '', storage: '' });
@@ -1094,56 +1059,18 @@ function Ebay({ setVista }) {
         ? buildIphoneQuery(iphoneForm)
         : productType === 'macbook'
           ? buildMacbookQuery(macbookForm)
-          : 'apple ipad iphone macbook';
+          : 'apple';
 
-  const currentProductSearchCacheKey = useMemo(() => productSearchCacheKey({
-    type: productType,
-    query: productQuery,
-    condition: productCondition,
-    buyingOptions: productBuyingOptions,
-    pawnOnly: productPawnOnly,
-    ipadForm,
-    iphoneForm,
-    macbookForm,
-    limit: PAGE_SIZE,
-    offset: 0,
-  }), [
-    productType,
-    productQuery,
-    productCondition,
-    productBuyingOptions,
-    productPawnOnly,
-    ipadForm,
-    iphoneForm,
-    macbookForm,
-  ]);
-
-  useEffect(() => {
-    setProductCacheNotice('');
-  }, [currentProductSearchCacheKey]);
-
-  const loadProductSearch = async ({ append = false, forceRefresh = false } = {}) => {
+  const loadProductSearch = async ({ append = false } = {}) => {
     const initialOffset = append ? getNextResultOffset(productResult) : 0;
-    if (!append && !forceRefresh) {
-      const cached = readProductSearchCache(currentProductSearchCacheKey);
-      if (cached) {
-        setErrors((prev) => ({ ...prev, product: '' }));
-        setProductResult(cached);
-        setProductCacheNotice('Mostrando resultados guardados. Usa "Actualizar API" para renovar.');
-        return;
-      }
-    }
     if (append) setAppendLoadingTab('product');
     else setLoadingTab('product');
-    setProductCacheNotice('');
     loadEbayRateLimits({ silent: false });
     setErrors((prev) => ({ ...prev, product: '' }));
     try {
       const pawnOnlyParam = productPawnOnly ? '&pawnOnly=1' : '';
       const buildEndpoint = (offset) => {
-        return productType === 'all'
-          ? `/utils/ebay/apple-collection?family=all&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}`
-          : `/utils/ebay/search?q=${encodeURIComponent(productQuery)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}`;
+        return `/utils/ebay/search?q=${encodeURIComponent(productQuery)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}&sort=newlyListed`;
       };
       const filterProductItems = (rawItems) => {
         const familyFilteredItems = productType === 'all'
@@ -1153,7 +1080,7 @@ function Ebay({ setVista }) {
           ? familyFilteredItems.filter((item) => matchIpadItem(item, ipadForm))
           : productType === 'macbook'
             ? familyFilteredItems.filter((item) => matchMacbookItem(item, macbookForm))
-          : familyFilteredItems;
+            : familyFilteredItems;
       };
 
       let offset = initialOffset;
@@ -1199,13 +1126,8 @@ function Ebay({ setVista }) {
         hasMore: data?.rateLimited ? false : (typeof data?.hasMore === 'boolean' ? data.hasMore : undefined),
         rateLimited: Boolean(data?.rateLimited),
       };
-      setProductResult((prev) => {
-        const mergedResult = append
-          ? { ...nextResult, items: mergeUniqueItems(prev.items, filteredItems) }
-          : nextResult;
-        if (!append) writeProductSearchCache(currentProductSearchCacheKey, mergedResult);
-        return mergedResult;
-      });
+
+      setProductResult((prev) => append ? { ...nextResult, items: mergeUniqueItems(prev.items, filteredItems) } : nextResult);
     } catch (err) {
       if (/429|limitando|too many requests/i.test(String(err?.message || err))) {
         setProductResult((prev) => ({ ...prev, hasMore: false, rateLimited: true }));
@@ -1431,48 +1353,6 @@ function Ebay({ setVista }) {
     }
   };
 
-  useEffect(() => {
-    if (!currentHasMore || currentLoading || currentAppending) return () => {};
-    if (activeTab === 'product' && productPawnOnly) return () => {};
-    const onScroll = () => {
-      if (window.scrollY < 80) return;
-      loadMoreCurrent();
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, [
-    activeTab,
-    currentHasMore,
-    currentLoading,
-    currentAppending,
-    currentResult.query,
-    currentResult.offset,
-    currentResult.limit,
-    pawnCondition,
-    pawnBuyingOptions,
-    productCondition,
-    productBuyingOptions,
-    productPawnOnly,
-    productType,
-    auctionFamily,
-    auctionCondition,
-  ]);
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    const node = sentinelRef.current;
-    if (!node || currentLoading || currentAppending || !currentHasMore) return () => {};
-    if (activeTab === 'product' && productPawnOnly) return () => {};
-
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries[0]?.isIntersecting) return;
-      loadMoreCurrent();
-    }, { rootMargin: '5200px 0px', threshold: 0.01 });
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [activeTab, currentHasMore, currentLoading, currentAppending, pawnResult.items.length, productResult.items.length, auctionResult.items.length, pawnCondition, pawnBuyingOptions, productCondition, productBuyingOptions, productPawnOnly, auctionFamily, auctionCondition, productType]);
-
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#eff6ff_0%,_#f8fafc_45%,_#e2e8f0_100%)] p-3 sm:p-6">
       <div className="mx-auto max-w-[1800px]">
@@ -1481,7 +1361,7 @@ function Ebay({ setVista }) {
             <div className="max-w-3xl min-w-0">
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 sm:tracking-[0.24em]">eBay Explorer</div>
               <h1 className="mt-2 text-2xl font-semibold text-slate-900 sm:text-4xl">Busqueda Apple</h1>
-              <p className="mt-3 text-sm leading-6 text-slate-600">Carga {PAGE_SIZE} resultados y sigue trayendo mas al bajar.</p>
+              <p className="mt-3 text-sm leading-6 text-slate-600">Carga {PAGE_SIZE} resultados por bloque. Tu decides cuando cargar mas.</p>
             </div>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
               <SectionToggle activeTab={activeTab} onChange={setActiveTab} />
@@ -1732,7 +1612,7 @@ function Ebay({ setVista }) {
 
             {productType === 'all' && (
               <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl bg-slate-100/80 p-4 text-sm text-slate-600">Busca todo junto: iPad, iPhone unlocked, MacBook, AirPods, Apple Watch, iMac, Mac mini y accesorios, ordenado de mas reciente a mas antiguo.</div>
+                <div className="rounded-2xl bg-slate-100/80 p-4 text-sm text-slate-600">Busca Apple en una sola lista de eBay, ordenada por los mas nuevos primero.</div>
                 <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={COMMON_CONDITION_OPTIONS} /></FieldShell>
                 <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
               </div>
@@ -1756,21 +1636,6 @@ function Ebay({ setVista }) {
               >
                 {loadingTab === 'product' ? 'Buscando...' : 'Buscar producto'}
               </button>
-              {productResult.items.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => { setActiveTab('product'); loadProductSearch({ append: false, forceRefresh: true }); }}
-                  disabled={loadingTab === 'product'}
-                  className="w-full rounded-2xl border border-amber-200 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-                >
-                  Actualizar API
-                </button>
-              )}
-              {productCacheNotice && activeTab === 'product' && (
-                <div className="text-sm font-medium text-emerald-700">
-                  {productCacheNotice}
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -1807,7 +1672,7 @@ function Ebay({ setVista }) {
           <div className="min-w-0">
             <div className="mt-1 text-lg font-semibold text-slate-900">{currentLoading && currentResult.items.length === 0 ? 'Cargando resultados...' : `${currentResult.items.length} resultados visibles`}</div>
             <div className="mt-1 text-sm text-slate-600">
-              Orden: <strong>{activeTab === 'auctions' ? 'primeros en terminar' : 'mas reciente a mas antiguo'}</strong>
+              Orden: <strong>{activeTab === 'auctions' ? 'primeros en terminar' : 'mas nuevos a mas antiguos'}</strong>
             </div>
           </div>
           <div className="text-sm text-slate-600 md:text-right">
