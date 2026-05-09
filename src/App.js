@@ -345,6 +345,14 @@ function App() {
     tipoCambio: CALCU_RAPIDA_TC_DEFAULT,
     precioVenta: '',
   }));
+  const [calcuRapidaEbay, setCalcuRapidaEbay] = useState(() => ({
+    url: '',
+    loading: false,
+    error: '',
+    title: '',
+    priceUSD: null,
+    shippingUSD: null,
+  }));
   const [sidebarHidden, setSidebarHidden] = useState(() => {
     try {
       const saved = localStorage.getItem(SIDEBAR_HIDDEN_KEY);
@@ -836,6 +844,43 @@ function App() {
     setCalcuRapida((prev) => ({ ...prev, [field]: value }));
   };
 
+  const setCalcuRapidaEbayUrl = (event) => {
+    const value = event?.target?.value ?? '';
+    setCalcuRapidaEbay((prev) => ({ ...prev, url: value, error: '' }));
+  };
+
+  const buscarCalcuRapidaEbay = async () => {
+    const url = String(calcuRapidaEbay.url || '').trim();
+    if (!url) {
+      setCalcuRapidaEbay((prev) => ({ ...prev, error: 'Ingresa un URL de eBay.' }));
+      return;
+    }
+    setCalcuRapidaEbay((prev) => ({ ...prev, loading: true, error: '' }));
+    try {
+      const data = await api.get(`/utils/ebay?url=${encodeURIComponent(url)}`);
+      const price = Number.isFinite(Number(data?.priceUSD)) ? Number(data.priceUSD) : null;
+      const shipping = Number.isFinite(Number(data?.shippingUSD)) ? Number(data.shippingUSD) : null;
+      setCalcuRapidaEbay((prev) => ({
+        ...prev,
+        loading: false,
+        title: String(data?.title || ''),
+        priceUSD: price,
+        shippingUSD: shipping,
+      }));
+      setCalcuRapida((prev) => ({
+        ...prev,
+        ...(price != null ? { precioUsd: String(price) } : {}),
+        ...(shipping != null ? { envioUsaUsd: String(shipping) } : {}),
+      }));
+    } catch (err) {
+      setCalcuRapidaEbay((prev) => ({
+        ...prev,
+        loading: false,
+        error: String(err?.response?.data?.message || err?.message || 'No se pudo leer el URL de eBay.'),
+      }));
+    }
+  };
+
   const openCalcuRapida = () => {
     setCalcuRapidaOpen(true);
     try {
@@ -1130,6 +1175,47 @@ function App() {
 
             <div className="bg-white/90 rounded-xl border border-gray-200 shadow-sm p-5">
               <h3 className="text-lg font-semibold mb-3 text-gray-900">Resultados</h3>
+              <div className="mb-4 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+                <label className="block text-sm font-medium text-slate-700 mb-2">Busqueda de eBay</label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    type="text"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"
+                    placeholder="https://www.ebay.com/itm/..."
+                    value={calcuRapidaEbay.url}
+                    onChange={setCalcuRapidaEbayUrl}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') buscarCalcuRapidaEbay();
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={buscarCalcuRapidaEbay}
+                    disabled={calcuRapidaEbay.loading}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                      calcuRapidaEbay.loading
+                        ? 'bg-slate-300 text-slate-600'
+                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                    }`}
+                  >
+                    {calcuRapidaEbay.loading ? 'Buscando...' : 'Buscar'}
+                  </button>
+                </div>
+                {calcuRapidaEbay.error && (
+                  <div className="mt-2 text-sm text-red-600">{calcuRapidaEbay.error}</div>
+                )}
+                {(calcuRapidaEbay.title || calcuRapidaEbay.priceUSD != null || calcuRapidaEbay.shippingUSD != null) && (
+                  <div className="mt-2 space-y-1 text-xs text-slate-600">
+                    {calcuRapidaEbay.title && (
+                      <div className="line-clamp-2 rounded-lg bg-white px-2 py-1 text-slate-800">{calcuRapidaEbay.title}</div>
+                    )}
+                    <div>
+                      Precio: <strong>{fmtUsdCalc(calcuRapidaEbay.priceUSD)}</strong>
+                      {' '}| Envio: <strong>{fmtUsdCalc(calcuRapidaEbay.shippingUSD)}</strong>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                 <label className="text-sm">
                   <span className="block text-gray-600 mb-1">Precio del Producto (USD)</span>

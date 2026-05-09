@@ -5,6 +5,7 @@ import { getAnalyticsSummary } from '../services/analytics';
 import { TC_FIJO } from '../utils/tipoCambio';
 
 const PAGE_SIZE = 140;
+const EBAY_VIEWED_ITEMS_KEY = 'ebay:viewed-items:v1';
 const EMPTY_RESULT = {
   items: [],
   sellers: [],
@@ -17,6 +18,8 @@ const EMPTY_RESULT = {
   buyingOptions: '',
   family: 'all',
   hasMore: false,
+  cacheOffset: 0,
+  preferCache: false,
 };
 
 const FAMILY_OPTIONS = [
@@ -655,6 +658,68 @@ const buildRecommendationForItem = (item, analyticsGroups = [], priceMode = 'sta
 
 const getItemKey = (item) => String(item?.itemId || item?.legacyItemId || item?.itemWebUrl || '');
 
+const extractEbayLegacyId = (value) => {
+  const text = String(value || '');
+  const match = text.match(/(?:\/itm\/(?:[^/?#]+\/)?|[?&]item=|[|])(\d{9,15})(?:[|/?#&]|$)/i) ||
+    text.match(/\b(\d{9,15})\b/);
+  return match?.[1] || '';
+};
+
+const getItemViewedKeys = (item) => {
+  const keys = [
+    item?.itemId,
+    item?.legacyItemId,
+    item?.itemWebUrl,
+    extractEbayLegacyId(item?.itemId),
+    extractEbayLegacyId(item?.legacyItemId),
+    extractEbayLegacyId(item?.itemWebUrl),
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  return Array.from(new Set(keys));
+};
+
+const getViewedAtForItem = (viewedItems, item) => {
+  const keys = getItemViewedKeys(item);
+  return keys.map((key) => viewedItems?.[key]).find(Boolean) || '';
+};
+
+const readViewedEbayItems = () => {
+  try {
+    const raw = localStorage.getItem(EBAY_VIEWED_ITEMS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeViewedEbayItems = (items) => {
+  try {
+    const entries = Object.entries(items || {})
+      .filter(([key, value]) => key && value)
+      .sort((left, right) => Date.parse(String(right[1])) - Date.parse(String(left[1])))
+      .slice(0, 3000);
+    localStorage.setItem(EBAY_VIEWED_ITEMS_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    /* ignore */
+  }
+};
+
+const mergeViewedMaps = (...maps) => {
+  const merged = {};
+  maps.forEach((map) => {
+    Object.entries(map || {}).forEach(([key, value]) => {
+      if (!key || !value) return;
+      const current = merged[key];
+      if (!current || Date.parse(String(value)) > Date.parse(String(current))) {
+        merged[key] = value;
+      }
+    });
+  });
+  return merged;
+};
+
 const mergeUniqueItems = (prevItems, nextItems) => {
   const seen = new Set(prevItems.map((item) => getItemKey(item)));
   const merged = [...prevItems];
@@ -671,6 +736,15 @@ const getNextResultOffset = (result) =>
   Number.isFinite(Number(result?.nextOffset))
     ? Math.max(0, Number(result.nextOffset))
     : Math.max(0, Number(result?.offset || 0) + Number(result?.limit || PAGE_SIZE));
+
+const getResponseNextOffset = (data, fallbackOffset) => {
+  const currentOffset = Number(data?.offset ?? fallbackOffset);
+  const limit = Number(data?.limit || PAGE_SIZE);
+  const inferred = (Number.isFinite(currentOffset) ? currentOffset : fallbackOffset) + (Number.isFinite(limit) ? limit : PAGE_SIZE);
+  const explicit = Number(data?.nextOffset);
+  if (Number.isFinite(explicit) && explicit > fallbackOffset) return explicit;
+  return Math.max(fallbackOffset + 1, inferred);
+};
 
 function SectionToggle({ activeTab, onChange }) {
   const tabs = [
@@ -743,57 +817,69 @@ function ResultsGrid({ items, titleSource = 'store', dateField = 'origin', price
   };
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7">
+    <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7">
       {items.map((item) => {
         const sellerLabel = titleSource === 'seller' ? (item.seller || 'eBay') : (item.storeName || item.seller || 'eBay');
         const feedbackPercent = Number(item.sellerFeedbackPercentage);
         const feedbackScore = Number(item.sellerFeedbackScore);
         const bidAmount = Number.isFinite(Number(item.currentBidPriceUSD)) ? item.currentBidPriceUSD : 0;
+        const isViewed = Boolean(item.viewedAt);
         return (
           <a
             key={item.itemId || item.itemWebUrl}
             href={item.itemWebUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onMouseDown={(event) => {
+              if (event.button === 0 || event.button === 1) onItemOpen?.(item);
+            }}
+            onAuxClick={() => onItemOpen?.(item)}
             onClick={() => onItemOpen?.(item)}
-            className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+            className={`group relative overflow-hidden rounded-xl border shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md sm:rounded-2xl ${
+              isViewed ? 'border-slate-300 bg-slate-50 opacity-80' : 'border-slate-200 bg-white'
+            }`}
           >
+            {isViewed && (
+              <div className="absolute right-2 top-2 z-10 rounded-full bg-slate-900/85 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                Visto
+              </div>
+            )}
             <div className="aspect-square bg-slate-100">
               {item.imageUrl ? (
                 <img
                   src={item.imageUrl}
                   alt={item.title}
                   loading="lazy"
-                  className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                  className={`h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] ${isViewed ? 'grayscale-[35%]' : ''}`}
                 />
               ) : (
                 <div className="flex h-full items-center justify-center px-4 text-center text-xs text-slate-400">Sin imagen</div>
               )}
             </div>
 
-            <div className="min-w-0 space-y-2 p-3">
+            <div className="min-w-0 space-y-1.5 p-2 sm:space-y-2 sm:p-3">
               <div className="min-w-0">
-                <div className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{sellerLabel}</div>
+                <div className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[11px]">{sellerLabel}</div>
                 {(Number.isFinite(feedbackPercent) || Number.isFinite(feedbackScore)) && (
-                  <div className="mt-1 text-[11px] text-slate-500">
+                  <div className="mt-1 text-[10px] text-slate-500 sm:text-[11px]">
                     {Number.isFinite(feedbackPercent) ? `${feedbackPercent.toFixed(1)}%` : '-'} | {Number.isFinite(feedbackScore) ? `${Math.round(feedbackScore)} reviews` : '0 reviews'}
                   </div>
                 )}
               </div>
 
-              <div className="line-clamp-3 min-h-[3.6rem] break-words text-sm font-semibold leading-5 text-slate-900">{item.title}</div>
+              <div className="line-clamp-3 min-h-[3rem] break-words text-xs font-semibold leading-4 text-slate-900 sm:min-h-[3.6rem] sm:text-sm sm:leading-5">{item.title}</div>
 
               {item.priceReview && (
-                <div className={`inline-flex w-fit rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${recommendationTone[item.priceReview.tone] || 'bg-slate-100 text-slate-700'}`}>
+                <div className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] sm:px-2.5 sm:py-1 sm:text-[11px] ${recommendationTone[item.priceReview.tone] || 'bg-slate-100 text-slate-700'}`}>
                   {item.priceReview.label}
                 </div>
               )}
 
-              <div className="rounded-xl bg-emerald-50 px-2.5 py-1.5 text-sm font-bold text-emerald-700">
+              <div className="rounded-lg bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700 sm:rounded-xl sm:px-2.5 sm:py-1.5 sm:text-sm">
                 {priceMode === 'bid' ? `Oferta: ${formatPrice(bidAmount, item.currency)}` : formatPrice(item.priceUSD, item.currency)}
               </div>
 
-              <div className="space-y-1 break-words text-[11px] text-slate-500">
+              <div className="space-y-0.5 break-words text-[10px] text-slate-500 sm:space-y-1 sm:text-[11px]">
                 <div>{item.condition || 'Sin condicion'}</div>
                 <div>{dateField === 'end' ? `Restante: ${formatRemainingTime(item.itemEndDate)}` : formatDate(item.itemOriginDate || item.itemCreationDate)}</div>
                 {item.viewedAt && <div>Visto: {formatDate(item.viewedAt)}</div>}
@@ -939,6 +1025,7 @@ function Ebay({ setVista }) {
   const [ebayRateLimits, setEbayRateLimits] = useState(null);
   const [ebayRateLoading, setEbayRateLoading] = useState(false);
   const [ebayRateError, setEbayRateError] = useState('');
+  const [viewedItems, setViewedItems] = useState(readViewedEbayItems);
 
   const sentinelRef = useRef(null);
   const appendRequestKeyRef = useRef('');
@@ -1069,8 +1156,10 @@ function Ebay({ setVista }) {
     setErrors((prev) => ({ ...prev, product: '' }));
     try {
       const pawnOnlyParam = productPawnOnly ? '&pawnOnly=1' : '';
-      const buildEndpoint = (offset) => {
-        return `/utils/ebay/search?q=${encodeURIComponent(productQuery)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}&sort=newlyListed`;
+      const buildEndpoint = (offset, options = {}) => {
+        const cacheOffset = Number(options.cacheOffset || 0);
+        const preferCache = options.preferCache ? '1' : '';
+        return `/utils/ebay/search?q=${encodeURIComponent(productQuery)}&limit=${PAGE_SIZE}&offset=${offset}&cacheOffset=${cacheOffset}&preferCache=${preferCache}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}&sort=newlyListed`;
       };
       const filterProductItems = (rawItems) => {
         const familyFilteredItems = productType === 'all'
@@ -1086,28 +1175,54 @@ function Ebay({ setVista }) {
       let offset = initialOffset;
       let data = null;
       let filteredItems = [];
+      const seen = new Set(append ? productResult.items.map((item) => getItemKey(item)).filter(Boolean) : []);
+      const minScanPages = 1;
+      const maxScanPages = productPawnOnly ? 12 : 10;
+      let cacheOffset = append ? Number(productResult.cacheOffset || 0) : 0;
+      let preferCache = append ? Boolean(productResult.preferCache) : false;
+      let lastHasMore = false;
+      let lastNextCacheOffset = cacheOffset;
+      let lastPreferCache = preferCache;
 
-      if (!append) {
-        data = await api.get(buildEndpoint(offset));
-        filteredItems = filterProductItems(Array.isArray(data?.items) ? data.items : []);
-      } else {
-        const seen = new Set(productResult.items.map((item) => getItemKey(item)).filter(Boolean));
-        const maxAppendPages = 2;
+      for (let page = 0; page < maxScanPages; page += 1) {
+        data = await api.get(buildEndpoint(offset, { cacheOffset, preferCache }));
+        const pageItems = filterProductItems(Array.isArray(data?.items) ? data.items : []);
+        const newItems = pageItems.filter((item) => {
+          const key = getItemKey(item);
+          if (!key) return false;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
 
-        for (let page = 0; page < maxAppendPages; page += 1) {
-          data = await api.get(buildEndpoint(offset));
-          const pageItems = filterProductItems(Array.isArray(data?.items) ? data.items : []);
-          const newItems = pageItems.filter((item) => {
-            const key = getItemKey(item);
-            if (!key || seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          });
+        filteredItems = [...filteredItems, ...newItems];
+        const hasMore = typeof data?.hasMore === 'boolean'
+          ? data.hasMore
+          : filteredItems.length < Number(data?.total || 0);
+        lastHasMore = Boolean(hasMore);
+        const nextCacheOffset = Number.isFinite(Number(data?.nextCacheOffset))
+          ? Number(data.nextCacheOffset)
+          : cacheOffset;
+        const nextPreferCache = Boolean(data?.nextPreferCache);
+        lastNextCacheOffset = nextCacheOffset;
+        lastPreferCache = nextPreferCache;
+        const scannedPages = page + 1;
 
-          filteredItems = [...filteredItems, ...newItems];
-          if (newItems.length > 0 || !data?.hasMore) break;
-          offset = Number(data?.offset || offset) + Number(data?.limit || PAGE_SIZE);
+        if (data?.fromCache) {
+          cacheOffset = nextCacheOffset;
+          preferCache = nextPreferCache;
+          if (newItems.length > 0) break;
+          if (preferCache) continue;
+          if (!hasMore) break;
+          continue;
         }
+
+        offset = getResponseNextOffset(data, offset);
+        cacheOffset = nextCacheOffset;
+        preferCache = nextPreferCache;
+        if (!hasMore) break;
+        if (productPawnOnly) break;
+        if (filteredItems.length >= PAGE_SIZE && scannedPages >= minScanPages) break;
       }
 
       const finalOffset = Number(data?.offset || initialOffset);
@@ -1120,10 +1235,12 @@ function Ebay({ setVista }) {
         limit: Number(data?.limit || PAGE_SIZE),
         offset: finalOffset,
         nextOffset: Number.isFinite(Number(data?.nextOffset)) ? Number(data.nextOffset) : undefined,
+        cacheOffset: lastNextCacheOffset,
+        preferCache: lastPreferCache,
         groups: Array.isArray(data?.groups) ? data.groups : [],
         family: String(data?.family || productType),
         buyingOptions: String(data?.buyingOptions || productBuyingOptions),
-        hasMore: data?.rateLimited ? false : (typeof data?.hasMore === 'boolean' ? data.hasMore : undefined),
+        hasMore: data?.rateLimited ? false : lastHasMore,
         rateLimited: Boolean(data?.rateLimited),
       };
 
@@ -1252,30 +1369,79 @@ function Ebay({ setVista }) {
     if (progressHideTimeoutRef.current) clearTimeout(progressHideTimeoutRef.current);
   }, []);
 
+  useEffect(() => {
+    let alive = true;
+    api.get('/utils/ebay/viewed')
+      .then((data) => {
+        if (!alive) return;
+        const fromDb = {};
+        (Array.isArray(data?.items) ? data.items : []).forEach((row) => {
+          const viewedAt = row?.viewedAt || '';
+          if (row?.itemKey && viewedAt) fromDb[String(row.itemKey)] = viewedAt;
+          if (row?.itemUrl && viewedAt) {
+            getItemViewedKeys({ itemWebUrl: row.itemUrl }).forEach((key) => {
+              fromDb[key] = viewedAt;
+            });
+          }
+        });
+        const merged = mergeViewedMaps(readViewedEbayItems(), fromDb);
+        setViewedItems(merged);
+        writeViewedEbayItems(merged);
+      })
+      .catch(() => {
+        /* localStorage remains as fallback */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const markItemViewed = (item) => {
+    const keys = getItemViewedKeys(item);
+    if (!keys.length) return;
+    const viewedAt = new Date().toISOString();
+    setViewedItems((prev) => {
+      const next = { ...prev };
+      keys.forEach((key) => {
+        next[key] = viewedAt;
+      });
+      writeViewedEbayItems(next);
+      return next;
+    });
+    api.post('/utils/ebay/viewed', {
+      keys,
+      itemUrl: item?.itemWebUrl || '',
+      title: item?.title || '',
+    }).catch(() => {
+      /* localStorage keeps the visible marker if the network save fails */
+    });
+  };
+
   const currentResult = activeTab === 'pawns' ? pawnResult : activeTab === 'product' ? productResult : auctionResult;
   const currentError = activeTab === 'pawns' ? errors.pawns : activeTab === 'product' ? errors.product : errors.auctions;
   const currentLoading = loadingTab === activeTab;
   const currentAppending = appendLoadingTab === activeTab;
-  const currentHasMore = currentResult.items.length > 0 && (
-    typeof currentResult.hasMore === 'boolean'
-      ? currentResult.hasMore
-      : currentResult.items.length < currentResult.total
-  );
+  const currentHasMore = typeof currentResult.hasMore === 'boolean'
+    ? currentResult.hasMore
+    : currentResult.items.length < currentResult.total;
   const currentInitialProgress = loadingProgress.visible && loadingProgress.mode === 'initial' && loadingProgress.tab === activeTab
     ? loadingProgress
     : null;
   const currentAppendProgress = loadingProgress.visible && loadingProgress.mode === 'append' && loadingProgress.tab === activeTab
     ? loadingProgress
     : null;
-  const showLoadMoreControls = !currentLoading && currentResult.items.length > 0 && (
+  const showLoadMoreControls = !currentLoading && (
+    currentResult.items.length > 0 || currentHasMore || currentAppending || Boolean(currentAppendProgress)
+  ) && (
     currentHasMore || currentAppending || Boolean(currentAppendProgress)
   );
   const currentItems = useMemo(
     () => currentResult.items.map((item) => ({
       ...item,
+      viewedAt: getViewedAtForItem(viewedItems, item) || item.viewedAt,
       priceReview: buildRecommendationForItem(item, analyticsGroups, activeTab === 'auctions' ? 'bid' : 'standard'),
     })),
-    [activeTab, analyticsGroups, currentResult.items],
+    [activeTab, analyticsGroups, currentResult.items, viewedItems],
   );
 
   const saveSinglePawnStore = async () => {
@@ -1686,6 +1852,7 @@ function Ebay({ setVista }) {
             titleSource={activeTab === 'pawns' ? 'store' : 'seller'}
             dateField={activeTab === 'auctions' ? 'end' : 'origin'}
             priceMode={activeTab === 'auctions' ? 'bid' : 'standard'}
+            onItemOpen={markItemViewed}
           />
         )}
 

@@ -36,6 +36,16 @@ const fmtUSD = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? `$ ${n.toFixed(2)}` : '-';
 };
+const fmtPct = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? `${n.toFixed(1)}%` : '-';
+};
+const gananciaPct = (ganancia, costo) => {
+  const g = Number(ganancia);
+  const c = Number(costo);
+  if (!Number.isFinite(g) || !Number.isFinite(c) || c <= 0) return 0;
+  return (g / c) * 100;
+};
 const normalizeText = (v) => String(v || '').toLowerCase();
 const inferTipo = (title) => {
   const t = normalizeText(title);
@@ -1535,12 +1545,32 @@ const historialCompras = useMemo(() => {
               <li className="flex justify-between"><span>Costo de envio:</span><strong>{fmtSoles(compras.costoEnvio)}</strong></li>
               <li className="flex justify-between"><span>Costo total (S/):</span><strong>{fmtSoles(compras.costoTotal)}</strong></li>
               <li className="flex justify-between text-xl"><span>Precio de venta minimo (+20%):</span><strong>{fmtSoles(compras.precioVentaMin)}</strong></li>
-              <li className="mt-2 pt-2 border-t flex items-center gap-2 text-xs">
-                <label className="text-xs text-gray-600">Precio de venta</label>
-                <input className="w-32 sm:w-40 border rounded px-2 py-1 text-sm" inputMode="decimal" placeholder="S/ 0.00" value={pvCompras} onChange={(e)=>setPvCompras(e.target.value)} />
-                <strong className="text-xs">Ganancia: {fmtSoles(Math.max(0, num(pvCompras) - compras.costoTotal))}</strong>
+              <li className="flex justify-between text-lg">
+                <span>Ganancia estimada:</span>
+                <strong>{fmtSoles(compras.ganancia)} ({fmtPct(gananciaPct(compras.ganancia, compras.costoTotal))})</strong>
               </li>
-              <li className="flex justify-between"><span>Ganancia estimada:</span><strong>{fmtSoles(compras.ganancia)}</strong></li>
+              <li className="mt-2 pt-3 border-t">
+                {(() => {
+                  const venta = num(pvCompras);
+                  const gananciaManual = venta - compras.costoTotal;
+                  return (
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-gray-600">Precio de venta</label>
+                      <input
+                        className="w-full sm:w-44 border rounded px-2 py-1.5 text-sm"
+                        inputMode="decimal"
+                        placeholder="S/ 0.00"
+                        value={pvCompras}
+                        onChange={(e)=>setPvCompras(e.target.value)}
+                      />
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-xs">
+                        <strong>Ganancia: {fmtSoles(gananciaManual)}</strong>
+                        <strong>Porcentaje: {fmtPct(gananciaPct(gananciaManual, compras.costoTotal))}</strong>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </li>
             </ul>
           </Card>
 
