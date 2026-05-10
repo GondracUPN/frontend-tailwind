@@ -88,6 +88,14 @@ const COMMON_CONDITION_OPTIONS = [
   { value: 'open_box', label: 'Open box' },
   { value: 'new', label: 'New' },
 ];
+const PRODUCT_CONDITION_OPTIONS = [
+  { value: '', label: 'Todas' },
+  { value: 'full', label: 'Full' },
+  { value: 'used', label: 'Used' },
+  { value: 'for_parts', label: 'For parts or not working' },
+  { value: 'open_box', label: 'Open box' },
+  { value: 'new', label: 'New' },
+];
 const AUCTION_CONDITION_OPTIONS = [
   { value: 'auction_normal', label: 'Normal' },
   { value: 'auction_for_parts', label: 'No funciona' },
@@ -1183,6 +1191,8 @@ function Ebay({ setVista }) {
       let lastHasMore = false;
       let lastNextCacheOffset = cacheOffset;
       let lastPreferCache = preferCache;
+      let emptyPawnAppendRetries = 0;
+      const maxEmptyPawnAppendRetries = append && productPawnOnly ? 1 : 0;
 
       for (let page = 0; page < maxScanPages; page += 1) {
         data = await api.get(buildEndpoint(offset, { cacheOffset, preferCache }));
@@ -1221,7 +1231,13 @@ function Ebay({ setVista }) {
         cacheOffset = nextCacheOffset;
         preferCache = nextPreferCache;
         if (!hasMore) break;
-        if (productPawnOnly) break;
+        if (productPawnOnly) {
+          if (newItems.length === 0 && emptyPawnAppendRetries < maxEmptyPawnAppendRetries) {
+            emptyPawnAppendRetries += 1;
+            continue;
+          }
+          break;
+        }
         if (filteredItems.length >= PAGE_SIZE && scannedPages >= minScanPages) break;
       }
 
@@ -1739,7 +1755,7 @@ function Ebay({ setVista }) {
                 <FieldShell label="Pantalla"><SelectField value={ipadForm.screen} onChange={(e) => setIpadForm((prev) => ({ ...prev, screen: e.target.value }))} options={ipadScreenOptions} /></FieldShell>
                 <FieldShell label="Almacenamiento"><SelectField value={ipadForm.storage} onChange={(e) => setIpadForm((prev) => ({ ...prev, storage: e.target.value }))} options={IPAD_STORAGE_OPTIONS} /></FieldShell>
                 <FieldShell label="Conectividad"><MappedSelectField value={ipadForm.connectivity} onChange={(e) => setIpadForm((prev) => ({ ...prev, connectivity: e.target.value }))} options={IPAD_CONNECTIVITY_OPTIONS} /></FieldShell>
-                <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={COMMON_CONDITION_OPTIONS} /></FieldShell>
+                <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={PRODUCT_CONDITION_OPTIONS} /></FieldShell>
                 <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
               </div>
             )}
@@ -1759,7 +1775,7 @@ function Ebay({ setVista }) {
                   />
                 </FieldShell>
                 <FieldShell label="Modelo"><MappedSelectField value={iphoneForm.model} onChange={(e) => setIphoneForm((prev) => ({ ...prev, model: e.target.value }))} options={getIphoneModelOptions(iphoneForm.number)} /></FieldShell>
-                <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={COMMON_CONDITION_OPTIONS} /></FieldShell>
+                <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={PRODUCT_CONDITION_OPTIONS} /></FieldShell>
                 <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
               </div>
             )}
@@ -1771,7 +1787,7 @@ function Ebay({ setVista }) {
                 <FieldShell label="Procesador"><SelectField value={macbookForm.processor} onChange={(e) => setMacbookForm((prev) => ({ ...prev, processor: e.target.value }))} options={macbookProcessorOptions} /></FieldShell>
                 <FieldShell label="RAM"><SelectField value={macbookForm.ram} onChange={(e) => setMacbookForm((prev) => ({ ...prev, ram: e.target.value }))} options={MACBOOK_RAM_OPTIONS} /></FieldShell>
                 <FieldShell label="Almacenamiento"><SelectField value={macbookForm.storage} onChange={(e) => setMacbookForm((prev) => ({ ...prev, storage: e.target.value }))} options={MACBOOK_STORAGE_OPTIONS} /></FieldShell>
-                <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={COMMON_CONDITION_OPTIONS} /></FieldShell>
+                <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={PRODUCT_CONDITION_OPTIONS} /></FieldShell>
                 <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
               </div>
             )}
@@ -1779,7 +1795,7 @@ function Ebay({ setVista }) {
             {productType === 'all' && (
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-2xl bg-slate-100/80 p-4 text-sm text-slate-600">Busca Apple en una sola lista de eBay, ordenada por los mas nuevos primero.</div>
-                <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={COMMON_CONDITION_OPTIONS} /></FieldShell>
+                <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={PRODUCT_CONDITION_OPTIONS} /></FieldShell>
                 <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
               </div>
             )}
