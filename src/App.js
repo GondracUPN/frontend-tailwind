@@ -114,6 +114,50 @@ const normalizeEshopexProgress = (raw) => {
   };
 };
 
+const getEshopexReceptionSortTs = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw || /^null$/i.test(raw)) return 0;
+  const monthMap = {
+    jan: 1, ene: 1,
+    feb: 2,
+    mar: 3,
+    apr: 4, abr: 4,
+    may: 5,
+    jun: 6,
+    jul: 7,
+    aug: 8, ago: 8,
+    sep: 9, set: 9,
+    oct: 10,
+    nov: 11,
+    dec: 12, dic: 12,
+  };
+  const monMatch = raw.match(/([A-Za-z]{3,})\s*[-/ ]?\s*(\d{1,2})\s*[-/ ]?\s*(\d{2,4})/);
+  if (monMatch) {
+    const month = monthMap[monMatch[1].slice(0, 3).toLowerCase()];
+    const day = Number(monMatch[2]);
+    const year = Number(monMatch[3].length === 2 ? `20${monMatch[3]}` : monMatch[3]);
+    if (month && day && year) return Date.UTC(year, month - 1, day);
+  }
+  const parts = raw.match(/\d+/g) || [];
+  if (parts.length >= 3) {
+    let year;
+    let month;
+    let day;
+    if (parts[0].length === 4) {
+      year = Number(parts[0]);
+      month = Number(parts[1]);
+      day = Number(parts[2]);
+    } else {
+      day = Number(parts[0]);
+      month = Number(parts[1]);
+      year = Number(parts[2].length === 2 ? `20${parts[2]}` : parts[2]);
+    }
+    if (year && month && day) return Date.UTC(year, month - 1, day);
+  }
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 const getLastTrackingGlobal = (p) => {
   const trk = Array.isArray(p?.tracking) ? [...p.tracking] : [];
   if (!trk.length) return null;
@@ -216,6 +260,9 @@ const getFilteredEshopexPendientes = (rows, productos) => {
     })
     .map((row, idx) => ({ row, idx }))
     .sort((a, b) => {
+      const dateA = getEshopexReceptionSortTs(a.row?.fechaRecepcion);
+      const dateB = getEshopexReceptionSortTs(b.row?.fechaRecepcion);
+      if (dateA !== dateB) return dateB - dateA;
       const accountA = String(a.row?.account || '').trim().toLowerCase();
       const accountB = String(b.row?.account || '').trim().toLowerCase();
       const casA = String(CASILLERO_BY_ACCOUNT[accountA] || '').trim().toLowerCase();
@@ -240,7 +287,11 @@ const isPendingCargaRow = (row) => {
 
 const pendingFromRows = (rows, productos = readProductosCache() || []) => {
   if (Array.isArray(productos) && productos.length) return getFilteredEshopexPendientes(rows, productos);
-  return Array.isArray(rows) ? rows.filter(isPendingCargaRow) : [];
+  return Array.isArray(rows)
+    ? rows
+      .filter(isPendingCargaRow)
+      .sort((a, b) => getEshopexReceptionSortTs(b?.fechaRecepcion) - getEshopexReceptionSortTs(a?.fechaRecepcion))
+    : [];
 };
 
 const readCachedCargaRows = () => {

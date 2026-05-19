@@ -1,12 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
 import LoginGastos from './LoginGastos';
+import { buildExpenseConceptCategoryMap, isLifeExpenseConcept } from '../utils/expenseConcepts';
 
-const normalizeConcept = (c) => String(c || '').trim().toLowerCase().replace(/\s+/g, '_');
-const isLifeExpenseConcept = (c) => {
-  const n = normalizeConcept(c);
-  return !['ingreso', 'pago_tarjeta', 'pago_envios', 'inversion', 'bolsa', 'deuda_cuotas'].includes(n);
-};
 const readSessionUser = () => {
   try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
 };
@@ -27,6 +23,7 @@ const readSelectedGastosUser = (sessionUser) => {
 // Vista de presupuesto mensual de gastos, limitada al usuario autenticado
 export default function PresupuestoGastos({ setVista }) {
   const [rows, setRows] = useState([]);
+  const [conceptCategories, setConceptCategories] = useState({});
   const [loading, setLoading] = useState(true);
   const [savingBudget, setSavingBudget] = useState(false);
   const [budgetReady, setBudgetReady] = useState(false);
@@ -58,12 +55,23 @@ export default function PresupuestoGastos({ setVista }) {
         const token = session.token;
         const userIdParam = user?.role === 'admin' && targetUserId ? `?userId=${encodeURIComponent(String(targetUserId))}` : '';
         const gastosUrl = user?.role === 'admin' ? `${API_URL}/gastos/all${userIdParam}` : `${API_URL}/gastos`;
-        const res = await fetch(gastosUrl, {
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        });
+        const [res, catalogRes] = await Promise.all([
+          fetch(gastosUrl, {
+            headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          }),
+          fetch(`${API_URL}/catalog/expense-concepts`, {
+            headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          }).catch(() => null),
+        ]);
         if (!res.ok) throw new Error(`GET ${gastosUrl} -> ${await res.text()}`);
         const data = await res.json();
         setRows(Array.isArray(data) ? data : []);
+        if (catalogRes?.ok) {
+          const catalog = await catalogRes.json();
+          setConceptCategories(buildExpenseConceptCategoryMap(catalog));
+        } else {
+          setConceptCategories({});
+        }
       } catch (e) {
         console.error('[PresupuestoGastos] load error', e);
         setErr('No se pudieron cargar los gastos.');
@@ -134,9 +142,9 @@ export default function PresupuestoGastos({ setVista }) {
       rows.filter(
         (r) =>
           (r.fecha || '').startsWith(month) &&
-          isLifeExpenseConcept(r.concepto),
+          isLifeExpenseConcept(r.concepto, conceptCategories),
       ),
-    [rows, month],
+    [rows, month, conceptCategories],
   );
 
   const toPen = (r) => {

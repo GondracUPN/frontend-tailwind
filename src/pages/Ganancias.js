@@ -471,6 +471,26 @@ function ColVendedor({
   const currentYear = String(new Date().getFullYear());
   const sellerSlug = normalizeVendedor(titulo);
   const [editingVenta, setEditingVenta] = useState(null);
+  const [deletingVentaId, setDeletingVentaId] = useState(null);
+
+  const handleDeleteVenta = async (venta) => {
+    if (!venta?.id || deletingVentaId) return;
+    const productName = nombreProducto(venta.producto || {}) || `venta #${venta.id}`;
+    const splitText = venta.__split ? '\n\nEsta venta es compartida y se eliminara completa para ambos vendedores.' : '';
+    if (!window.confirm(`Eliminar la venta de ${productName}?${splitText}`)) return;
+
+    setDeletingVentaId(venta.id);
+    try {
+      await api.del(`/ventas/${venta.id}`);
+      writeCache([]);
+      await reloadVentas({ silent: true });
+    } catch (e) {
+      console.error('[Ganancias] Error eliminando venta:', e);
+      alert('No se pudo eliminar la venta.');
+    } finally {
+      setDeletingVentaId(null);
+    }
+  };
 
   return (
     <div className="bg-white border rounded-2xl shadow-sm p-5">
@@ -595,6 +615,7 @@ function ColVendedor({
                       {v.fechaVenta ? formatDateLocal(v.fechaVenta) : '--'}
                     </td>
                     <td className="p-2">
+                      <div className="flex flex-wrap gap-2">
                       <button
                         className="px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 text-xs"
                         onClick={() => setEditingVenta(v)}
@@ -602,6 +623,15 @@ function ColVendedor({
                       >
                         Editar
                       </button>
+                      <button
+                        className="px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 text-xs"
+                        onClick={() => handleDeleteVenta(v)}
+                        disabled={deletingVentaId === v.id}
+                        title="Eliminar venta"
+                      >
+                        {deletingVentaId === v.id ? 'Eliminando...' : 'Eliminar'}
+                      </button>
+                      </div>
                     </td>
                   </tr>
                 );

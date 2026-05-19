@@ -133,6 +133,12 @@ export default function Analisis({ setVista, analisisBack = 'home' }) {
 
 
 
+ const dateOnly = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+ if (dateOnly) return `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`;
+
+
+
  const dt = new Date(d);
 
 
@@ -1112,6 +1118,15 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  return data?.comprasPeriodo || [];
  }, [dateMode, comprasDelMesEnYear, data?.comprasPeriodo]);
 
+ const getCompraUsdBase = useCallback((p) => {
+ const usd = Number(p?.precioUSD || 0);
+ if (isFinite(usd) && usd > 0) return usd;
+ const pen = Number(p?.costoTotal || 0);
+ return TC_FIJO > 0 && isFinite(pen) && pen > 0 ? pen / TC_FIJO : 0;
+ }, []);
+
+ const getCompraPenBase = useCallback((p) => getCompraUsdBase(p) * TC_FIJO, [getCompraUsdBase]);
+
  const comprasPeriodoVistaResumen = useMemo(() => {
  const rows = comprasPeriodoVista || [];
  const unidades = rows.length;
@@ -1123,9 +1138,10 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  });
  return list.length;
  })();
- const capital = rows.reduce((sum, p) => sum + (Number(p?.costoTotal || 0) || 0), 0);
- return { unidades, activos, capital };
- }, [comprasPeriodoVista, data?.noVendidosDelPeriodo, dateMode, yearMonthKeyFromCompras, appliedDates.from]);
+ const capitalUsd = rows.reduce((sum, p) => sum + getCompraUsdBase(p), 0);
+ const capital = capitalUsd * TC_FIJO;
+ return { unidades, activos, capital, capitalUsd };
+ }, [comprasPeriodoVista, data?.noVendidosDelPeriodo, dateMode, yearMonthKeyFromCompras, appliedDates.from, getCompraUsdBase]);
 
  const inventarioTipoComprasVista = useMemo(() => {
  const key = dateMode === 'year' ? yearMonthKeyFromCompras : appliedDates.from;
@@ -2084,7 +2100,7 @@ Activo
  </div>
  </div>
  <div className="text-xs text-gray-500 mb-2">
- Unidades: {comprasPeriodoVistaResumen.unidades} (activo: {comprasPeriodoVistaResumen.activos}) Capital: <Currency v={comprasPeriodoVistaResumen.capital} />
+ Unidades: {comprasPeriodoVistaResumen.unidades} (activo: {comprasPeriodoVistaResumen.activos}) Capital: <Currency v={comprasPeriodoVistaResumen.capital} /> {comprasPeriodoVistaResumen.capitalUsd > 0 ? <span className="text-gray-400">· {fmtUSD(comprasPeriodoVistaResumen.capitalUsd)}</span> : null}
  </div>
  <div className="max-h-80 overflow-auto">
  <table className="min-w-[560px] w-full text-sm">
@@ -2102,7 +2118,12 @@ Activo
  <td className="py-1">{p.productoId}</td>
  <td className="py-1">{p.display || p.tipo}</td>
  <td className="py-1">{fmtDate(p.fechaCompra)}</td>
- <td className="py-1"><Currency v={p.costoTotal} /></td>
+ <td className="py-1">
+ <div><Currency v={getCompraPenBase(p)} /></div>
+ {getCompraUsdBase(p) > 0 ? (
+ <div className="text-xs text-gray-500">{fmtUSD(getCompraUsdBase(p))}</div>
+ ) : null}
+ </td>
  </tr>
  ))}
  {comprasPeriodoVista.length === 0 && (

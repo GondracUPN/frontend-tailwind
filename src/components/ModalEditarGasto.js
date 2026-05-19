@@ -29,12 +29,13 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
   const [moneda, setMoneda] = useState(gasto?.moneda || 'PEN');
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(false);
+  const [customConcepts, setCustomConcepts] = useState([]);
 
   const titulo = isCredito ? 'Editar gasto (Crédito)' : 'Editar gasto (Débito)';
 
   const conceptoOptions = useMemo(() => {
-    if (isCredito) {
-      return [
+    const base = isCredito
+      ? [
         { value: 'inversion', label: 'Inversion' },
         { value: 'pago_envios', label: 'Pago envios' },
         { value: 'comida', label: 'Comida' },
@@ -45,9 +46,8 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
         { value: 'desgravamen', label: 'Desgravamen' },
         { value: 'deuda_cuotas', label: 'Deuda en cuotas' },
         { value: 'cashback', label: 'Cashback reembolso' },
-      ];
-    }
-    return [
+      ]
+      : [
       { value: 'comida', label: 'Comida' },
       { value: 'gustos', label: 'Gustos' },
       { value: 'ingresos', label: 'Ingresos' },
@@ -57,7 +57,37 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
       { value: 'gastos_recurrentes', label: 'Gastos mensuales' },
       { value: 'pago_tarjeta', label: 'Pago Tarjeta' },
     ];
-  }, [isCredito]);
+    const custom = customConcepts
+      .filter((item) => (isCredito ? item.appliesCredit : item.appliesDebit))
+      .map((item) => ({ value: item.value, label: item.label }));
+    const merged = [...base];
+    custom.forEach((item) => {
+      if (!merged.some((option) => option.value === item.value)) merged.push(item);
+    });
+    const current = normalizeEditConcept(gasto, isCredito);
+    if (current && !merged.some((option) => option.value === current)) {
+      merged.push({ value: current, label: String(current).replace(/_/g, ' ') });
+    }
+    return merged;
+  }, [customConcepts, gasto, isCredito]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/catalog/expense-concepts`, {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error('catalog');
+        const rows = await res.json();
+        if (alive) setCustomConcepts(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (alive) setCustomConcepts([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     setConcepto(normalizeEditConcept(gasto, isCredito));

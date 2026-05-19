@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import api from '../api';
 import LoginGastos from './LoginGastos';
+import { EXPENSE_CATEGORY_OPTIONS } from '../utils/expenseConcepts';
 
 const ModalProducto = lazy(() => import('../components/ModalProducto'));
 
@@ -337,6 +338,7 @@ function CatalogosAdmin() {
     appliesDebit: true,
     appliesCredit: false,
     defaultCurrency: 'PEN',
+    category: 'life',
   });
 
   const load = useCallback(async ({ refresh = false } = {}) => {
@@ -388,7 +390,7 @@ function CatalogosAdmin() {
       setSavingExpense(true);
       const created = await api.post('/catalog/expense-concepts', expenseForm);
       setExpenseItems((prev) => upsertCatalogItem(prev, created?.data ?? created, sortExpenseConcepts));
-      setExpenseForm({ label: '', appliesDebit: true, appliesCredit: false, defaultCurrency: 'PEN' });
+      setExpenseForm({ label: '', appliesDebit: true, appliesCredit: false, defaultCurrency: 'PEN', category: 'life' });
       setMessage('Concepto de gasto agregado.');
     } catch (err) {
       setMessage(String(err?.message || 'No se pudo guardar el concepto.'));
@@ -545,6 +547,14 @@ function CatalogosAdmin() {
                 <option value="USD">Dolares</option>
               </select>
             </div>
+            <label className="text-sm">
+              <span className="mb-1 block text-gray-600">Apartado</span>
+              <select className="w-full rounded border px-3 py-2" value={expenseForm.category} onChange={(e) => setExpenseForm((prev) => ({ ...prev, category: e.target.value }))}>
+                {EXPENSE_CATEGORY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
           </div>
           <button disabled={loading || savingExpense} className="mt-3 rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">{savingExpense ? 'Guardando...' : 'Agregar concepto'}</button>
         </form>

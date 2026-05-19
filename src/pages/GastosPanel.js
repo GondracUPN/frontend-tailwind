@@ -9,6 +9,8 @@ import ModalCuotasYGastos from '../components/ModalCuotasYGastos';
 import ModalEditarGasto from '../components/ModalEditarGasto';
 import ModalEditarEfectivo from '../components/ModalEditarEfectivo';
 import ModalAnalisisGastosMes from '../components/ModalAnalisisGastosMes';
+import ModalCiclosTarjeta from '../components/ModalCiclosTarjeta';
+import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept } from '../utils/expenseConcepts';
 
   const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
@@ -34,6 +36,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [rows, setRows] = useState([]);
   const [cardsSummary, setCardsSummary] = useState([]);
   const [wallet, setWallet] = useState({ efectivoPen: 0, efectivoUsd: 0 });
+  const [conceptCategories, setConceptCategories] = useState({});
   const [loading, setLoading] = useState(true);
   const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -46,6 +49,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [showTar, setShowTar] = useState(false);
   const [showCG, setShowCG] = useState(false);
   const [showAnalisisMes, setShowAnalisisMes] = useState(false);
+  const [showCiclosTarjeta, setShowCiclosTarjeta] = useState(false);
   const [showEfec, setShowEfec] = useState(false);
   const [editingGasto, setEditingGasto] = useState(null);
   const [creditCardFilter, setCreditCardFilter] = useState('all');
@@ -120,6 +124,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         if (includeGastos && Array.isArray(cached.rows)) setRows(sortRows(cached.rows));
         if (Array.isArray(cached.cardsSummary)) setCardsSummary(cached.cardsSummary);
         if (cached.wallet) setWallet(cached.wallet);
+        if (cached.conceptCategories) setConceptCategories(cached.conceptCategories);
         setIsInitialLoadDone(true);
         if (!silent) {
           setLoading(false);
@@ -141,25 +146,29 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         ? fetch(gastosUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
         : Promise.resolve(null);
 
-      const [gRes, cRes, wRes] = await Promise.all([
+      const [gRes, cRes, wRes, conceptsRes] = await Promise.all([
         gastosPromise,
         fetch(cardsUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
         fetch(walletUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/catalog/expense-concepts`, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }).catch(() => null),
       ]);
 
       if (shouldLoadGastos && gRes && !gRes.ok) throw new Error(`GET ${gastosUrl} -> ${await gRes.text()}`);
       if (!cRes.ok) throw new Error(`GET ${cardsUrl} -> ${await cRes.text()}`);
       if (!wRes.ok) throw new Error(`GET ${walletUrl} -> ${await wRes.text()}`);
 
-      const [gData, cData, wData] = await Promise.all([
+      const [gData, cData, wData, conceptsData] = await Promise.all([
         shouldLoadGastos && gRes ? gRes.json() : Promise.resolve(null),
         cRes.json(),
         wRes.json(),
+        conceptsRes?.ok ? conceptsRes.json() : Promise.resolve([]),
       ]);
 
       const nextRows = shouldLoadGastos && gData ? sortRows(Array.isArray(gData) ? gData : []) : rows;
       if (shouldLoadGastos && gData) setRows(nextRows);
       setCardsSummary(Array.isArray(cData) ? cData : []);
+      const nextConceptCategories = buildExpenseConceptCategoryMap(conceptsData);
+      setConceptCategories(nextConceptCategories);
       const nextWallet = {
         efectivoPen: Number(wData?.efectivoPen || 0),
         efectivoUsd: Number(wData?.efectivoUsd || 0),
@@ -169,6 +178,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         rows: nextRows,
         cardsSummary: Array.isArray(cData) ? cData : [],
         wallet: nextWallet,
+        conceptCategories: nextConceptCategories,
       });
       setIsInitialLoadDone(true);
     } catch (e) {
@@ -190,6 +200,17 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     if (n === 'bolsa') return 'Bolsa';
     if (n === 'inversion') return metodoPago === 'debito' ? 'Bolsa' : 'Inversion';
     return String(c || '').replace(/_/g,' ');
+  };
+  const getDebitUsdEquivalent = (g) => {
+    if (!g || g.metodoPago !== 'debito' || g.moneda !== 'PEN') return null;
+    const isUsdTarget = g.pagoObjetivo === 'USD' || g.montoUsdAplicado != null;
+    if (!isUsdTarget) return null;
+    const explicitUsd = Number(g.montoUsdAplicado);
+    if (Number.isFinite(explicitUsd) && explicitUsd > 0) return explicitUsd;
+    const amountPen = Number(g.monto);
+    const tc = Number(g.tasaUsdPen);
+    if (!Number.isFinite(amountPen) || amountPen <= 0 || !Number.isFinite(tc) || tc <= 0) return null;
+    return amountPen / tc;
   };
 
   useEffect(() => {
@@ -214,10 +235,10 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       const m = Number(g.monto) || 0;
       if (g.moneda === 'USD') continue;
       if (g.metodoPago !== 'debito') continue;
-      if (g.concepto === 'ingreso') delta += m; else delta -= m;
+      if (isIncomeExpenseConcept(g.concepto, conceptCategories)) delta += m; else delta -= m;
     }
     return (Number(wallet.efectivoPen || 0) + delta).toFixed(2);
-  }, [rows, wallet.efectivoPen]);
+  }, [rows, wallet.efectivoPen, conceptCategories]);
 
   // Efectivo calculado (USD)
   const efectivoUsdCalc = useMemo(() => {
@@ -226,16 +247,17 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       const m = Number(g.monto) || 0;
       if (g.moneda !== 'USD') continue;
       if (g.metodoPago !== 'debito') continue;
-      if (String(g.concepto).toLowerCase() === 'ingreso') delta += m; else delta -= m;
+      if (isIncomeExpenseConcept(g.concepto, conceptCategories)) delta += m; else delta -= m;
     }
     return (Number(wallet.efectivoUsd || 0) + delta).toFixed(2);
-  }, [rows, wallet.efectivoUsd]);
+  }, [rows, wallet.efectivoUsd, conceptCategories]);
 
   const openDeb = () => setShowDeb(true);
   const openCre = () => setShowCre(true);
   const openCreBulk = () => setShowCreBulk(true);
   const openTar = () => setShowTar(true);
   const openCG = () => setShowCG(true);
+  const openCiclosTarjeta = () => setShowCiclosTarjeta(true);
   const openEfec = () => setShowEfec(true);
   const openEdit = (g) => setEditingGasto(g);
 
@@ -358,6 +380,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
               </div>
               <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                 <button onClick={openCG} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-100 min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-300">Cuotas / Gastos mensuales</button>
+                <button onClick={openCiclosTarjeta} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 min-h-[40px]">Pagos por ciclo</button>
                 <button onClick={() => setShowAnalisisMes(true)} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Analisis de gastos</button>
                 {typeof setVista === 'function' && (
                   <button
@@ -425,13 +448,21 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                       ? `Pago Tarjeta  ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
                       : displayConcepto(g.concepto, g.metodoPago);
                     const detalle = g.notas || '-';
+                    const usdEquivalent = getDebitUsdEquivalent(g);
                     return (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
                         <td className="p-2 align-top">{g.fecha}</td>
                         <td className="p-2 align-top capitalize">{conceptoCell}</td>
                         <td className="p-2 align-top">{CARD_LABEL[g.tarjeta] || g.tarjeta || '-'}</td>
                         <td className="p-2 align-top">{detalle}</td>
-                        <td className="p-2 align-top font-semibold">{fmtMoney(g.moneda, g.monto)}</td>
+                        <td className="p-2 align-top">
+                          <div className="font-semibold">{fmtMoney(g.moneda, g.monto)}</div>
+                          {usdEquivalent != null && (
+                            <div className="mt-0.5 text-xs font-normal text-gray-500">
+                              $ {usdEquivalent.toFixed(2)}
+                            </div>
+                          )}
+                        </td>
                         <td className="p-2 align-top">
                           <div className="flex items-center gap-2">
                             <button type="button" title="Editar" onClick={() => openEdit(g)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">
@@ -584,6 +615,13 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           rows={rows}
           userId={targetUserId}
           onChanged={reloadAll}
+        />
+      )}
+      {showCiclosTarjeta && (
+        <ModalCiclosTarjeta
+          rows={rows}
+          cards={cardsSummary}
+          onClose={() => setShowCiclosTarjeta(false)}
         />
       )}
       {showAnalisisMes && (

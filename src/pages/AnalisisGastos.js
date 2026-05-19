@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
 import LoginGastos from './LoginGastos';
+import { buildExpenseConceptCategoryMap, isCardPaymentExpenseConcept, isIncomeExpenseConcept, isInvestmentExpenseConcept, isLifeExpenseConcept } from '../utils/expenseConcepts';
 
 const TIPO_CAMBIO = 3.7;
 const SELLERS = ['gonzalo', 'renato'];
@@ -8,19 +9,15 @@ const SPLIT_VENDOR = 'ambos';
 const SPLIT_SHARE = 0.5;
 
 const normalizeConcept = (c) => String(c || '').trim().toLowerCase().replace(/\s+/g, '_');
+const isInvestmentPanelConcept = (concept, categories = {}) => {
+  const n = normalizeConcept(concept);
+  return isInvestmentExpenseConcept(n, categories) || n === 'pago_envios';
+};
 const displayConcepto = (c, metodoPago = '') => {
   const n = normalizeConcept(c);
   if (n === 'bolsa') return 'Bolsa';
   if (n === 'inversion') return metodoPago === 'debito' ? 'Bolsa' : 'Inversion';
   return String(c || '').replace(/_/g, ' ');
-};
-const isInvestmentLike = (c) => {
-  const n = normalizeConcept(c);
-  return n === 'inversion' || n === 'bolsa';
-};
-const isLifeExpenseConcept = (c) => {
-  const n = normalizeConcept(c);
-  return !isInvestmentLike(n) && !['ingreso', 'pago_tarjeta', 'pago_envios', 'deuda_cuotas'].includes(n);
 };
 const sumValues = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]);
 const normalizeSeller = (s) => (s == null ? '' : String(s).trim().toLowerCase());
@@ -81,12 +78,16 @@ export default function AnalisisGastos({ setVista }) {
   const targetUser = useMemo(() => readSelectedGastosUser(sessionUser), [sessionUser]);
   const userSeller = useMemo(() => sellerFromUser(targetUser?.username ? targetUser : sessionUser), [targetUser, sessionUser]);
   const [rows, setRows] = useState([]);
+  const [conceptCategories, setConceptCategories] = useState({});
   const [ventas, setVentas] = useState([]);
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [showPie, setShowPie] = useState(false);
+  const [pieConceptMode, setPieConceptMode] = useState('separado');
   const [showPieVida, setShowPieVida] = useState(false);
+  const [vidaConceptDetail, setVidaConceptDetail] = useState(null);
+  const [investmentConceptDetail, setInvestmentConceptDetail] = useState(null);
   const [selectedPersona, setSelectedPersona] = useState(() => sellerFromUser(readSelectedGastosUser(readSessionUser())) || 'gonzalo');
 
   const today = new Date();
@@ -113,10 +114,11 @@ export default function AnalisisGastos({ setVista }) {
           ? `${API_URL}/ventas?vendedor=${encodeURIComponent(sellerParam)}`
           : `${API_URL}/ventas`;
 
-        const [resGastos, resVentas, resProductos] = await Promise.all([
+        const [resGastos, resVentas, resProductos, resConcepts] = await Promise.all([
           fetch(gastosUrl, { headers }),
           fetch(ventasUrl, { headers }),
           fetch(`${API_URL}/productos`, { headers }),
+          fetch(`${API_URL}/catalog/expense-concepts`, { headers }).catch(() => null),
         ]);
         if (!resGastos.ok) throw new Error(`GET ${gastosUrl} -> ${await resGastos.text()}`);
         if (!resVentas.ok) throw new Error(`GET ${ventasUrl} -> ${await resVentas.text()}`);
@@ -126,6 +128,12 @@ export default function AnalisisGastos({ setVista }) {
         setRows(Array.isArray(dataGastos) ? dataGastos : []);
         setVentas(Array.isArray(dataVentas) ? dataVentas : []);
         setProductos(Array.isArray(dataProductos) ? dataProductos : []);
+        if (resConcepts?.ok) {
+          const dataConcepts = await resConcepts.json();
+          setConceptCategories(buildExpenseConceptCategoryMap(dataConcepts));
+        } else {
+          setConceptCategories({});
+        }
       } catch (e) {
         console.error('[AnalisisGastos] load error', e);
         setErr('No se pudo cargar los gastos y ventas.');
@@ -144,17 +152,41 @@ export default function AnalisisGastos({ setVista }) {
   const gastosSolo = useMemo(
     () => filtered.filter((r) => {
       const c = normalizeConcept(r.concepto);
-      return c !== 'ingreso' && c !== 'pago_tarjeta';
+      return !isIncomeExpenseConcept(c, conceptCategories) && !isCardPaymentExpenseConcept(c, conceptCategories);
     }),
-    [filtered],
+    [filtered, conceptCategories],
+  );
+  const gastosTodosMes = useMemo(
+    () => filtered.filter((r) => {
+      const c = normalizeConcept(r.concepto);
+      return !isIncomeExpenseConcept(c, conceptCategories) && !isCardPaymentExpenseConcept(c, conceptCategories);
+    }),
+    [filtered, conceptCategories],
   );
 
   const toPen = (r) => {
     const m = Number(r.monto) || 0;
     return r.moneda === 'USD' ? m * TIPO_CAMBIO : m;
   };
+  const getUsdEquivalent = (r) => {
+    if (!r) return null;
+    const explicitUsd = Number(r.montoUsdAplicado);
+    if (Number.isFinite(explicitUsd) && explicitUsd > 0) return explicitUsd;
+
+    const amount = Number(r.monto);
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    if (r.moneda === 'USD') return amount;
+
+    const isUsdTarget = r.metodoPago === 'debito' && r.moneda === 'PEN' && r.pagoObjetivo === 'USD';
+    if (!isUsdTarget) return null;
+
+    const tc = Number(r.tasaUsdPen);
+    if (!Number.isFinite(tc) || tc <= 0) return null;
+    return amount / tc;
+  };
 
   const totalPen = gastosSolo.reduce((sum, r) => sum + toPen(r), 0);
+  const totalTodoGastoPen = gastosTodosMes.reduce((sum, r) => sum + toPen(r), 0);
   const totalDebitoPen = useMemo(
     () => gastosSolo.filter((r) => r.metodoPago === 'debito').reduce((s, r) => s + toPen(r), 0),
     [gastosSolo],
@@ -177,6 +209,16 @@ export default function AnalisisGastos({ setVista }) {
       acc[key] = (acc[key] || 0) + toPen(r);
       return acc;
     }, {});
+  const byConceptUnificado = useMemo(() => {
+    const acc = {};
+    [byConceptCredito, byConceptDebito].forEach((map) => {
+      Object.entries(map).forEach(([key, value]) => {
+        acc[key] = (acc[key] || 0) + Number(value || 0);
+      });
+    });
+    return acc;
+  }, [byConceptCredito, byConceptDebito]);
+  const totalConceptosUnificadoPen = totalCreditoPen + totalDebitoPen;
   const byTarjeta = gastosSolo
     .filter((r) => r.metodoPago === 'credito')
     .reduce((acc, r) => {
@@ -185,12 +227,22 @@ export default function AnalisisGastos({ setVista }) {
       return acc;
     }, {});
   const byConceptVida = gastosSolo
-    .filter((r) => isLifeExpenseConcept(r.concepto))
+    .filter((r) => isLifeExpenseConcept(r.concepto, conceptCategories))
     .reduce((acc, r) => {
       const key = displayConcepto(r.concepto || 'otros', r.metodoPago);
       acc[key] = (acc[key] || 0) + toPen(r);
       return acc;
     }, {});
+  const investmentMovs = useMemo(
+    () => gastosSolo.filter((r) => isInvestmentPanelConcept(r.concepto, conceptCategories)),
+    [gastosSolo, conceptCategories],
+  );
+  const byConceptInvestment = investmentMovs.reduce((acc, r) => {
+    const key = displayConcepto(r.concepto || 'otros', r.metodoPago);
+    acc[key] = (acc[key] || 0) + toPen(r);
+    return acc;
+  }, {});
+  const investmentTotalPen = investmentMovs.reduce((sum, r) => sum + toPen(r), 0);
 
   const ventasMes = useMemo(
     () =>
@@ -254,7 +306,7 @@ export default function AnalisisGastos({ setVista }) {
   const ingresoSeleccionado = ingresosBrutosPorPersona[selectedPersona] || 0;
   const gananciaNetaSeleccionada = gananciasNetasPorPersona[selectedPersona] || 0;
   const comprasInventarioSeleccionado = comprasInventarioPorPersona[selectedPersona] || 0;
-  const gastoGeneralSeleccionado = totalPen + comprasInventarioSeleccionado;
+  const gastoGeneralSeleccionado = totalTodoGastoPen;
   const balanceMes = ingresoSeleccionado - gastoGeneralSeleccionado;
 
   const daysInMonth = useMemo(() => {
@@ -277,15 +329,29 @@ export default function AnalisisGastos({ setVista }) {
   const gastosVidaPen = useMemo(
     () =>
       gastosSolo
-        .filter((r) => isLifeExpenseConcept(r.concepto))
+        .filter((r) => isLifeExpenseConcept(r.concepto, conceptCategories))
         .reduce((s, r) => s + toPen(r), 0),
-    [gastosSolo],
+    [gastosSolo, conceptCategories],
   );
   const gastosVidaMovs = useMemo(
     () =>
-      gastosSolo.filter((r) => isLifeExpenseConcept(r.concepto)),
-    [gastosSolo],
+      gastosSolo.filter((r) => isLifeExpenseConcept(r.concepto, conceptCategories)),
+    [gastosSolo, conceptCategories],
   );
+  const vidaConceptRows = useMemo(() => {
+    if (!vidaConceptDetail) return [];
+    return gastosVidaMovs
+      .filter((r) => displayConcepto(r.concepto || 'otros', r.metodoPago) === vidaConceptDetail)
+      .sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')) || Number(b.id || 0) - Number(a.id || 0));
+  }, [gastosVidaMovs, vidaConceptDetail]);
+  const vidaConceptTotal = vidaConceptRows.reduce((sum, r) => sum + toPen(r), 0);
+  const investmentConceptRows = useMemo(() => {
+    if (!investmentConceptDetail) return [];
+    return investmentMovs
+      .filter((r) => displayConcepto(r.concepto || 'otros', r.metodoPago) === investmentConceptDetail)
+      .sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')) || Number(b.id || 0) - Number(a.id || 0));
+  }, [investmentMovs, investmentConceptDetail]);
+  const investmentConceptTotal = investmentConceptRows.reduce((sum, r) => sum + toPen(r), 0);
 
   const prevMonthKey = useMemo(() => {
     const [y, m] = month.split('-').map(Number);
@@ -319,6 +385,7 @@ export default function AnalisisGastos({ setVista }) {
 
   const pieDataDeb = useMemo(() => buildPieData(byConceptDebito, totalDebitoPen), [byConceptDebito, totalDebitoPen]);
   const pieDataCre = useMemo(() => buildPieData(byConceptCredito, totalCreditoPen), [byConceptCredito, totalCreditoPen]);
+  const pieDataUnificado = useMemo(() => buildPieData(byConceptUnificado, totalConceptosUnificadoPen), [byConceptUnificado, totalConceptosUnificadoPen]);
   const pieDataVida = useMemo(() => buildPieData(byConceptVida, gastosVidaPen), [byConceptVida, gastosVidaPen]);
 
   const buildGradient = (data) => {
@@ -335,6 +402,7 @@ export default function AnalisisGastos({ setVista }) {
 
   const pieGradientDeb = useMemo(() => buildGradient(pieDataDeb), [pieDataDeb]);
   const pieGradientCre = useMemo(() => buildGradient(pieDataCre), [pieDataCre]);
+  const pieGradientUnificado = useMemo(() => buildGradient(pieDataUnificado), [pieDataUnificado]);
   const pieGradientVida = useMemo(() => buildGradient(pieDataVida), [pieDataVida]);
   const balanceVida = gananciaNetaSeleccionada - gastosVidaPen;
 
@@ -435,9 +503,9 @@ export default function AnalisisGastos({ setVista }) {
                 <div className="text-lg font-semibold text-gray-900">S/ {ingresoSeleccionado.toFixed(2)}</div>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg border">
-                  <div className="text-gray-500">Gasto total + compras</div>
+                  <div className="text-gray-500">Gasto total</div>
                   <div className="text-lg font-semibold text-gray-900">S/ {gastoGeneralSeleccionado.toFixed(2)}</div>
-                  <div className="text-xs text-gray-500 mt-1">Gastos: S/ {totalPen.toFixed(2)} | Compras: S/ {comprasInventarioSeleccionado.toFixed(2)}</div>
+                  <div className="text-xs text-gray-500 mt-1">Movimientos del mes</div>
                 </div>
               <div className={`p-3 bg-gray-50 rounded-lg border ${balanceMes >= 0 ? 'border-green-200' : 'border-red-200'}`}>
                 <div className="text-gray-500">Resultado</div>
@@ -510,7 +578,10 @@ export default function AnalisisGastos({ setVista }) {
                     <span className="text-xs text-gray-500">Credito y debito</span>
                   </div>
                   <button
-                    onClick={() => setShowPie(true)}
+                    onClick={() => {
+                      setPieConceptMode('separado');
+                      setShowPie(true);
+                    }}
                     className="text-xs px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
                   >
                     Ver grafico
@@ -568,9 +639,15 @@ export default function AnalisisGastos({ setVista }) {
                 ) : (
                   <ul className="space-y-2 text-sm">
                     {sumValues(byConceptVida).map(([k, v]) => (
-                      <li key={`vida-${k}`} className="flex items-center justify-between">
-                        <span className="capitalize text-gray-800">{k}</span>
-                        <span className="font-semibold text-gray-900">S/ {v.toFixed(2)}</span>
+                      <li key={`vida-${k}`}>
+                        <button
+                          type="button"
+                          onClick={() => setVidaConceptDetail(k)}
+                          className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left hover:bg-gray-50"
+                        >
+                          <span className="capitalize text-gray-800">{k}</span>
+                          <span className="font-semibold text-gray-900">S/ {v.toFixed(2)}</span>
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -581,7 +658,7 @@ export default function AnalisisGastos({ setVista }) {
               </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="bg-white rounded-xl border shadow-sm p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold text-gray-800">Gastos por tarjeta / banco</h3>
@@ -599,6 +676,35 @@ export default function AnalisisGastos({ setVista }) {
                   ))}
                 </ul>
               )}
+            </div>
+            <div className="bg-white rounded-xl border shadow-sm p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="font-semibold text-gray-800">Gastos de inversion</h3>
+                  <span className="text-xs text-gray-500">Inversion, bolsa y pago envios</span>
+                </div>
+              </div>
+              {sumValues(byConceptInvestment).length === 0 ? (
+                <div className="text-sm text-gray-500">Sin datos en el mes.</div>
+              ) : (
+                <ul className="space-y-2 text-sm">
+                  {sumValues(byConceptInvestment).map(([k, v]) => (
+                    <li key={`inv-${k}`}>
+                      <button
+                        type="button"
+                        onClick={() => setInvestmentConceptDetail(k)}
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left hover:bg-gray-50"
+                      >
+                        <span className="capitalize text-gray-800">{k}</span>
+                        <span className="font-semibold text-gray-900">S/ {v.toFixed(2)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-3 text-xs text-gray-500">
+                Movs: {investmentMovs.length} · Total S/ {investmentTotalPen.toFixed(2)}
+              </div>
             </div>
           </div>
 
@@ -639,8 +745,25 @@ export default function AnalisisGastos({ setVista }) {
           <p className="text-sm text-gray-600 mb-4">
             Distribucion del total gastado en el mes. Incluye montos y porcentajes por concepto.
           </p>
+          <div className="flex flex-wrap gap-2 mb-4">
+            <button
+              onClick={() => setPieConceptMode('unificado')}
+              className={`text-xs px-3 py-1 rounded ${pieConceptMode === 'unificado' ? 'bg-indigo-600 text-white' : 'border bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Unificado
+            </button>
+            <button
+              onClick={() => setPieConceptMode('separado')}
+              className={`text-xs px-3 py-1 rounded ${pieConceptMode === 'separado' ? 'bg-indigo-600 text-white' : 'border bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Separado
+            </button>
+          </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {pieConceptMode === 'unificado' && (
+            <PieBlock title="Debito + Credito" total={totalConceptosUnificadoPen} data={pieDataUnificado} gradient={pieGradientUnificado} />
+          )}
+          <div className={`grid grid-cols-1 lg:grid-cols-2 gap-4 ${pieConceptMode === 'unificado' ? 'hidden' : ''}`}>
             <PieBlock title="Débito" total={totalDebitoPen} data={pieDataDeb} gradient={pieGradientDeb} />
             <PieBlock title="Crédito" total={totalCreditoPen} data={pieDataCre} gradient={pieGradientCre} />
           </div>
@@ -661,6 +784,110 @@ export default function AnalisisGastos({ setVista }) {
             Incluye debito y credito (sin inversion, bolsa ni envios)
           </p>
           <PieBlock title="Gastos de vida" total={gastosVidaPen} data={pieDataVida} gradient={pieGradientVida} />
+        </div>
+      </div>
+    )}
+    {vidaConceptDetail && (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl relative max-h-[86vh] overflow-hidden">
+          <button
+            className="absolute top-3 right-3 text-gray-500 hover:text-gray-800"
+            onClick={() => setVidaConceptDetail(null)}
+          >
+            x
+          </button>
+          <div className="border-b px-5 py-4">
+            <h3 className="text-xl font-semibold capitalize">{vidaConceptDetail}</h3>
+            <p className="text-sm text-gray-600">
+              {vidaConceptRows.length} movimientos · Total S/ {vidaConceptTotal.toFixed(2)}
+            </p>
+          </div>
+          <div className="max-h-[68vh] overflow-auto p-5">
+            {vidaConceptRows.length === 0 ? (
+              <div className="text-sm text-gray-500">Sin movimientos.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-left text-gray-600">
+                  <tr>
+                    <th className="p-2">Fecha</th>
+                    <th className="p-2">Metodo</th>
+                    <th className="p-2">Detalle</th>
+                    <th className="p-2 text-right">Monto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vidaConceptRows.map((r) => {
+                    const usdEquivalent = getUsdEquivalent(r);
+                    return (
+                      <tr key={r.id || `${r.fecha}-${r.monto}-${r.notas}`} className="border-t">
+                        <td className="p-2 align-top">{r.fecha || '-'}</td>
+                        <td className="p-2 align-top capitalize">{r.metodoPago || '-'}</td>
+                        <td className="p-2 align-top">{r.notas || r.tarjeta || '-'}</td>
+                        <td className="p-2 align-top text-right">
+                          <div className="font-semibold">S/ {toPen(r).toFixed(2)}</div>
+                          {usdEquivalent != null && (
+                            <div className="text-xs font-normal text-gray-500">$ {usdEquivalent.toFixed(2)}</div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+    {investmentConceptDetail && (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl relative max-h-[86vh] overflow-hidden">
+          <button
+            className="absolute top-3 right-3 text-gray-500 hover:text-gray-800"
+            onClick={() => setInvestmentConceptDetail(null)}
+          >
+            x
+          </button>
+          <div className="border-b px-5 py-4">
+            <h3 className="text-xl font-semibold capitalize">{investmentConceptDetail}</h3>
+            <p className="text-sm text-gray-600">
+              {investmentConceptRows.length} movimientos · Total S/ {investmentConceptTotal.toFixed(2)}
+            </p>
+          </div>
+          <div className="max-h-[68vh] overflow-auto p-5">
+            {investmentConceptRows.length === 0 ? (
+              <div className="text-sm text-gray-500">Sin movimientos.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-left text-gray-600">
+                  <tr>
+                    <th className="p-2">Fecha</th>
+                    <th className="p-2">Metodo</th>
+                    <th className="p-2">Detalle</th>
+                    <th className="p-2 text-right">Monto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {investmentConceptRows.map((r) => {
+                    const usdEquivalent = getUsdEquivalent(r);
+                    return (
+                      <tr key={r.id || `${r.fecha}-${r.monto}-${r.notas}`} className="border-t">
+                        <td className="p-2 align-top">{r.fecha || '-'}</td>
+                        <td className="p-2 align-top capitalize">{r.metodoPago || '-'}</td>
+                        <td className="p-2 align-top">{r.notas || r.tarjeta || '-'}</td>
+                        <td className="p-2 align-top text-right">
+                          <div className="font-semibold">S/ {toPen(r).toFixed(2)}</div>
+                          {usdEquivalent != null && (
+                            <div className="text-xs font-normal text-gray-500">$ {usdEquivalent.toFixed(2)}</div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       </div>
     )}

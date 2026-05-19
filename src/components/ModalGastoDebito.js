@@ -260,10 +260,28 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
     ...BASE_CONCEPTOS_DEBITO,
     ...customConcepts.map((item) => ({ value: item.value, label: item.label })),
   ];
+  const selectedCustomConcept = customConcepts.find((item) => item.value === normConcept(concepto));
+  const selectedCustomCategory = String(selectedCustomConcept?.metadata?.category || '').toLowerCase();
+  const conceptoIsIncome = concepto === 'ingreso' || selectedCustomCategory === 'income';
+  const conceptoAllowsCurrency = isFlexibleMoneda(concepto) || Boolean(selectedCustomConcept);
 
   const showPagoTarjeta = concepto === 'pago_tarjeta';
   const showTarjetaDestino = showPagoTarjeta;
   const showBolsa = concepto === 'bolsa';
+  const pagoTarjetaUsdPreview = (() => {
+    if (!showPagoTarjeta || pagoObjetivo !== 'USD' || moneda !== 'PEN') return null;
+    const soles = Number(monto);
+    const tc = Number(tcPago);
+    if (!isFinite(soles) || soles <= 0 || !isFinite(tc) || tc <= 0) return null;
+    return soles / tc;
+  })();
+  const bolsaUsdPreview = (() => {
+    if (!showBolsa || moneda !== 'USD' || bolsaTomarDolares) return null;
+    const soles = Number(bolsaMontoSoles);
+    const tc = Number(tcPago);
+    if (!isFinite(soles) || soles <= 0 || !isFinite(tc) || tc <= 0) return null;
+    return soles / tc;
+  })();
 
   return (
     <div className="fixed inset-0 z-50 bg-neutral-900/50 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={(e)=>{ if(e.target===e.currentTarget) onClose?.(); }}>
@@ -316,6 +334,11 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
                   <label className="text-sm">
                     <span className="block text-gray-600 mb-1">Monto</span>
                     <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={monto} onChange={(e)=>setMonto(e.target.value)} placeholder="0.00" />
+                    {pagoTarjetaUsdPreview != null && (
+                      <div className="mt-1 text-xs text-gray-500">
+                        Equivale a $ {pagoTarjetaUsdPreview.toFixed(2)}
+                      </div>
+                    )}
                   </label>
                   {moneda === 'PEN' && (
                     <label className="text-sm">
@@ -395,6 +418,11 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
                         <label className="text-sm">
                           <span className="block text-gray-600 mb-1">Monto en soles</span>
                           <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={bolsaMontoSoles} onChange={(e)=>setBolsaMontoSoles(e.target.value)} placeholder="0.00" />
+                          {bolsaUsdPreview != null && (
+                            <div className="mt-1 text-xs text-gray-500">
+                              Equivale a $ {bolsaUsdPreview.toFixed(2)}
+                            </div>
+                          )}
                         </label>
                         <label className="text-sm">
                           <span className="block text-gray-600 mb-1">Tipo de cambio</span>
@@ -407,7 +435,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    {isFlexibleMoneda(concepto) && (
+                    {conceptoAllowsCurrency && (
                       <label className="text-sm">
                         <span className="block text-gray-600 mb-1">Moneda</span>
                         <select className="w-full border rounded px-3 py-2" value={moneda} onChange={(e)=>setMoneda(e.target.value)}>
@@ -428,7 +456,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="text-sm">
-              <span className="block text-gray-600 mb-1">{concepto === 'ingreso' ? 'Fecha de ingreso' : (concepto === 'pago_tarjeta' ? 'Fecha de pago' : 'Fecha de compra')}</span>
+              <span className="block text-gray-600 mb-1">{conceptoIsIncome ? 'Fecha de ingreso' : (concepto === 'pago_tarjeta' ? 'Fecha de pago' : 'Fecha de compra')}</span>
               <input type="date" className="w-full border rounded px-3 py-2" value={fecha} onChange={(e)=>setFecha(e.target.value)} />
             </label>
 
