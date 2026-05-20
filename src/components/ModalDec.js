@@ -14,6 +14,24 @@ const CASILLEROS = {
   Alex: "Alexander Rodrigo Solis Delgado PEZ102500",
   Sebastian: "Sebastian Arturo Zenteno PEZ105183",
 };
+const DEC_SHIPPING_ADDRESS = {
+  street: "2323 NW 82nd Ave",
+  cityStateZip: "Doral, Florida 33122-1512",
+  country: "United States",
+  amazonStreet: "2323 NW 82ND AVE",
+  amazonCityStateZip: "DORAL, FL 33122-1512",
+};
+function casilleroCodeFor(casilleroKey) {
+  const raw = String(CASILLEROS[casilleroKey] || "").trim();
+  return (raw.match(/\bPEZ\d+\b/i)?.[0] || "").toUpperCase();
+}
+function shippingSuiteFor(casilleroKey, amazon = false) {
+  const code = casilleroCodeFor(casilleroKey);
+  return `${amazon ? "STE" : "Ste"} 110${code ? ` ${code}` : ""}`;
+}
+function decShipNameFor(casilleroKey) {
+  return String(CASILLEROS[casilleroKey] || "").trim();
+}
 const DEC_FORM_EMAIL_BY_CASILLERO = {
   Walter: "gongarc2001@gmail.com",
   Renato: "renato1carbajal@gmail.com",
@@ -431,7 +449,8 @@ function buildModalContentHTML({
   const subtotal = safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1), 0);
   const orderTotal = subtotal; // envio Free y Tax 0
   const itemsLabel = `${itemsCount} item${itemsCount === 1 ? "" : "s"}`;
-  const shipName = CASILLEROS[casilleroKey] || "";
+  const shipName = decShipNameFor(casilleroKey);
+  const shipSuite = shippingSuiteFor(casilleroKey);
 
   return `
 <div class="modal-content">
@@ -513,9 +532,9 @@ function buildModalContentHTML({
                     </div>
                     <div class="section-data-items">
                       <p><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>${shipName}</span></span></span></span></p>
-                      <p><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>9990 NW 14th Street</span></span><span class="eui-text-span"><span>, </span></span><span class="eui-text-span"><span>Ste 110</span></span></span></span></p>
-                      <p><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>Doral</span></span><span class="eui-text-span"><span>, </span></span><span class="eui-text-span"><span>Florida</span></span><span class="eui-text-span"><span> </span></span><span class="eui-text-span"><span>33192-2702</span></span></span></span></p>
-                      <p><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>United States</span></span></span></span></p>
+                      <p><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>${DEC_SHIPPING_ADDRESS.street}</span></span><span class="eui-text-span"><span>, </span></span><span class="eui-text-span"><span>${shipSuite}</span></span></span></span></p>
+                      <p><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>Doral</span></span><span class="eui-text-span"><span>, </span></span><span class="eui-text-span"><span>Florida</span></span><span class="eui-text-span"><span> </span></span><span class="eui-text-span"><span>33122-1512</span></span></span></span></p>
+                      <p><span class="textual-display"><span class="eui-textual-display"><span class="eui-text-span"><span>${DEC_SHIPPING_ADDRESS.country}</span></span></span></span></p>
                     </div>
                   </div>
                 </div>
@@ -661,7 +680,9 @@ function buildAmazonTemplateHTML({
     : [{ qty: Math.max(1, Number(qty) || 1), name: itemName || "", price: Number(price) || 0, linkHref: itemLinkHref || "" }];
   const subtotal = safeItems.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1), 0);
   const grandTotal = subtotal;
-  const shipName = CASILLEROS[casilleroKey] || "";
+  const shipName = decShipNameFor(casilleroKey);
+  const amazonShipSuite = shippingSuiteFor(casilleroKey, true);
+  const amazonAddressLine = `${DEC_SHIPPING_ADDRESS.amazonStreet} ${amazonShipSuite}`;
   const placedOnTxt = fmtDateUSLong(placedOn);
   const deliveryText = String(deliveryHeadline || "Delivered tomorrow").trim();
   const eligibleThroughTxt = amazonEligibleThroughFor(deliveryMode, deliveryText, deliveredOn, placedOn);
@@ -789,8 +810,8 @@ function buildAmazonTemplateHTML({
                   <h5 class="a-spacing-micro">Ship to</h5>
                   <ul class="a-unordered-list a-nostyle a-vertical">
                     <li><span class="a-list-item">${esc(shipName)}</span></li>
-                    <li><span class="a-list-item">9990 NW 14TH ST STE 110<br>DORAL, FL 33192-2702</span></li>
-                    <li><span class="a-list-item">United States</span></li>
+                    <li><span class="a-list-item">${amazonAddressLine}<br>${DEC_SHIPPING_ADDRESS.amazonCityStateZip}</span></li>
+                    <li><span class="a-list-item">${DEC_SHIPPING_ADDRESS.country}</span></li>
                   </ul>
                 </div>
               </div>
@@ -1013,7 +1034,8 @@ function deliveryHeadlineFor(mode, deliveredOn, customText) {
 function buildPrintableEbayDoc({ seller, placedOn, orderNumber, casilleroKey, qty, price, itemName, shippingSvc, items }) {
   const safe = ensureItems({ items, qty, itemName, price, shippingSvc });
   const { itemsCount, subtotal, grandTotal } = totalsFor(safe);
-  const shipName = CASILLEROS[casilleroKey] || "";
+  const shipName = decShipNameFor(casilleroKey);
+  const shipSuite = shippingSuiteFor(casilleroKey);
   const rows = safe.map((it) => `
     <tr>
       <td>${esc(Math.max(1, Number(it.qty) || 1))}</td>
@@ -1036,7 +1058,7 @@ function buildPrintableEbayDoc({ seller, placedOn, orderNumber, casilleroKey, qt
           <div class="line"><span class="muted">Paid on</span><strong>${esc(fmtDateUS(placedOn, { month: "short" }) || "-")}</strong></div>
         </div></div></section>
         <section class="section"><div class="pad"><h2 class="title">Shipping address</h2><div class="rows">
-          <div>${esc(shipName)}</div><div>9990 NW 14th Street, Ste 110</div><div>Doral, Florida 33192-2702</div><div>United States</div>
+          <div>${esc(shipName)}</div><div>${esc(DEC_SHIPPING_ADDRESS.street)}, ${esc(shipSuite)}</div><div>${esc(DEC_SHIPPING_ADDRESS.cityStateZip)}</div><div>${esc(DEC_SHIPPING_ADDRESS.country)}</div>
         </div></div></section>
         <section class="section"><div class="pad"><h2 class="title">Order total</h2><div class="rows">
           <div class="line"><span>${esc(`${itemsCount} item${itemsCount === 1 ? "" : "s"}`)}</span><strong>${esc(fmtUSD(subtotal))}</strong></div>
@@ -1057,7 +1079,10 @@ function buildPrintableMarketDoc({ store, placedOn, orderNumber, casilleroKey, q
     linkHref: cleanItemHref(it?.linkHref) || cleanItemHref(itemLinkHref) || "",
   }));
   const { subtotal, grandTotal } = totalsFor(safe);
-  const shipName = CASILLEROS[casilleroKey] || "";
+  const shipName = decShipNameFor(casilleroKey);
+  const shipSuite = shippingSuiteFor(casilleroKey);
+  const amazonShipSuite = shippingSuiteFor(casilleroKey, true);
+  const amazonAddressLine = `${DEC_SHIPPING_ADDRESS.amazonStreet} ${amazonShipSuite}`;
   const isApple = store === "apple";
   const soldBy = isApple ? "Apple" : "Amazon.com";
   const title = isApple ? "Order Details" : "Order Summary";
@@ -1110,9 +1135,9 @@ function buildPrintableMarketDoc({ store, placedOn, orderNumber, casilleroKey, q
                     <h5 class="amazon-label">Ship to</h5>
                     <div class="amazon-list">
                       <div>${esc(shipName)}</div>
-                      <div>9990 NW 14TH ST STE 110</div>
-                      <div>DORAL, FL 33192-2702</div>
-                      <div>United States</div>
+                      <div>${esc(amazonAddressLine)}</div>
+                      <div>${esc(DEC_SHIPPING_ADDRESS.amazonCityStateZip)}</div>
+                      <div>${esc(DEC_SHIPPING_ADDRESS.country)}</div>
                     </div>
                   </div>
                   <div>
@@ -1167,7 +1192,7 @@ function buildPrintableMarketDoc({ store, placedOn, orderNumber, casilleroKey, q
         <div class="print-pill">Print</div>
       </div>
       <section class="section" style="margin-top:18px"><div class="pad"><div class="market-grid">
-        <div><p class="market-label">Ship to</p><div class="market-info"><div>${esc(shipName)}</div><div>9990 NW 14th ST STE 110</div><div>DORAL, FL 33192-2702</div><div>United States</div></div></div>
+        <div><p class="market-label">Ship to</p><div class="market-info"><div>${esc(shipName)}</div><div>${esc(DEC_SHIPPING_ADDRESS.street)}</div><div>${esc(shipSuite)}</div><div>${esc(DEC_SHIPPING_ADDRESS.cityStateZip)}</div><div>${esc(DEC_SHIPPING_ADDRESS.country)}</div></div></div>
         <div><p class="market-label">Payment method</p><div class="market-info"><div>Visa ending in 9513</div></div></div>
         <div class="summary">
           <p class="market-label">${esc(title)}</p>
@@ -2152,8 +2177,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                 value={casilleroKey}
                 onChange={(e) => setCasilleroKey(e.target.value)}
               >
-                {Object.entries(CASILLEROS).map(([k, full]) => (
-                  <option key={k} value={k}>{full}</option>
+                {Object.entries(CASILLEROS).map(([k]) => (
+                  <option key={k} value={k}>{decShipNameFor(k)}</option>
                 ))}
               </select>
               <div className="text-[11px] text-gray-500 mt-1">
