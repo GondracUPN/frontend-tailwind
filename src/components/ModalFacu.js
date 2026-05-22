@@ -7,6 +7,7 @@ const CASILLEROS = {
   Jorge: "Jorge Sahid Garcia Sanchez",
   Sebastian: "Sebastian Arturo Zenteno",
 };
+const CUSTOM_CASILLERO_KEY = "__custom__";
 
 function fmtUSD(n) {
   const num = Number(n) || 0;
@@ -42,6 +43,7 @@ function buildModalContentHTML({
   placedOn,
   orderNumber,
   casilleroKey,
+  casilleroName,
   price,
   itemName,
   shippingSvc,
@@ -52,7 +54,7 @@ function buildModalContentHTML({
   const itemPrice = Number(price) || 0;
   const subtotal = itemPrice;
   const orderTotal = subtotal;
-  const shipName = CASILLEROS[casilleroKey] || "";
+  const shipName = String(casilleroName || CASILLEROS[casilleroKey] || "").trim();
 
   return `
 <div class="modal-content">
@@ -263,6 +265,7 @@ export default function ModalFacu({ onClose }) {
   const [placedOn, setPlacedOn] = useState("");
   const [orderNumber, setOrderNumber] = useState("");
   const [casilleroKey, setCasilleroKey] = useState("Renato");
+  const [customCasilleroName, setCustomCasilleroName] = useState("");
   const [price, setPrice] = useState("0.00");
   const [itemNameBase, setItemNameBase] = useState("");
   const [shippingSvc, setShippingSvc] = useState("Standard Shipping");
@@ -292,6 +295,10 @@ export default function ModalFacu({ onClose }) {
     () => buildItemNameWithIds(itemNameBase, serialNumber, imei1, imei2),
     [itemNameBase, serialNumber, imei1, imei2]
   );
+  const casilleroName = useMemo(
+    () => (casilleroKey === CUSTOM_CASILLERO_KEY ? customCasilleroName : CASILLEROS[casilleroKey] || ""),
+    [casilleroKey, customCasilleroName]
+  );
 
   const html = useMemo(
     () =>
@@ -300,11 +307,12 @@ export default function ModalFacu({ onClose }) {
         placedOn,
         orderNumber,
         casilleroKey,
+        casilleroName,
         price,
         itemName,
         shippingSvc,
       }),
-    [seller, placedOn, orderNumber, casilleroKey, price, itemName, shippingSvc]
+    [seller, placedOn, orderNumber, casilleroKey, casilleroName, price, itemName, shippingSvc]
   );
 
   useEffect(() => {
@@ -380,7 +388,7 @@ export default function ModalFacu({ onClose }) {
                 />
               </label>
 
-              <label className="text-sm sm:col-span-2">
+              <label className="text-sm">
                 <span className="block text-gray-600 mb-1">Casillero</span>
                 <select
                   className="input"
@@ -390,7 +398,19 @@ export default function ModalFacu({ onClose }) {
                   {Object.entries(CASILLEROS).map(([k, full]) => (
                     <option key={k} value={k}>{full}</option>
                   ))}
+                  <option value={CUSTOM_CASILLERO_KEY}>Otro nombre</option>
                 </select>
+              </label>
+
+              <label className="text-sm">
+                <span className="block text-gray-600 mb-1">Nombre para esta FACU</span>
+                <input
+                  value={customCasilleroName}
+                  onChange={(e) => setCustomCasilleroName(e.target.value)}
+                  className="input"
+                  disabled={casilleroKey !== CUSTOM_CASILLERO_KEY}
+                  placeholder="Nombre temporal"
+                />
               </label>
             </div>
 

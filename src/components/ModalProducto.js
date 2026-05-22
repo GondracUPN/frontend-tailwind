@@ -499,7 +499,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     if (hasTodos || isNuevo) accesorios = ['Caja', 'Cubo', 'Cable'];
 
     const base = { tipo: form.tipo, estado: form.estado, accesorios };
-    const allowedDetalle = ['gama', 'procesador', 'generacion', 'numero', 'modelo', 'tamano', 'almacenamiento', 'ram', 'conexion', 'descripcionOtro'];
+    const allowedDetalle = ['gama', 'procesador', 'generacion', 'numero', 'modelo', 'tamano', 'almacenamiento', 'ram', 'conexion', 'esim', 'descripcionOtro'];
     const cleanDetalle = Object.fromEntries(
       Object.entries(form.detalle || {}).filter(([k]) => allowedDetalle.includes(k))
     );
@@ -692,18 +692,34 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                   />
                 )}
 
-                <div>
-                  <label className="block font-medium">Estado</label>
-                  <select
-                    className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    value={form.estado}
-                    onChange={e => onChange('main', 'estado', e.target.value)}
-                  >
-                    <option value="">Selecciona</option>
-                    <option value="nuevo">Nuevo</option>
-                    <option value="usado">Usado</option>
-                    <option value="roto">Roto</option>
-                  </select>
+                <div className={form.tipo === 'iphone' ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}>
+                  <div>
+                    <label className="block font-medium">Estado</label>
+                    <select
+                      className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      value={form.estado}
+                      onChange={e => onChange('main', 'estado', e.target.value)}
+                    >
+                      <option value="">Selecciona</option>
+                      <option value="nuevo">Nuevo</option>
+                      <option value="usado">Usado</option>
+                      <option value="roto">Roto</option>
+                    </select>
+                  </div>
+                  {form.tipo === 'iphone' && (
+                    <div>
+                      <label className="block font-medium">eSIM</label>
+                      <select
+                        className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        value={form.detalle?.esim || ''}
+                        onChange={e => onChange('detalle', 'esim', e.target.value)}
+                      >
+                        <option value="">Selecciona</option>
+                        <option value="Si">Si</option>
+                        <option value="No">No</option>
+                      </select>
+                    </div>
+                  )}
                 </div>
 
                 <div>

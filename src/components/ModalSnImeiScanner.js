@@ -197,6 +197,7 @@ export default function ModalSnImeiScanner({ onClose }) {
   const [error, setError] = useState('');
   const [checkError, setCheckError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [copiedIdentifier, setCopiedIdentifier] = useState('');
   const [hasScanned, setHasScanned] = useState(false);
 
   const parsed = useMemo(() => parseIds(text), [text]);
@@ -218,6 +219,7 @@ export default function ModalSnImeiScanner({ onClose }) {
     setError('');
     setCheckError('');
     setCopied(false);
+    setCopiedIdentifier('');
     setHasScanned(false);
     setText('');
     setSelectedLookup(null);
@@ -234,6 +236,7 @@ export default function ModalSnImeiScanner({ onClose }) {
     setCheckError('');
     setSickwResult(null);
     setCopied(false);
+    setCopiedIdentifier('');
     setSelectedLookup(option);
   };
 
@@ -307,6 +310,7 @@ export default function ModalSnImeiScanner({ onClose }) {
     setCheckError('');
     setSickwResult(null);
     setCopied(false);
+    setCopiedIdentifier('');
     try {
       const result = await api.post('/sickw/apple-basic-info', {
         identifier: selectedLookup.value,
@@ -330,6 +334,18 @@ export default function ModalSnImeiScanner({ onClose }) {
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       setCopied(false);
+    }
+  };
+
+  const copyLookupValue = async (option) => {
+    if (!option?.value) return;
+    const key = `${option.type}:${option.value}`;
+    try {
+      await navigator.clipboard.writeText(option.value);
+      setCopiedIdentifier(key);
+      window.setTimeout(() => setCopiedIdentifier((current) => (current === key ? '' : current)), 1500);
+    } catch {
+      setCopiedIdentifier('');
     }
   };
 
@@ -438,16 +454,25 @@ export default function ModalSnImeiScanner({ onClose }) {
 
                 {lookupOptions.map((option) => {
                   const active = selectedLookup?.type === option.type && selectedLookup?.value === option.value;
+                  const key = `${option.type}:${option.value}`;
                   return (
-                    <button
-                      key={`${option.type}:${option.value}`}
-                      type="button"
-                      onClick={() => setSelectedLookup(option)}
-                      className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left transition ${active ? 'border-blue-500 bg-white ring-2 ring-blue-100' : 'border-gray-200 bg-white hover:border-gray-300'}`}
-                    >
-                      <span className="text-xs font-semibold text-gray-500">{option.label}</span>
-                      <span className="font-mono text-sm font-semibold text-gray-900">{option.value}</span>
-                    </button>
+                    <div key={key} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLookup(option)}
+                        className={`flex min-w-0 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition ${active ? 'border-blue-500 bg-white ring-2 ring-blue-100' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                      >
+                        <span className="text-xs font-semibold text-gray-500">{option.label}</span>
+                        <span className="min-w-0 break-all font-mono text-sm font-semibold text-gray-900">{option.value}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => copyLookupValue(option)}
+                        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                      >
+                        {copiedIdentifier === key ? 'Copiado' : 'Copiar'}
+                      </button>
+                    </div>
                   );
                 })}
 
