@@ -1275,6 +1275,60 @@ const gananciasResumen = useMemo(() => {
 
 
  const isGeneral = !appliedDates.from && !appliedDates.to;
+ const ventasMargenRows = useMemo(() => {
+ const rows = Array.isArray(data?.sales?.perMonth) ? data.sales.perMonth : [];
+ const byMonth = new Map(rows.map((m) => [String(m?.month || '').slice(0, 7), m]));
+ const start = '2025-09';
+ const validMonths = rows
+ .map((m) => String(m?.month || '').slice(0, 7))
+ .filter((month) => month && month >= start);
+ const today = new Date();
+ const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+ const end = validMonths.length ? validMonths.sort()[validMonths.length - 1] : currentMonth;
+ const months = [];
+ let [year, month] = start.split('-').map((v) => Number(v));
+ while (`${year}-${String(month).padStart(2, '0')}` <= end) {
+ const key = `${year}-${String(month).padStart(2, '0')}`;
+ const source = byMonth.get(key) || {};
+ months.push({
+ month: key,
+ ventas: Number(source?.ventas ?? source?.cantidad ?? source?.count ?? 0) || 0,
+ ingresos: Number(source?.ingresos || 0) || 0,
+ ganancia: Number(source?.ganancia || 0) || 0,
+ });
+ month += 1;
+ if (month > 12) {
+ month = 1;
+ year += 1;
+ }
+ }
+ return months;
+ }, [data?.sales?.perMonth]);
+
+ const ventasMargenPromedios = useMemo(() => {
+ const rows = ventasMargenRows;
+ const ventasTotal = rows.reduce((s, m) => s + (Number(m?.ventas || 0) || 0), 0);
+ const ingresoTotal = rows.reduce((s, m) => s + (Number(m?.ingresos || 0) || 0), 0);
+ const gananciaTotal = rows.reduce((s, m) => s + (Number(m?.ganancia || 0) || 0), 0);
+ const margins = rows.map((m) => {
+ const ingresos = Number(m?.ingresos || 0) || 0;
+ const ganancia = Number(m?.ganancia || 0) || 0;
+ const costo = ingresos - ganancia;
+ return {
+ utilidad: ingresos > 0 ? (ganancia / ingresos) * 100 : 0,
+ markup: costo > 0 ? (ganancia / costo) * 100 : 0,
+ };
+ });
+ const marginCount = margins.length;
+ return {
+ ventas: rows.length ? +(ventasTotal / rows.length).toFixed(2) : 0,
+ ingreso: rows.length ? +(ingresoTotal / rows.length).toFixed(2) : 0,
+ ganancia: rows.length ? +(gananciaTotal / rows.length).toFixed(2) : 0,
+ utilidad: marginCount ? +(margins.reduce((s, m) => s + m.utilidad, 0) / marginCount).toFixed(2) : 0,
+ markup: marginCount ? +(margins.reduce((s, m) => s + m.markup, 0) / marginCount).toFixed(2) : 0,
+ meses: rows.length,
+ };
+ }, [ventasMargenRows]);
  const sunatSellTc = Number(sunatFx?.sell ?? TC_FIJO) || TC_FIJO;
  const sunatGastoPeriodo = Number((data?.summary?.sunat?.gastoPeriodo ?? data?.summary?.sunat?.gastoProductos ?? 0)) || 0;
  const sunatEnviosRecogidos = Number((data?.summary?.sunat?.enviosRecogidos ?? data?.summary?.sunat?.gastoEnvio ?? 0)) || 0;
@@ -2762,7 +2816,32 @@ Activo
 
 
 
- <h2 className="text-lg font-semibold mb-3">Ventas y margen por mes</h2>
+ <div className="flex flex-col gap-3 mb-3 lg:flex-row lg:items-start lg:justify-between">
+ <h2 className="text-lg font-semibold">Ventas y margen por mes</h2>
+ <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-4 lg:min-w-[680px]">
+ <div>
+ <div className="font-medium text-slate-500">Ventas promedio</div>
+ <div className="mt-1 text-sm font-semibold text-slate-900">{ventasMargenPromedios.ventas.toFixed(2)}</div>
+ </div>
+ <div>
+ <div className="font-medium text-slate-500">Ingreso promedio</div>
+ <div className="mt-1 text-sm font-semibold text-slate-900"><Currency v={ventasMargenPromedios.ingreso} /></div>
+ </div>
+ <div>
+ <div className="font-medium text-slate-500">Ganancia promedio</div>
+ <div className="mt-1 text-sm font-semibold text-slate-900"><Currency v={ventasMargenPromedios.ganancia} /></div>
+ </div>
+ <div>
+ <div className="font-medium text-slate-500">Margenes promedio</div>
+ <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-900">
+ <Percent v={ventasMargenPromedios.utilidad} />
+ <span className="text-slate-400">/</span>
+ <Percent v={ventasMargenPromedios.markup} />
+ </div>
+ <div className="mt-0.5 text-[11px] text-slate-500">Utilidad / Markup</div>
+ </div>
+ </div>
+ </div>
  <div className="overflow-x-auto">
  <table className="min-w-[520px] w-full text-sm">
 
@@ -2777,6 +2856,10 @@ Activo
 
 
  <th className="py-1">Mes</th>
+
+
+
+ <th className="py-1">Ventas</th>
 
 
 
@@ -2804,7 +2887,7 @@ Activo
 
 
 
- {(data.sales?.perMonth || []).map((m) => (
+ {ventasMargenRows.map((m) => (
 
 
 
@@ -2813,6 +2896,10 @@ Activo
 
 
  <td className="py-1">{m.month}</td>
+
+
+
+ <td className="py-1">{Number(m.ventas || 0)}</td>
 
 
 

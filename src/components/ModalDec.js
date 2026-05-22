@@ -1471,6 +1471,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setManualMainDecRef("");
     setPrice(decClean);
     setPlacedOn(toYYYYMMDD(fechaCompra));
+    setManualLinkedLines([]);
     setDeliveryMode("tomorrow");
     setDeliveredOn("");
     setCustomDeliveryText("");
@@ -1719,18 +1720,92 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         name: line.name || "",
         price: linePrice,
         shippingSvc: shippingSvc || "Standard Shipping",
-        linkHref: line.linkHref || "",
+        linkHref: store === "amazon" ? (line.linkHref || "") : "",
       };
     });
-  }, [productoSel, itemName, itemLinkHref, manualMainDecRef, manualLinkedLines, price, shippingSvc]);
+  }, [productoSel, store, itemName, itemLinkHref, manualMainDecRef, manualLinkedLines, price, shippingSvc]);
+
+  const ebaySelectedItemsWithExtras = useMemo(() => {
+    if (store !== "ebay" || !productoSel || manualLinkedLines.length === 0) return null;
+    const parseRef = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    };
+    const productRef = (p) => {
+      const real = Number(pickValorProducto(p)) || 0;
+      if (real > 0) return real;
+      const dec = Number(pickDec(p)) || 0;
+      return dec > 0 ? dec : 0;
+    };
+    const group = linkedGroup.length > 1 ? linkedGroup : [productoSel];
+    const productLines = group.map((p) => {
+      const override = linkedItemNames[p.id];
+      const name = p?.id === productoSel?.id
+        ? (itemName || override || buildCoreName(p))
+        : (override || randomNames[p.id]?.full || buildCoreName(p));
+      const linkedImage = p?.id === productoSel?.id ? null : linkedImages[p.id];
+      return {
+        qty: 1,
+        name,
+        ref: productRef(p),
+        shippingSvc,
+        productId: p?.id ?? null,
+        linkHref: "",
+        imageSmall: p?.id === productoSel?.id ? imageSmall : (linkedImage?.small || DEFAULT_IMAGE_SRC),
+        imageLarge: p?.id === productoSel?.id ? imageLarge : (linkedImage?.large || DEFAULT_IMAGE_SRC),
+      };
+    });
+    const extraLines = manualLinkedLines
+      .map((line) => ({
+        qty: 1,
+        name: String(line?.name || "").trim(),
+        ref: parseRef(line?.decRef),
+        shippingSvc: shippingSvc || "Standard Shipping",
+        linkHref: "",
+      }))
+      .filter((line) => line.name);
+    if (!extraLines.length) return null;
+
+    const lines = [...productLines, ...extraLines];
+    const totalDec = Number(price) || Number(pickDec(productoSel)) || 0;
+    const totalRef = lines.reduce((s, line) => s + (Number(line.ref) || 0), 0);
+    const fallbackShare = lines.length ? 1 / lines.length : 1;
+    let used = 0;
+    return lines.map((line, idx) => {
+      const share = totalRef > 0 ? ((Number(line.ref) || 0) / totalRef) : fallbackShare;
+      const isLast = idx === lines.length - 1;
+      const itemPrice = isLast
+        ? +(totalDec - used).toFixed(2)
+        : +((totalDec * share).toFixed(2));
+      used += itemPrice;
+      const { ref, ...item } = line;
+      return { ...item, price: itemPrice };
+    });
+  }, [
+    store,
+    productoSel,
+    manualLinkedLines,
+    linkedGroup,
+    linkedItemNames,
+    itemName,
+    randomNames,
+    linkedImages,
+    shippingSvc,
+    imageSmall,
+    imageLarge,
+    price,
+  ]);
 
   const htmlItems = useMemo(() => {
     if (productoSel) {
+      if (ebaySelectedItemsWithExtras) return ebaySelectedItemsWithExtras;
       return linkedItems && linkedItems.length ? linkedItems : null;
     }
     return manualItems;
-  }, [productoSel, linkedItems, manualItems]);
+  }, [productoSel, linkedItems, manualItems, ebaySelectedItemsWithExtras]);
   const manualHasMultiple = !productoSel && manualLinkedLines.length > 0;
+  const showManualItemsEditor = store === "ebay" || !productoSel;
+  const manualNeedsDecRef = store === "ebay" || manualHasMultiple;
   const deliveryHeadline = useMemo(
     () => deliveryHeadlineFor(deliveryMode, deliveredOn, customDeliveryText),
     [deliveryMode, deliveredOn, customDeliveryText]
@@ -2376,14 +2451,16 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                           <FaDice className="text-sm" />
                         </button>
                       </div>
-                      <input
-                        className="input text-xs py-1.5 w-full"
-                        value={linkValue}
-                        onChange={(e) =>
-                          setLinkedItemLinks((prev) => ({ ...prev, [p.id]: e.target.value }))
-                        }
-                        placeholder="https://www.amazon.com/dp/..."
-                      />
+                      {store === "amazon" ? (
+                        <input
+                          className="input text-xs py-1.5 w-full"
+                          value={linkValue}
+                          onChange={(e) =>
+                            setLinkedItemLinks((prev) => ({ ...prev, [p.id]: e.target.value }))
+                          }
+                          placeholder="https://www.amazon.com/dp/..."
+                        />
+                      ) : null}
                     </div>
                   </label>
                 );
@@ -2391,10 +2468,12 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             </div>
           ) : null}
 
-          {!productoSel ? (
+          {showManualItemsEditor ? (
             <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
               <div className="flex items-center justify-between gap-3 mb-2">
-                <div className="text-sm font-medium text-gray-700">Items adicionales (manual)</div>
+                <div className="text-sm font-medium text-gray-700">
+                  {store === "ebay" ? "Agregar producto extra (eBay)" : "Items adicionales (manual)"}
+                </div>
                 <button
                   type="button"
                   onClick={addManualLinkedLine}
@@ -2404,7 +2483,9 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                 </button>
               </div>
               <div className="text-[11px] text-gray-500 mb-3">
-                {manualHasMultiple
+                {store === "ebay"
+                  ? "Ingresa el valor normal de cada extra; eBay reparte el Valor DEC total proporcionalmente."
+                  : manualHasMultiple
                   ? "Modo manual: define DEC ref por item y se prorratea el Valor DEC total en base a esos refs."
                   : "Modo manual: con 1 producto no se necesita DEC ref por item."}
               </div>
@@ -2414,13 +2495,13 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                     <label key={line.id} className="text-[11px] text-gray-600">
                       <span className="block mb-1">Item name manual #{idx + 2}</span>
                       <div className="space-y-2">
-                        <div className={`grid ${manualHasMultiple ? "grid-cols-[1fr_130px_auto]" : "grid-cols-[1fr_auto]"} gap-2`}>
+                        <div className={`grid ${manualNeedsDecRef ? "grid-cols-[1fr_130px_auto]" : "grid-cols-[1fr_auto]"} gap-2`}>
                         <input
                           className="input text-xs py-1.5 flex-1"
                           value={line.name}
                           onChange={(e) => updateManualLinkedLine(line.id, { name: e.target.value })}
                         />
-                        {manualHasMultiple ? (
+                        {manualNeedsDecRef ? (
                           <input
                             type="number"
                             min={0}
@@ -2428,7 +2509,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                             className="input text-xs py-1.5"
                             value={line.decRef || ""}
                             onChange={(e) => updateManualLinkedLine(line.id, { decRef: e.target.value })}
-                            placeholder="DEC ref"
+                            placeholder={store === "ebay" ? "Valor normal" : "DEC ref"}
                           />
                         ) : null}
                         <button

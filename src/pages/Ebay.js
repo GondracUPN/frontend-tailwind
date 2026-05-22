@@ -28,6 +28,10 @@ const FAMILY_OPTIONS = [
   { id: 'iphone', label: 'iPhone' },
   { id: 'macbook', label: 'MacBook' },
 ];
+const AUCTION_FAMILY_OPTIONS = [
+  ...FAMILY_OPTIONS,
+  { id: 'apple-watch-ultra', label: 'Apple Watch Ultra' },
+];
 
 const IPAD_LINE_OPTIONS = [
   { value: '', label: 'Cualquiera' },
@@ -1826,10 +1830,10 @@ function Ebay({ setVista }) {
           <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <h2 className="text-xl font-semibold text-slate-900">Buscar todos en subastas</h2>
-              <p className="mt-2 text-sm text-slate-600">Subastas Apple ordenadas por las primeras en terminar. En iPad se limita a 11, 12.9 y 13 pulgadas con chips A16 y M1 a M5.</p>
+              <p className="mt-2 text-sm text-slate-600">Subastas Apple ordenadas por las primeras en terminar. Incluye Apple Watch Ultra por nombre o modelo Apple.</p>
             </div>
             <div className="grid w-full gap-2 sm:grid-cols-3 xl:w-auto">
-              <MappedSelectField value={auctionFamily} onChange={(e) => setAuctionFamily(e.target.value)} options={FAMILY_OPTIONS.map((item) => ({ value: item.id, label: item.label }))} />
+              <MappedSelectField value={auctionFamily} onChange={(e) => setAuctionFamily(e.target.value)} options={AUCTION_FAMILY_OPTIONS.map((item) => ({ value: item.id, label: item.label }))} />
               <MappedSelectField value={auctionCondition} onChange={(e) => setAuctionCondition(e.target.value)} options={AUCTION_CONDITION_OPTIONS} />
               <button
                 type="button"
