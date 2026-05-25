@@ -111,6 +111,8 @@ const fmtDate = (d) =>
     month: 'short',
     year: 'numeric',
   });
+const fmtPen = (value) => `S/ ${Number(value || 0).toFixed(2)}`;
+const fmtUsd = (value) => `$ ${Number(value || 0).toFixed(2)}`;
 
 const fixedCycle = (key, year, month) => {
   const row = FIXED_CYCLES[key]?.[month - 1];
@@ -174,12 +176,32 @@ const summarizeRows = (rows, card, cycle) => {
   return { items, totals };
 };
 
-const getPaymentPen = (g) => {
+const getPaymentAllocation = (g) => {
   const amount = Number(g?.monto || 0) || 0;
   const usdApplied = Number(g?.montoUsdAplicado);
-  if (Number.isFinite(usdApplied) && usdApplied > 0) return usdApplied * TIPO_CAMBIO;
-  if (g?.moneda === 'USD') return amount * TIPO_CAMBIO;
-  return amount;
+  const hasUsdApplied = g?.montoUsdAplicado != null && Number.isFinite(usdApplied) && usdApplied > 0;
+  const tc = (() => {
+    const rate = Number(g?.tasaUsdPen);
+    if (Number.isFinite(rate) && rate > 0) return rate;
+    if (hasUsdApplied && amount > 0) {
+      const derived = amount / usdApplied;
+      if (Number.isFinite(derived) && derived > 0) return derived;
+    }
+    return TIPO_CAMBIO;
+  })();
+  const explicitUsd = g?.pagoObjetivo === 'USD';
+  const explicitPen = g?.pagoObjetivo === 'PEN';
+  const targetUsd = explicitUsd || hasUsdApplied || g?.moneda === 'USD' || !explicitPen;
+
+  if (targetUsd) {
+    const amountUsd = g?.moneda === 'USD'
+      ? amount
+      : (hasUsdApplied ? usdApplied : amount / tc);
+    return { currency: 'USD', amount: Number.isFinite(amountUsd) ? amountUsd : 0 };
+  }
+
+  const amountPen = g?.moneda === 'USD' ? amount * tc : amount;
+  return { currency: 'PEN', amount: Number.isFinite(amountPen) ? amountPen : 0 };
 };
 
 const isCardPayment = (g) =>
@@ -220,7 +242,11 @@ const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear, select
           cycle,
           ...summary,
           usedPen: summary.totals.totalPen,
+          paidPenAmount: 0,
+          paidUsdAmount: 0,
           paidPen: 0,
+          pendingPenAmount: summary.totals.pen,
+          pendingUsdAmount: summary.totals.usd,
           pendingPen: summary.totals.totalPen,
         };
       })
@@ -229,27 +255,35 @@ const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear, select
 
     const payments = rows
       .filter((g) => isCardPayment(g) && normalizeCard(g.tarjetaPago) === normalizeCard(card))
-      .map((g) => ({ date: parseYmd(g.fecha) || makeDate(1900, 1, 1), amountPen: getPaymentPen(g) }))
-      .filter((p) => p.amountPen > 0)
+      .map((g) => ({ date: parseYmd(g.fecha) || makeDate(1900, 1, 1), ...getPaymentAllocation(g) }))
+      .filter((p) => p.amount > 0)
       .sort((a, b) => a.date.getTime() - b.date.getTime());
 
     payments.forEach((payment) => {
-      let remaining = payment.amountPen;
+      let remaining = payment.amount;
       for (const cycle of cycles) {
         if (remaining <= 0) break;
-        if (cycle.usedPen <= 0 || cycle.pendingPen <= 0) continue;
-        const applied = Math.min(cycle.pendingPen, remaining);
-        cycle.paidPen += applied;
-        cycle.pendingPen -= applied;
+        const pendingKey = payment.currency === 'USD' ? 'pendingUsdAmount' : 'pendingPenAmount';
+        const paidKey = payment.currency === 'USD' ? 'paidUsdAmount' : 'paidPenAmount';
+        if (cycle[pendingKey] <= 0) continue;
+        const applied = Math.min(cycle[pendingKey], remaining);
+        cycle[paidKey] += applied;
+        cycle[pendingKey] -= applied;
         remaining -= applied;
       }
     });
 
     cycles.forEach((cycle) => {
+      const paidPen = cycle.paidPenAmount + cycle.paidUsdAmount * TIPO_CAMBIO;
+      const pendingPen = cycle.pendingPenAmount + cycle.pendingUsdAmount * TIPO_CAMBIO;
       allByKey.set(`${card}:${cycle.ym}`, {
         ...cycle,
-        paidPen: +cycle.paidPen.toFixed(2),
-        pendingPen: +Math.max(0, cycle.pendingPen).toFixed(2),
+        paidPenAmount: +cycle.paidPenAmount.toFixed(2),
+        paidUsdAmount: +cycle.paidUsdAmount.toFixed(2),
+        paidPen: +paidPen.toFixed(2),
+        pendingPenAmount: +Math.max(0, cycle.pendingPenAmount).toFixed(2),
+        pendingUsdAmount: +Math.max(0, cycle.pendingUsdAmount).toFixed(2),
+        pendingPen: +Math.max(0, pendingPen).toFixed(2),
       });
     });
   });
@@ -307,7 +341,11 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
           items: [],
           totals: { pen: 0, usd: 0, totalPen: 0 },
           usedPen: 0,
+          paidPenAmount: 0,
+          paidUsdAmount: 0,
           paidPen: 0,
+          pendingPenAmount: 0,
+          pendingUsdAmount: 0,
           pendingPen: 0,
         };
       }
@@ -317,7 +355,11 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
         items: [],
         totals: { pen: 0, usd: 0, totalPen: 0 },
         usedPen: 0,
+        paidPenAmount: 0,
+        paidUsdAmount: 0,
         paidPen: 0,
+        pendingPenAmount: 0,
+        pendingUsdAmount: 0,
         pendingPen: 0,
       };
     });
@@ -328,11 +370,25 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
       acc.pen += row.totals.pen;
       acc.usd += row.totals.usd;
       acc.usedPen += row.usedPen || row.totals.totalPen || 0;
+      acc.paidPenAmount += row.paidPenAmount || 0;
+      acc.paidUsdAmount += row.paidUsdAmount || 0;
       acc.paidPen += row.paidPen || 0;
+      acc.pendingPenAmount += row.pendingPenAmount || 0;
+      acc.pendingUsdAmount += row.pendingUsdAmount || 0;
       acc.pendingPen += row.pendingPen || 0;
       return acc;
     },
-    { pen: 0, usd: 0, usedPen: 0, paidPen: 0, pendingPen: 0 },
+    {
+      pen: 0,
+      usd: 0,
+      usedPen: 0,
+      paidPenAmount: 0,
+      paidUsdAmount: 0,
+      paidPen: 0,
+      pendingPenAmount: 0,
+      pendingUsdAmount: 0,
+      pendingPen: 0,
+    },
   );
 
   const nextMonths = useMemo(() => {
@@ -374,15 +430,24 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
               <div className="rounded-lg border bg-gray-50 px-3 py-2">
                 <div className="text-gray-500">Por pagar</div>
-                <div className="font-semibold">S/ {selectedTotal.pendingPen.toFixed(2)}</div>
+                <div className="font-semibold">{fmtPen(selectedTotal.pendingPen)}</div>
+                <div className="text-xs text-gray-500">
+                  {fmtUsd(selectedTotal.pendingUsdAmount)} | {fmtPen(selectedTotal.pendingPenAmount)}
+                </div>
               </div>
               <div className="rounded-lg border bg-gray-50 px-3 py-2">
                 <div className="text-gray-500">Usado</div>
-                <div className="font-semibold">S/ {selectedTotal.usedPen.toFixed(2)}</div>
+                <div className="font-semibold">{fmtPen(selectedTotal.usedPen)}</div>
+                <div className="text-xs text-gray-500">
+                  {fmtUsd(selectedTotal.usd)} | {fmtPen(selectedTotal.pen)}
+                </div>
               </div>
               <div className="rounded-lg border bg-gray-50 px-3 py-2">
                 <div className="text-gray-500">Pagado</div>
-                <div className="font-semibold">S/ {selectedTotal.paidPen.toFixed(2)}</div>
+                <div className="font-semibold">{fmtPen(selectedTotal.paidPen)}</div>
+                <div className="text-xs text-gray-500">
+                  {fmtUsd(selectedTotal.paidUsdAmount)} | {fmtPen(selectedTotal.paidPenAmount)}
+                </div>
               </div>
             </div>
           </div>
@@ -398,7 +463,7 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
                   <tr>
                     <th className="p-2">Tarjeta</th>
                     <th className="p-2">Periodo de compras</th>
-                    <th className="p-2">Fecha limite</th>
+                    <th className="p-2">Fecha de pago</th>
                     <th className="p-2 text-right">Usado</th>
                     <th className="p-2 text-right">Pagado</th>
                     <th className="p-2 text-right">Por pagar</th>
@@ -414,16 +479,22 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
                       </td>
                       <td className="p-2">{row.cycle ? fmtDate(row.cycle.due) : '-'}</td>
                       <td className="p-2 text-right">
-                        <div className="font-semibold">S/ {Number(row.usedPen || 0).toFixed(2)}</div>
+                        <div className="font-semibold">{fmtPen(row.usedPen)}</div>
                         <div className="text-xs text-gray-500">
-                          $ {row.totals.usd.toFixed(2)} | S/ {row.totals.pen.toFixed(2)}
+                          {fmtUsd(row.totals.usd)} | {fmtPen(row.totals.pen)}
                         </div>
                       </td>
-                      <td className="p-2 text-right text-emerald-700 font-semibold">
-                        S/ {Number(row.paidPen || 0).toFixed(2)}
+                      <td className="p-2 text-right">
+                        <div className="font-semibold text-emerald-700">{fmtPen(row.paidPen)}</div>
+                        <div className="text-xs text-gray-500">
+                          {fmtUsd(row.paidUsdAmount)} | {fmtPen(row.paidPenAmount)}
+                        </div>
                       </td>
-                      <td className="p-2 text-right font-semibold">
-                        S/ {Number(row.pendingPen || 0).toFixed(2)}
+                      <td className="p-2 text-right">
+                        <div className="font-semibold">{fmtPen(row.pendingPen)}</div>
+                        <div className="text-xs text-gray-500">
+                          {fmtUsd(row.pendingUsdAmount)} | {fmtPen(row.pendingPenAmount)}
+                        </div>
                       </td>
                       <td className="p-2 text-right">{row.items.length}</td>
                     </tr>
@@ -444,7 +515,7 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
               {nextMonths.map((row) => (
                 <div key={row.ym} className="rounded-xl border bg-gray-50 p-3">
                   <div className="text-sm text-gray-600">{monthLabel(row.ym)}</div>
-                  <div className="mt-1 text-lg font-semibold">S/ {row.total.toFixed(2)}</div>
+                  <div className="mt-1 text-lg font-semibold">{fmtPen(row.total)}</div>
                 </div>
               ))}
             </div>

@@ -258,6 +258,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [soloDisponibles, setSoloDisponibles] = useState(false);
   const [soloVendidos, setSoloVendidos] = useState(false);
   const [soloAdelanto, setSoloAdelanto] = useState(false);
+  const [soloEnCamino, setSoloEnCamino] = useState(false);
   const [ventaMsgOpen, setVentaMsgOpen] = useState(false);
   const [sellerAssignOpen, setSellerAssignOpen] = useState(false);
   const [sellerAssignDrafts, setSellerAssignDrafts] = useState({});
@@ -277,6 +278,12 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [filtroTam, setFiltroTam] = useState('todos');   // tamano adicional para macbook/ipad
   const [trackingQuery, setTrackingQuery] = useState('');
   const [filtroGama, setFiltroGama] = useState('todos'); // gama (Pro, Air, etc)
+  const setMostrarFiltro = (key, checked) => {
+    setSoloVendidos(key === 'vendidos' && checked);
+    setSoloAdelanto(key === 'adelanto' && checked);
+    setSoloDisponibles(key === 'disponibles' && checked);
+    setSoloEnCamino(key === 'enCamino' && checked);
+  };
 
   const fmtFechaTabla = (value) => {
     if (!value) return '-';
@@ -315,16 +322,16 @@ export default function Productos({ setVista, setAnalisisBack }) {
     );
   }, [ventasMap]);
   const dateColumnLabel =
-    soloVendidos && !soloDisponibles && !soloAdelanto
+    soloVendidos && !soloDisponibles && !soloAdelanto && !soloEnCamino
       ? 'F. Venta'
-      : soloDisponibles && !soloVendidos && !soloAdelanto
+      : soloDisponibles && !soloVendidos && !soloAdelanto && !soloEnCamino
         ? 'F. Recojo'
         : 'F. Compra';
   const getFechaColumna = (p) => {
-    if (soloVendidos && !soloDisponibles && !soloAdelanto) {
+    if (soloVendidos && !soloDisponibles && !soloAdelanto && !soloEnCamino) {
       return getFechaVenta(p);
     }
-    if (soloDisponibles && !soloVendidos && !soloAdelanto) {
+    if (soloDisponibles && !soloVendidos && !soloAdelanto && !soloEnCamino) {
       return getFechaRecojo(p);
     }
     return getFechaCompra(p);
@@ -1376,7 +1383,13 @@ const confirmAction = async () => {
     }
 
 
-    if (soloDisponibles && !soloVendidos && !soloAdelanto) {
+    if (soloEnCamino && !soloDisponibles && !soloVendidos && !soloAdelanto) {
+      list = list.filter((p) => {
+        const estado = String(p.tracking?.[0]?.estado || '').toLowerCase();
+        return estado === 'comprado_en_camino' || estado === 'en_eshopex';
+      });
+    }
+    if (soloDisponibles && !soloVendidos && !soloAdelanto && !soloEnCamino) {
       list = list.filter((p) => {
         const t = p.tracking?.[0];
         const venta = ventasMap[p.id] || null;
@@ -1384,10 +1397,10 @@ const confirmAction = async () => {
         return t?.estado === 'recogido' && !venta && !adelanto;
       });
     }
-    if (soloVendidos && !soloDisponibles && !soloAdelanto) {
+    if (soloVendidos && !soloDisponibles && !soloAdelanto && !soloEnCamino) {
       list = list.filter((p) => Boolean(ventasMap[p.id]));
     }
-    if (soloAdelanto && !soloDisponibles && !soloVendidos) {
+    if (soloAdelanto && !soloDisponibles && !soloVendidos && !soloEnCamino) {
       list = list.filter((p) => Boolean(adelantosMap[p.id]));
     }
 
@@ -1462,15 +1475,15 @@ const confirmAction = async () => {
     }
 
 
-    if (soloVendidos && !soloDisponibles && !soloAdelanto) {
+    if (soloVendidos && !soloDisponibles && !soloAdelanto && !soloEnCamino) {
       list.sort((a, b) => saleTs(b) - saleTs(a)); // ventas mas recientes arriba
-    } else if (soloDisponibles && !soloVendidos && !soloAdelanto) {
+    } else if (soloDisponibles && !soloVendidos && !soloAdelanto && !soloEnCamino) {
       list.sort((a, b) => pickupTs(b) - pickupTs(a)); // recojos mas recientes arriba
     } else {
       list.sort((a, b) => ts(b) - ts(a)); // mas nuevos arriba (fecha compra)
     }
     return list;
-  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery, getFechaVenta]);
+  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, soloEnCamino, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery, getFechaVenta]);
 
   const paquetesSinVendedor = React.useMemo(() => {
     return (productos || []).filter((p) => !String(p?.vendedor || '').trim());
@@ -1933,7 +1946,7 @@ const confirmAction = async () => {
                     type="checkbox"
                     className="h-4 w-4"
                     checked={soloVendidos}
-                    onChange={(e) => setSoloVendidos(e.target.checked)}
+                    onChange={(e) => setMostrarFiltro('vendidos', e.target.checked)}
                   />
                   Vendidos
                 </label>
@@ -1942,7 +1955,7 @@ const confirmAction = async () => {
                     type="checkbox"
                     className="h-4 w-4"
                     checked={soloAdelanto}
-                    onChange={(e) => setSoloAdelanto(e.target.checked)}
+                    onChange={(e) => setMostrarFiltro('adelanto', e.target.checked)}
                   />
                   Adelanto
                 </label>
@@ -1951,9 +1964,18 @@ const confirmAction = async () => {
                     type="checkbox"
                     className="h-4 w-4"
                     checked={soloDisponibles}
-                    onChange={(e) => setSoloDisponibles(e.target.checked)}
+                    onChange={(e) => setMostrarFiltro('disponibles', e.target.checked)}
                   />
                   Disponibles
+                </label>
+                <label className="flex items-center gap-2 text-sm mt-1">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={soloEnCamino}
+                    onChange={(e) => setMostrarFiltro('enCamino', e.target.checked)}
+                  />
+                  En camino
                 </label>
               </div>
 
