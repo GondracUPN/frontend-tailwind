@@ -10,7 +10,8 @@ import ModalEditarGasto from '../components/ModalEditarGasto';
 import ModalEditarEfectivo from '../components/ModalEditarEfectivo';
 import ModalAnalisisGastosMes from '../components/ModalAnalisisGastosMes';
 import ModalCiclosTarjeta from '../components/ModalCiclosTarjeta';
-import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept } from '../utils/expenseConcepts';
+import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept, isInvestmentExpenseConcept } from '../utils/expenseConcepts';
+import { getAnalyticsSummary } from '../services/analytics';
 
   const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
@@ -32,6 +33,40 @@ const CARD_LABEL = {
 
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos
 
+const fmtUsd = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '$ 0.00';
+  return `$ ${n.toFixed(2)}`;
+};
+
+const fmtPen = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 'S/ 0.00';
+  return `S/ ${n.toFixed(2)}`;
+};
+
+const parseUsdAmountsText = (value) => {
+  const matches = String(value || '').match(/-?\d+(?:[.,]\d+)?/g) || [];
+  return matches.reduce((sum, raw) => {
+    const n = Number(String(raw).replace(',', '.'));
+    return Number.isFinite(n) ? sum + n : sum;
+  }, 0);
+};
+
+const normalizeSellerSlug = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw.includes('gonzalo')) return 'gonzalo';
+  if (raw.includes('renato')) return 'renato';
+  if (raw === 'ambos') return 'ambos';
+  return '';
+};
+
+const sellerLabel = (slug) => {
+  if (slug === 'gonzalo') return 'Gonzalo';
+  if (slug === 'renato') return 'Renato';
+  return '';
+};
+
 export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [rows, setRows] = useState([]);
   const [cardsSummary, setCardsSummary] = useState([]);
@@ -51,6 +86,15 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [showAnalisisMes, setShowAnalisisMes] = useState(false);
   const [showCiclosTarjeta, setShowCiclosTarjeta] = useState(false);
   const [showEfec, setShowEfec] = useState(false);
+  const [showCompraBudget, setShowCompraBudget] = useState(false);
+  const [compraBudgetLoading, setCompraBudgetLoading] = useState(false);
+  const [compraBudgetError, setCompraBudgetError] = useState('');
+  const [compraBudget, setCompraBudget] = useState(null);
+  const [compraBudgetTc, setCompraBudgetTc] = useState('3.5');
+  const [compraBudgetThirdParty, setCompraBudgetThirdParty] = useState('');
+  const [compraBudgetExtras, setCompraBudgetExtras] = useState('');
+  const [showCompraBudgetTotals, setShowCompraBudgetTotals] = useState(false);
+  const [compraBudgetCustomPct, setCompraBudgetCustomPct] = useState('20');
   const [editingGasto, setEditingGasto] = useState(null);
   const [creditCardFilter, setCreditCardFilter] = useState('all');
 
@@ -61,6 +105,18 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   }, [localStorage.getItem('user')]);
   const isAdmin = user?.role === 'admin';
   const targetUserId = externalUserId ?? user?.id;
+  const selectedUser = useMemo(() => {
+    if (String(targetUserId || '') === String(user?.id || '')) return user;
+    try {
+      const stored = JSON.parse(localStorage.getItem('gastos:selectedUser') || 'null');
+      if (stored && String(stored.id || '') === String(targetUserId || '')) return stored;
+    } catch {}
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetUserId, user?.id, user?.username]);
+  const targetSellerSlug = selectedUser?.role === 'admin'
+    ? 'gonzalo'
+    : normalizeSellerSlug(selectedUser?.username || user?.username || '');
   const cacheKey = useMemo(() => `gastos-panel-cache:${targetUserId ?? 'self'}`, [targetUserId]);
   const rememberTargetUser = () => {
     if (targetUserId == null) return;
@@ -260,6 +316,47 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const openCiclosTarjeta = () => setShowCiclosTarjeta(true);
   const openEfec = () => setShowEfec(true);
   const openEdit = (g) => setEditingGasto(g);
+  const openCompraBudget = async () => {
+    setShowCompraBudget(true);
+    setCompraBudgetError('');
+    setCompraBudgetLoading(true);
+    setShowCompraBudgetTotals(false);
+    try {
+      const analytics = targetSellerSlug
+        ? await getAnalyticsSummary({ vendedor: targetSellerSlug })
+        : null;
+      const investmentRows = rows.filter((g) => isInvestmentExpenseConcept(g?.concepto, conceptCategories));
+      const totalBudgetUsdDirect = investmentRows.reduce((sum, g) => {
+        if (g?.moneda !== 'USD') return sum;
+        const amount = Number(g?.monto || 0);
+        return Number.isFinite(amount) ? sum + amount : sum;
+      }, 0);
+      const totalBudgetPen = investmentRows.reduce((sum, g) => {
+        if (g?.moneda === 'USD') return sum;
+        const amount = Number(g?.monto || 0);
+        return Number.isFinite(amount) ? sum + amount : sum;
+      }, 0);
+      const summary = analytics?.summary || {};
+      const capitalInmovilizadoProductoPen = Number(summary?.capitalInmovilizadoProducto || 0);
+
+      setCompraBudget({
+        seller: sellerLabel(targetSellerSlug),
+        totalBudgetUsdDirect,
+        totalBudgetPen,
+        capitalInmovilizadoProductoPen,
+        capitalInmovilizadoEnvioPen: Number(summary?.capitalInmovilizadoEnvio || 0),
+        capitalInmovilizadoPen: Number(summary?.capitalInmovilizado || 0),
+        investmentRowsCount: investmentRows.length,
+        activeCount: Number(summary?.inventoryActiveUnits || 0),
+      });
+    } catch (e) {
+      console.error('[GastosPanel] presupuesto comprar:', e);
+      setCompraBudgetError('No se pudo calcular el presupuesto para comprar.');
+      setCompraBudget(null);
+    } finally {
+      setCompraBudgetLoading(false);
+    }
+  };
 
   const upsertRow = (row) => {
     if (!row || !row.id) return;
@@ -345,6 +442,51 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     }
   };
 
+  const compraBudgetCalc = useMemo(() => {
+    if (!compraBudget) return null;
+    const tc = Number(compraBudgetTc);
+    const rate = Number.isFinite(tc) && tc > 0 ? tc : 3.5;
+    const thirdPartyUsd = Math.max(0, parseUsdAmountsText(compraBudgetThirdParty));
+    const extrasPen = Math.max(0, parseUsdAmountsText(compraBudgetExtras));
+    const extrasUsd = extrasPen / rate;
+    const investedRawUsd = (Number(compraBudget.capitalInmovilizadoProductoPen || 0) || 0) / rate;
+    const investedOwnUsd = Math.max(0, investedRawUsd - thirdPartyUsd);
+    const cashUsd = (Number(efectivoUsdCalc || 0) || 0) + ((Number(efectivoPenCalc || 0) || 0) / rate);
+    const totalSpentUsd =
+      (Number(compraBudget.totalBudgetUsdDirect || 0) || 0) +
+      ((Number(compraBudget.totalBudgetPen || 0) || 0) / rate);
+    const remainingUsd = investedOwnUsd + cashUsd + extrasUsd - totalSpentUsd;
+    const fixedPct = 20;
+    const customPctRaw = Number(compraBudgetCustomPct);
+    const customPct = Number.isFinite(customPctRaw) ? customPctRaw : 0;
+    const fixedGainUsd = investedOwnUsd * (fixedPct / 100);
+    const customGainUsd = investedOwnUsd * (customPct / 100);
+    const withFixedPctUsd = investedOwnUsd + fixedGainUsd + cashUsd + extrasUsd - totalSpentUsd;
+    const withCustomPctUsd = investedOwnUsd + customGainUsd + cashUsd + extrasUsd - totalSpentUsd;
+
+    return {
+      rate,
+      thirdPartyUsd,
+      extrasPen,
+      extrasUsd,
+      investedRawUsd,
+      investedOwnUsd,
+      cashUsd,
+      totalSpentUsd,
+      remainingUsd,
+      fixedPct,
+      customPct,
+      fixedGainUsd,
+      customGainUsd,
+      withFixedPctUsd,
+      withCustomPctUsd,
+      withFixedPctPen: withFixedPctUsd * rate,
+      withCustomPctPen: withCustomPctUsd * rate,
+      efectivoPenUsd: (Number(efectivoPenCalc || 0) || 0) / rate,
+      efectivoUsd: Number(efectivoUsdCalc || 0) || 0,
+    };
+  }, [compraBudget, compraBudgetTc, compraBudgetThirdParty, compraBudgetExtras, compraBudgetCustomPct, efectivoPenCalc, efectivoUsdCalc]);
+
   return (
     <div className="grid gap-6 gastos-panel">
 
@@ -382,6 +524,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                 <button onClick={openCG} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded-lg border border-gray-300 text-gray-800 hover:bg-gray-100 min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-300">Cuotas / Gastos mensuales</button>
                 <button onClick={openCiclosTarjeta} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 min-h-[40px]">Pagos por ciclo</button>
                 <button onClick={() => setShowAnalisisMes(true)} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 min-h-[40px]">Analisis de gastos</button>
+                <button onClick={openCompraBudget} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[40px]">Ver para compra</button>
                 {typeof setVista === 'function' && (
                   <button
                     onClick={() => {
@@ -623,6 +766,138 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           cards={cardsSummary}
           onClose={() => setShowCiclosTarjeta(false)}
         />
+      )}
+      {showCompraBudget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl ring-1 ring-gray-200">
+            <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Presupuesto para comprar</h3>
+                <div className="text-sm text-gray-500">
+                  {compraBudget?.seller ? `Vendedor: ${compraBudget.seller}` : 'Vendedor no asociado al usuario'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCompraBudget(false)}
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="p-5">
+              {compraBudgetLoading ? (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-600">
+                  Calculando presupuesto...
+                </div>
+              ) : compraBudgetError ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {compraBudgetError}
+                </div>
+              ) : !compraBudget?.seller ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Este usuario no coincide con un vendedor conocido. Usa usuarios como Gonzalo o Renato para cruzar gastos con productos.
+                </div>
+              ) : compraBudgetCalc && (
+                <>
+                  <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                    <label className="text-sm text-gray-700">
+                      Tipo de cambio para este calculo
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={compraBudgetTc}
+                        onChange={(e) => setCompraBudgetTc(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                      />
+                    </label>
+                    <label className="text-sm text-gray-700">
+                      Montos de terceros a restar del invertido
+                      <textarea
+                        value={compraBudgetThirdParty}
+                        onChange={(e) => setCompraBudgetThirdParty(e.target.value)}
+                        placeholder={'100\n250.50'}
+                        rows={2}
+                        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                      />
+                    </label>
+                    <label className="text-sm text-gray-700">
+                      Deudas conmigo / extras a sumar (S/)
+                      <textarea
+                        value={compraBudgetExtras}
+                        onChange={(e) => setCompraBudgetExtras(e.target.value)}
+                        placeholder={'100\n250.50'}
+                        rows={2}
+                        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Gastado total</div>
+                      <div className="mt-2 text-2xl font-semibold text-gray-900">{fmtUsd(compraBudgetCalc.totalSpentUsd)}</div>
+                      <div className="mt-1 text-xs text-gray-500">Gastos tipo inversion / bolsa</div>
+                    </div>
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Invertido propio</div>
+                      <div className="mt-2 text-2xl font-semibold text-gray-900">{fmtUsd(compraBudgetCalc.investedOwnUsd)}</div>
+                      <div className="mt-1 text-xs text-gray-500">Capital inmovilizado de analisis - terceros</div>
+                    </div>
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Efectivo USD</div>
+                      <div className="mt-2 text-2xl font-semibold text-gray-900">{fmtUsd(compraBudgetCalc.cashUsd)}</div>
+                      <div className="mt-1 text-xs text-gray-500">USD + PEN convertido</div>
+                    </div>
+                    <div className={`rounded-xl border p-4 ${compraBudgetCalc.remainingUsd >= 0 ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}>
+                      <div className={`text-xs font-semibold uppercase tracking-wide ${compraBudgetCalc.remainingUsd >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>Resultado</div>
+                      <div className={`mt-2 text-2xl font-semibold ${compraBudgetCalc.remainingUsd >= 0 ? 'text-emerald-900' : 'text-red-900'}`}>{fmtUsd(compraBudgetCalc.remainingUsd)}</div>
+                      <div className={`mt-1 text-xs ${compraBudgetCalc.remainingUsd >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>Invertido + efectivo + extras - gastado</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowCompraBudgetTotals((prev) => !prev)}
+                      className="w-full rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-700 sm:w-auto"
+                    >
+                      {showCompraBudgetTotals ? 'Ocultar total' : 'Ver total'}
+                    </button>
+                  </div>
+
+                  {showCompraBudgetTotals && (
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                        <div className="text-sm font-semibold text-emerald-900">Total con 20%</div>
+                        <div className="mt-2 text-2xl font-semibold text-emerald-950">{fmtUsd(compraBudgetCalc.withFixedPctUsd)}</div>
+                        <div className="mt-1 text-sm text-emerald-800">{fmtPen(compraBudgetCalc.withFixedPctPen)}</div>
+                        <div className="mt-2 text-xs text-emerald-700">Solo suma 20% del invertido propio. Efectivo y extras quedan fijos.</div>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <label className="text-sm font-semibold text-gray-900">
+                          Total con porcentaje
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={compraBudgetCustomPct}
+                            onChange={(e) => setCompraBudgetCustomPct(e.target.value)}
+                            className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                          />
+                        </label>
+                        <div className="mt-3 text-2xl font-semibold text-gray-950">{fmtUsd(compraBudgetCalc.withCustomPctUsd)}</div>
+                        <div className="mt-1 text-sm text-gray-700">{fmtPen(compraBudgetCalc.withCustomPctPen)}</div>
+                        <div className="mt-2 text-xs text-gray-500">Solo suma el porcentaje del invertido propio. Efectivo y extras quedan fijos.</div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
       {showAnalisisMes && (
         <ModalAnalisisGastosMes
