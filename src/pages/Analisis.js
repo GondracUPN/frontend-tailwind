@@ -310,13 +310,11 @@ const avgLocal = (arr = []) => {
 
 
 
- return +(clean.reduce((s, n) => s + n, 0) / clean.length).toFixed(2);
+  return +(clean.reduce((s, n) => s + n, 0) / clean.length).toFixed(2);
 
 
 
- };
-
-
+  };
 
  const quantileLocal = (arr, q) => {
 
@@ -706,6 +704,7 @@ const [isStale, setIsStale] = useState(false);
     comprasCountRaw: comprasFiltered.length,
     usedFallback,
   };
+
 })();
 const estadoCounts = curvaModal.estadoCounts || { nuevo: 0, usado: 0 };
 const estadoOptions = [
@@ -1274,7 +1273,80 @@ const gananciasResumen = useMemo(() => {
 
 
 
- const isGeneral = !appliedDates.from && !appliedDates.to;
+  const isGeneral = !appliedDates.from && !appliedDates.to;
+  const capitalTotalBreakdown = useMemo(() => {
+  const rows = data?.comprasPeriodo || [];
+  const productUsd = rows.reduce((sum, p) => sum + (Number(p?.precioUSD || 0) || 0), 0);
+  const shippingPen = rows.reduce((sum, p) => {
+  const totalPen = Number(p?.costoTotal || 0) || 0;
+  const productPen = (Number(p?.precioUSD || 0) || 0) * TC_FIJO;
+  return sum + Math.max(0, totalPen - productPen);
+  }, 0);
+  return {
+  productUsd: +productUsd.toFixed(2),
+  shippingPen: +shippingPen.toFixed(2),
+  };
+  }, [data?.comprasPeriodo]);
+
+  const capitalTotalAverage = useMemo(() => {
+  const monthKeyFromDate = (value) => {
+  const m = String(value || '').match(/^(\d{4})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}` : '';
+  };
+  const monthIndexFromKey = (key) => {
+  const [year, month] = String(key || '').split('-').map((v) => Number(v));
+  if (!year || !month) return null;
+  return year * 12 + month;
+  };
+  const monthsBetweenKeysInclusive = (fromKey, toKey) => {
+  const from = monthIndexFromKey(fromKey);
+  const to = monthIndexFromKey(toKey);
+  if (from == null || to == null || to < from) return 0;
+  return to - from + 1;
+  };
+  const capitalTotal = Number(data?.summary?.capitalTotal || 0);
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth() + 1;
+
+  if (dateMode === 'year') {
+  const selectedYear = Number(yearKey);
+  if (!selectedYear) return null;
+  const months = selectedYear < currentYear
+  ? 12
+  : selectedYear === currentYear
+  ? currentMonth
+  : 0;
+  if (months <= 0) return null;
+  return {
+  average: +(capitalTotal / months).toFixed(2),
+  months,
+  label: 'Promedio por mes',
+  detail: `${months} meses transcurridos`,
+  };
+  }
+
+  if (!isGeneral) return null;
+
+  const monthKeys = (data?.comprasPeriodo || [])
+  .map((p) => monthKeyFromDate(p?.fechaCompra))
+  .filter(Boolean)
+  .sort();
+  if (!monthKeys.length) return null;
+
+  const firstMonth = monthKeys[0];
+  const currentMonthKey = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+  const lastDataMonth = monthKeys[monthKeys.length - 1];
+  const endMonth = lastDataMonth > currentMonthKey ? lastDataMonth : currentMonthKey;
+  const months = monthsBetweenKeysInclusive(firstMonth, endMonth);
+  if (months <= 0) return null;
+  return {
+  average: +(capitalTotal / months).toFixed(2),
+  months,
+  label: 'Promedio por mes',
+  detail: `${months} meses`,
+  };
+  }, [data?.comprasPeriodo, data?.summary?.capitalTotal, dateMode, isGeneral, yearKey]);
  const ventasMargenRows = useMemo(() => {
  const rows = Array.isArray(data?.sales?.perMonth) ? data.sales.perMonth : [];
  const byMonth = new Map(rows.map((m) => [String(m?.month || '').slice(0, 7), m]));
@@ -1575,7 +1647,25 @@ const gananciasResumen = useMemo(() => {
  }
  />
 
- <Card title="Capital total" value={<Currency v={data.summary?.capitalTotal} />} />
+  <Card
+  title="Capital total"
+  value={<Currency v={data.summary?.capitalTotal} />}
+  sub={
+  <>
+  {capitalTotalAverage ? (
+  <span className="block">
+  {capitalTotalAverage.label}: <Currency v={capitalTotalAverage.average} /> ({capitalTotalAverage.detail})
+  </span>
+  ) : null}
+  {capitalTotalAverage ? (
+  <>
+  <span className="block">Producto USD prom.: {fmtUSD(capitalTotalBreakdown.productUsd / capitalTotalAverage.months)}</span>
+  <span className="block">Envio prom.: <Currency v={capitalTotalBreakdown.shippingPen / capitalTotalAverage.months} /></span>
+  </>
+  ) : null}
+  </>
+  }
+  />
 
 
 

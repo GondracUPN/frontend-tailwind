@@ -11,6 +11,8 @@ const normalizeOcrText = (value) =>
 
 const onlyDigits = (value) => String(value || '').replace(/\D+/g, '');
 const cleanSerial = (value) => String(value || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+const SERIAL_LENGTH = 10;
+const IMEI_LENGTH = 15;
 
 const normalizeOcrDigits = (value) =>
   String(value || '')
@@ -24,7 +26,7 @@ const normalizeOcrDigits = (value) =>
 
 const isValidImei = (value) => {
   const digits = onlyDigits(value);
-  if (digits.length !== 15) return false;
+  if (digits.length !== IMEI_LENGTH) return false;
   let sum = 0;
   for (let i = 0; i < 15; i += 1) {
     let n = Number(digits[i]);
@@ -67,24 +69,24 @@ const extractImeis = (text) => {
   const source = normalizeOcrText(text);
   const found = [];
   const imeiChars = '[0-9OoQqDdIl|!ZzSsGgBb\\s.:-]';
-  const labelRegex = new RegExp(`\\b(?:IMEI|1MEI|IME1|MEID)(?:\\s*[12])?(?:\\s*\\/\\s*MEID)?\\b[\\s:;#-]*(${imeiChars}{15,34})`, 'gi');
+  const labelRegex = new RegExp(`\\b(?:IMEI|1MEI|IME1|MEID)(?:\\s*[12])?(?:\\s*\\/\\s*MEID)?\\b[\\s:;#-]*(${imeiChars}{${IMEI_LENGTH},34})`, 'gi');
   let match;
 
   while ((match = labelRegex.exec(source))) {
-    const digits = normalizeOcrDigits(match[1]).slice(0, 15);
-    if (digits.length === 15) found.push(digits);
+    const digits = normalizeOcrDigits(match[1]).slice(0, IMEI_LENGTH);
+    if (digits.length === IMEI_LENGTH) found.push(digits);
   }
 
   const lineRegex = /(?:\b(?:IMEI|1MEI|IME1|MEID)\b[^\n]{0,60})/gi;
   while ((match = lineRegex.exec(source))) {
-    const digits = normalizeOcrDigits(match[0]).slice(-15);
-    if (digits.length === 15) found.push(digits);
+    const digits = normalizeOcrDigits(match[0]).slice(-IMEI_LENGTH);
+    if (digits.length === IMEI_LENGTH) found.push(digits);
   }
 
-  const looseRegex = /[0-9OoQqDdIl|!ZzSsGgBb](?:[\s.:-]*[0-9OoQqDdIl|!ZzSsGgBb]){14,17}/g;
+  const looseRegex = /\b\d(?:[\s.:-]*\d){14}\b/g;
   while ((match = looseRegex.exec(source))) {
-    const digits = normalizeOcrDigits(match[0]).slice(0, 15);
-    if (digits.length === 15) found.push(digits);
+    const digits = onlyDigits(match[0]);
+    if (digits.length === IMEI_LENGTH) found.push(digits);
   }
 
   const valid = unique(found.filter(isValidImei));
@@ -93,14 +95,14 @@ const extractImeis = (text) => {
 
 const scoreSerialCandidate = (candidate, contextScore = 0) => {
   const value = cleanSerial(candidate);
-  if (value.length < 8 || value.length > 14) return 0;
+  if (value.length !== SERIAL_LENGTH) return 0;
   if (/^\d+$/.test(value)) return 0;
   if (!/[A-Z]/.test(value) || !/\d/.test(value)) return 0;
   if (SERIAL_STOP_WORDS.has(value)) return 0;
   if (Array.from(SERIAL_STOP_WORDS).some((word) => word.length > 4 && value.includes(word))) return 0;
   let score = contextScore + 5;
-  if (value.length >= 10 && value.length <= 12) score += 4;
-  if (/^[A-Z0-9]{10,12}$/.test(value)) score += 3;
+  score += 4;
+  if (/^[A-Z0-9]{10}$/.test(value)) score += 3;
   if (/[IOQ]/.test(value)) score -= 1;
   return score;
 };
@@ -122,14 +124,12 @@ const collectSerialCandidates = (text, imeis) => {
   const addFromContext = (context, contextScore) => {
     const upper = context.toUpperCase();
     const afterLabel = upper.replace(SERIAL_LABEL, ' ');
-    const tokens = afterLabel.match(/\b[A-Z0-9][A-Z0-9-]{7,13}\b/g) || [];
+    const tokens = afterLabel.match(/\b[A-Z0-9][A-Z0-9-]{8,14}\b/g) || [];
     tokens.forEach((token) => addCandidate(token, contextScore));
 
     const compact = afterLabel.replace(/[^A-Z0-9]/g, '');
-    for (let length = 12; length >= 8; length -= 1) {
-      for (let i = 0; i <= compact.length - length; i += 1) {
-        addCandidate(compact.slice(i, i + length), contextScore - 2);
-      }
+    for (let i = 0; i <= compact.length - SERIAL_LENGTH; i += 1) {
+      addCandidate(compact.slice(i, i + SERIAL_LENGTH), contextScore - 2);
     }
   };
 
@@ -140,10 +140,15 @@ const collectSerialCandidates = (text, imeis) => {
     if (lines[index + 2] && cleanSerial(lines[index + 1]).length < 8) addFromContext(lines[index + 2], 8);
   });
 
-  const directRegex = /\b(?:S\/N|S\s*\/\s*N|SN|SERIAL(?:\s+NUMBER)?|SERIAL\s+NO\.?|SERIE|NO\.\s*SERIE|NUMERO\s+DE\s+SERIE|NRO\s+SERIE)\b[\s:;#-]*([A-Z0-9][A-Z0-9\s-]{7,22})/gi;
+  const directRegex = /\b(?:S\/N|S\s*\/\s*N|SN|SERIAL(?:\s+NUMBER)?|SERIAL\s+NO\.?|SERIE|NO\.\s*SERIE|NUMERO\s+DE\s+SERIE|NRO\s+SERIE)\b[\s:;#-]*([A-Z0-9][A-Z0-9\s-]{9,22})/gi;
   let match;
   while ((match = directRegex.exec(source))) {
     addFromContext(match[1], 14);
+  }
+
+  const standaloneRegex = /\b[A-Z0-9]{10}\b/gi;
+  while ((match = standaloneRegex.exec(source))) {
+    addCandidate(match[0], 2);
   }
 
   return Array.from(scored.entries())
@@ -173,7 +178,7 @@ const parseManualIdentifier = (value) => {
   const clean = cleanSerial(value);
   if (!clean) return null;
   if (/^\d{15}$/.test(clean)) return { type: 'imei', label: 'IMEI manual', value: clean };
-  if (/^[A-Z0-9]{8,20}$/.test(clean) && /[A-Z]/.test(clean)) return { type: 'sn', label: 'SN manual', value: clean };
+  if (/^[A-Z0-9]{10}$/.test(clean) && /[A-Z]/.test(clean) && /\d/.test(clean)) return { type: 'sn', label: 'SN manual', value: clean };
   return null;
 };
 

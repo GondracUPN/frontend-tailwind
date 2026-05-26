@@ -29,7 +29,13 @@ const FAMILY_OPTIONS = [
   { id: 'macbook', label: 'MacBook' },
 ];
 const AUCTION_FAMILY_OPTIONS = [
-  ...FAMILY_OPTIONS,
+  { id: 'all', label: 'Todos' },
+  { id: 'ipad', label: 'iPad' },
+  { id: 'iphone', label: 'iPhone 13-17' },
+  { id: 'macbook', label: 'MacBook' },
+  { id: 'imac', label: 'iMac' },
+  { id: 'mac-mini', label: 'Mac mini' },
+  { id: 'apple-watch', label: 'Watch S11/SE3' },
   { id: 'apple-watch-ultra', label: 'Apple Watch Ultra' },
 ];
 
@@ -1041,6 +1047,7 @@ function Ebay({ setVista }) {
 
   const sentinelRef = useRef(null);
   const appendRequestKeyRef = useRef('');
+  const requestSeqRef = useRef({ pawns: 0, product: 0, auctions: 0 });
   const progressHideTimeoutRef = useRef(null);
   const activeProgressTab = appendLoadingTab || loadingTab;
   const activeProgressMode = appendLoadingTab ? 'append' : loadingTab ? 'initial' : '';
@@ -1050,6 +1057,23 @@ function Ebay({ setVista }) {
   const ipadProcessorOptions = getIpadProcessorOptions(ipadForm.line);
   const macbookScreenOptions = getMacbookScreenOptions(macbookForm.line);
   const macbookProcessorOptions = getMacbookProcessorOptions(macbookForm.line);
+
+  const beginEbayRequest = (tab) => {
+    requestSeqRef.current[tab] = Number(requestSeqRef.current[tab] || 0) + 1;
+    return requestSeqRef.current[tab];
+  };
+
+  const isCurrentEbayRequest = (tab, requestId) =>
+    requestSeqRef.current[tab] === requestId;
+
+  const clearLoadingForRequest = (tab, requestId, append) => {
+    if (!isCurrentEbayRequest(tab, requestId)) return;
+    if (append) {
+      setAppendLoadingTab((current) => (current === tab ? '' : current));
+      return;
+    }
+    setLoadingTab((current) => (current === tab ? '' : current));
+  };
 
   const loadEbayRateLimits = async ({ silent = false } = {}) => {
     if (!silent) setEbayRateLoading(true);
@@ -1090,6 +1114,7 @@ function Ebay({ setVista }) {
   };
 
   const loadPawns = async ({ append = false, query = pawnQuery } = {}) => {
+    const requestId = beginEbayRequest('pawns');
     const initialOffset = append ? getNextResultOffset(pawnResult) : 0;
     const trimmedQuery = String(query || '').trim() || 'apple';
     if (append) setAppendLoadingTab('pawns');
@@ -1129,6 +1154,7 @@ function Ebay({ setVista }) {
       }
 
       const finalOffset = Number(data?.offset || initialOffset);
+      if (!isCurrentEbayRequest('pawns', requestId)) return;
       setPawnResult((prev) => ({
         items: append ? mergeUniqueItems(prev.items, receivedItems) : receivedItems,
         sellers: Array.isArray(data?.sellers) ? data.sellers : [],
@@ -1140,14 +1166,14 @@ function Ebay({ setVista }) {
         hasMore: Boolean(data?.hasMore),
       }));
     } catch (err) {
+      if (!isCurrentEbayRequest('pawns', requestId)) return;
       if (/429|limitando|too many requests/i.test(String(err?.message || err))) {
         setPawnResult((prev) => ({ ...prev, hasMore: false }));
       }
       setErrors((prev) => ({ ...prev, pawns: String(err?.message || 'No se pudo cargar la busqueda por pawns.') }));
     } finally {
       loadEbayRateLimits({ silent: false });
-      if (append) setAppendLoadingTab('');
-      else setLoadingTab('');
+      clearLoadingForRequest('pawns', requestId, append);
     }
   };
 
@@ -1161,6 +1187,7 @@ function Ebay({ setVista }) {
           : 'apple';
 
   const loadProductSearch = async ({ append = false } = {}) => {
+    const requestId = beginEbayRequest('product');
     const initialOffset = append ? getNextResultOffset(productResult) : 0;
     if (append) setAppendLoadingTab('product');
     else setLoadingTab('product');
@@ -1264,20 +1291,22 @@ function Ebay({ setVista }) {
         rateLimited: Boolean(data?.rateLimited),
       };
 
+      if (!isCurrentEbayRequest('product', requestId)) return;
       setProductResult((prev) => append ? { ...nextResult, items: mergeUniqueItems(prev.items, filteredItems) } : nextResult);
     } catch (err) {
+      if (!isCurrentEbayRequest('product', requestId)) return;
       if (/429|limitando|too many requests/i.test(String(err?.message || err))) {
         setProductResult((prev) => ({ ...prev, hasMore: false, rateLimited: true }));
       }
       setErrors((prev) => ({ ...prev, product: String(err?.message || 'No se pudo cargar la busqueda por producto.') }));
     } finally {
       loadEbayRateLimits({ silent: false });
-      if (append) setAppendLoadingTab('');
-      else setLoadingTab('');
+      clearLoadingForRequest('product', requestId, append);
     }
   };
 
   const loadAppleAuctions = async ({ append = false } = {}) => {
+    const requestId = beginEbayRequest('auctions');
     const offset = append ? getNextResultOffset(auctionResult) : 0;
     if (append) setAppendLoadingTab('auctions');
     else setLoadingTab('auctions');
@@ -1287,6 +1316,7 @@ function Ebay({ setVista }) {
       const data = await api.get(
         `/utils/ebay/apple-auctions?family=${encodeURIComponent(auctionFamily)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(auctionCondition)}`,
       );
+      if (!isCurrentEbayRequest('auctions', requestId)) return;
       setAuctionResult((prev) => ({
         items: append ? mergeUniqueItems(prev.items, Array.isArray(data?.items) ? data.items : []) : (Array.isArray(data?.items) ? data.items : []),
         sellers: [],
@@ -1301,11 +1331,11 @@ function Ebay({ setVista }) {
         hasMore: typeof data?.hasMore === 'boolean' ? data.hasMore : undefined,
       }));
     } catch (err) {
+      if (!isCurrentEbayRequest('auctions', requestId)) return;
       setErrors((prev) => ({ ...prev, auctions: String(err?.message || 'No se pudo cargar la vista de subastas.') }));
     } finally {
       loadEbayRateLimits({ silent: false });
-      if (append) setAppendLoadingTab('');
-      else setLoadingTab('');
+      clearLoadingForRequest('auctions', requestId, append);
     }
   };
 
