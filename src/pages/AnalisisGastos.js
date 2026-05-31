@@ -20,6 +20,7 @@ const displayConcepto = (c, metodoPago = '') => {
   return String(c || '').replace(/_/g, ' ');
 };
 const sumValues = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]);
+const safeFilePart = (value) => String(value || '').trim().replace(/[^a-z0-9_-]+/gi, '_').replace(/^_+|_+$/g, '') || 'gastos';
 const normalizeSeller = (s) => (s == null ? '' : String(s).trim().toLowerCase());
 const readSessionUser = () => {
   try {
@@ -406,6 +407,96 @@ export default function AnalisisGastos({ setVista }) {
   const pieGradientVida = useMemo(() => buildGradient(pieDataVida), [pieDataVida]);
   const balanceVida = gananciaNetaSeleccionada - gastosVidaPen;
 
+  const allLifeMovs = useMemo(
+    () => rows.filter((r) => isLifeExpenseConcept(r.concepto, conceptCategories)),
+    [rows, conceptCategories],
+  );
+
+  const buildLifeExpenseExport = () => {
+    const normalizeRow = (r) => ({
+      id: r.id,
+      fecha: r.fecha || null,
+      mes: String(r.fecha || '').slice(0, 7) || null,
+      concepto: normalizeConcept(r.concepto),
+      conceptoLabel: displayConcepto(r.concepto || 'otros', r.metodoPago),
+      metodoPago: r.metodoPago || null,
+      tarjetaOBanco: r.tarjeta || null,
+      tarjetaPago: r.tarjetaPago || null,
+      monedaOriginal: r.moneda || null,
+      montoOriginal: Number(r.monto || 0),
+      montoPen: +toPen(r).toFixed(2),
+      montoUsdEquivalente: getUsdEquivalent(r) != null ? +getUsdEquivalent(r).toFixed(2) : null,
+      tasaUsdPen: Number.isFinite(Number(r.tasaUsdPen)) ? Number(r.tasaUsdPen) : null,
+      notas: r.notas || null,
+      cuotasMeses: r.cuotasMeses ?? null,
+      createdAt: r.createdAt || null,
+      updatedAt: r.updatedAt || null,
+    });
+    const sumBy = (items, keyFn) => items.reduce((acc, item) => {
+      const key = keyFn(item) || 'sin_dato';
+      acc[key] = +((acc[key] || 0) + toPen(item)).toFixed(2);
+      return acc;
+    }, {});
+    const historicalByMonth = allLifeMovs.reduce((acc, r) => {
+      const key = String(r.fecha || '').slice(0, 7) || 'sin_mes';
+      if (!acc[key]) acc[key] = { mes: key, totalPen: 0, movimientos: 0 };
+      acc[key].totalPen = +(acc[key].totalPen + toPen(r)).toFixed(2);
+      acc[key].movimientos += 1;
+      return acc;
+    }, {});
+
+    return {
+      tipo: 'gasto_de_vida_para_analisis_chatgpt',
+      generadoEn: new Date().toISOString(),
+      monedaBase: 'PEN',
+      tipoCambioReferencia: TIPO_CAMBIO,
+      instruccionParaChatGPT:
+        'Analiza estos gastos de vida. Encuentra patrones, gastos altos, gastos repetidos, oportunidades de ahorro, categorias a revisar y acciones concretas para el siguiente mes.',
+      usuario: {
+        id: targetUser?.id || sessionUser?.id || null,
+        username: targetUser?.username || sessionUser?.username || null,
+        sellerAnalizado: selectedPersona,
+      },
+      periodoSeleccionado: {
+        mes: month,
+        totalPen: +gastosVidaPen.toFixed(2),
+        movimientos: gastosVidaMovs.length,
+        balanceVsGananciaNetaPen: +balanceVida.toFixed(2),
+        gananciaNetaPen: +gananciaNetaSeleccionada.toFixed(2),
+      },
+      resumenMes: {
+        porConceptoPen: Object.fromEntries(sumValues(byConceptVida).map(([k, v]) => [k, +v.toFixed(2)])),
+        porMetodoPagoPen: sumBy(gastosVidaMovs, (r) => r.metodoPago),
+        porTarjetaOBancoPen: sumBy(gastosVidaMovs, (r) => r.tarjeta || r.tarjetaPago || 'sin_tarjeta'),
+        porDiaPen: dailyTotals
+          .filter((d) => gastosVidaMovs.some((r) => String(r.fecha || '').slice(0, 10) === d.fecha))
+          .map((d) => ({ fecha: d.fecha, totalPen: +d.monto.toFixed(2) })),
+      },
+      historicoGastoVida: Object.values(historicalByMonth).sort((a, b) => String(a.mes).localeCompare(String(b.mes))),
+      movimientosMes: gastosVidaMovs
+        .slice()
+        .sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')) || Number(a.id || 0) - Number(b.id || 0))
+        .map(normalizeRow),
+      movimientosHistoricos: allLifeMovs
+        .slice()
+        .sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')) || Number(a.id || 0) - Number(b.id || 0))
+        .map(normalizeRow),
+    };
+  };
+
+  const downloadLifeExpenseAnalysisFile = () => {
+    const payload = buildLifeExpenseExport();
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `gasto_vida_chatgpt_${safeFilePart(month)}_${safeFilePart(targetUser?.username || sessionUser?.username)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   if (!session.token || !sessionUser) {
     return (
       <LoginGastos
@@ -627,12 +718,21 @@ export default function AnalisisGastos({ setVista }) {
                     <h3 className="font-semibold text-gray-800">Gastos de vida</h3>
                     <span className="text-xs text-gray-500">Incluye debito y credito (sin inversion, bolsa ni envios)</span>
                   </div>
-                  <button
-                    onClick={() => setShowPieVida(true)}
-                    className="text-xs px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
-                  >
-                    Ver grafico
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={downloadLifeExpenseAnalysisFile}
+                      disabled={gastosVidaMovs.length === 0}
+                      className="text-xs px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Descargar para ChatGPT
+                    </button>
+                    <button
+                      onClick={() => setShowPieVida(true)}
+                      className="text-xs px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
+                    >
+                      Ver grafico
+                    </button>
+                  </div>
                 </div>
                 {sumValues(byConceptVida).length === 0 ? (
                   <div className="text-sm text-gray-500">Sin datos en el mes.</div>

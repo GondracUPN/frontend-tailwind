@@ -27,6 +27,7 @@ const FAMILY_OPTIONS = [
   { id: 'ipad', label: 'iPad' },
   { id: 'iphone', label: 'iPhone' },
   { id: 'macbook', label: 'MacBook' },
+  { id: 'keyword', label: 'Palabra clave' },
 ];
 const AUCTION_FAMILY_OPTIONS = [
   { id: 'all', label: 'Todos' },
@@ -91,6 +92,72 @@ const MACBOOK_AIR_PROCESSOR_OPTIONS = ['', 'M1', 'M2', 'M3', 'M4', 'M5'];
 const MACBOOK_PRO_PROCESSOR_OPTIONS = MACBOOK_PROCESSOR_OPTIONS;
 const MACBOOK_RAM_OPTIONS = ['', '8GB', '16GB', '18GB', '24GB', '32GB', '36GB', '48GB', '64GB'];
 const MACBOOK_STORAGE_OPTIONS = ['', '256GB', '512GB', '1TB', '2TB', '4TB', '8TB'];
+const MACBOOK_FAMILY_SEARCH_QUERIES = [
+  'apple macbook',
+  'apple macbook m5',
+  'apple macbook m4',
+  'apple macbook m3',
+  'apple macbook m2',
+  'apple macbook m1',
+  'apple macbook m1 pro',
+  'apple macbook m1 max',
+  'apple macbook m2 pro',
+  'apple macbook m2 max',
+  'apple macbook m3 pro',
+  'apple macbook m3 max',
+  'apple macbook m4 pro',
+  'apple macbook m4 max',
+  'apple macbook m5 pro',
+  'apple macbook m5 max',
+];
+const IPAD_FAMILY_SEARCH_QUERIES = [
+  'apple ipad 10th generation',
+  'apple ipad 11th generation',
+  'apple ipad mini 6th generation',
+  'apple ipad mini 7th generation',
+  'apple ipad air m1',
+  'apple ipad air m2',
+  'apple ipad air m3',
+  'apple ipad air m4',
+  'apple ipad air m5',
+  'apple ipad pro m1',
+  'apple ipad pro m2',
+  'apple ipad pro m4',
+  'apple ipad pro m5',
+];
+const IPHONE_SEARCH_MODELS_BY_NUMBER = {
+  13: ['', 'pro', 'pro max'],
+  14: ['', 'plus', 'pro', 'pro max'],
+  15: ['', 'plus', 'pro', 'pro max'],
+  16: ['', 'e', 'plus', 'pro', 'pro max'],
+  17: ['', 'e', 'pro', 'pro max'],
+};
+const IPHONE_FAMILY_SEARCH_QUERIES = Object.entries(IPHONE_SEARCH_MODELS_BY_NUMBER).flatMap(([number, models]) =>
+  models.map((model) => {
+    const option = { value: model };
+    if (option.value === 'e') return `apple iphone ${number}e unlocked`;
+    return `apple iphone ${number}${option.value ? ` ${option.value}` : ''} unlocked`;
+  }),
+);
+const APPLE_ALL_SEARCH_QUERIES = [
+  'apple ipad',
+  'apple iphone',
+  'apple macbook',
+  'apple watch',
+  'apple watch ultra',
+  'apple airpods',
+  'apple imac',
+  'apple mac mini',
+  'apple pencil',
+  'apple homepod',
+  'apple magic keyboard',
+  'apple keyboard',
+  'apple power adapter',
+  'apple charger',
+  'apple usb c cable',
+  'apple usb-c cable',
+  'apple magsafe charger',
+];
 const COMMON_CONDITION_OPTIONS = [
   { value: '', label: 'Todas' },
   { value: 'used', label: 'Used' },
@@ -137,6 +204,12 @@ const formatDate = (value) => {
     timeStyle: 'short',
   }).format(date);
 };
+
+const getItemListedTime = (item) =>
+  Date.parse(item?.itemOriginDate || item?.itemCreationDate || '') || 0;
+
+const sortItemsByListedDate = (items) =>
+  [...(Array.isArray(items) ? items : [])].sort((a, b) => getItemListedTime(b) - getItemListedTime(a));
 
 const formatNumber = (value) => {
   const num = Number(value);
@@ -274,6 +347,37 @@ const normalizeTitleText = (value) =>
     .trim();
 
 const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const uniqueStrings = (values) => Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)));
+
+const textIncludesKeyword = (title, keyword) => {
+  const normalizedTitle = normalizeTitleText(title);
+  const tokens = normalizeTitleText(keyword).split(/\s+/).filter(Boolean);
+  if (!tokens.length) return true;
+  return tokens.every((token) => normalizedTitle.includes(token));
+};
+
+const hasAnyProductFormValue = (form) =>
+  Object.values(form || {}).some((value) => compactValue(value));
+
+const buildProductSearchQueries = ({ productType, ipadForm, iphoneForm, macbookForm, keyword }) => {
+  if (productType === 'keyword') {
+    return uniqueStrings([compactValue(keyword) || 'apple']);
+  }
+  if (productType === 'ipad') {
+    const queries = hasAnyProductFormValue(ipadForm) ? [buildIpadQuery(ipadForm)] : IPAD_FAMILY_SEARCH_QUERIES;
+    return uniqueStrings(queries);
+  }
+  if (productType === 'iphone') {
+    const queries = hasAnyProductFormValue(iphoneForm) ? [buildIphoneQuery(iphoneForm)] : IPHONE_FAMILY_SEARCH_QUERIES;
+    return uniqueStrings(queries);
+  }
+  if (productType === 'macbook') {
+    const queries = hasAnyProductFormValue(macbookForm) ? [buildMacbookQuery(macbookForm)] : MACBOOK_FAMILY_SEARCH_QUERIES;
+    return uniqueStrings(queries);
+  }
+  return uniqueStrings(APPLE_ALL_SEARCH_QUERIES);
+};
 
 const normalizeIphoneNumber = (value) => {
   const match = normalizeTitleText(value).match(/\b\d{2}\b/);
@@ -462,6 +566,30 @@ const hasAccessoryKeyword = (normalized) =>
 const hasDeviceSignals = (normalized) =>
   DEVICE_SIGNAL_PATTERNS.some((pattern) => pattern.test(normalized));
 
+const MACBOOK_ALLOWED_CHIP_PATTERN = /\bm[1-5](?:\s+(?:pro|max))?\b/;
+const MACBOOK_INTEL_PATTERN = /\b(?:intel|core\s+i[3579]|i[3579][-\s]?\d{3,5})\b/;
+const MACBOOK_BAD_SCREEN_PATTERN = /\b(?:11|12)(?:\.\d+)?\s*(?:inch|in|")?\b/;
+const IPHONE_ALLOWED_PATTERN = /\biphone\s*(?:13|14|15|16|17)\b|\biphone\s*(?:16|17)\s*e\b|\b(?:16|17)e\b/;
+const IPAD_ALLOWED_PATTERN =
+  /\bipad\s+(?:10th|11th|tenth|eleventh)\b|\bipad\s+mini\s+(?:6th|7th|sixth|seventh)\b|\bipad\s+(?:air|pro)\b.*\bm[1-5]\b|\bm[1-5]\b.*\bipad\s+(?:air|pro)\b|\bipad\b.*\ba16\b/;
+const IMAC_ALLOWED_PATTERN = /\b(?:imac|i\s*mac)\b.*\bm[1-5]\b|\bm[1-5]\b.*\b(?:imac|i\s*mac)\b|\ba(?:2438|2439|2873|2874|3137|3247)\b/;
+const MAC_MINI_ALLOWED_PATTERN = /\bmac\s*mini\b.*\bm[1-5]\b|\bm[1-5]\b.*\bmac\s*mini\b|\ba(?:2348|2686|2816|3238|3239)\b/;
+
+const isLikelyAppleCatalogTitle = (title) => {
+  const normalized = normalizeTitleText(title);
+  if (isLikelyAppleDeviceTitle(normalized, 'ipad')) return true;
+  if (isLikelyAppleDeviceTitle(normalized, 'iphone')) return true;
+  if (isLikelyAppleDeviceTitle(normalized, 'macbook')) return true;
+  if (IMAC_ALLOWED_PATTERN.test(normalized) && !MACBOOK_INTEL_PATTERN.test(normalized)) return true;
+  if (MAC_MINI_ALLOWED_PATTERN.test(normalized) && !MACBOOK_INTEL_PATTERN.test(normalized)) return true;
+  if (/\bair\s*pods?\b|\bairpods?\b/.test(normalized)) return true;
+  if (/\bapple\s+watch\b|\biwatch\b/.test(normalized)) return true;
+  if (/\bhome\s*pod\b|\bhomepod\b/.test(normalized)) return true;
+  if (/\bapple\s+pencil\b|\bmagic\s+keyboard\b|\bmagic\s+mouse\b|\bmagic\s+trackpad\b/.test(normalized)) return true;
+  if (/\bapple\b/.test(normalized) && /\b(?:keyboard|power\s+adapter|charger|magsafe|usb\s*-?\s*c\s+cable|cable|adapter)\b/.test(normalized)) return true;
+  return false;
+};
+
 const isAccessoryPrimaryForFamily = (normalized, family) => {
   if (family === 'ipad') {
     return /\bipad(?:\s+(?:pro|air|mini|\d+(?:\.\d+)?))?(?:\s+\w+){0,2}\s+(?:case|sleeve|cover|folio|keyboard|magic keyboard|smart folio|screen protector|protector|pencil)\b/.test(normalized);
@@ -487,9 +615,14 @@ const isPrimaryAccessoryTitle = (title, family = '') => {
 const isLikelyAppleDeviceTitle = (title, family) => {
   const normalized = normalizeTitleText(title);
   if (isPrimaryAccessoryTitle(normalized, family)) return false;
-  if (family === 'ipad') return normalized.includes('ipad');
-  if (family === 'iphone') return normalized.includes('iphone');
-  if (family === 'macbook') return normalized.includes('macbook');
+  if (family === 'ipad') return normalized.includes('ipad') && IPAD_ALLOWED_PATTERN.test(normalized);
+  if (family === 'iphone') return normalized.includes('iphone') && IPHONE_ALLOWED_PATTERN.test(normalized);
+  if (family === 'macbook') {
+    return normalized.includes('macbook') &&
+      MACBOOK_ALLOWED_CHIP_PATTERN.test(normalized) &&
+      !MACBOOK_INTEL_PATTERN.test(normalized) &&
+      !MACBOOK_BAD_SCREEN_PATTERN.test(normalized);
+  }
   return false;
 };
 
@@ -1031,9 +1164,11 @@ function Ebay({ setVista }) {
   const [productCondition, setProductCondition] = useState('');
   const [productBuyingOptions, setProductBuyingOptions] = useState('BEST_OFFER');
   const [productPawnOnly, setProductPawnOnly] = useState(false);
+  const [productMinReviewsOnly, setProductMinReviewsOnly] = useState(false);
+  const [productKeyword, setProductKeyword] = useState('');
   const [productResult, setProductResult] = useState(EMPTY_RESULT);
   const [ipadForm, setIpadForm] = useState({ line: '', number: '', screen: '', processor: '', storage: '', connectivity: '' });
-  const [iphoneForm, setIphoneForm] = useState({ number: '16', model: '' });
+  const [iphoneForm, setIphoneForm] = useState({ number: '', model: '' });
   const [macbookForm, setMacbookForm] = useState({ line: '', screen: '', processor: '', ram: '', storage: '' });
 
   const [auctionFamily, setAuctionFamily] = useState('all');
@@ -1177,14 +1312,14 @@ function Ebay({ setVista }) {
     }
   };
 
-  const productQuery =
-    productType === 'ipad'
-      ? buildIpadQuery(ipadForm)
-      : productType === 'iphone'
-        ? buildIphoneQuery(iphoneForm)
-        : productType === 'macbook'
-          ? buildMacbookQuery(macbookForm)
-          : 'apple';
+  const productQueries = buildProductSearchQueries({
+    productType,
+    ipadForm,
+    iphoneForm,
+    macbookForm,
+    keyword: productKeyword,
+  });
+  const productQuery = productQueries[0] || 'apple';
 
   const loadProductSearch = async ({ append = false } = {}) => {
     const requestId = beginEbayRequest('product');
@@ -1195,14 +1330,22 @@ function Ebay({ setVista }) {
     setErrors((prev) => ({ ...prev, product: '' }));
     try {
       const pawnOnlyParam = productPawnOnly ? '&pawnOnly=1' : '';
-      const buildEndpoint = (offset, options = {}) => {
+      const minReviewsParam = productMinReviewsOnly ? '&minSellerReviews=10000' : '';
+      const activeProductQueries = productQueries.length > 0 ? productQueries : [productQuery];
+      const isMultiQuerySearch = activeProductQueries.length > 1;
+      const buildEndpoint = (query, offset, options = {}) => {
         const cacheOffset = Number(options.cacheOffset || 0);
         const preferCache = options.preferCache ? '1' : '';
-        return `/utils/ebay/search?q=${encodeURIComponent(productQuery)}&limit=${PAGE_SIZE}&offset=${offset}&cacheOffset=${cacheOffset}&preferCache=${preferCache}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}&sort=newlyListed`;
+        return `/utils/ebay/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}&cacheOffset=${cacheOffset}&preferCache=${preferCache}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}${minReviewsParam}&sort=newlyListed`;
       };
       const filterProductItems = (rawItems) => {
+        if (productType === 'keyword') {
+          return compactValue(productKeyword)
+            ? rawItems.filter((item) => textIncludesKeyword(item?.title || '', productKeyword))
+            : rawItems;
+        }
         const familyFilteredItems = productType === 'all'
-          ? rawItems
+          ? rawItems.filter((item) => isLikelyAppleCatalogTitle(item?.title || ''))
           : rawItems.filter((item) => isLikelyAppleDeviceTitle(item?.title || '', productType));
         return productType === 'ipad'
           ? familyFilteredItems.filter((item) => matchIpadItem(item, ipadForm))
@@ -1216,18 +1359,30 @@ function Ebay({ setVista }) {
       let filteredItems = [];
       const seen = new Set(append ? productResult.items.map((item) => getItemKey(item)).filter(Boolean) : []);
       const minScanPages = 1;
-      const maxScanPages = productPawnOnly ? 12 : 10;
-      let cacheOffset = append ? Number(productResult.cacheOffset || 0) : 0;
-      let preferCache = append ? Boolean(productResult.preferCache) : false;
+      const productUsesServerFilter = productPawnOnly || productMinReviewsOnly;
+      const maxScanPages = productUsesServerFilter ? 12 : 10;
+      let cacheOffset = !isMultiQuerySearch && append ? Number(productResult.cacheOffset || 0) : 0;
+      let preferCache = !isMultiQuerySearch && append ? Boolean(productResult.preferCache) : false;
       let lastHasMore = false;
       let lastNextCacheOffset = cacheOffset;
       let lastPreferCache = preferCache;
-      let emptyPawnAppendRetries = 0;
-      const maxEmptyPawnAppendRetries = append && productPawnOnly ? 1 : 0;
+      let emptyFilteredAppendRetries = 0;
+      const maxEmptyFilteredAppendRetries = append && productUsesServerFilter ? 1 : 0;
 
       for (let page = 0; page < maxScanPages; page += 1) {
-        data = await api.get(buildEndpoint(offset, { cacheOffset, preferCache }));
-        const pageItems = filterProductItems(Array.isArray(data?.items) ? data.items : []);
+        const loopOffset = offset;
+        const loopCacheOffset = cacheOffset;
+        const loopPreferCache = preferCache;
+        const pageResults = await Promise.all(
+          activeProductQueries.map((query) => api.get(buildEndpoint(query, loopOffset, {
+            cacheOffset: isMultiQuerySearch ? 0 : loopCacheOffset,
+            preferCache: isMultiQuerySearch ? false : loopPreferCache,
+          }))),
+        );
+        data = pageResults[0] || null;
+        const pageItems = sortItemsByListedDate(
+          filterProductItems(pageResults.flatMap((result) => Array.isArray(result?.items) ? result.items : [])),
+        );
         const newItems = pageItems.filter((item) => {
           const key = getItemKey(item);
           if (!key) return false;
@@ -1236,15 +1391,16 @@ function Ebay({ setVista }) {
           return true;
         });
 
-        filteredItems = [...filteredItems, ...newItems];
-        const hasMore = typeof data?.hasMore === 'boolean'
-          ? data.hasMore
-          : filteredItems.length < Number(data?.total || 0);
+        filteredItems = sortItemsByListedDate([...filteredItems, ...newItems]);
+        const visibleCount = filteredItems.length;
+        const hasMore = pageResults.some((result) => typeof result?.hasMore === 'boolean'
+          ? result.hasMore
+          : visibleCount < Number(result?.total || 0));
         lastHasMore = Boolean(hasMore);
-        const nextCacheOffset = Number.isFinite(Number(data?.nextCacheOffset))
+        const nextCacheOffset = !isMultiQuerySearch && Number.isFinite(Number(data?.nextCacheOffset))
           ? Number(data.nextCacheOffset)
           : cacheOffset;
-        const nextPreferCache = Boolean(data?.nextPreferCache);
+        const nextPreferCache = !isMultiQuerySearch && Boolean(data?.nextPreferCache);
         lastNextCacheOffset = nextCacheOffset;
         lastPreferCache = nextPreferCache;
         const scannedPages = page + 1;
@@ -1258,13 +1414,15 @@ function Ebay({ setVista }) {
           continue;
         }
 
-        offset = getResponseNextOffset(data, offset);
+        offset = isMultiQuerySearch
+          ? offset + PAGE_SIZE
+          : getResponseNextOffset(data, offset);
         cacheOffset = nextCacheOffset;
         preferCache = nextPreferCache;
         if (!hasMore) break;
-        if (productPawnOnly) {
-          if (newItems.length === 0 && emptyPawnAppendRetries < maxEmptyPawnAppendRetries) {
-            emptyPawnAppendRetries += 1;
+        if (productUsesServerFilter) {
+          if (newItems.length === 0 && emptyFilteredAppendRetries < maxEmptyFilteredAppendRetries) {
+            emptyFilteredAppendRetries += 1;
             continue;
           }
           break;
@@ -1277,7 +1435,7 @@ function Ebay({ setVista }) {
         items: filteredItems,
         sellers: Array.isArray(data?.sellers) ? data.sellers : [],
         total: Number(data?.total || 0),
-        query: String(data?.query || productQuery),
+        query: activeProductQueries.length > 1 ? activeProductQueries.join(' | ') : String(data?.query || productQuery),
         sort: String(data?.sort || 'newlyListed'),
         limit: Number(data?.limit || PAGE_SIZE),
         offset: finalOffset,
@@ -1552,6 +1710,8 @@ function Ebay({ setVista }) {
       productCondition,
       productBuyingOptions,
       productPawnOnly,
+      productMinReviewsOnly,
+      productKeyword,
       productType,
       auctionFamily,
       auctionCondition,
@@ -1834,6 +1994,22 @@ function Ebay({ setVista }) {
               </div>
             )}
 
+            {productType === 'keyword' && (
+              <div className="grid gap-3 md:grid-cols-3">
+                <FieldShell label="Palabra clave">
+                  <input
+                    type="text"
+                    value={productKeyword}
+                    onChange={(e) => setProductKeyword(e.target.value)}
+                    placeholder="Ej. apple pencil, mac mini m4, usb c"
+                    className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-sky-500"
+                  />
+                </FieldShell>
+                <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={PRODUCT_CONDITION_OPTIONS} /></FieldShell>
+                <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
+              </div>
+            )}
+
             <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
               <label className="inline-flex w-full items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 sm:w-auto">
                 <input
@@ -1843,6 +2019,15 @@ function Ebay({ setVista }) {
                   className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
                 />
                 Solo tiendas Pawn
+              </label>
+              <label className="inline-flex w-full items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 sm:w-auto">
+                <input
+                  type="checkbox"
+                  checked={productMinReviewsOnly}
+                  onChange={(e) => setProductMinReviewsOnly(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
+                />
+                +10k reviews
               </label>
               <button
                 type="button"
