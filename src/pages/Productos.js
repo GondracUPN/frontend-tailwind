@@ -2886,7 +2886,8 @@ const confirmAction = async () => {
         {modalModo === 'crear' && <ModalProducto onClose={cerrarModal} onSaved={handleSaved} />}
         {modalModo === 'detalle' && (
           <DetallesProductoModal
-            producto={productoSeleccionado}
+            producto={(productos || []).find((p) => p.id === productoSeleccionado?.id) || productoSeleccionado}
+            venta={ventasMap[productoSeleccionado?.id] || null}
             productosAll={productos}
             onClose={cerrarModal}
             onSaved={handleSaved}
@@ -2974,7 +2975,8 @@ const confirmAction = async () => {
         )}
         {modalModo === 'casillero' && productoEnCasillero && (
           <DetallesProductoModal
-            producto={productoEnCasillero}
+            producto={(productos || []).find((p) => p.id === productoEnCasillero?.id) || productoEnCasillero}
+            venta={ventasMap[productoEnCasillero?.id] || null}
             productosAll={productos}
             onClose={() => setProductoEnCasillero(null)}
             onSaved={handleSavedEnCasillero}

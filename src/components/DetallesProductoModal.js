@@ -25,7 +25,7 @@ const pedidoClientFromSeller = (seller) => {
   return match?.[1] ? match[1].trim() : '';
 };
 
-export default function DetallesProductoModal({ producto, productosAll = [], onClose, onSaved, onSaveOutside }) {
+export default function DetallesProductoModal({ producto, venta, productosAll = [], onClose, onSaved, onSaveOutside }) {
   // ----- 1. Estado e inicializacion -----
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState({
@@ -47,6 +47,12 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
   // ----- 2. Cargar datos al montar / cambiar producto -----
   useEffect(() => {
     if (!producto) return;
+    const productSeller = String(producto.vendedor || '').trim();
+    const saleSeller = String(venta?.vendedor || '').trim();
+    const effectiveSeller =
+      pedidoClientFromSeller(saleSeller) && !pedidoClientFromSeller(productSeller)
+        ? saleSeller
+        : productSeller;
     const detalle = { ...(producto.detalle || {}) };
     if (detalle.tamanio && !detalle.tamano) {
       detalle.tamano = detalle.tamanio;
@@ -58,8 +64,8 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
     setForm({
       tipo: producto.tipo,
       estado: producto.estado,
-      vendedor: producto.vendedor || '',
-      pedidoCliente: pedidoClientFromSeller(producto.vendedor || ''),
+      vendedor: effectiveSeller,
+      pedidoCliente: pedidoClientFromSeller(effectiveSeller),
       accesorios: Array.isArray(producto.accesorios) ? producto.accesorios : [],
       detalle, // viene con 'id' -> se filtrar en handleSave
     });
@@ -83,7 +89,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
         }
       }).catch(() => {});
     }
-  }, [producto, productosAll]);
+  }, [producto, productosAll, venta?.vendedor]);
 
   // ----- 3. Handlers genericos -----
   const handleMainChange = (field, value) =>
@@ -238,7 +244,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
               <section className="md:border-l md:pl-4">
                 <h3 className="font-medium mb-2">Envio compartido</h3>
                 <p className="text-sm text-gray-700 mb-2">
-                  Vendedor: <span className="font-medium">{producto.vendedor || 'Sin asignar'}</span>
+                  Vendedor: <span className="font-medium">{form.vendedor && form.vendedor !== OTHER_PEDIDO_SELLER ? form.vendedor : (producto.vendedor || 'Sin asignar')}</span>
                 </p>
                 {producto.envioGrupoId ? (
                   <>
