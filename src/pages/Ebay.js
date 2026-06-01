@@ -5,6 +5,9 @@ import { getAnalyticsSummary } from '../services/analytics';
 import { TC_FIJO } from '../utils/tipoCambio';
 
 const PAGE_SIZE = 140;
+const PRODUCT_SEARCH_BATCH_REQUEST_LIMIT = 10;
+const PRODUCT_SEARCH_MIN_VISIBLE_RESULTS = 14;
+const PRODUCT_SEARCH_SCAN_PAGES_PER_REQUEST = 1;
 const EBAY_VIEWED_ITEMS_KEY = 'ebay:viewed-items:v1';
 const EMPTY_RESULT = {
   items: [],
@@ -20,6 +23,8 @@ const EMPTY_RESULT = {
   hasMore: false,
   cacheOffset: 0,
   preferCache: false,
+  queryStates: [],
+  nextQueryIndex: 0,
 };
 
 const FAMILY_OPTIONS = [
@@ -1333,10 +1338,11 @@ function Ebay({ setVista }) {
       const minReviewsParam = productMinReviewsOnly ? '&minSellerReviews=10000' : '';
       const activeProductQueries = productQueries.length > 0 ? productQueries : [productQuery];
       const isMultiQuerySearch = activeProductQueries.length > 1;
+      const productUsesServerFilter = productPawnOnly || productMinReviewsOnly;
       const buildEndpoint = (query, offset, options = {}) => {
         const cacheOffset = Number(options.cacheOffset || 0);
         const preferCache = options.preferCache ? '1' : '';
-        return `/utils/ebay/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}&cacheOffset=${cacheOffset}&preferCache=${preferCache}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}${minReviewsParam}&sort=newlyListed`;
+        return `/utils/ebay/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}&cacheOffset=${cacheOffset}&preferCache=${preferCache}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}${minReviewsParam}&sort=newlyListed&scanPages=${PRODUCT_SEARCH_SCAN_PAGES_PER_REQUEST}`;
       };
       const filterProductItems = (rawItems) => {
         if (productType === 'keyword') {
@@ -1354,32 +1360,81 @@ function Ebay({ setVista }) {
             : familyFilteredItems;
       };
 
-      let offset = initialOffset;
       let data = null;
       let filteredItems = [];
       const seen = new Set(append ? productResult.items.map((item) => getItemKey(item)).filter(Boolean) : []);
-      const minScanPages = 1;
-      const productUsesServerFilter = productPawnOnly || productMinReviewsOnly;
-      const maxScanPages = productUsesServerFilter ? 12 : 10;
-      let cacheOffset = !isMultiQuerySearch && append ? Number(productResult.cacheOffset || 0) : 0;
-      let preferCache = !isMultiQuerySearch && append ? Boolean(productResult.preferCache) : false;
+      const previousQueryStates = append && Array.isArray(productResult.queryStates)
+        ? productResult.queryStates
+        : [];
+      const canReuseQueryStates = append &&
+        previousQueryStates.length === activeProductQueries.length &&
+        previousQueryStates.every((state, index) => String(state?.query || '') === String(activeProductQueries[index] || ''));
+      const queryStates = canReuseQueryStates
+        ? previousQueryStates.map((state) => ({
+            query: String(state?.query || ''),
+            offset: Math.max(0, Number(state?.offset || 0)),
+            cacheOffset: Math.max(0, Number(state?.cacheOffset || 0)),
+            preferCache: Boolean(state?.preferCache),
+            exhausted: Boolean(state?.exhausted),
+          }))
+        : activeProductQueries.map((query) => ({
+            query,
+            offset: initialOffset,
+            cacheOffset: !isMultiQuerySearch && append ? Number(productResult.cacheOffset || 0) : 0,
+            preferCache: !isMultiQuerySearch && append ? Boolean(productResult.preferCache) : false,
+            exhausted: false,
+          }));
+      let nextQueryIndex = canReuseQueryStates ? Number(productResult.nextQueryIndex || 0) : 0;
       let lastHasMore = false;
-      let lastNextCacheOffset = cacheOffset;
-      let lastPreferCache = preferCache;
-      let emptyFilteredAppendRetries = 0;
-      const maxEmptyFilteredAppendRetries = append && productUsesServerFilter ? 1 : 0;
+      let lastNextCacheOffset = !isMultiQuerySearch && append ? Number(productResult.cacheOffset || 0) : 0;
+      let lastPreferCache = !isMultiQuerySearch && append ? Boolean(productResult.preferCache) : false;
+      let lastRateLimited = false;
+      let totalEstimate = append ? Number(productResult.total || 0) : 0;
+      let completedBatches = 0;
 
-      for (let page = 0; page < maxScanPages; page += 1) {
-        const loopOffset = offset;
-        const loopCacheOffset = cacheOffset;
-        const loopPreferCache = preferCache;
+      while (queryStates.some((state) => !state.exhausted)) {
+        const selectedStates = [];
+        let attempts = 0;
+        while (selectedStates.length < PRODUCT_SEARCH_BATCH_REQUEST_LIMIT && attempts < queryStates.length) {
+          const index = ((nextQueryIndex % queryStates.length) + queryStates.length) % queryStates.length;
+          const state = queryStates[index];
+          nextQueryIndex = (index + 1) % queryStates.length;
+          attempts += 1;
+          if (!state?.exhausted) selectedStates.push({ state, index });
+        }
+        if (!selectedStates.length) break;
+
         const pageResults = await Promise.all(
-          activeProductQueries.map((query) => api.get(buildEndpoint(query, loopOffset, {
-            cacheOffset: isMultiQuerySearch ? 0 : loopCacheOffset,
-            preferCache: isMultiQuerySearch ? false : loopPreferCache,
-          }))),
+          selectedStates.map(({ state }) =>
+            api.get(buildEndpoint(state.query, state.offset, {
+              cacheOffset: isMultiQuerySearch ? 0 : state.cacheOffset,
+              preferCache: isMultiQuerySearch ? false : state.preferCache,
+            })),
+          ),
         );
-        data = pageResults[0] || null;
+        completedBatches += 1;
+        data = pageResults[0] || data;
+        let batchTotal = 0;
+        for (let resultIndex = 0; resultIndex < pageResults.length; resultIndex += 1) {
+          const result = pageResults[resultIndex];
+          const state = selectedStates[resultIndex]?.state;
+          if (!state) continue;
+          const previousOffset = Number(state.offset || 0);
+          const resultHasMore = typeof result?.hasMore === 'boolean'
+            ? result.hasMore
+            : Number(result?.items?.length || 0) > 0;
+          batchTotal += Number(result?.total || 0);
+          state.offset = Number.isFinite(Number(result?.nextOffset))
+            ? Math.max(0, Number(result.nextOffset))
+            : getResponseNextOffset(result, previousOffset);
+          state.cacheOffset = !isMultiQuerySearch && Number.isFinite(Number(result?.nextCacheOffset))
+            ? Number(result.nextCacheOffset)
+            : state.cacheOffset;
+          state.preferCache = !isMultiQuerySearch && Boolean(result?.nextPreferCache);
+          state.exhausted = Boolean(result?.rateLimited) || (!resultHasMore && !state.preferCache);
+          lastRateLimited = lastRateLimited || Boolean(result?.rateLimited);
+        }
+        totalEstimate = Math.max(totalEstimate, batchTotal, filteredItems.length);
         const pageItems = sortItemsByListedDate(
           filterProductItems(pageResults.flatMap((result) => Array.isArray(result?.items) ? result.items : [])),
         );
@@ -1392,65 +1447,48 @@ function Ebay({ setVista }) {
         });
 
         filteredItems = sortItemsByListedDate([...filteredItems, ...newItems]);
-        const visibleCount = filteredItems.length;
-        const hasMore = pageResults.some((result) => typeof result?.hasMore === 'boolean'
-          ? result.hasMore
-          : visibleCount < Number(result?.total || 0));
-        lastHasMore = Boolean(hasMore);
-        const nextCacheOffset = !isMultiQuerySearch && Number.isFinite(Number(data?.nextCacheOffset))
+        lastHasMore = queryStates.some((state) => !state.exhausted);
+        lastNextCacheOffset = !isMultiQuerySearch && Number.isFinite(Number(data?.nextCacheOffset))
           ? Number(data.nextCacheOffset)
-          : cacheOffset;
-        const nextPreferCache = !isMultiQuerySearch && Boolean(data?.nextPreferCache);
-        lastNextCacheOffset = nextCacheOffset;
-        lastPreferCache = nextPreferCache;
-        const scannedPages = page + 1;
+          : lastNextCacheOffset;
+        lastPreferCache = !isMultiQuerySearch && Boolean(data?.nextPreferCache);
 
-        if (data?.fromCache) {
-          cacheOffset = nextCacheOffset;
-          preferCache = nextPreferCache;
-          if (newItems.length > 0) break;
-          if (preferCache) continue;
-          if (!hasMore) break;
-          continue;
-        }
+        const visibleItems = append
+          ? mergeUniqueItems(productResult.items, filteredItems)
+          : filteredItems;
+        const nextResult = {
+          items: visibleItems,
+          sellers: Array.isArray(data?.sellers) ? data.sellers : [],
+          total: Math.max(totalEstimate, visibleItems.length),
+          query: activeProductQueries.length > 1 ? activeProductQueries.join(' | ') : String(data?.query || productQuery),
+          sort: String(data?.sort || 'newlyListed'),
+          limit: Number(data?.limit || PAGE_SIZE),
+          offset: Number(queryStates[0]?.offset || initialOffset),
+          nextOffset: Number(queryStates[0]?.offset || initialOffset),
+          cacheOffset: lastNextCacheOffset,
+          preferCache: lastPreferCache,
+          groups: Array.isArray(data?.groups) ? data.groups : [],
+          family: String(data?.family || productType),
+          buyingOptions: String(data?.buyingOptions || productBuyingOptions),
+          hasMore: lastRateLimited ? false : lastHasMore,
+          rateLimited: lastRateLimited,
+          queryStates: queryStates.map((state) => ({ ...state })),
+          nextQueryIndex,
+        };
+        if (!isCurrentEbayRequest('product', requestId)) return;
+        setProductResult(nextResult);
 
-        offset = isMultiQuerySearch
-          ? offset + PAGE_SIZE
-          : getResponseNextOffset(data, offset);
-        cacheOffset = nextCacheOffset;
-        preferCache = nextPreferCache;
-        if (!hasMore) break;
-        if (productUsesServerFilter) {
-          if (newItems.length === 0 && emptyFilteredAppendRetries < maxEmptyFilteredAppendRetries) {
-            emptyFilteredAppendRetries += 1;
-            continue;
-          }
-          break;
-        }
-        if (filteredItems.length >= PAGE_SIZE && scannedPages >= minScanPages) break;
+        if (lastRateLimited || !lastHasMore) break;
+        if (!productUsesServerFilter) break;
+        const reachedMinimumResults = append
+          ? filteredItems.length >= PRODUCT_SEARCH_MIN_VISIBLE_RESULTS
+          : visibleItems.length >= PRODUCT_SEARCH_MIN_VISIBLE_RESULTS;
+        if (reachedMinimumResults) break;
       }
 
-      const finalOffset = Number(data?.offset || initialOffset);
-      const nextResult = {
-        items: filteredItems,
-        sellers: Array.isArray(data?.sellers) ? data.sellers : [],
-        total: Number(data?.total || 0),
-        query: activeProductQueries.length > 1 ? activeProductQueries.join(' | ') : String(data?.query || productQuery),
-        sort: String(data?.sort || 'newlyListed'),
-        limit: Number(data?.limit || PAGE_SIZE),
-        offset: finalOffset,
-        nextOffset: Number.isFinite(Number(data?.nextOffset)) ? Number(data.nextOffset) : undefined,
-        cacheOffset: lastNextCacheOffset,
-        preferCache: lastPreferCache,
-        groups: Array.isArray(data?.groups) ? data.groups : [],
-        family: String(data?.family || productType),
-        buyingOptions: String(data?.buyingOptions || productBuyingOptions),
-        hasMore: data?.rateLimited ? false : lastHasMore,
-        rateLimited: Boolean(data?.rateLimited),
-      };
-
-      if (!isCurrentEbayRequest('product', requestId)) return;
-      setProductResult((prev) => append ? { ...nextResult, items: mergeUniqueItems(prev.items, filteredItems) } : nextResult);
+      if (!completedBatches && isCurrentEbayRequest('product', requestId)) {
+        setProductResult((prev) => append ? prev : EMPTY_RESULT);
+      }
     } catch (err) {
       if (!isCurrentEbayRequest('product', requestId)) return;
       if (/429|limitando|too many requests/i.test(String(err?.message || err))) {
@@ -1638,10 +1676,10 @@ function Ebay({ setVista }) {
   const currentAppendProgress = loadingProgress.visible && loadingProgress.mode === 'append' && loadingProgress.tab === activeTab
     ? loadingProgress
     : null;
-  const showLoadMoreControls = !currentLoading && (
+  const showLoadMoreControls = (
     currentResult.items.length > 0 || currentHasMore || currentAppending || Boolean(currentAppendProgress)
   ) && (
-    currentHasMore || currentAppending || Boolean(currentAppendProgress)
+    currentHasMore || currentAppending || currentLoading || Boolean(currentAppendProgress)
   );
   const currentItems = useMemo(
     () => currentResult.items.map((item) => ({
@@ -2081,7 +2119,7 @@ function Ebay({ setVista }) {
           </div>
         </div>
 
-        {!currentLoading && currentResult.items.length > 0 && (
+        {currentResult.items.length > 0 && (
           <ResultsGrid
             items={currentItems}
             titleSource={activeTab === 'pawns' ? 'store' : 'seller'}
@@ -2096,10 +2134,10 @@ function Ebay({ setVista }) {
             <button
               type="button"
               onClick={loadMoreCurrent}
-              disabled={currentAppending || !currentHasMore}
+              disabled={currentLoading || currentAppending || !currentHasMore}
               className="rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {currentAppending ? 'Cargando mas...' : 'Cargar mas'}
+              {currentLoading || currentAppending ? 'Cargando mas...' : 'Cargar mas'}
             </button>
             <EbayLoadingPanel
               progress={currentAppendProgress}

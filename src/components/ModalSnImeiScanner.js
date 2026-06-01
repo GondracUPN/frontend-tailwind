@@ -11,8 +11,16 @@ const normalizeOcrText = (value) =>
 
 const onlyDigits = (value) => String(value || '').replace(/\D+/g, '');
 const cleanSerial = (value) => String(value || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
-const SERIAL_LENGTH = 10;
+const SERIAL_MIN_LENGTH = 10;
+const SERIAL_MAX_LENGTH = 12;
 const IMEI_LENGTH = 15;
+
+const SICKW_SERVICES = [
+  { id: '30', label: 'Apple Basic Info', description: 'Servicio #30', cost: '0.05' },
+  { id: '81', label: 'Apple MDM Status', description: 'Servicio #81', cost: '0.30' },
+  { id: '8', label: 'SIM Lock Status', description: 'SICKW Servicio #8', cost: '0.025' },
+  { id: 'ifreeicloud-238', label: 'iFreeiCloud Free Check', description: 'Servicio #238', cost: '0.00' },
+];
 
 const normalizeOcrDigits = (value) =>
   String(value || '')
@@ -95,14 +103,14 @@ const extractImeis = (text) => {
 
 const scoreSerialCandidate = (candidate, contextScore = 0) => {
   const value = cleanSerial(candidate);
-  if (value.length !== SERIAL_LENGTH) return 0;
+  if (value.length < SERIAL_MIN_LENGTH || value.length > SERIAL_MAX_LENGTH) return 0;
   if (/^\d+$/.test(value)) return 0;
   if (!/[A-Z]/.test(value) || !/\d/.test(value)) return 0;
   if (SERIAL_STOP_WORDS.has(value)) return 0;
   if (Array.from(SERIAL_STOP_WORDS).some((word) => word.length > 4 && value.includes(word))) return 0;
   let score = contextScore + 5;
   score += 4;
-  if (/^[A-Z0-9]{10}$/.test(value)) score += 3;
+  if (new RegExp(`^[A-Z0-9]{${SERIAL_MIN_LENGTH},${SERIAL_MAX_LENGTH}}$`).test(value)) score += 3;
   if (/[IOQ]/.test(value)) score -= 1;
   return score;
 };
@@ -124,12 +132,14 @@ const collectSerialCandidates = (text, imeis) => {
   const addFromContext = (context, contextScore) => {
     const upper = context.toUpperCase();
     const afterLabel = upper.replace(SERIAL_LABEL, ' ');
-    const tokens = afterLabel.match(/\b[A-Z0-9][A-Z0-9-]{8,14}\b/g) || [];
+    const tokens = afterLabel.match(/\b[A-Z0-9][A-Z0-9-]{8,16}\b/g) || [];
     tokens.forEach((token) => addCandidate(token, contextScore));
 
     const compact = afterLabel.replace(/[^A-Z0-9]/g, '');
-    for (let i = 0; i <= compact.length - SERIAL_LENGTH; i += 1) {
-      addCandidate(compact.slice(i, i + SERIAL_LENGTH), contextScore - 2);
+    for (let length = SERIAL_MAX_LENGTH; length >= SERIAL_MIN_LENGTH; length -= 1) {
+      for (let i = 0; i <= compact.length - length; i += 1) {
+        addCandidate(compact.slice(i, i + length), contextScore - 2);
+      }
     }
   };
 
@@ -146,7 +156,7 @@ const collectSerialCandidates = (text, imeis) => {
     addFromContext(match[1], 14);
   }
 
-  const standaloneRegex = /\b[A-Z0-9]{10}\b/gi;
+  const standaloneRegex = /\b[A-Z0-9]{10,12}\b/gi;
   while ((match = standaloneRegex.exec(source))) {
     addCandidate(match[0], 2);
   }
@@ -178,7 +188,7 @@ const parseManualIdentifier = (value) => {
   const clean = cleanSerial(value);
   if (!clean) return null;
   if (/^\d{15}$/.test(clean)) return { type: 'imei', label: 'IMEI manual', value: clean };
-  if (/^[A-Z0-9]{10}$/.test(clean) && /[A-Z]/.test(clean) && /\d/.test(clean)) return { type: 'sn', label: 'SN manual', value: clean };
+  if (/^[A-Z0-9]{10,12}$/.test(clean) && /[A-Z]/.test(clean) && /\d/.test(clean)) return { type: 'sn', label: 'SN manual', value: clean };
   return null;
 };
 
@@ -193,6 +203,7 @@ export default function ModalSnImeiScanner({ onClose }) {
   const [imageUrl, setImageUrl] = useState('');
   const [urlInput, setUrlInput] = useState('');
   const [manualInput, setManualInput] = useState('');
+  const [selectedServiceId, setSelectedServiceId] = useState('30');
   const [text, setText] = useState('');
   const [selectedLookup, setSelectedLookup] = useState(null);
   const [sickwResult, setSickwResult] = useState(null);
@@ -201,12 +212,19 @@ export default function ModalSnImeiScanner({ onClose }) {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
   const [checkError, setCheckError] = useState('');
+  const [balance, setBalance] = useState(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [balanceError, setBalanceError] = useState('');
   const [copied, setCopied] = useState(false);
   const [copiedIdentifier, setCopiedIdentifier] = useState('');
   const [hasScanned, setHasScanned] = useState(false);
 
   const parsed = useMemo(() => parseIds(text), [text]);
   const manualOption = useMemo(() => parseManualIdentifier(manualInput), [manualInput]);
+  const selectedService = useMemo(
+    () => SICKW_SERVICES.find((service) => service.id === selectedServiceId) || SICKW_SERVICES[0],
+    [selectedServiceId],
+  );
   const lookupOptions = useMemo(() => {
     const options = [
       manualOption,
@@ -320,13 +338,28 @@ export default function ModalSnImeiScanner({ onClose }) {
       const result = await api.post('/sickw/apple-basic-info', {
         identifier: selectedLookup.value,
         type: selectedLookup.type,
+        serviceId: selectedServiceId,
       });
       setSickwResult(result);
+      if (result?.balance) setBalance({ sickw: result.balance });
     } catch (err) {
       console.error('[ModalSnImeiScanner] SICKW error:', err);
       setCheckError(err?.message || 'No se pudo consultar Apple Basic Info.');
     } finally {
       setChecking(false);
+    }
+  };
+
+  const loadBalance = async () => {
+    setBalanceLoading(true);
+    setBalanceError('');
+    try {
+      const result = await api.get('/sickw/balance');
+      setBalance(result);
+    } catch (err) {
+      setBalanceError(err?.message || 'No se pudo leer saldo.');
+    } finally {
+      setBalanceLoading(false);
     }
   };
 
@@ -360,7 +393,7 @@ export default function ModalSnImeiScanner({ onClose }) {
         <CloseX onClick={onClose} />
         <div className="mb-4">
           <h2 className="text-lg font-semibold">Escanear SN / IMEI</h2>
-          <p className="text-sm text-gray-500">Sube una imagen o pega una URL para consultar Apple Basic Info.</p>
+          <p className="text-sm text-gray-500">Sube una imagen o pega una URL para consultar el servicio seleccionado.</p>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,0.95fr)_minmax(22rem,1.05fr)]">
@@ -424,10 +457,50 @@ export default function ModalSnImeiScanner({ onClose }) {
             <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-gray-900">Apple Basic Info</div>
-                  <div className="text-xs text-gray-500">Servicio SICKW #30 - costo 0.05 USD</div>
+                  <div className="text-sm font-semibold text-gray-900">{selectedService.label}</div>
+                  <div className="text-xs text-gray-500">{selectedService.description} - costo {selectedService.cost} USD</div>
                 </div>
-                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-blue-100">Basic</span>
+                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-blue-100">API</span>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                <div className="text-xs text-gray-600">
+                  Saldo SICKW:{' '}
+                  <span className="font-semibold text-gray-900">
+                    {balance?.sickw?.available ? balance.sickw.label : balance?.sickw?.error ? 'No disponible' : '-'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadBalance}
+                  disabled={balanceLoading || loading || checking}
+                  className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {balanceLoading ? 'Leyendo...' : 'Actualizar saldo'}
+                </button>
+                {balanceError && <div className="basis-full text-xs font-medium text-red-600">{balanceError}</div>}
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {SICKW_SERVICES.map((service) => {
+                  const active = selectedServiceId === service.id;
+                  return (
+                    <button
+                      key={service.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedServiceId(service.id);
+                        setSickwResult(null);
+                        setCheckError('');
+                      }}
+                      disabled={loading || checking}
+                      className={`rounded-lg border px-3 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${active ? 'border-blue-500 bg-white ring-2 ring-blue-100' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                    >
+                      <div className="text-sm font-semibold text-gray-900">{service.label}</div>
+                      <div className="text-xs text-gray-500">{service.description} - ${service.cost}</div>
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="mt-4 grid gap-2">
@@ -494,7 +567,7 @@ export default function ModalSnImeiScanner({ onClose }) {
                 disabled={loading || checking || !selectedLookup?.value}
                 className="mt-4 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {checking ? 'Consultando SICKW...' : 'Consultar Apple Basic Info'}
+                {checking ? 'Consultando...' : `Consultar ${selectedService.label}`}
               </button>
               {checkError && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{checkError}</div>}
             </div>
@@ -502,8 +575,8 @@ export default function ModalSnImeiScanner({ onClose }) {
             {sickwResult && (
               <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
                 <div className="border-b border-gray-100 bg-slate-900 px-4 py-3 text-white">
-                  <div className="text-sm font-semibold">Resultado SICKW</div>
-                  <div className="text-xs text-slate-300">{sickwResult.serviceName} - {sickwResult.identifier}</div>
+                  <div className="text-sm font-semibold">Resultado</div>
+                  <div className="text-xs text-slate-300">{sickwResult.serviceName} - {sickwResult.identifier} - ${sickwResult.costUSD ?? selectedService.cost}</div>
                 </div>
                 <div className="grid gap-2 p-4 sm:grid-cols-2">
                   {(sickwResult.fields || []).map((field) => (

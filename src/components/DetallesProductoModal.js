@@ -7,6 +7,24 @@ import FormProductoWatch from './formParts/FormProductoWatch';
 import FormProductoOtro from './formParts/FormProductoOtro';
 import api from '../api';
 
+const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian Williams'];
+const OTHER_PEDIDO_SELLER = '__otro_nombre_pedido__';
+const titleCaseName = (value) =>
+  String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map((part) => (part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : ''))
+    .join(' ');
+const pedidoSeller = (client) => {
+  const name = titleCaseName(client);
+  return name ? `Gonzalo (${name})` : '';
+};
+const pedidoClientFromSeller = (seller) => {
+  const match = String(seller || '').trim().match(/^gonzalo\s*\(([^)]+)\)$/i);
+  return match?.[1] ? match[1].trim() : '';
+};
+
 export default function DetallesProductoModal({ producto, productosAll = [], onClose, onSaved, onSaveOutside }) {
   // ----- 1. Estado e inicializacion -----
   const [isEditing, setIsEditing] = useState(false);
@@ -14,6 +32,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
     tipo: '',
     estado: '',
     vendedor: '',
+    pedidoCliente: '',
     accesorios: [],        // ['Caja','Cubo','Cable'] o ['Todos']
     detalle: {},           // dinamico segun tipo
   });
@@ -40,6 +59,7 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
       tipo: producto.tipo,
       estado: producto.estado,
       vendedor: producto.vendedor || '',
+      pedidoCliente: pedidoClientFromSeller(producto.vendedor || ''),
       accesorios: Array.isArray(producto.accesorios) ? producto.accesorios : [],
       detalle, // viene con 'id' -> se filtrar en handleSave
     });
@@ -68,9 +88,51 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
   // ----- 3. Handlers genericos -----
   const handleMainChange = (field, value) =>
     setForm(f => ({ ...f, [field]: value }));
+  const handleSellerChange = (value) => {
+    if (value === OTHER_PEDIDO_SELLER) {
+      setForm((f) => ({
+        ...f,
+        vendedor: f.pedidoCliente?.trim() ? pedidoSeller(f.pedidoCliente) : OTHER_PEDIDO_SELLER,
+      }));
+      return;
+    }
+    setForm((f) => ({
+      ...f,
+      vendedor: value,
+      pedidoCliente: pedidoClientFromSeller(value),
+    }));
+  };
+  const handlePedidoClientChange = (value) => {
+    setForm((f) => ({
+      ...f,
+      pedidoCliente: value,
+      vendedor: value.trim() ? pedidoSeller(value) : OTHER_PEDIDO_SELLER,
+    }));
+  };
 
   const handleDetalleChange = (field, value) =>
     setForm(f => ({ ...f, detalle: { ...f.detalle, [field]: value } }));
+
+  const sellerOptions = [
+    { value: '', label: 'Selecciona' },
+    { value: 'Gonzalo', label: 'Gonzalo' },
+    { value: 'Renato', label: 'Renato' },
+    { value: 'ambos', label: 'Ambos' },
+    ...PEDIDO_CLIENTS.map((client) => ({
+      value: pedidoSeller(client),
+      label: pedidoSeller(client),
+    })),
+    { value: OTHER_PEDIDO_SELLER, label: 'Otro nombre' },
+  ];
+  const currentSeller = String(form.vendedor || '').trim();
+  const currentPedidoClient = pedidoClientFromSeller(currentSeller);
+  const isKnownSeller = sellerOptions.some((opt) => opt.value === currentSeller);
+  const sellerSelectValue = currentSeller && isKnownSeller
+    ? currentSeller
+    : currentPedidoClient
+      ? OTHER_PEDIDO_SELLER
+      : currentSeller;
+  const showOtherPedidoInput = sellerSelectValue === OTHER_PEDIDO_SELLER;
 
   // ----- 4. Guardar cambios (PATCH) -----
   const handleSave = async () => {
@@ -85,7 +147,9 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
       Object.entries(form.detalle || {}).filter(([k]) => k !== 'id')
     );
     // payload completo con todos los campos editables (sin 'detalle.id')
-    const payload = { tipo: form.tipo, estado: form.estado, vendedor: form.vendedor || null, accesorios, detalle: cleanDetalle };
+    const vendedorPayload =
+      form.vendedor === OTHER_PEDIDO_SELLER ? null : form.vendedor?.trim() || null;
+    const payload = { tipo: form.tipo, estado: form.estado, vendedor: vendedorPayload, accesorios, detalle: cleanDetalle };
     const primaryLink = Array.isArray(vincularConList) ? vincularConList[0] : null;
     const extraLinks = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
     if (primaryLink) payload.vincularCon = Number(primaryLink);
@@ -481,14 +545,27 @@ export default function DetallesProductoModal({ producto, productosAll = [], onC
                   <label className="block font-medium">Vendedor</label>
                   <select
                     className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    value={form.vendedor}
-                    onChange={e => handleMainChange('vendedor', e.target.value)}
+                    value={sellerSelectValue}
+                    onChange={e => handleSellerChange(e.target.value)}
                   >
-                    <option value="">Selecciona</option>
-                    <option value="Gonzalo">Gonzalo</option>
-                    <option value="Renato">Renato</option>
-                    <option value="ambos">Ambos</option>
+                    {sellerOptions.map((opt) => (
+                      <option key={opt.label} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </select>
+                  {showOtherPedidoInput && (
+                    <>
+                      <label className="block text-sm font-medium mt-3 mb-1">Nombre del cliente</label>
+                      <input
+                        type="text"
+                        className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        value={form.pedidoCliente || ''}
+                        onChange={e => handlePedidoClientChange(e.target.value)}
+                        placeholder="Escribe el nombre"
+                      />
+                    </>
+                  )}
                 </div>
               </div>
             </div>

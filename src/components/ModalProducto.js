@@ -13,6 +13,24 @@ const normalizeText = (val) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian Williams'];
+const OTHER_PEDIDO_SELLER = '__otro_nombre_pedido__';
+const titleCaseName = (value) =>
+  String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map((part) => (part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : ''))
+    .join(' ');
+const pedidoSeller = (client) => {
+  const name = titleCaseName(client);
+  return name ? `Gonzalo (${name})` : '';
+};
+const pedidoClientFromSeller = (seller) => {
+  const match = String(seller || '').trim().match(/^gonzalo\s*\(([^)]+)\)$/i);
+  return match?.[1] ? match[1].trim() : '';
+};
+
 const mapEbayConditionToEstado = (condition) => {
   const c = normalizeText(condition);
   if (c === 'new') return 'nuevo';
@@ -225,6 +243,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     tipo: '',
     estado: '',
     vendedor: '',
+    pedidoCliente: '',
     accesorios: [],
     casillero: '',
     detalle: {
@@ -274,6 +293,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       tipo: producto.tipo || '',
       estado: producto.estado || '',
       vendedor: producto.vendedor || '',
+      pedidoCliente: pedidoClientFromSeller(producto.vendedor || ''),
       accesorios: Array.isArray(producto.accesorios) ? producto.accesorios : [],
       casillero: producto.tracking?.[0]?.casillero || '',
       detalle,
@@ -333,6 +353,27 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     } else {
       setForm((f) => ({ ...f, [section]: { ...f[section], [field]: value } }));
     }
+  };
+  const onSellerChange = (value) => {
+    if (value === OTHER_PEDIDO_SELLER) {
+      setForm((f) => ({
+        ...f,
+        vendedor: f.pedidoCliente?.trim() ? pedidoSeller(f.pedidoCliente) : OTHER_PEDIDO_SELLER,
+      }));
+      return;
+    }
+    setForm((f) => ({
+      ...f,
+      vendedor: value,
+      pedidoCliente: pedidoClientFromSeller(value),
+    }));
+  };
+  const onPedidoClientChange = (value) => {
+    setForm((f) => ({
+      ...f,
+      pedidoCliente: value,
+      vendedor: value.trim() ? pedidoSeller(value) : OTHER_PEDIDO_SELLER,
+    }));
   };
 
   const describeProducto = (p) => {
@@ -504,7 +545,9 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       Object.entries(form.detalle || {}).filter(([k]) => allowedDetalle.includes(k))
     );
 
-    const payload = { ...base, vendedor: form.vendedor || null, detalle: cleanDetalle, valor: form.valor };
+    const vendedorPayload =
+      form.vendedor === OTHER_PEDIDO_SELLER ? null : form.vendedor?.trim() || null;
+    const payload = { ...base, vendedor: vendedorPayload, detalle: cleanDetalle, valor: form.valor };
     const primaryLink = Array.isArray(vincularConList) ? vincularConList[0] : null;
     if (primaryLink) payload.vincularCon = Number(primaryLink);
     if (desvincularEnvio) payload.desvincularEnvio = true;
@@ -542,6 +585,28 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       if (mountedRef.current) setSaving(false);
     }
   };
+
+  const baseSellerOptions = [
+    { value: '', label: 'Selecciona' },
+    { value: 'Gonzalo', label: 'Gonzalo' },
+    { value: 'Renato', label: 'Renato' },
+    { value: 'ambos', label: 'Ambos' },
+    ...PEDIDO_CLIENTS.map((client) => ({
+      value: pedidoSeller(client),
+      label: pedidoSeller(client),
+    })),
+    { value: OTHER_PEDIDO_SELLER, label: 'Otro nombre' },
+  ];
+  const currentSeller = String(form.vendedor || '').trim();
+  const currentPedidoClient = pedidoClientFromSeller(currentSeller);
+  const isKnownSeller = baseSellerOptions.some((opt) => opt.value === currentSeller);
+  const sellerOptions = baseSellerOptions;
+  const sellerSelectValue = currentSeller && isKnownSeller
+    ? currentSeller
+    : currentPedidoClient
+      ? OTHER_PEDIDO_SELLER
+      : currentSeller;
+  const showOtherPedidoInput = sellerSelectValue === OTHER_PEDIDO_SELLER;
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -950,14 +1015,27 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                   <label className="block font-medium mb-1">Vendedor</label>
                   <select
                     className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    value={form.vendedor}
-                    onChange={e => onChange('main', 'vendedor', e.target.value)}
+                    value={sellerSelectValue}
+                    onChange={e => onSellerChange(e.target.value)}
                   >
-                    <option value="">Selecciona</option>
-                    <option value="Gonzalo">Gonzalo</option>
-                    <option value="Renato">Renato</option>
-                    <option value="ambos">Ambos</option>
+                    {sellerOptions.map((opt) => (
+                      <option key={opt.label} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </select>
+                  {showOtherPedidoInput && (
+                    <>
+                      <label className="block text-sm font-medium mt-3 mb-1">Nombre del cliente</label>
+                      <input
+                        type="text"
+                        className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        value={form.pedidoCliente || ''}
+                        onChange={e => onPedidoClientChange(e.target.value)}
+                        placeholder="Escribe el nombre"
+                      />
+                    </>
+                  )}
                 </div>
               </div>
             </div>

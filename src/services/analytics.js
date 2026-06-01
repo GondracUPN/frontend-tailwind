@@ -62,3 +62,7 @@ export async function getProfitComparison(params = {}) {
   const path = qs ? `/analytics/profit/compare?${qs}` : '/analytics/profit/compare';
   return cachedGet(path, 90_000);
 }
+
+export async function getPedidoSalesSummary() {
+  return cachedGet('/ventas/a-pedido', 30_000);
+}

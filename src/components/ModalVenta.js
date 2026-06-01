@@ -9,7 +9,26 @@ const formatSeller = (value) => {
   if (slug === 'gonzalo') return 'Gonzalo';
   if (slug === 'renato') return 'Renato';
   if (slug === 'ambos') return 'Ambos';
+  const pedidoMatch = String(value || '').trim().match(/^gonzalo\s*\(([^)]+)\)$/i);
+  if (pedidoMatch?.[1]) return `Gonzalo (${pedidoMatch[1].trim()})`;
   return '';
+};
+
+const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian Williams'];
+const titleCaseName = (value) =>
+  String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map((part) => (part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : ''))
+    .join(' ');
+const pedidoSeller = (client) => {
+  const name = titleCaseName(client);
+  return name ? `Gonzalo (${name})` : '';
+};
+const pedidoClientFromSeller = (seller) => {
+  const match = String(seller || '').trim().match(/^gonzalo\s*\(([^)]+)\)$/i);
+  return match?.[1] ? match[1].trim() : '';
 };
 
 export default function ModalVenta({
@@ -28,12 +47,14 @@ export default function ModalVenta({
     tipoCambioRenato: '',
     fechaVenta: '',
     precioVenta: '',
+    vendedor: '',
+    pedidoCliente: '',
   });
 
   const sellerSlug = normalizeSeller(
-    producto?.vendedor || venta?.vendedor || presetVendedor || '',
+    form.vendedor || venta?.vendedor || producto?.vendedor || presetVendedor || '',
   );
-  const sellerLabel = formatSeller(sellerSlug) || 'Sin vendedor asignado';
+  const sellerLabel = formatSeller(form.vendedor || venta?.vendedor || producto?.vendedor || presetVendedor) || 'Sin vendedor asignado';
   const isReadOnly = Boolean(venta) && !editMode;
   const isSplitVenta = Boolean(
     venta &&
@@ -45,6 +66,7 @@ export default function ModalVenta({
   const splitModeActive = venta ? isSplitVenta : isSplitCreate;
 
   useEffect(() => {
+    const initialSeller = venta?.vendedor || presetVendedor || producto?.vendedor || '';
     if (venta) {
       setForm({
         tipoCambio: venta.tipoCambio != null ? String(venta.tipoCambio) : '',
@@ -54,6 +76,8 @@ export default function ModalVenta({
           venta.tipoCambioRenato != null ? String(venta.tipoCambioRenato) : '',
         fechaVenta: venta.fechaVenta ?? '',
         precioVenta: venta.precioVenta != null ? String(venta.precioVenta) : '',
+        vendedor: initialSeller,
+        pedidoCliente: pedidoClientFromSeller(initialSeller),
       });
       return;
     }
@@ -64,6 +88,8 @@ export default function ModalVenta({
       tipoCambioRenato: '',
       fechaVenta: '',
       precioVenta: '',
+      vendedor: initialSeller,
+      pedidoCliente: pedidoClientFromSeller(initialSeller),
     });
   }, [venta, producto?.id, producto?.vendedor, presetVendedor, allowVendedorOnCreate]);
 
@@ -75,6 +101,20 @@ export default function ModalVenta({
 
   const onChange = (field, value) =>
     setForm((prev) => ({ ...prev, [field]: value }));
+  const onSellerChange = (value) => {
+    setForm((prev) => ({
+      ...prev,
+      vendedor: value,
+      pedidoCliente: pedidoClientFromSeller(value),
+    }));
+  };
+  const onPedidoClientChange = (value) => {
+    setForm((prev) => ({
+      ...prev,
+      pedidoCliente: value,
+      vendedor: value.trim() ? pedidoSeller(value) : '',
+    }));
+  };
 
   const validate = () => {
     if (splitModeActive) {
@@ -117,8 +157,7 @@ export default function ModalVenta({
         body.vendedor = 'ambos';
       } else {
         body.tipoCambio = Number(form.tipoCambio);
-        if (sellerSlug === 'gonzalo') body.vendedor = 'Gonzalo';
-        if (sellerSlug === 'renato') body.vendedor = 'Renato';
+        if (form.vendedor?.trim()) body.vendedor = form.vendedor.trim();
       }
 
       const saved = await api.post('/ventas', body);
@@ -152,12 +191,7 @@ export default function ModalVenta({
         payload.vendedor = 'ambos';
       } else {
         payload.tipoCambio = Number(form.tipoCambio);
-        payload.vendedor =
-          sellerSlug === 'gonzalo'
-            ? 'Gonzalo'
-            : sellerSlug === 'renato'
-              ? 'Renato'
-              : null;
+        payload.vendedor = form.vendedor?.trim() || null;
       }
 
       const updated = await api.patch(`/ventas/${venta.id}`, payload);
@@ -302,6 +336,50 @@ export default function ModalVenta({
     </>
   );
 
+  const sellerOptions = [
+    { value: '', label: 'Sin vendedor' },
+    { value: 'Gonzalo', label: 'Gonzalo' },
+    { value: 'Renato', label: 'Renato' },
+    { value: 'ambos', label: 'Ambos' },
+    ...PEDIDO_CLIENTS.map((client) => ({
+      value: pedidoSeller(client),
+      label: pedidoSeller(client),
+    })),
+  ];
+  const sellerSelectValue = sellerOptions.some((opt) => opt.value === form.vendedor)
+    ? form.vendedor
+    : '';
+  const renderSellerField = () => (
+    <div className="rounded-lg border p-3 bg-gray-50 space-y-3">
+      <div>
+        <label className="block font-medium mb-1">Vendedor</label>
+        <select
+          className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          value={sellerSelectValue}
+          onChange={(e) => onSellerChange(e.target.value)}
+          disabled={isReadOnly}
+        >
+          {sellerOptions.map((opt) => (
+            <option key={opt.label} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Otro cliente a pedido</label>
+        <input
+          type="text"
+          className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          value={form.pedidoCliente}
+          onChange={(e) => onPedidoClientChange(e.target.value)}
+          placeholder="Nombre del cliente"
+          disabled={isReadOnly}
+        />
+      </div>
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white w-full sm:max-w-lg rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-y-auto">
@@ -331,6 +409,7 @@ export default function ModalVenta({
 
         {!venta && (
           <div className="space-y-4">
+            {renderSellerField()}
             {splitModeActive ? renderSplitFields() : renderSingleFields()}
             <div className="text-right">
               <button
@@ -421,6 +500,7 @@ export default function ModalVenta({
 
         {venta && !isReadOnly && (
           <div className="space-y-4">
+            {renderSellerField()}
             {splitModeActive ? renderSplitFields() : renderSingleFields()}
             <div className="flex items-center justify-end gap-2">
               <button
