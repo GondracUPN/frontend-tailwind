@@ -139,6 +139,12 @@ const writeCache = (productos, ventasMap, resumen, adelantosMap) => {
   }
 };
 
+const isPedidoSeller = (value) => /^gonzalo\s*\([^)]+\)$/i.test(String(value || '').trim());
+const shouldSyncVentaSeller = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  return !raw || raw === 'gonzalo' || raw === 'renato' || raw === 'ambos';
+};
+
 export default function Productos({ setVista, setAnalisisBack }) {
   const cached = readCache();
   const [productos, setProductos] = useState(() => cached?.productos || []);
@@ -1597,6 +1603,16 @@ const confirmAction = async () => {
       const res = await api.patch('/productos/' + id, payload);
       const updated = res?.data ?? res;
       applyProductoUpdate(updated, { isNuevo: false, closeModal: false });
+      const nextSeller = String(updated?.vendedor || payload?.vendedor || '').trim();
+      if (isPedidoSeller(nextSeller)) {
+        setVentasMap((prev) => {
+          const current = prev?.[id];
+          if (!current || !shouldSyncVentaSeller(current.vendedor)) return prev;
+          const next = { ...prev, [id]: { ...current, vendedor: nextSeller } };
+          writeCache(productosRef.current, next, resumenRef.current, adelantosRef.current);
+          return next;
+        });
+      }
     } catch (e) {
       console.error('[Productos] Error al guardar producto', e);
       alert('No se pudo actualizar el producto.');
@@ -1614,6 +1630,16 @@ const confirmAction = async () => {
     const currentList = productosRef.current || [];
     const isNuevo = updated?.id ? !currentList.some((p) => p.id === updated.id) : modalModo === 'crear';
     applyProductoUpdate(updated, { isNuevo, closeModal: false });
+    const nextSeller = String(updated?.vendedor || '').trim();
+    if (updated?.id && isPedidoSeller(nextSeller)) {
+      setVentasMap((prev) => {
+        const current = prev?.[updated.id];
+        if (!current || !shouldSyncVentaSeller(current.vendedor)) return prev;
+        const next = { ...prev, [updated.id]: { ...current, vendedor: nextSeller } };
+        writeCache(productosRef.current, next, resumenRef.current, adelantosRef.current);
+        return next;
+      });
+    }
     if (trackingUpdate && updated?.id) {
       applyTrackingUpdate(updated.id, trackingUpdate);
     }
