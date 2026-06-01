@@ -14,7 +14,7 @@ const formatSeller = (value) => {
   return '';
 };
 
-const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian Williams'];
+const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian', 'Williams'];
 const titleCaseName = (value) =>
   String(value || '')
     .trim()

@@ -7,7 +7,7 @@ import FormProductoWatch from './formParts/FormProductoWatch';
 import FormProductoOtro from './formParts/FormProductoOtro';
 import api from '../api';
 
-const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian Williams'];
+const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian', 'Williams'];
 const OTHER_PEDIDO_SELLER = '__otro_nombre_pedido__';
 const titleCaseName = (value) =>
   String(value || '')

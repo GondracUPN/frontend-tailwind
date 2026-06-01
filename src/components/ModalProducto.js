@@ -13,7 +13,7 @@ const normalizeText = (val) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian Williams'];
+const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian', 'Williams'];
 const OTHER_PEDIDO_SELLER = '__otro_nombre_pedido__';
 const titleCaseName = (value) =>
   String(value || '')
