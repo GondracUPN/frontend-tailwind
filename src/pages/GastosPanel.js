@@ -10,7 +10,7 @@ import ModalEditarGasto from '../components/ModalEditarGasto';
 import ModalEditarEfectivo from '../components/ModalEditarEfectivo';
 import ModalAnalisisGastosMes from '../components/ModalAnalisisGastosMes';
 import ModalCiclosTarjeta from '../components/ModalCiclosTarjeta';
-import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept, isInvestmentExpenseConcept } from '../utils/expenseConcepts';
+import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept } from '../utils/expenseConcepts';
 import { getAnalyticsSummary } from '../services/analytics';
 
   const fmtMoney = (moneda, monto) => {
@@ -322,31 +322,48 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     setCompraBudgetLoading(true);
     setShowCompraBudgetTotals(false);
     try {
-      const analytics = targetSellerSlug
-        ? await getAnalyticsSummary({ vendedor: targetSellerSlug })
-        : null;
-      const investmentRows = rows.filter((g) => isInvestmentExpenseConcept(g?.concepto, conceptCategories));
-      const totalBudgetUsdDirect = investmentRows.reduce((sum, g) => {
-        if (g?.moneda !== 'USD') return sum;
-        const amount = Number(g?.monto || 0);
-        return Number.isFinite(amount) ? sum + amount : sum;
-      }, 0);
-      const totalBudgetPen = investmentRows.reduce((sum, g) => {
-        if (g?.moneda === 'USD') return sum;
-        const amount = Number(g?.monto || 0);
-        return Number.isFinite(amount) ? sum + amount : sum;
-      }, 0);
+      const [analytics, adelantosData] = targetSellerSlug
+        ? await Promise.all([
+            getAnalyticsSummary({ vendedor: targetSellerSlug }),
+            fetch(`${API_URL}/ventas/adelantos/ultimos`, {
+              headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            })
+              .then((res) => (res.ok ? res.json() : []))
+              .catch(() => []),
+          ])
+        : [null, []];
       const summary = analytics?.summary || {};
-      const capitalInmovilizadoProductoPen = Number(summary?.capitalInmovilizadoProducto || 0);
+      const comprasPeriodo = Array.isArray(analytics?.comprasPeriodo) ? analytics.comprasPeriodo : [];
+      const productShareById = new Map(
+        comprasPeriodo.map((p) => [Number(p?.productoId), Number(p?.participacion ?? 1) || 1]),
+      );
+      const activeAdelantos = (Array.isArray(adelantosData) ? adelantosData : []).filter((a) =>
+        productShareById.has(Number(a?.productoId)),
+      );
+      const adelantosPen = activeAdelantos.reduce((sum, a) => {
+        const share = productShareById.get(Number(a?.productoId)) || 1;
+        const amount = Number(a?.montoAdelanto || 0);
+        return Number.isFinite(amount) ? sum + amount * share : sum;
+      }, 0);
+      const adelantosSaldoPen = activeAdelantos.reduce((sum, a) => {
+        const share = productShareById.get(Number(a?.productoId)) || 1;
+        const venta = Number(a?.montoVenta || 0);
+        const adelanto = Number(a?.montoAdelanto || 0);
+        const saldo = Math.max(0, venta - adelanto);
+        return Number.isFinite(saldo) ? sum + saldo * share : sum;
+      }, 0);
 
       setCompraBudget({
         seller: sellerLabel(targetSellerSlug),
-        totalBudgetUsdDirect,
-        totalBudgetPen,
-        capitalInmovilizadoProductoPen,
+        totalCardUsd: Number(cardsTotals.usd || 0),
+        totalCardPen: Number(cardsTotals.pen || 0),
+        capitalInmovilizadoProductoPen: Number(summary?.capitalInmovilizadoProducto || 0),
         capitalInmovilizadoEnvioPen: Number(summary?.capitalInmovilizadoEnvio || 0),
         capitalInmovilizadoPen: Number(summary?.capitalInmovilizado || 0),
-        investmentRowsCount: investmentRows.length,
+        adelantosPen,
+        adelantosSaldoPen,
+        activeAdelantosCount: activeAdelantos.length,
+        investmentRowsCount: comprasPeriodo.length,
         activeCount: Number(summary?.inventoryActiveUnits || 0),
       });
     } catch (e) {
@@ -447,15 +464,24 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     const tc = Number(compraBudgetTc);
     const rate = Number.isFinite(tc) && tc > 0 ? tc : 3.5;
     const thirdPartyUsd = Math.max(0, parseUsdAmountsText(compraBudgetThirdParty));
-    const extrasPen = Math.max(0, parseUsdAmountsText(compraBudgetExtras));
+    const manualExtrasPen = Math.max(0, parseUsdAmountsText(compraBudgetExtras));
+    const adelantosSaldoPen = Math.max(0, Number(compraBudget.adelantosSaldoPen || 0) || 0);
+    const extrasPen = manualExtrasPen + adelantosSaldoPen;
     const extrasUsd = extrasPen / rate;
-    const investedRawUsd = (Number(compraBudget.capitalInmovilizadoProductoPen || 0) || 0) / rate;
-    const investedOwnUsd = Math.max(0, investedRawUsd - thirdPartyUsd);
+    const advanceDiscountPen = Math.max(0, Number(compraBudget.adelantosPen || 0) || 0);
+    const advanceDiscountUsd = advanceDiscountPen / rate;
+    const investedRawPen = Number(compraBudget.capitalInmovilizadoPen || 0) || 0;
+    const investedRawUsd = investedRawPen / rate;
+    const investedOwnUsd = Math.max(0, investedRawUsd - thirdPartyUsd - advanceDiscountUsd);
+    const investedOwnPen = investedOwnUsd * rate;
     const cashUsd = (Number(efectivoUsdCalc || 0) || 0) + ((Number(efectivoPenCalc || 0) || 0) / rate);
+    const cashPen = cashUsd * rate;
     const totalSpentUsd =
-      (Number(compraBudget.totalBudgetUsdDirect || 0) || 0) +
-      ((Number(compraBudget.totalBudgetPen || 0) || 0) / rate);
+      (Number(compraBudget.totalCardUsd || 0) || 0) +
+      ((Number(compraBudget.totalCardPen || 0) || 0) / rate);
+    const totalSpentPen = totalSpentUsd * rate;
     const remainingUsd = investedOwnUsd + cashUsd + extrasUsd - totalSpentUsd;
+    const remainingPen = remainingUsd * rate;
     const fixedPct = 20;
     const customPctRaw = Number(compraBudgetCustomPct);
     const customPct = Number.isFinite(customPctRaw) ? customPctRaw : 0;
@@ -467,13 +493,22 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     return {
       rate,
       thirdPartyUsd,
+      manualExtrasPen,
       extrasPen,
       extrasUsd,
+      adelantosSaldoPen,
+      advanceDiscountPen,
+      advanceDiscountUsd,
       investedRawUsd,
+      investedRawPen,
       investedOwnUsd,
+      investedOwnPen,
       cashUsd,
+      cashPen,
       totalSpentUsd,
+      totalSpentPen,
       remainingUsd,
+      remainingPen,
       fixedPct,
       customPct,
       fixedGainUsd,
@@ -814,7 +849,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                       />
                     </label>
                     <label className="text-sm text-gray-700">
-                      Montos de terceros a restar del invertido
+                      Montos de terceros a restar del invertido (US$)
                       <textarea
                         value={compraBudgetThirdParty}
                         onChange={(e) => setCompraBudgetThirdParty(e.target.value)}
@@ -824,7 +859,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                       />
                     </label>
                     <label className="text-sm text-gray-700">
-                      Deudas conmigo / extras a sumar (S/)
+                      Extras manuales a sumar (S/)
                       <textarea
                         value={compraBudgetExtras}
                         onChange={(e) => setCompraBudgetExtras(e.target.value)}
@@ -839,24 +874,35 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                     <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
                       <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Gastado total</div>
                       <div className="mt-2 text-2xl font-semibold text-gray-900">{fmtUsd(compraBudgetCalc.totalSpentUsd)}</div>
-                      <div className="mt-1 text-xs text-gray-500">Gastos tipo inversion / bolsa</div>
+                      <div className="mt-1 text-sm font-semibold text-gray-700">{fmtPen(compraBudgetCalc.totalSpentPen)}</div>
+                      <div className="mt-1 text-xs text-gray-500">Gasto total general</div>
                     </div>
                     <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
                       <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Invertido propio</div>
                       <div className="mt-2 text-2xl font-semibold text-gray-900">{fmtUsd(compraBudgetCalc.investedOwnUsd)}</div>
-                      <div className="mt-1 text-xs text-gray-500">Capital inmovilizado de analisis - terceros</div>
+                      <div className="mt-1 text-sm font-semibold text-gray-700">{fmtPen(compraBudgetCalc.investedOwnPen)}</div>
+                      <div className="mt-1 text-xs text-gray-500">Capital inmovilizado</div>
                     </div>
                     <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Efectivo USD</div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Efectivo</div>
                       <div className="mt-2 text-2xl font-semibold text-gray-900">{fmtUsd(compraBudgetCalc.cashUsd)}</div>
+                      <div className="mt-1 text-sm font-semibold text-gray-700">{fmtPen(compraBudgetCalc.cashPen)}</div>
                       <div className="mt-1 text-xs text-gray-500">USD + PEN convertido</div>
                     </div>
                     <div className={`rounded-xl border p-4 ${compraBudgetCalc.remainingUsd >= 0 ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}>
                       <div className={`text-xs font-semibold uppercase tracking-wide ${compraBudgetCalc.remainingUsd >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>Resultado</div>
                       <div className={`mt-2 text-2xl font-semibold ${compraBudgetCalc.remainingUsd >= 0 ? 'text-emerald-900' : 'text-red-900'}`}>{fmtUsd(compraBudgetCalc.remainingUsd)}</div>
+                      <div className={`mt-1 text-sm font-semibold ${compraBudgetCalc.remainingUsd >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>{fmtPen(compraBudgetCalc.remainingPen)}</div>
                       <div className={`mt-1 text-xs ${compraBudgetCalc.remainingUsd >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>Invertido + efectivo + extras - gastado</div>
                     </div>
                   </div>
+
+                  {(compraBudgetCalc.advanceDiscountPen > 0 || compraBudgetCalc.adelantosSaldoPen > 0) && (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                      Adelantos descontados del invertido: {fmtPen(compraBudgetCalc.advanceDiscountPen)}.
+                      {' '}Saldo pendiente sumado a extras: {fmtPen(compraBudgetCalc.adelantosSaldoPen)}.
+                    </div>
+                  )}
 
                   <div className="mt-4">
                     <button
