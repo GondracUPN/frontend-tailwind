@@ -25,6 +25,7 @@ const EMPTY_RESULT = {
   preferCache: false,
   queryStates: [],
   nextQueryIndex: 0,
+  pendingItems: [],
 };
 
 const FAMILY_OPTIONS = [
@@ -32,6 +33,9 @@ const FAMILY_OPTIONS = [
   { id: 'ipad', label: 'iPad' },
   { id: 'iphone', label: 'iPhone' },
   { id: 'macbook', label: 'MacBook' },
+  { id: 'imac', label: 'iMac' },
+  { id: 'mac-mini', label: 'Mac mini' },
+  { id: 'apple-watch', label: 'Apple Watch' },
   { id: 'keyword', label: 'Palabra clave' },
 ];
 const AUCTION_FAMILY_OPTIONS = [
@@ -50,10 +54,8 @@ const IPAD_LINE_OPTIONS = [
   { value: 'normal', label: 'Normal' },
   { value: 'air', label: 'Air' },
   { value: 'pro', label: 'Pro' },
-  { value: 'mini', label: 'Mini' },
 ];
 const IPAD_NUMBER_OPTIONS = ['', '10', '11'];
-const IPAD_MINI_NUMBER_OPTIONS = ['', '6', '7'];
 const IPAD_SCREEN_OPTIONS = ['', '11', '12.9', '13'];
 const IPAD_AIR_SCREEN_OPTIONS = ['', '10.9', '11', '13'];
 const IPAD_PRO_SCREEN_OPTIONS = ['', '11', '12.9', '13'];
@@ -80,82 +82,83 @@ const MACBOOK_PROCESSOR_OPTIONS = [
   'M1',
   'M1 Pro',
   'M1 Max',
+  'M1 Ultra',
   'M2',
   'M2 Pro',
   'M2 Max',
+  'M2 Ultra',
   'M3',
   'M3 Pro',
   'M3 Max',
+  'M3 Ultra',
   'M4',
   'M4 Pro',
   'M4 Max',
+  'M4 Ultra',
   'M5',
   'M5 Pro',
   'M5 Max',
+  'M5 Ultra',
 ];
 const MACBOOK_AIR_PROCESSOR_OPTIONS = ['', 'M1', 'M2', 'M3', 'M4', 'M5'];
 const MACBOOK_PRO_PROCESSOR_OPTIONS = MACBOOK_PROCESSOR_OPTIONS;
 const MACBOOK_RAM_OPTIONS = ['', '8GB', '16GB', '18GB', '24GB', '32GB', '36GB', '48GB', '64GB'];
 const MACBOOK_STORAGE_OPTIONS = ['', '256GB', '512GB', '1TB', '2TB', '4TB', '8TB'];
-const MACBOOK_FAMILY_SEARCH_QUERIES = [
-  'apple macbook',
-  'apple macbook m5',
-  'apple macbook m4',
-  'apple macbook m3',
-  'apple macbook m2',
-  'apple macbook m1',
-  'apple macbook m1 pro',
-  'apple macbook m1 max',
-  'apple macbook m2 pro',
-  'apple macbook m2 max',
-  'apple macbook m3 pro',
-  'apple macbook m3 max',
-  'apple macbook m4 pro',
-  'apple macbook m4 max',
-  'apple macbook m5 pro',
-  'apple macbook m5 max',
+const TARGET_MACBOOK_MODEL_NUMBERS = [
+  'a2337', 'a2338', 'a2442', 'a2485', 'a2681', 'a2779', 'a2780', 'a2918',
+  'a2941', 'a2991', 'a2992', 'a3112', 'a3113', 'a3114', 'a3185', 'a3186',
+  'a3240', 'a3241', 'a3401', 'a3403', 'a3426', 'a3427', 'a3428', 'a3429',
+  'a3434', 'a3448', 'a3449',
 ];
-const IPAD_FAMILY_SEARCH_QUERIES = [
-  'apple ipad 10th generation',
-  'apple ipad 11th generation',
-  'apple ipad mini 6th generation',
-  'apple ipad mini 7th generation',
-  'apple ipad air m1',
-  'apple ipad air m2',
-  'apple ipad air m3',
-  'apple ipad air m4',
-  'apple ipad air m5',
-  'apple ipad pro m1',
-  'apple ipad pro m2',
-  'apple ipad pro m4',
-  'apple ipad pro m5',
+const TARGET_IPAD_MODEL_NUMBERS = [
+  'a2316', 'a2324', 'a2072', 'a2325', 'a2588', 'a2589', 'a2591',
+  'a2377', 'a2301', 'a2459', 'a2460', 'a2378', 'a2379', 'a2461', 'a2462',
+  'a2759', 'a2435', 'a2761', 'a2762', 'a2436', 'a2764', 'a2437', 'a2766',
+  'a2836', 'a2837', 'a3006', 'a2925', 'a2926', 'a3007',
+  'a2902', 'a2903', 'a2904', 'a2898', 'a2899', 'a2900',
+  'a3266', 'a3267', 'a3270', 'a3268', 'a3269', 'a3271',
+  'a3459', 'a3460', 'a3463', 'a3461', 'a3462', 'a3464',
+  'a3354', 'a3355', 'a3356', 'a3357', 'a3358', 'a3359', 'a3360', 'a3361', 'a3362',
 ];
-const IPHONE_SEARCH_MODELS_BY_NUMBER = {
-  13: ['', 'pro', 'pro max'],
-  14: ['', 'plus', 'pro', 'pro max'],
-  15: ['', 'plus', 'pro', 'pro max'],
-  16: ['', 'e', 'plus', 'pro', 'pro max'],
-  17: ['', 'e', 'pro', 'pro max'],
-};
-const IPHONE_FAMILY_SEARCH_QUERIES = Object.entries(IPHONE_SEARCH_MODELS_BY_NUMBER).flatMap(([number, models]) =>
-  models.map((model) => {
-    const option = { value: model };
-    if (option.value === 'e') return `apple iphone ${number}e unlocked`;
-    return `apple iphone ${number}${option.value ? ` ${option.value}` : ''} unlocked`;
-  }),
-);
-const APPLE_ALL_SEARCH_QUERIES = [
-  'apple ipad',
-  'apple iphone',
-  'apple macbook',
-  'apple watch',
-  'apple watch ultra',
-  'apple airpods',
-  'apple imac',
-  'apple mac mini',
-  'apple cable lot',
-  'apple charger lot',
+const TARGET_IPHONE_MODEL_NUMBERS = [
+  'a2482', 'a2631', 'a2633', 'a2634', 'a2635', 'a2483', 'a2636', 'a2638', 'a2639', 'a2640',
+  'a2484', 'a2641', 'a2643', 'a2644', 'a2645', 'a2649', 'a2881', 'a2882', 'a2883', 'a2884',
+  'a2632', 'a2885', 'a2886', 'a2887', 'a2888', 'a2650', 'a2889', 'a2890', 'a2891', 'a2892',
+  'a2651', 'a2893', 'a2894', 'a2895', 'a2896', 'a2846', 'a3089', 'a3090', 'a3092',
+  'a2847', 'a3093', 'a3094', 'a3096', 'a2848', 'a3101', 'a3102', 'a3104',
+  'a2849', 'a3105', 'a3106', 'a3108', 'a3081', 'a3286', 'a3287', 'a3288',
+  'a3082', 'a3289', 'a3290', 'a3291', 'a3083', 'a3292', 'a3293', 'a3294',
+  'a3084', 'a3295', 'a3296', 'a3297', 'a3212', 'a3408', 'a3409', 'a3410',
+  'a3258', 'a3519', 'a3520', 'a3521', 'a3256', 'a3522', 'a3523', 'a3524',
+  'a3257', 'a3525', 'a3526', 'a3527', 'a3260', 'a3516', 'a3517', 'a3518',
+  'a3575', 'a3634', 'a3635',
 ];
+const TARGET_IMAC_MODEL_NUMBERS = ['a2438', 'a2439', 'a2873', 'a2874', 'a3137', 'a3247'];
+const TARGET_MAC_MINI_MODEL_NUMBERS = ['a2348', 'a2686', 'a2816', 'a3238', 'a3239'];
+const TARGET_WATCH_SERIES_11_MODEL_NUMBERS = ['a3331', 'a3333', 'a3450', 'a3451', 'a3335', 'a3337', 'a3452', 'a3453'];
+const TARGET_WATCH_SE3_MODEL_NUMBERS = ['a3324', 'a3325', 'a3391', 'a3392', 'a3326', 'a3328', 'a3327', 'a3329'];
+const TARGET_WATCH_ULTRA_MODEL_NUMBERS = ['a2622', 'a2684', 'a2859', 'a2986', 'a2987', 'a3281', 'a3282'];
+const TARGET_MACBOOK_ORDER_CODES = [
+  'mgn63', 'mgn73', 'mly33', 'mly43', 'mqkw3', 'mrxv3', 'mrxw3', 'mryu3',
+  'mc6t4', 'mc6u4', 'mc7a4', 'mdhh4', 'mdhj4', 'mdvq4', 'myda2', 'mkgr3',
+  'mkgt3', 'mk1e3', 'mk1h3', 'mneh3', 'mphe3', 'mphf3', 'mphg3', 'mnw83',
+  'mnwa3', 'mtl73', 'mrx33', 'mrx43', 'mrx53', 'mrw13', 'mrw33', 'muw63',
+  'mw2w3', 'mx2e3', 'mx2f3', 'mx2g3', 'mx2t3', 'mx2v3', 'mx2w3', 'mde44',
+  'mgdn4', 'mgdp4', 'mgdq4', 'mge44', 'mge74', 'mge94',
+];
+const TARGET_IPAD_ORDER_CODES = [
+  'mhqt3', 'mhmu3', 'mhw63', 'mhwh3', 'mhng3', 'mhnt3', 'mhr53', 'mhrg3',
+  'mnxe3', 'mp563', 'mnyd3', 'mnyp3', 'mnxq3', 'mp5y3', 'mp1y3', 'mp293',
+  'mvv93', 'mvw23', 'mvwa3', 'mvx33', 'mvxt3', 'mvy23', 'mdwl4', 'me2p4',
+  'me6f4', 'mdyk4', 'me7x4', 'me8q4', 'myfn2', 'myhy2', 'mygx2', 'myhm2',
+  'mm9c3', 'mm6r3', 'mm753', 'muwd3', 'muxe3', 'muxx3', 'mv283', 'mv6r3',
+  'mv793', 'mc9x4', 'mcfw4', 'mcge4', 'mcnj4', 'mcj24', 'mcjk4', 'mh314',
+  'mh794', 'mh8c4', 'mh5p4', 'mh9e4', 'mh9x4', 'md3y4', 'md7f4', 'md7u4',
+];
+const TARGET_IMAC_ORDER_CODES = [
+  'mjv93', 'mgpk3', 'mqrc3', 'mqrq3', 'mwuf3', 'mwue3', 'mwug3', 'mwuc3', 'mwv13',
+];
+const TARGET_MAC_MINI_ORDER_CODES = ['mgnr3', 'mgnt3', 'mnh73', 'mu9d3', 'mu9e3', 'mcyt4'];
 const COMMON_CONDITION_OPTIONS = [
   { value: '', label: 'Todas' },
   { value: 'used', label: 'Used' },
@@ -207,7 +210,21 @@ const getItemListedTime = (item) =>
   Date.parse(item?.itemOriginDate || item?.itemCreationDate || '') || 0;
 
 const sortItemsByListedDate = (items) =>
-  [...(Array.isArray(items) ? items : [])].sort((a, b) => getItemListedTime(b) - getItemListedTime(a));
+  [...(Array.isArray(items) ? items : [])].sort((a, b) => {
+    const timeDifference = getItemListedTime(b) - getItemListedTime(a);
+    if (timeDifference !== 0) return timeDifference;
+    return getItemKey(b).localeCompare(getItemKey(a));
+  });
+
+const keepItemsOlderThanVisibleTail = (visibleItems, nextItems) => {
+  if (!Array.isArray(visibleItems) || visibleItems.length === 0) return nextItems;
+  const tailTime = getItemListedTime(visibleItems[visibleItems.length - 1]);
+  if (!tailTime) return nextItems;
+  return nextItems.filter((item) => {
+    const itemTime = getItemListedTime(item);
+    return !itemTime || itemTime <= tailTime;
+  });
+};
 
 const formatNumber = (value) => {
   const num = Number(value);
@@ -254,7 +271,7 @@ const roundUp10 = (value) => {
 
 const compactValue = (value) => String(value || '').trim();
 
-const getIpadNumberOptions = (line) => (line === 'mini' ? IPAD_MINI_NUMBER_OPTIONS : IPAD_NUMBER_OPTIONS);
+const getIpadNumberOptions = () => IPAD_NUMBER_OPTIONS;
 
 const getIpadScreenOptions = (line) => {
   if (line === 'air') return IPAD_AIR_SCREEN_OPTIONS;
@@ -363,18 +380,27 @@ const buildProductSearchQueries = ({ productType, ipadForm, iphoneForm, macbookF
     return uniqueStrings([compactValue(keyword) || 'apple']);
   }
   if (productType === 'ipad') {
-    const queries = hasAnyProductFormValue(ipadForm) ? [buildIpadQuery(ipadForm)] : IPAD_FAMILY_SEARCH_QUERIES;
+    const queries = hasAnyProductFormValue(ipadForm) ? [buildIpadQuery(ipadForm)] : ['apple ipad'];
     return uniqueStrings(queries);
   }
   if (productType === 'iphone') {
-    const queries = hasAnyProductFormValue(iphoneForm) ? [buildIphoneQuery(iphoneForm)] : IPHONE_FAMILY_SEARCH_QUERIES;
+    const queries = hasAnyProductFormValue(iphoneForm) ? [buildIphoneQuery(iphoneForm)] : ['apple iphone'];
     return uniqueStrings(queries);
   }
   if (productType === 'macbook') {
-    const queries = hasAnyProductFormValue(macbookForm) ? [buildMacbookQuery(macbookForm)] : MACBOOK_FAMILY_SEARCH_QUERIES;
+    const queries = hasAnyProductFormValue(macbookForm) ? [buildMacbookQuery(macbookForm)] : ['apple macbook'];
     return uniqueStrings(queries);
   }
-  return uniqueStrings(APPLE_ALL_SEARCH_QUERIES);
+  if (productType === 'imac') {
+    return ['apple imac'];
+  }
+  if (productType === 'mac-mini') {
+    return ['apple mac mini'];
+  }
+  if (productType === 'apple-watch') {
+    return ['apple watch'];
+  }
+  return ['apple'];
 };
 
 const normalizeIphoneNumber = (value) => {
@@ -594,63 +620,92 @@ const hasAccessoryKeyword = (normalized) =>
 const hasDeviceSignals = (normalized) =>
   DEVICE_SIGNAL_PATTERNS.some((pattern) => pattern.test(normalized));
 
-const getBulkAccessoryQuantity = (normalized, itemSource) => {
-  const patterns = [
-    new RegExp(`\\b(\\d{1,3})\\s*(?:x\\s*)?(?:apple\\s+)?${itemSource}\\b`),
-    new RegExp(`\\b(\\d{1,3})\\s*(?:pack|pk|pcs?|pieces?|count|ct)\\b.{0,60}\\b${itemSource}\\b`),
-    new RegExp(`\\b(?:lot|bundle|pack|set)\\s+of\\s+(\\d{1,3})\\b.{0,60}\\b${itemSource}\\b`),
-    new RegExp(`\\b${itemSource}\\b.{0,60}\\b(\\d{1,3})\\s*(?:pack|pk|pcs?|pieces?|count|ct)\\b`),
-  ];
-  for (const pattern of patterns) {
-    const quantity = Number(normalized.match(pattern)?.[1] || 0);
-    if (Number.isFinite(quantity) && quantity > 0) return quantity;
-  }
-  return 0;
-};
-
-const hasAppleBulkAccessoryBrandSignal = (normalized) =>
-  /\b(?:genuine|original|oem|authentic)\s+apple\b/.test(normalized) ||
-  /\bapple\s+(?:usb|usb\s*-?\s*c|lightning|magsafe|power|charging|charger|chargers|cable|cables|adapter|adapters|20w|30w|35w|61w|67w|70w|96w|140w)\b/.test(normalized) ||
-  /\bapple\s+(?:wall\s+)?(?:charger|adapter|block|brick|cube|cubo)s?\b/.test(normalized) ||
-  /\bmagsafe\b/.test(normalized);
-
-const isAllowedBulkAppleAccessoryPackage = (title) => {
-  const normalized = normalizeTitleText(title);
-  if (!hasAppleBulkAccessoryBrandSignal(normalized)) return false;
-
-  const cableQuantity = getBulkAccessoryQuantity(normalized, '(?:usb\\s*-?\\s*c\\s+)?(?:lightning\\s+)?(?:cables?|cords?)');
-  if (cableQuantity >= 10) return true;
-
-  const chargerQuantity = getBulkAccessoryQuantity(
-    normalized,
-    '(?:(?:usb\\s*-?\\s*c|power|wall|charging)\\s+)?(?:adapters?|chargers?|blocks?|bricks?|cubes?|cubos?)',
-  );
-  return chargerQuantity >= 3;
-};
-
-const MACBOOK_ALLOWED_CHIP_PATTERN = /\bm[1-5](?:\s+(?:pro|max))?\b/;
+const MACBOOK_ALLOWED_CHIP_PATTERN = /\bm[1-5](?:\s+(?:pro|max|ultra))?\b/;
 const MACBOOK_INTEL_PATTERN = /\b(?:intel|core\s+i[3579]|i[3579][-\s]?\d{3,5})\b/;
 const MACBOOK_BAD_SCREEN_PATTERN = /\b(?:11|12)(?:\.\d+)?\s*(?:inch|in|")?\b/;
 const IPHONE_ALLOWED_PATTERN = /\biphone\s*(?:13|14|15|16|17)\b|\biphone\s*(?:16|17)\s*e\b|\b(?:16|17)e\b/;
-const IPAD_ALLOWED_PATTERN =
-  /\bipad\s+(?:10th|11th|tenth|eleventh)\b|\bipad\s+mini\s+(?:6th|7th|sixth|seventh)\b|\bipad\s+(?:air|pro)\b.*\bm[1-5]\b|\bm[1-5]\b.*\bipad\s+(?:air|pro)\b|\bipad\b.*\ba16\b/;
-const IMAC_ALLOWED_PATTERN = /\b(?:imac|i\s*mac)\b.*\bm[1-5]\b|\bm[1-5]\b.*\b(?:imac|i\s*mac)\b|\ba(?:2438|2439|2873|2874|3137|3247)\b/;
-const MAC_MINI_ALLOWED_PATTERN = /\bmac\s*mini\b.*\bm[1-5]\b|\bm[1-5]\b.*\bmac\s*mini\b|\ba(?:2348|2686|2816|3238|3239)\b/;
+const BLOCKED_IPHONE_PATTERN =
+  /\b(?:carrier|network|sim|activation|icloud|finance|financed|mdm)\s*locked\b|\b(?:verizon|at\s*&?\s*t|att|t[\s-]*mobile|sprint|cricket|boost|metro(?:pcs)?|xfinity|spectrum|tracfone|straight\s+talk|us\s+cellular)\b|\bbad\s+esn\b|\bblacklisted\b|\bnot\s+unlocked\b/;
+const EXTERNAL_BRAND_PATTERN =
+  /\b(?:samsung|galaxy|google\s+pixel|motorola|moto|xiaomi|huawei|oneplus|oppo|vivo|dell|lenovo|thinkpad|hp|hewlett\s+packard|asus|acer|microsoft|surface|sony|nokia|lg)\b/;
+
+const hasTargetModelNumber = (normalized, modelNumbers) =>
+  modelNumbers.some((model) => new RegExp(`\\b${model}\\b`).test(normalized));
+
+const hasTargetOrderCode = (title, orderCodes) => {
+  const compact = normalizeTitleText(title).replace(/[^a-z0-9]/g, '');
+  return orderCodes.some((code) => compact.includes(String(code).toLowerCase()));
+};
+
+const isTargetIpadTitle = (normalized) => {
+  if (
+    hasTargetModelNumber(normalized, TARGET_IPAD_MODEL_NUMBERS) ||
+    hasTargetOrderCode(normalized, TARGET_IPAD_ORDER_CODES)
+  ) return true;
+  if (!normalized.includes('ipad') || /\bipad\s+mini\b/.test(normalized)) return false;
+  if (/\bipad\b.*\b(?:a16|11th|eleventh)\b|\b(?:a16|11th|eleventh)\b.*\bipad\b/.test(normalized)) return true;
+  if (/\bipad\s+air\b/.test(normalized)) {
+    return /\b(?:4th|fourth|5th|fifth)\b/.test(normalized) || /\bm[1-4]\b/.test(normalized);
+  }
+  if (/\bipad\s+pro\b/.test(normalized)) {
+    if (/\bm[1-5]\b/.test(normalized)) return true;
+    if (/\b11(?:\.\d+)?\s*(?:inch|in)?\b/.test(normalized)) {
+      return /\b(?:3rd|third|4th|fourth|5th|fifth|6th|sixth|7th|seventh)\b/.test(normalized);
+    }
+    if (/\b(?:12\.9|13)(?:\s*(?:inch|in))?\b/.test(normalized)) {
+      return /\b(?:5th|fifth|6th|sixth|7th|seventh)\b/.test(normalized);
+    }
+  }
+  return false;
+};
+
+const isTargetImacTitle = (normalized) =>
+  !EXTERNAL_BRAND_PATTERN.test(normalized) &&
+  !isPrimaryAccessoryTitle(normalized) &&
+  !MACBOOK_INTEL_PATTERN.test(normalized) && (
+    hasTargetModelNumber(normalized, TARGET_IMAC_MODEL_NUMBERS) ||
+    hasTargetOrderCode(normalized, TARGET_IMAC_ORDER_CODES) ||
+    ((/\bimac\b|\bi\s+mac\b/.test(normalized)) && /\bm[1-5]\b/.test(normalized))
+  );
+
+const isTargetMacMiniTitle = (normalized) =>
+  !EXTERNAL_BRAND_PATTERN.test(normalized) &&
+  !isPrimaryAccessoryTitle(normalized) &&
+  !MACBOOK_INTEL_PATTERN.test(normalized) && (
+    hasTargetModelNumber(normalized, TARGET_MAC_MINI_MODEL_NUMBERS) ||
+    hasTargetOrderCode(normalized, TARGET_MAC_MINI_ORDER_CODES) ||
+    ((/\bmac\s*mini\b|\bmacmini\b/.test(normalized)) && /\bm[1-5](?:\s+pro)?\b/.test(normalized))
+  );
+
+const isTargetAppleWatchTitle = (normalized) => {
+  if (EXTERNAL_BRAND_PATTERN.test(normalized)) return false;
+  if (isPrimaryAccessoryTitle(normalized)) return false;
+  if (hasTargetModelNumber(normalized, TARGET_WATCH_ULTRA_MODEL_NUMBERS)) return true;
+  if (hasTargetModelNumber(normalized, TARGET_WATCH_SERIES_11_MODEL_NUMBERS)) return true;
+  if (hasTargetModelNumber(normalized, TARGET_WATCH_SE3_MODEL_NUMBERS)) return true;
+  if (!/\bapple\s+watch\b|\biwatch\b/.test(normalized)) return false;
+  if (/\bultra(?:\s*[123])?\b/.test(normalized)) return true;
+  if (/\bse\s*(?:3|third|3rd)\b/.test(normalized)) return true;
+  if (/\b(?:series\s*)?11\b|\bs11\b/.test(normalized)) {
+    const statedSize = normalized.match(/\b(\d{2})\s*mm\b/)?.[1];
+    return !statedSize || statedSize === '42' || statedSize === '46';
+  }
+  return false;
+};
 
 const isLikelyAppleCatalogTitle = (title) => {
   const normalized = normalizeTitleText(title);
   const compact = normalized.replace(/[\s.+-]+/g, '');
   if (/\bhome\s*pod\b/.test(normalized) || compact.includes('homepod')) return false;
+  if (EXTERNAL_BRAND_PATTERN.test(normalized)) return false;
   if (isExcludedAppleProductTitle(normalized)) return false;
-  if (isAllowedBulkAppleAccessoryPackage(normalized)) return true;
   if (isPrimaryAccessoryTitle(normalized)) return false;
   if (isLikelyAppleDeviceTitle(normalized, 'ipad')) return true;
   if (isLikelyAppleDeviceTitle(normalized, 'iphone')) return true;
   if (isLikelyAppleDeviceTitle(normalized, 'macbook')) return true;
-  if (IMAC_ALLOWED_PATTERN.test(normalized) && !MACBOOK_INTEL_PATTERN.test(normalized)) return true;
-  if (MAC_MINI_ALLOWED_PATTERN.test(normalized) && !MACBOOK_INTEL_PATTERN.test(normalized)) return true;
-  if (/\bair\s*pods?\b|\bairpods?\b/.test(normalized)) return true;
-  if (/\bapple\s+watch\b|\biwatch\b/.test(normalized)) return true;
+  if (isTargetImacTitle(normalized)) return true;
+  if (isTargetMacMiniTitle(normalized)) return true;
+  if (isTargetAppleWatchTitle(normalized)) return true;
   return false;
 };
 
@@ -669,7 +724,6 @@ const isAccessoryPrimaryForFamily = (normalized, family) => {
 
 const isPrimaryAccessoryTitle = (title, family = '') => {
   const normalized = normalizeTitleText(title);
-  if (isAllowedBulkAppleAccessoryPackage(normalized)) return false;
   if (!hasAccessoryKeyword(normalized)) return false;
   if (ACCESSORY_PRIMARY_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
   if (family && isAccessoryPrimaryForFamily(normalized, family)) return true;
@@ -679,12 +733,19 @@ const isPrimaryAccessoryTitle = (title, family = '') => {
 
 const isLikelyAppleDeviceTitle = (title, family) => {
   const normalized = normalizeTitleText(title);
+  if (EXTERNAL_BRAND_PATTERN.test(normalized)) return false;
   if (isPrimaryAccessoryTitle(normalized, family)) return false;
-  if (family === 'ipad') return normalized.includes('ipad') && IPAD_ALLOWED_PATTERN.test(normalized);
-  if (family === 'iphone') return normalized.includes('iphone') && IPHONE_ALLOWED_PATTERN.test(normalized);
+  if (family === 'ipad') return isTargetIpadTitle(normalized);
+  if (family === 'iphone') {
+    if (/\bmini\b/.test(normalized) || BLOCKED_IPHONE_PATTERN.test(normalized)) return false;
+    return (normalized.includes('iphone') && IPHONE_ALLOWED_PATTERN.test(normalized)) ||
+      hasTargetModelNumber(normalized, TARGET_IPHONE_MODEL_NUMBERS);
+  }
   if (family === 'macbook') {
-    return normalized.includes('macbook') &&
-      MACBOOK_ALLOWED_CHIP_PATTERN.test(normalized) &&
+    const hasModelNumber = hasTargetModelNumber(normalized, TARGET_MACBOOK_MODEL_NUMBERS);
+    const hasOrderCode = hasTargetOrderCode(normalized, TARGET_MACBOOK_ORDER_CODES);
+    return (normalized.includes('macbook') || hasModelNumber || hasOrderCode) &&
+      (MACBOOK_ALLOWED_CHIP_PATTERN.test(normalized) || hasModelNumber || hasOrderCode) &&
       !MACBOOK_INTEL_PATTERN.test(normalized) &&
       !MACBOOK_BAD_SCREEN_PATTERN.test(normalized);
   }
@@ -1398,7 +1459,6 @@ function Ebay({ setVista }) {
       const minReviewsParam = productMinReviewsOnly ? '&minSellerReviews=10000' : '';
       const activeProductQueries = productQueries.length > 0 ? productQueries : [productQuery];
       const isMultiQuerySearch = activeProductQueries.length > 1;
-      const productUsesServerFilter = productPawnOnly || productMinReviewsOnly;
       const buildEndpoint = (query, offset, options = {}) => {
         const cacheOffset = Number(options.cacheOffset || 0);
         const preferCache = options.preferCache ? '1' : '';
@@ -1406,13 +1466,20 @@ function Ebay({ setVista }) {
       };
       const filterProductItems = (rawItems) => {
         if (productType === 'keyword') {
+          const deviceItems = rawItems.filter((item) => isLikelyAppleCatalogTitle(item?.title || ''));
           return compactValue(productKeyword)
-            ? rawItems.filter((item) => textIncludesKeyword(item?.title || '', productKeyword))
-            : rawItems;
+            ? deviceItems.filter((item) => textIncludesKeyword(item?.title || '', productKeyword))
+            : deviceItems;
         }
         const familyFilteredItems = productType === 'all'
           ? rawItems.filter((item) => isLikelyAppleCatalogTitle(item?.title || ''))
-          : rawItems.filter((item) => isLikelyAppleDeviceTitle(item?.title || '', productType));
+          : productType === 'imac'
+            ? rawItems.filter((item) => isTargetImacTitle(normalizeTitleText(item?.title || '')))
+            : productType === 'mac-mini'
+              ? rawItems.filter((item) => isTargetMacMiniTitle(normalizeTitleText(item?.title || '')))
+              : productType === 'apple-watch'
+                ? rawItems.filter((item) => isTargetAppleWatchTitle(normalizeTitleText(item?.title || '')))
+                : rawItems.filter((item) => isLikelyAppleDeviceTitle(item?.title || '', productType));
         return productType === 'ipad'
           ? familyFilteredItems.filter((item) => matchIpadItem(item, ipadForm))
           : productType === 'macbook'
@@ -1420,9 +1487,16 @@ function Ebay({ setVista }) {
             : familyFilteredItems;
       };
 
-      let data = null;
-      let filteredItems = [];
-      const seen = new Set(append ? productResult.items.map((item) => getItemKey(item)).filter(Boolean) : []);
+      let filteredItems = sortItemsByListedDate(
+        append && Array.isArray(productResult.pendingItems)
+          ? productResult.pendingItems
+          : [],
+      );
+      const seen = new Set(
+        append
+          ? [...productResult.items, ...filteredItems].map((item) => getItemKey(item)).filter(Boolean)
+          : [],
+      );
       const previousQueryStates = append && Array.isArray(productResult.queryStates)
         ? productResult.queryStates
         : [];
@@ -1451,39 +1525,40 @@ function Ebay({ setVista }) {
       let lastRateLimited = false;
       let totalEstimate = append ? Number(productResult.total || 0) : 0;
       let completedBatches = 0;
+      let latestResult = null;
 
       while (queryStates.some((state) => !state.exhausted)) {
-        const selectedStates = [];
-        let attempts = 0;
-        while (selectedStates.length < PRODUCT_SEARCH_BATCH_REQUEST_LIMIT && attempts < queryStates.length) {
-          const index = ((nextQueryIndex % queryStates.length) + queryStates.length) % queryStates.length;
-          const state = queryStates[index];
-          nextQueryIndex = (index + 1) % queryStates.length;
-          attempts += 1;
-          if (!state?.exhausted) selectedStates.push({ state, index });
-        }
-        if (!selectedStates.length) break;
-
-        const pageResults = await Promise.all(
-          selectedStates.map(({ state }) =>
-            api.get(buildEndpoint(state.query, state.offset, {
-              cacheOffset: isMultiQuerySearch ? 0 : state.cacheOffset,
-              preferCache: isMultiQuerySearch ? false : state.preferCache,
-            })),
-          ),
-        );
         completedBatches += 1;
-        data = pageResults[0] || data;
-        let batchTotal = 0;
-        for (let resultIndex = 0; resultIndex < pageResults.length; resultIndex += 1) {
-          const result = pageResults[resultIndex];
-          const state = selectedStates[resultIndex]?.state;
-          if (!state) continue;
+        let requestsInBatch = 0;
+
+        while (
+          requestsInBatch < PRODUCT_SEARCH_BATCH_REQUEST_LIMIT &&
+          queryStates.some((state) => !state.exhausted)
+        ) {
+          let state = null;
+          let stateIndex = -1;
+          for (let attempt = 0; attempt < queryStates.length; attempt += 1) {
+            const index = ((nextQueryIndex % queryStates.length) + queryStates.length) % queryStates.length;
+            nextQueryIndex = (index + 1) % queryStates.length;
+            if (!queryStates[index]?.exhausted) {
+              state = queryStates[index];
+              stateIndex = index;
+              break;
+            }
+          }
+          if (!state || stateIndex < 0) break;
+
+          const result = await api.get(buildEndpoint(state.query, state.offset, {
+            cacheOffset: isMultiQuerySearch ? 0 : state.cacheOffset,
+            preferCache: isMultiQuerySearch ? false : state.preferCache,
+          }));
+          requestsInBatch += 1;
+          latestResult = result;
           const previousOffset = Number(state.offset || 0);
           const resultHasMore = typeof result?.hasMore === 'boolean'
             ? result.hasMore
             : Number(result?.items?.length || 0) > 0;
-          batchTotal += Number(result?.total || 0);
+          totalEstimate = Math.max(totalEstimate, Number(result?.total || 0), filteredItems.length);
           state.offset = Number.isFinite(Number(result?.nextOffset))
             ? Math.max(0, Number(result.nextOffset))
             : getResponseNextOffset(result, previousOffset);
@@ -1493,57 +1568,91 @@ function Ebay({ setVista }) {
           state.preferCache = !isMultiQuerySearch && Boolean(result?.nextPreferCache);
           state.exhausted = Boolean(result?.rateLimited) || (!resultHasMore && !state.preferCache);
           lastRateLimited = lastRateLimited || Boolean(result?.rateLimited);
+
+          const pageItems = sortItemsByListedDate(
+            filterProductItems(Array.isArray(result?.items) ? result.items : []),
+          );
+          const newItems = pageItems.filter((item) => {
+            const key = getItemKey(item);
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          filteredItems = sortItemsByListedDate([...filteredItems, ...newItems]);
+          lastHasMore = queryStates.some((queryState) => !queryState.exhausted);
+          lastNextCacheOffset = !isMultiQuerySearch && Number.isFinite(Number(result?.nextCacheOffset))
+            ? Number(result.nextCacheOffset)
+            : lastNextCacheOffset;
+          lastPreferCache = !isMultiQuerySearch && Boolean(result?.nextPreferCache);
+
         }
-        totalEstimate = Math.max(totalEstimate, batchTotal, filteredItems.length);
-        const pageItems = sortItemsByListedDate(
-          filterProductItems(pageResults.flatMap((result) => Array.isArray(result?.items) ? result.items : [])),
-        );
-        const newItems = pageItems.filter((item) => {
-          const key = getItemKey(item);
-          if (!key) return false;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
 
-        filteredItems = sortItemsByListedDate([...filteredItems, ...newItems]);
-        lastHasMore = queryStates.some((state) => !state.exhausted);
-        lastNextCacheOffset = !isMultiQuerySearch && Number.isFinite(Number(data?.nextCacheOffset))
-          ? Number(data.nextCacheOffset)
-          : lastNextCacheOffset;
-        lastPreferCache = !isMultiQuerySearch && Boolean(data?.nextPreferCache);
-
-        const visibleItems = append
-          ? mergeUniqueItems(productResult.items, filteredItems)
+        const appendableItems = append
+          ? keepItemsOlderThanVisibleTail(productResult.items, filteredItems)
           : filteredItems;
-        const nextResult = {
+        if (isCurrentEbayRequest('product', requestId)) {
+          const visibleItems = append
+            ? mergeUniqueItems(productResult.items, appendableItems)
+            : appendableItems;
+          const resultMetadata = latestResult || productResult;
+          setProductResult({
+            items: visibleItems,
+            sellers: Array.isArray(resultMetadata?.sellers) ? resultMetadata.sellers : [],
+            total: Math.max(totalEstimate, visibleItems.length),
+            query: String(resultMetadata?.query || productQuery),
+            sort: String(resultMetadata?.sort || 'newlyListed'),
+            limit: Number(resultMetadata?.limit || PAGE_SIZE),
+            offset: Number(queryStates[0]?.offset || initialOffset),
+            nextOffset: Number(queryStates[0]?.offset || initialOffset),
+            cacheOffset: lastNextCacheOffset,
+            preferCache: lastPreferCache,
+            groups: Array.isArray(resultMetadata?.groups) ? resultMetadata.groups : [],
+            family: String(resultMetadata?.family || productType),
+            buyingOptions: String(resultMetadata?.buyingOptions || productBuyingOptions),
+            hasMore: !lastRateLimited && queryStates.some((state) => !state.exhausted),
+            rateLimited: lastRateLimited,
+            queryStates: queryStates.map((queryState) => ({ ...queryState })),
+            nextQueryIndex,
+            pendingItems: [],
+          });
+        }
+        if (
+          lastRateLimited ||
+          appendableItems.length >= PRODUCT_SEARCH_MIN_VISIBLE_RESULTS ||
+          !queryStates.some((state) => !state.exhausted)
+        ) break;
+      }
+
+      if ((completedBatches || filteredItems.length > 0) && isCurrentEbayRequest('product', requestId)) {
+        const orderedNewItems = sortItemsByListedDate(
+          append
+            ? keepItemsOlderThanVisibleTail(productResult.items, filteredItems)
+            : filteredItems,
+        );
+        const visibleItems = append
+          ? mergeUniqueItems(productResult.items, orderedNewItems)
+          : orderedNewItems;
+        const resultMetadata = latestResult || productResult;
+        setProductResult({
           items: visibleItems,
-          sellers: Array.isArray(data?.sellers) ? data.sellers : [],
+          sellers: Array.isArray(resultMetadata?.sellers) ? resultMetadata.sellers : [],
           total: Math.max(totalEstimate, visibleItems.length),
-          query: activeProductQueries.length > 1 ? activeProductQueries.join(' | ') : String(data?.query || productQuery),
-          sort: String(data?.sort || 'newlyListed'),
-          limit: Number(data?.limit || PAGE_SIZE),
+          query: String(resultMetadata?.query || productQuery),
+          sort: String(resultMetadata?.sort || 'newlyListed'),
+          limit: Number(resultMetadata?.limit || PAGE_SIZE),
           offset: Number(queryStates[0]?.offset || initialOffset),
           nextOffset: Number(queryStates[0]?.offset || initialOffset),
           cacheOffset: lastNextCacheOffset,
           preferCache: lastPreferCache,
-          groups: Array.isArray(data?.groups) ? data.groups : [],
-          family: String(data?.family || productType),
-          buyingOptions: String(data?.buyingOptions || productBuyingOptions),
-          hasMore: lastRateLimited ? false : lastHasMore,
+          groups: Array.isArray(resultMetadata?.groups) ? resultMetadata.groups : [],
+          family: String(resultMetadata?.family || productType),
+          buyingOptions: String(resultMetadata?.buyingOptions || productBuyingOptions),
+          hasMore: !lastRateLimited && lastHasMore,
           rateLimited: lastRateLimited,
-          queryStates: queryStates.map((state) => ({ ...state })),
+          queryStates: queryStates.map((queryState) => ({ ...queryState })),
           nextQueryIndex,
-        };
-        if (!isCurrentEbayRequest('product', requestId)) return;
-        setProductResult(nextResult);
-
-        if (lastRateLimited || !lastHasMore) break;
-        if (!productUsesServerFilter) break;
-        const reachedMinimumResults = append
-          ? filteredItems.length >= PRODUCT_SEARCH_MIN_VISIBLE_RESULTS
-          : visibleItems.length >= PRODUCT_SEARCH_MIN_VISIBLE_RESULTS;
-        if (reachedMinimumResults) break;
+          pendingItems: [],
+        });
       }
 
       if (!completedBatches && isCurrentEbayRequest('product', requestId)) {
@@ -2092,6 +2201,16 @@ function Ebay({ setVista }) {
               </div>
             )}
 
+            {['imac', 'mac-mini', 'apple-watch'].includes(productType) && (
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-2xl bg-slate-100/80 p-4 text-sm text-slate-600">
+                  Busca por nombre, chip y numeros de modelo oficiales.
+                </div>
+                <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={PRODUCT_CONDITION_OPTIONS} /></FieldShell>
+                <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
+              </div>
+            )}
+
             {productType === 'keyword' && (
               <div className="grid gap-3 md:grid-cols-3">
                 <FieldShell label="Palabra clave">
@@ -2099,7 +2218,7 @@ function Ebay({ setVista }) {
                     type="text"
                     value={productKeyword}
                     onChange={(e) => setProductKeyword(e.target.value)}
-                    placeholder="Ej. apple pencil, mac mini m4, usb c"
+                    placeholder="Ej. MacBook A2337, iPad Pro M4, iPhone 16 Pro"
                     className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-sky-500"
                   />
                 </FieldShell>
@@ -2197,7 +2316,11 @@ function Ebay({ setVista }) {
               disabled={currentLoading || currentAppending || !currentHasMore}
               className="rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {currentLoading || currentAppending ? 'Cargando mas...' : 'Cargar mas'}
+              {activeTab === 'product' && (currentLoading || currentAppending)
+                ? 'Cargar mas en pausa...'
+                : currentLoading || currentAppending
+                  ? 'Cargando mas...'
+                  : 'Cargar mas'}
             </button>
             <EbayLoadingPanel
               progress={currentAppendProgress}
