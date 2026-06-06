@@ -68,9 +68,15 @@ const isFlexibleMoneda = (c) => {
   return ['ingreso', 'bolsa', 'gasto_recurrente', 'gastos_recurrentes', 'gusto', 'cashback'].some((k) => n.startsWith(k));
 };
 
+const toDebitConceptValue = (value) => {
+  const n = normConcept(value);
+  if (n === 'ingreso') return 'ingresos';
+  if (n === 'gusto') return 'gustos';
+  return n || BASE_CONCEPTOS_DEBITO[0]?.value || 'comida';
+};
 
-export default function ModalGastoDebito({ onClose, onSaved, userId }) {
-  const [concepto, setConcepto] = useState(BASE_CONCEPTOS_DEBITO[0]?.value || 'comida');
+export default function ModalGastoDebito({ onClose, onSaved, userId, defaultConcept = '', defaultPaymentCard = '' }) {
+  const [concepto, setConcepto] = useState(() => toDebitConceptValue(defaultConcept));
   const [customConcepts, setCustomConcepts] = useState([]);
   const [moneda, setMoneda] = useState('PEN');
   const [monto, setMonto] = useState('');
@@ -106,7 +112,11 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
         if (!alive) return;
         const list = Array.isArray(data) ? data : [];
         setCards(list);
-        if (list.length) setTarjetaPagar(list[0].tipo || list[0].type || '');
+        if (list.length) {
+          const requestedCard = String(defaultPaymentCard || '').trim();
+          const found = requestedCard && list.find((c) => (c.tipo || c.type) === requestedCard);
+          setTarjetaPagar(found ? requestedCard : (list[0].tipo || list[0].type || ''));
+        }
       } catch (e) {
         if (alive) setCardsErr('No se pudieron cargar tus tarjetas.');
       } finally {
@@ -114,7 +124,7 @@ export default function ModalGastoDebito({ onClose, onSaved, userId }) {
       }
     })();
     return () => { alive = false; };
-  }, [userId]);
+  }, [userId, defaultPaymentCard]);
 
   useEffect(() => {
     let alive = true;

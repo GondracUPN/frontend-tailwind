@@ -1646,6 +1646,17 @@ const confirmAction = async () => {
     refreshProductos({ force: true, useCache: false, silent: true });
   };
 
+  const handleSavedBatch = (created) => {
+    const items = Array.isArray(created) ? created : [];
+    if (!items.length) return;
+    setProductos((list) => {
+      const next = [...items, ...list];
+      writeCache(next, ventasMap, resumenRef.current, adelantosRef.current);
+      return next;
+    });
+    refreshProductos({ force: true, useCache: false, silent: true });
+  };
+
   const handleSavedEnCasillero = (updated) => {
     applyProductoUpdate(updated, { isNuevo: false, closeModal: false });
     setProductoEnCasillero(null);
@@ -2909,7 +2920,13 @@ const confirmAction = async () => {
       )}
       {/* Modales */}
       <Suspense fallback={null}>
-        {modalModo === 'crear' && <ModalProducto onClose={cerrarModal} onSaved={handleSaved} />}
+        {modalModo === 'crear' && (
+          <ModalProducto
+            onClose={cerrarModal}
+            onSaved={handleSaved}
+            onSavedBatch={handleSavedBatch}
+          />
+        )}
         {modalModo === 'detalle' && (
           <DetallesProductoModal
             producto={(productos || []).find((p) => p.id === productoSeleccionado?.id) || productoSeleccionado}

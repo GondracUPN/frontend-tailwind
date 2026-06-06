@@ -31,6 +31,8 @@ const CARD_LABEL = {
   saga: 'Saga',
 };
 
+const INVESTMENT_EXCLUDED_CARD_TYPES = new Set(['interbank', 'bbva']);
+
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos
 
 const fmtUsd = (value) => {
@@ -51,6 +53,13 @@ const parseUsdAmountsText = (value) => {
     const n = Number(String(raw).replace(',', '.'));
     return Number.isFinite(n) ? sum + n : sum;
   }, 0);
+};
+
+const parsePositiveAmountsText = (value) => {
+  const matches = String(value || '').match(/\d+(?:[.,]\d+)?/g) || [];
+  return matches
+    .map((raw) => Number(String(raw).replace(',', '.')))
+    .filter((n) => Number.isFinite(n) && n > 0);
 };
 
 const normalizeSellerSlug = (value) => {
@@ -86,6 +95,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [showAnalisisMes, setShowAnalisisMes] = useState(false);
   const [showCiclosTarjeta, setShowCiclosTarjeta] = useState(false);
   const [showEfec, setShowEfec] = useState(false);
+  const [showLinePlanner, setShowLinePlanner] = useState(false);
   const [showCompraBudget, setShowCompraBudget] = useState(false);
   const [compraBudgetLoading, setCompraBudgetLoading] = useState(false);
   const [compraBudgetError, setCompraBudgetError] = useState('');
@@ -95,7 +105,10 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [compraBudgetExtras, setCompraBudgetExtras] = useState('');
   const [showCompraBudgetTotals, setShowCompraBudgetTotals] = useState(false);
   const [compraBudgetCustomPct, setCompraBudgetCustomPct] = useState('20');
+  const [linePlannerAmount, setLinePlannerAmount] = useState('');
   const [editingGasto, setEditingGasto] = useState(null);
+  const [debitConceptFilter, setDebitConceptFilter] = useState('all');
+  const [debitPaymentCardFilter, setDebitPaymentCardFilter] = useState('all');
   const [creditCardFilter, setCreditCardFilter] = useState('all');
 
   const token = localStorage.getItem('token');
@@ -143,6 +156,89 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       totalPen: (pen + usd * TIPO_CAMBIO).toFixed(2),
     };
   }, [cardsSummary]);
+
+  const cardsLineUsable = useMemo(() => {
+    const pen = (cardsSummary || []).reduce((sum, c) => {
+      if (INVESTMENT_EXCLUDED_CARD_TYPES.has(String(c.tipo || '').toLowerCase())) return sum;
+      return sum + (Number(c.available) || 0);
+    }, 0);
+    return {
+      pen,
+      usd: pen / TIPO_CAMBIO,
+    };
+  }, [cardsSummary]);
+
+  const linePlanner = useMemo(() => {
+    const purchasesUsd = parsePositiveAmountsText(linePlannerAmount);
+    const purchases = purchasesUsd.map((usd, index) => ({
+      id: index + 1,
+      usd,
+      pen: usd * TIPO_CAMBIO,
+    }));
+    const purchaseUsd = purchases.reduce((sum, item) => sum + item.usd, 0);
+    const purchasePen = purchaseUsd * TIPO_CAMBIO;
+    const cards = (cardsSummary || [])
+      .filter((c) => !INVESTMENT_EXCLUDED_CARD_TYPES.has(String(c.tipo || '').toLowerCase()))
+      .map((c) => ({
+        id: c.id,
+        tipo: c.tipo,
+        label: CARD_LABEL[c.tipo] || c.tipo,
+        creditLine: Number(c.creditLine || 0) || 0,
+        available: Math.max(0, Number(c.available || 0) || 0),
+        remaining: Math.max(0, Number(c.available || 0) || 0),
+        allocations: [],
+      }))
+      .sort((a, b) => {
+        if (b.available !== a.available) return b.available - a.available;
+        return String(a.label || '').localeCompare(String(b.label || ''));
+      });
+
+    const unassignedPurchases = [];
+    [...purchases]
+      .sort((a, b) => {
+        if (b.pen !== a.pen) return b.pen - a.pen;
+        return a.id - b.id;
+      })
+      .forEach((purchase) => {
+        const card = cards
+          .filter((c) => c.remaining >= purchase.pen)
+          .sort((a, b) => {
+            const afterA = a.remaining - purchase.pen;
+            const afterB = b.remaining - purchase.pen;
+            if (afterA !== afterB) return afterA - afterB;
+            return b.remaining - a.remaining;
+          })[0];
+
+        if (!card) {
+          unassignedPurchases.push(purchase);
+          return;
+        }
+
+        card.allocations.push(purchase);
+        card.remaining -= purchase.pen;
+      });
+
+    const rows = cards.map((c) => {
+      const use = c.available - c.remaining;
+      return {
+        ...c,
+        use,
+        remainingAfter: c.remaining,
+      };
+    });
+    const uncoveredPen = unassignedPurchases.reduce((sum, item) => sum + item.pen, 0);
+
+    return {
+      purchasePen,
+      purchaseUsd,
+      purchasesUsd,
+      unassignedPurchases,
+      rows,
+      coveredPen: purchasePen - uncoveredPen,
+      uncoveredPen,
+      totalAfterPen: rows.reduce((sum, row) => sum + row.remainingAfter, 0),
+    };
+  }, [cardsSummary, linePlannerAmount]);
 
   const readCache = () => {
     if (!cacheKey) return null;
@@ -388,6 +484,38 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     () => rows.filter((g) => g.metodoPago === 'credito'),
     [rows],
   );
+  const debitConceptOptions = useMemo(() => {
+    const set = new Set();
+    debitRows.forEach((r) => {
+      const concept = String(r.concepto || '').trim().toLowerCase().replace(/\s+/g, '_');
+      if (concept) set.add(concept);
+    });
+    return Array.from(set.values()).sort((a, b) =>
+      displayConcepto(a, 'debito').localeCompare(displayConcepto(b, 'debito')),
+    );
+  }, [debitRows]);
+
+  const debitPaymentCardOptions = useMemo(() => {
+    const set = new Set();
+    debitRows.forEach((r) => {
+      if (String(r.concepto || '').trim().toLowerCase().replace(/\s+/g, '_') !== 'pago_tarjeta') return;
+      const card = r.tarjetaPago || 'N/A';
+      if (card) set.add(card);
+    });
+    return Array.from(set.values()).sort();
+  }, [debitRows]);
+
+  const debitRowsFiltered = useMemo(() => {
+    return debitRows.filter((g) => {
+      const concept = String(g.concepto || '').trim().toLowerCase().replace(/\s+/g, '_');
+      if (debitConceptFilter !== 'all' && concept !== debitConceptFilter) return false;
+      if (debitConceptFilter === 'pago_tarjeta' && debitPaymentCardFilter !== 'all') {
+        return (g.tarjetaPago || 'N/A') === debitPaymentCardFilter;
+      }
+      return true;
+    });
+  }, [debitRows, debitConceptFilter, debitPaymentCardFilter]);
+
   const creditRowsFiltered = useMemo(() => {
     if (creditCardFilter === 'all') return creditRows;
     return creditRows.filter((g) => {
@@ -420,6 +548,12 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   }, [creditRows]);
 
   const [creditCardForCreate, setCreditCardForCreate] = useState('');
+
+  useEffect(() => {
+    if (debitConceptFilter !== 'pago_tarjeta' && debitPaymentCardFilter !== 'all') {
+      setDebitPaymentCardFilter('all');
+    }
+  }, [debitConceptFilter, debitPaymentCardFilter]);
 
   useEffect(() => {
     if (creditCardFilter && creditCardFilter !== 'all') {
@@ -533,6 +667,16 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
             <div className="text-3xl font-semibold">S/ {efectivoPenCalc}</div>
             <div className="text-xs text-gray-600 mt-0.5">$ {efectivoUsdCalc}</div>
             <button onClick={openEfec} className="mt-2 w-full sm:w-auto text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-white hover:bg-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-700">Editar efectivo</button>
+            <button
+              type="button"
+              onClick={() => setShowLinePlanner(true)}
+              className="mt-3 block w-full rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-left hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-300 sm:w-auto"
+            >
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Linea usable</div>
+              <div className="mt-1 text-lg font-semibold text-blue-950">{fmtPen(cardsLineUsable.pen)}</div>
+              <div className="text-xs font-semibold text-blue-800">{fmtUsd(cardsLineUsable.usd)} <span className="font-normal text-blue-700">TC {TIPO_CAMBIO}</span></div>
+              <div className="mt-0.5 text-xs text-blue-700">Sin Interbank ni BBVA</div>
+            </button>
           </div>
 
           <div className="flex-1 min-w-[260px]">
@@ -600,7 +744,37 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
             <h3 className="text-lg font-semibold">Debito</h3>
-            <button onClick={openDeb} className="w-full sm:w-auto px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[44px]">Agregar gasto debito</button>
+            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+              <label className="text-sm text-gray-700 flex items-center gap-2 w-full sm:w-auto">
+                Concepto
+                <select
+                  className="border rounded-lg px-3 py-2 text-sm w-full sm:w-auto"
+                  value={debitConceptFilter}
+                  onChange={(e) => setDebitConceptFilter(e.target.value)}
+                >
+                  <option value="all">Todos</option>
+                  {debitConceptOptions.map((c) => (
+                    <option key={c} value={c}>{displayConcepto(c, 'debito')}</option>
+                  ))}
+                </select>
+              </label>
+              {debitConceptFilter === 'pago_tarjeta' && (
+                <label className="text-sm text-gray-700 flex items-center gap-2 w-full sm:w-auto">
+                  Tarjeta pagada
+                  <select
+                    className="border rounded-lg px-3 py-2 text-sm w-full sm:w-auto"
+                    value={debitPaymentCardFilter}
+                    onChange={(e) => setDebitPaymentCardFilter(e.target.value)}
+                  >
+                    <option value="all">Todas</option>
+                    {debitPaymentCardOptions.map((c) => (
+                      <option key={c} value={c}>{CARD_LABEL[c] || c}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <button onClick={openDeb} className="w-full sm:w-auto px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[44px]">Agregar gasto debito</button>
+            </div>
           </div>
 
           {loading ? (
@@ -621,7 +795,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {debitRows.map((g) => {
+                  {debitRowsFiltered.map((g) => {
                     const conceptoCell = g.concepto === 'pago_tarjeta'
                       ? `Pago Tarjeta  ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
                       : displayConcepto(g.concepto, g.metodoPago);
@@ -654,6 +828,11 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                       </tr>
                     );
                   })}
+                  {debitRowsFiltered.length === 0 && (
+                    <tr>
+                      <td className="p-3 text-gray-500" colSpan={6}>No hay gastos de debito con esos filtros.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -736,6 +915,8 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       {showDeb && (
         <ModalGastoDebito
           userId={targetUserId}
+          defaultConcept={debitConceptFilter !== 'all' ? debitConceptFilter : ''}
+          defaultPaymentCard={debitConceptFilter === 'pago_tarjeta' && debitPaymentCardFilter !== 'all' ? debitPaymentCardFilter : ''}
           onClose={() => setShowDeb(false)}
           onSaved={(row) => {
             setShowDeb(false);
@@ -779,6 +960,111 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           onClose={() => setShowEfec(false)}
           onSaved={(w) => { setShowEfec(false); setWallet(w); }}
         />
+      )}
+      {showLinePlanner && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={(e) => { if (e.target === e.currentTarget) setShowLinePlanner(false); }}>
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-gray-200">
+            <div className="flex items-start justify-between gap-3 border-b border-gray-200 px-5 py-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Planificar compra con tarjetas</h3>
+                <div className="text-sm text-gray-500">Asigna cada articulo completo a una tarjeta donde entre. No usa Interbank ni BBVA.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLinePlanner(false)}
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="max-h-[78vh] overflow-y-auto p-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="text-sm text-gray-700">
+                  Compras (US$)
+                  <textarea
+                    value={linePlannerAmount}
+                    onChange={(e) => setLinePlannerAmount(e.target.value)}
+                    placeholder={'100\n250.50\n89.99'}
+                    rows={3}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  />
+                  <div className="mt-1 text-xs text-gray-500">Una compra por linea. Cada linea se asigna completa a una tarjeta.</div>
+                </label>
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Compra total</div>
+                  <div className="mt-1 text-lg font-semibold text-gray-900">{fmtUsd(linePlanner.purchaseUsd)}</div>
+                  <div className="text-xs text-gray-600">{fmtPen(linePlanner.purchasePen)} TC {TIPO_CAMBIO}</div>
+                  <div className="mt-1 text-xs text-gray-500">{linePlanner.purchasesUsd.length} compra{linePlanner.purchasesUsd.length === 1 ? '' : 's'}</div>
+                </div>
+                <div className={`rounded-xl border p-3 ${linePlanner.uncoveredPen > 0 ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50'}`}>
+                  <div className={`text-xs font-semibold uppercase tracking-wide ${linePlanner.uncoveredPen > 0 ? 'text-red-700' : 'text-emerald-700'}`}>Linea restante</div>
+                  <div className={`mt-1 text-lg font-semibold ${linePlanner.uncoveredPen > 0 ? 'text-red-900' : 'text-emerald-900'}`}>{fmtPen(Math.max(0, linePlanner.totalAfterPen))}</div>
+                  <div className={`text-xs ${linePlanner.uncoveredPen > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                    {linePlanner.uncoveredPen > 0 ? `Faltan ${fmtPen(linePlanner.uncoveredPen)}` : `${fmtUsd(Math.max(0, linePlanner.totalAfterPen) / TIPO_CAMBIO)} disponible`}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-2">
+                {linePlanner.rows.map((row) => (
+                  <div key={row.id || row.tipo} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:items-center">
+                      <div>
+                        <div className="font-semibold text-gray-900">{row.label}</div>
+                        <div className="text-xs text-gray-500">Linea {fmtPen(row.creditLine)}</div>
+                      </div>
+                      <div className="text-right sm:text-left">
+                        <div className="text-xs text-gray-500">Disponible</div>
+                        <div className="font-semibold text-gray-800">{fmtPen(row.available)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-500">Usar</div>
+                        <div className={`font-semibold ${row.use > 0 ? 'text-blue-800' : 'text-gray-500'}`}>{fmtPen(row.use)}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-gray-500">Quedaria</div>
+                        <div className="font-semibold text-gray-900">{fmtPen(row.remainingAfter)}</div>
+                      </div>
+                    </div>
+                    {row.allocations.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {row.allocations.map((item) => (
+                          <span key={item.id} className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-800">
+                            #{item.id} {fmtUsd(item.usd)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {linePlanner.rows.length === 0 && (
+                  <div className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500">No hay tarjetas de inversion disponibles.</div>
+                )}
+              </div>
+
+              {linePlanner.unassignedPurchases.length > 0 && (
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  <div className="font-semibold">Compras sin asignar</div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {linePlanner.unassignedPurchases.map((item) => (
+                      <span key={item.id} className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-red-200">
+                        #{item.id} {fmtUsd(item.usd)} / {fmtPen(item.pen)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {linePlanner.purchasePen > 0 && (
+                <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                  Compra cubierta: <b>{fmtUsd(linePlanner.coveredPen / TIPO_CAMBIO)}</b> / <b>{fmtPen(linePlanner.coveredPen)}</b>
+                  {linePlanner.uncoveredPen > 0 ? <>. Falta linea por <b>{fmtUsd(linePlanner.uncoveredPen / TIPO_CAMBIO)}</b> / <b>{fmtPen(linePlanner.uncoveredPen)}</b>.</> : <>. La linea total sobrante seria <b>{fmtPen(linePlanner.totalAfterPen)}</b>.</>}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
       {editingGasto && (
         <ModalEditarGasto

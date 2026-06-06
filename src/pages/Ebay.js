@@ -153,15 +153,8 @@ const APPLE_ALL_SEARCH_QUERIES = [
   'apple airpods',
   'apple imac',
   'apple mac mini',
-  'apple pencil',
-  'apple homepod',
-  'apple magic keyboard',
-  'apple keyboard',
-  'apple power adapter',
-  'apple charger',
-  'apple usb c cable',
-  'apple usb-c cable',
-  'apple magsafe charger',
+  'apple cable lot',
+  'apple charger lot',
 ];
 const COMMON_CONDITION_OPTIONS = [
   { value: '', label: 'Todas' },
@@ -531,30 +524,60 @@ const ACCESSORY_KEYWORDS = [
   'skin',
   'pencil',
   'charger',
+  'charging station',
+  'charging stand',
+  'charging dock',
   'cable',
   'adapter',
+  'stand',
+  'dock',
+  'station',
+  'holder',
+  'mount',
+  'cradle',
   'protector',
   'screen protector',
   'stylus',
   'pen',
+  'band',
+  'strap',
+  'loop',
   'replacement',
   'housing',
   'digitizer',
   'lcd',
   'glass',
+  'empty box',
+  'box only',
   'bundle only',
 ];
 
 const ACCESSORY_PRIMARY_PATTERNS = [
-  /^(?:apple\s+)?(?:(?:laptop|tablet|phone|cell\s+phone|smartphone)\s+)?(?:case|sleeve|cover|folio|keyboard|magic keyboard|smart folio|screen protector|protector|pencil|charger|adapter|cable|bag|shell|skin|housing|digitizer|lcd|glass)\b/,
+  /^(?:apple\s+)?(?:(?:laptop|tablet|phone|cell\s+phone|smartphone)\s+)?(?:case|sleeve|cover|folio|keyboard|magic keyboard|smart folio|screen protector|protector|pencil|charger|adapter|cable|bag|shell|skin|band|strap|loop|stand|dock|station|holder|mount|cradle|housing|digitizer|lcd|glass)\b/,
   /\b(?:laptop|tablet|phone|cell\s+phone|smartphone)\s+(?:case|sleeve|cover|folio|keyboard|screen protector|protector|bag|shell)\b/,
-  /\b(?:case|sleeve|cover|folio|keyboard|screen protector|protector|bag|shell)\b.{0,80}\bfor\s+(?:new\s+)?(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch)\b/,
+  /\b(?:case|sleeve|cover|folio|keyboard|screen protector|protector|bag|shell|band|strap|loop|stand|dock|station|holder|mount|cradle)\b.{0,80}\bfor\s+(?:new\s+)?(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch|airpods?)\b/,
+  /\b(?:charging|wireless|alarm\s+clock).{0,40}(?:station|stand|dock|base|holder|mount|cradle)\b/,
+  /\b(?:station|stand|dock|base|holder|mount|cradle)\b.{0,80}\b(?:iphone|ipad|apple\s+watch|watch|airpods?)\b/,
+  /\b(?:3\s*-?\s*in\s*-?\s*1|2\s*-?\s*in\s*-?\s*1|multi\s*device)\b.{0,80}\b(?:charger|charging|station|stand|dock)\b/,
+  /\b(?:empty\s+box|box\s+only|no\s+(?:airpods?|iphone|ipad|watch|macbook)|packaging\s+only|retail\s+box\s+only)\b/,
   /\bcompatible with\b/,
   /\bdesigned for\b/,
-  /\bfits?\s+(?:new\s+)?(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch)\b/,
-  /\bfor\s+(?:new\s+)?(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch)\b/,
+  /\bfits?\s+(?:new\s+)?(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch|airpods?)\b/,
+  /\bfor\s+(?:new\s+)?(?:the\s+)?(?:apple\s+)?(?:macbook|ipad|iphone|watch|airpods?)\b/,
   /\breplacement\b/,
 ];
+
+const EXCLUDED_APPLE_PRODUCT_TITLE_PATTERNS = [
+  /\b(?:empty\s+box|box\s+only|no\s+(?:airpods?|iphone|ipad|watch|macbook)|packaging\s+only|retail\s+box\s+only)\b/,
+  /\b(?:charging|wireless|alarm\s+clock).{0,50}(?:station|stand|dock|base|holder|mount|cradle)\b/,
+  /\b(?:station|stand|dock|base|holder|mount|cradle)\b.{0,100}\b(?:iphone|ipad|apple\s+watch|watch|airpods?)\b/,
+  /\b(?:3\s*-?\s*in\s*-?\s*1|2\s*-?\s*in\s*-?\s*1|multi\s*device)\b.{0,100}\b(?:charger|charging|station|stand|dock)\b/,
+];
+
+const isExcludedAppleProductTitle = (title) => {
+  const normalized = normalizeTitleText(title);
+  return EXCLUDED_APPLE_PRODUCT_TITLE_PATTERNS.some((pattern) => pattern.test(normalized));
+};
 
 const DEVICE_SIGNAL_PATTERNS = [
   /\bm[1-5](?:\s+(?:pro|max))?\b/,
@@ -571,6 +594,40 @@ const hasAccessoryKeyword = (normalized) =>
 const hasDeviceSignals = (normalized) =>
   DEVICE_SIGNAL_PATTERNS.some((pattern) => pattern.test(normalized));
 
+const getBulkAccessoryQuantity = (normalized, itemSource) => {
+  const patterns = [
+    new RegExp(`\\b(\\d{1,3})\\s*(?:x\\s*)?(?:apple\\s+)?${itemSource}\\b`),
+    new RegExp(`\\b(\\d{1,3})\\s*(?:pack|pk|pcs?|pieces?|count|ct)\\b.{0,60}\\b${itemSource}\\b`),
+    new RegExp(`\\b(?:lot|bundle|pack|set)\\s+of\\s+(\\d{1,3})\\b.{0,60}\\b${itemSource}\\b`),
+    new RegExp(`\\b${itemSource}\\b.{0,60}\\b(\\d{1,3})\\s*(?:pack|pk|pcs?|pieces?|count|ct)\\b`),
+  ];
+  for (const pattern of patterns) {
+    const quantity = Number(normalized.match(pattern)?.[1] || 0);
+    if (Number.isFinite(quantity) && quantity > 0) return quantity;
+  }
+  return 0;
+};
+
+const hasAppleBulkAccessoryBrandSignal = (normalized) =>
+  /\b(?:genuine|original|oem|authentic)\s+apple\b/.test(normalized) ||
+  /\bapple\s+(?:usb|usb\s*-?\s*c|lightning|magsafe|power|charging|charger|chargers|cable|cables|adapter|adapters|20w|30w|35w|61w|67w|70w|96w|140w)\b/.test(normalized) ||
+  /\bapple\s+(?:wall\s+)?(?:charger|adapter|block|brick|cube|cubo)s?\b/.test(normalized) ||
+  /\bmagsafe\b/.test(normalized);
+
+const isAllowedBulkAppleAccessoryPackage = (title) => {
+  const normalized = normalizeTitleText(title);
+  if (!hasAppleBulkAccessoryBrandSignal(normalized)) return false;
+
+  const cableQuantity = getBulkAccessoryQuantity(normalized, '(?:usb\\s*-?\\s*c\\s+)?(?:lightning\\s+)?(?:cables?|cords?)');
+  if (cableQuantity >= 10) return true;
+
+  const chargerQuantity = getBulkAccessoryQuantity(
+    normalized,
+    '(?:(?:usb\\s*-?\\s*c|power|wall|charging)\\s+)?(?:adapters?|chargers?|blocks?|bricks?|cubes?|cubos?)',
+  );
+  return chargerQuantity >= 3;
+};
+
 const MACBOOK_ALLOWED_CHIP_PATTERN = /\bm[1-5](?:\s+(?:pro|max))?\b/;
 const MACBOOK_INTEL_PATTERN = /\b(?:intel|core\s+i[3579]|i[3579][-\s]?\d{3,5})\b/;
 const MACBOOK_BAD_SCREEN_PATTERN = /\b(?:11|12)(?:\.\d+)?\s*(?:inch|in|")?\b/;
@@ -582,6 +639,11 @@ const MAC_MINI_ALLOWED_PATTERN = /\bmac\s*mini\b.*\bm[1-5]\b|\bm[1-5]\b.*\bmac\s
 
 const isLikelyAppleCatalogTitle = (title) => {
   const normalized = normalizeTitleText(title);
+  const compact = normalized.replace(/[\s.+-]+/g, '');
+  if (/\bhome\s*pod\b/.test(normalized) || compact.includes('homepod')) return false;
+  if (isExcludedAppleProductTitle(normalized)) return false;
+  if (isAllowedBulkAppleAccessoryPackage(normalized)) return true;
+  if (isPrimaryAccessoryTitle(normalized)) return false;
   if (isLikelyAppleDeviceTitle(normalized, 'ipad')) return true;
   if (isLikelyAppleDeviceTitle(normalized, 'iphone')) return true;
   if (isLikelyAppleDeviceTitle(normalized, 'macbook')) return true;
@@ -589,9 +651,6 @@ const isLikelyAppleCatalogTitle = (title) => {
   if (MAC_MINI_ALLOWED_PATTERN.test(normalized) && !MACBOOK_INTEL_PATTERN.test(normalized)) return true;
   if (/\bair\s*pods?\b|\bairpods?\b/.test(normalized)) return true;
   if (/\bapple\s+watch\b|\biwatch\b/.test(normalized)) return true;
-  if (/\bhome\s*pod\b|\bhomepod\b/.test(normalized)) return true;
-  if (/\bapple\s+pencil\b|\bmagic\s+keyboard\b|\bmagic\s+mouse\b|\bmagic\s+trackpad\b/.test(normalized)) return true;
-  if (/\bapple\b/.test(normalized) && /\b(?:keyboard|power\s+adapter|charger|magsafe|usb\s*-?\s*c\s+cable|cable|adapter)\b/.test(normalized)) return true;
   return false;
 };
 
@@ -610,6 +669,7 @@ const isAccessoryPrimaryForFamily = (normalized, family) => {
 
 const isPrimaryAccessoryTitle = (title, family = '') => {
   const normalized = normalizeTitleText(title);
+  if (isAllowedBulkAppleAccessoryPackage(normalized)) return false;
   if (!hasAccessoryKeyword(normalized)) return false;
   if (ACCESSORY_PRIMARY_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
   if (family && isAccessoryPrimaryForFamily(normalized, family)) return true;

@@ -217,9 +217,45 @@ const extractApiError = (err, fallback) => {
   return raw || fallback;
 };
 
-export default function ModalProducto({ producto, onClose, onSaved }) {
+const repartirCantidadLote = (rows, total) => {
+  const cantidadTotal = Number(total);
+  if (!Number.isInteger(cantidadTotal) || cantidadTotal < 0) return rows;
+
+  const automaticos = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => !row.cantidadFija);
+  if (!automaticos.length) return rows;
+
+  const totalFijo = rows.reduce(
+    (sum, row) => sum + (row.cantidadFija ? Number(row.cantidad) || 0 : 0),
+    0
+  );
+  const restante = Math.max(0, cantidadTotal - totalFijo);
+  const base = Math.floor(restante / automaticos.length);
+  const sobrante = restante % automaticos.length;
+  const cantidadPorIndice = new Map(
+    automaticos.map(({ index }, position) => [
+      index,
+      base + (position < sobrante ? 1 : 0),
+    ])
+  );
+
+  return rows.map((row, index) =>
+    row.cantidadFija
+      ? row
+      : { ...row, cantidad: cantidadPorIndice.get(index) || 0 }
+  );
+};
+
+export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch }) {
   const isEdit = Boolean(producto);
   const [saving, setSaving] = useState(false);
+  const [loteActivo, setLoteActivo] = useState(false);
+  const [vincularTodoLote, setVincularTodoLote] = useState(false);
+  const [cantidadLote, setCantidadLote] = useState(2);
+  const [distribucionLote, setDistribucionLote] = useState([
+    { vendedor: '', pedidoCliente: '', cantidad: 2, cantidadFija: false },
+  ]);
   const mountedRef = useRef(true);
   const [ebayUrl, setEbayUrl] = useState('');
   const [ebayLoading, setEbayLoading] = useState(false);
@@ -374,6 +410,71 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       pedidoCliente: value,
       vendedor: value.trim() ? pedidoSeller(value) : OTHER_PEDIDO_SELLER,
     }));
+  };
+  const updateDistribucionLote = (index, changes) => {
+    setDistribucionLote((rows) =>
+      rows.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, ...changes } : row
+      )
+    );
+  };
+  const onLoteSellerChange = (index, value) => {
+    updateDistribucionLote(index, {
+      vendedor: value,
+      pedidoCliente: pedidoClientFromSeller(value),
+    });
+  };
+  const onLoteClientChange = (index, value) => {
+    updateDistribucionLote(index, {
+      pedidoCliente: value,
+      vendedor: value.trim() ? pedidoSeller(value) : OTHER_PEDIDO_SELLER,
+    });
+  };
+  const onCantidadLoteChange = (value) => {
+    setCantidadLote(value);
+    setDistribucionLote((rows) => repartirCantidadLote(rows, Number(value)));
+  };
+  const onCantidadDistribucionChange = (index, value) => {
+    setDistribucionLote((rows) => {
+      const changed = rows.map((row, rowIndex) =>
+        rowIndex === index
+          ? { ...row, cantidad: value, cantidadFija: true }
+          : row
+      );
+      return repartirCantidadLote(changed, Number(cantidadLote));
+    });
+  };
+  const restaurarCantidadAutomatica = (index) => {
+    setDistribucionLote((rows) => {
+      const changed = rows.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, cantidadFija: false } : row
+      );
+      return repartirCantidadLote(changed, Number(cantidadLote));
+    });
+  };
+  const agregarDistribucionLote = () => {
+    setDistribucionLote((rows) =>
+      repartirCantidadLote(
+        [
+          ...rows,
+          {
+            vendedor: '',
+            pedidoCliente: '',
+            cantidad: 0,
+            cantidadFija: false,
+          },
+        ],
+        Number(cantidadLote)
+      )
+    );
+  };
+  const quitarDistribucionLote = (index) => {
+    setDistribucionLote((rows) =>
+      repartirCantidadLote(
+        rows.filter((_, rowIndex) => rowIndex !== index),
+        Number(cantidadLote)
+      )
+    );
   };
 
   const describeProducto = (p) => {
@@ -531,7 +632,8 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     if (saving) return;
     setSaving(true);
 
-    const url = isEdit ? `/productos/${producto.id}` : '/productos';
+    const isBatch = !isEdit && loteActivo;
+    const url = isEdit ? `/productos/${producto.id}` : (isBatch ? '/productos/lote' : '/productos');
     const method = isEdit ? 'patch' : 'post';
 
     let accesorios = Array.isArray(form.accesorios) ? [...form.accesorios] : [];
@@ -552,11 +654,62 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
     if (primaryLink) payload.vincularCon = Number(primaryLink);
     if (desvincularEnvio) payload.desvincularEnvio = true;
 
-    if (!isEdit) onClose();
+    let requestPayload = payload;
+    if (isBatch) {
+      const cantidad = Number(cantidadLote);
+      const rows = distribucionLote.map((row) => ({
+        vendedor:
+          row.vendedor === OTHER_PEDIDO_SELLER
+            ? null
+            : String(row.vendedor || '').trim() || null,
+        cantidad: Number(row.cantidad),
+      }));
+      const totalDistribuido = rows.reduce((sum, row) => sum + row.cantidad, 0);
+      const invalidRow = rows.some(
+        (row, index) =>
+          !Number.isInteger(row.cantidad) ||
+          row.cantidad < 1 ||
+          (distribucionLote[index].vendedor === OTHER_PEDIDO_SELLER &&
+            !String(distribucionLote[index].pedidoCliente || '').trim())
+      );
+
+      if (!Number.isInteger(cantidad) || cantidad < 2 || cantidad > 100) {
+        alert('La cantidad del lote debe estar entre 2 y 100.');
+        setSaving(false);
+        return;
+      }
+      if (invalidRow) {
+        alert('Completa correctamente cada cliente y su cantidad.');
+        setSaving(false);
+        return;
+      }
+      if (totalDistribuido !== cantidad) {
+        alert(`La distribución debe sumar ${cantidad}. Actualmente suma ${totalDistribuido}.`);
+        setSaving(false);
+        return;
+      }
+
+      requestPayload = {
+        producto: payload,
+        cantidad,
+        distribucion: rows,
+        casillero: form.casillero || undefined,
+        vincularTodos: vincularTodoLote,
+      };
+    }
 
     try {
-      const res = await api[method](url, payload);
+      const res = await api[method](url, requestPayload);
       const saved = res?.data ?? res;
+
+      if (isBatch) {
+        const savedItems = Array.isArray(saved) ? saved : [];
+        if (!savedItems.length) throw new Error('El lote no devolvió productos');
+        if (onSavedBatch) onSavedBatch(savedItems);
+        else savedItems.forEach((item) => onSaved(item));
+        onClose();
+        return;
+      }
 
       const extras = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
       if (saved?.id && extras.length) {
@@ -578,6 +731,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       }
 
       if (isEdit) onClose();
+      if (!isEdit) onClose();
     } catch (err) {
       console.error('Error al guardar:', err);
       alert('No se pudo guardar el producto.');
@@ -607,6 +761,10 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
       ? OTHER_PEDIDO_SELLER
       : currentSeller;
   const showOtherPedidoInput = sellerSelectValue === OTHER_PEDIDO_SELLER;
+  const totalDistribuidoLote = distribucionLote.reduce(
+    (sum, row) => sum + (Number(row.cantidad) || 0),
+    0
+  );
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -627,6 +785,150 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
 
         <form onSubmit={handleSubmit}>
           <fieldset disabled={saving} className={saving ? 'opacity-60 pointer-events-none' : ''}>
+            {!isEdit && (
+              <div className="border border-indigo-200 rounded-lg p-4 mb-6 bg-indigo-50/50">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-indigo-600"
+                    checked={loteActivo}
+                    onChange={(e) => setLoteActivo(e.target.checked)}
+                  />
+                  <span>
+                    <span className="block font-semibold text-gray-900">Crear varios productos iguales</span>
+                    <span className="block text-sm text-gray-600">
+                      Los datos y el precio se ingresan una sola vez para todo el lote.
+                    </span>
+                  </span>
+                </label>
+
+                {loteActivo && (
+                  <div className="mt-4 space-y-4">
+                    <div className="max-w-xs">
+                      <label className="block text-sm font-medium mb-1">Cantidad total</label>
+                      <input
+                        type="number"
+                        min="2"
+                        max="100"
+                        className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={cantidadLote}
+                        onChange={(e) => onCantidadLoteChange(e.target.value)}
+                      />
+                    </div>
+
+                    <label className="flex items-start gap-3 border border-indigo-200 rounded-lg bg-white p-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 mt-0.5 accent-indigo-600"
+                        checked={vincularTodoLote}
+                        onChange={(e) => setVincularTodoLote(e.target.checked)}
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold text-gray-900">
+                          Vincular todos los productos
+                        </span>
+                        <span className="block text-xs text-gray-600 mt-1">
+                          Todos compartirán el mismo DEC, peso, tracking y costo de envío prorrateado.
+                        </span>
+                      </span>
+                    </label>
+
+                    <div>
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <span className="text-sm font-semibold">Distribución</span>
+                        <span className={`text-sm font-medium ${
+                          totalDistribuidoLote === Number(cantidadLote)
+                            ? 'text-green-700'
+                            : 'text-amber-700'
+                        }`}>
+                          Asignados: {totalDistribuidoLote} de {Number(cantidadLote) || 0}
+                        </span>
+                      </div>
+
+                      <div className="space-y-3">
+                        {distribucionLote.map((row, index) => {
+                          const rowSeller = String(row.vendedor || '');
+                          const known = sellerOptions.some((opt) => opt.value === rowSeller);
+                          const selectValue = known
+                            ? rowSeller
+                            : pedidoClientFromSeller(rowSeller)
+                              ? OTHER_PEDIDO_SELLER
+                              : rowSeller;
+                          const showClient = selectValue === OTHER_PEDIDO_SELLER;
+                          return (
+                            <div key={`lote-${index}`} className="grid grid-cols-1 sm:grid-cols-[1fr_170px_auto] gap-2 items-start">
+                              <div>
+                                <select
+                                  className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                  value={selectValue}
+                                  onChange={(e) => onLoteSellerChange(index, e.target.value)}
+                                >
+                                  {sellerOptions.map((opt) => (
+                                    <option key={`${index}-${opt.label}`} value={opt.value}>
+                                      {opt.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                {showClient && (
+                                  <input
+                                    type="text"
+                                    className="w-full border p-2 rounded bg-white mt-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    value={row.pedidoCliente || ''}
+                                    onChange={(e) => onLoteClientChange(index, e.target.value)}
+                                    placeholder="Nombre del cliente"
+                                  />
+                                )}
+                              </div>
+                              <div>
+                                <div className="flex gap-1">
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    className="w-full min-w-0 border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    value={row.cantidad}
+                                    aria-label={`Cantidad de la distribución ${index + 1}`}
+                                    onChange={(e) => onCantidadDistribucionChange(index, e.target.value)}
+                                  />
+                                  {row.cantidadFija && (
+                                    <button
+                                      type="button"
+                                      className="px-2 py-2 rounded border bg-white text-xs text-indigo-700 hover:bg-indigo-50"
+                                      onClick={() => restaurarCantidadAutomatica(index)}
+                                      title="Volver a distribuir esta cantidad automáticamente"
+                                    >
+                                      Auto
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {row.cantidadFija ? 'Cantidad fijada' : 'Se distribuye automáticamente'}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                className="px-3 py-2 rounded border bg-white text-red-600 hover:bg-red-50 disabled:opacity-40"
+                                disabled={distribucionLote.length === 1}
+                                onClick={() => quitarDistribucionLote(index)}
+                              >
+                                Quitar
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <button
+                        type="button"
+                        className="mt-3 px-3 py-2 rounded border bg-white text-sm hover:bg-gray-100"
+                        onClick={agregarDistribucionLote}
+                      >
+                        Agregar cliente
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-4">
                 {!isEdit && (
@@ -850,8 +1152,8 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                   <div key={field}>
                     <label className="block font-medium mb-1">
                       {{
-                        valorProducto: 'Valor Producto ($)',
-                        valorDec: 'Valor DEC ($)',
+                        valorProducto: loteActivo ? 'Valor total del lote ($)' : 'Valor Producto ($)',
+                        valorDec: loteActivo ? 'Valor DEC compartido ($)' : 'Valor DEC ($)',
                         peso: 'Peso (kg)',
                         fechaCompra: 'Fecha de Compra'
                       }[field]}
@@ -862,10 +1164,23 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                       value={form.valor[field]}
                       onChange={e => onChange('valor', field, e.target.value)}
                     />
+                    {loteActivo && field === 'valorProducto' && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Por unidad: ${(
+                          (Number(form.valor[field]) || 0) /
+                          Math.max(Number(cantidadLote) || 1, 1)
+                        ).toFixed(2)}
+                      </p>
+                    )}
+                    {loteActivo && (field === 'valorDec' || field === 'peso') && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Este valor será igual para todas las unidades del lote.
+                      </p>
+                    )}
                   </div>
                 ))}
 
-                <div className="border rounded-lg p-3 space-y-3 bg-gray-50/60">
+                {!loteActivo && <div className="border rounded-lg p-3 space-y-3 bg-gray-50/60">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
                       <span className="font-medium text-gray-900">Vincular envio</span>
@@ -1009,9 +1324,9 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                       </div>
                     </div>
                   )}
-                </div>
+                </div>}
 
-                <div>
+                {!loteActivo && <div>
                   <label className="block font-medium mb-1">Vendedor</label>
                   <select
                     className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -1036,7 +1351,7 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
                       />
                     </>
                   )}
-                </div>
+                </div>}
               </div>
             </div>
           </fieldset>
@@ -1048,7 +1363,13 @@ export default function ModalProducto({ producto, onClose, onSaved }) {
               disabled={saving}
               aria-busy={saving}
             >
-              {saving ? 'Guardando...' : (isEdit ? 'Guardar cambios' : 'Guardar')}
+              {saving
+                ? 'Guardando...'
+                : isEdit
+                  ? 'Guardar cambios'
+                  : loteActivo
+                    ? `Crear ${Number(cantidadLote) || 0} productos`
+                    : 'Guardar'}
             </button>
           </div>
         </form>
