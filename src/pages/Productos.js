@@ -29,6 +29,7 @@ const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
 const ESHOPEX_BG_REQUESTED_KEY = 'eshopex-carga-requested';
 const ESHOPEX_BG_OPEN_MODAL_KEY = 'eshopex-carga-open-modal';
 const ESHOPEX_BG_COUNT_KEY = 'eshopex-carga-pendientes-count';
+const INVENTARIO_RECOJO_DIAS = 7;
 const EMPTY_ESH_PROGRESS = {
   status: 'idle',
   total: 0,
@@ -237,6 +238,9 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [recojoOpen, setRecojoOpen] = useState(false);
   const [recojoSelected, setRecojoSelected] = useState(new Set());
   const [recojoDate, setRecojoDate] = useState('');
+  const [inventarioOpen, setInventarioOpen] = useState(false);
+  const [inventarioSelected, setInventarioSelected] = useState(new Set());
+  const [inventarioSaving, setInventarioSaving] = useState(false);
   const [recojoStatusMap, setRecojoStatusMap] = useState({});
   const recojoStatusRef = useRef({});
   useEffect(() => {
@@ -606,6 +610,29 @@ const confirmAction = async () => {
     });
   }, [productos, getLastTracking]);
 
+  const inventarioRecojoList = React.useMemo(() => {
+    const hoy = new Date();
+    const hoyUtc = Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    const unDia = 24 * 60 * 60 * 1000;
+    return (productos || [])
+      .filter((p) => {
+        const t = getLastTracking(p);
+        if (String(t?.estado || '').toLowerCase() !== 'recogido') return false;
+        if (t?.contabilizadoAt || t?.contabilizado_at) return false;
+        const raw = String(t?.fechaRecogido || t?.fecha_recogido || '').slice(0, 10);
+        const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match) return false;
+        const fechaUtc = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+        const dias = Math.floor((hoyUtc - fechaUtc) / unDia);
+        return dias >= 0 && dias <= INVENTARIO_RECOJO_DIAS;
+      })
+      .sort((a, b) => {
+        const fa = String(getLastTracking(a)?.fechaRecogido || '');
+        const fb = String(getLastTracking(b)?.fechaRecogido || '');
+        return fb.localeCompare(fa) || Number(b.id || 0) - Number(a.id || 0);
+      });
+  }, [productos, getLastTracking]);
+
   const getEshopexCode = useCallback((p) => (getLastTracking(p)?.trackingEshop || '').trim(), [getLastTracking]);
   const getUsaCode = useCallback((p) => (getLastTracking(p)?.trackingUsa || '').trim(), [getLastTracking]);
   const productosByEshopex = React.useMemo(() => {
@@ -928,6 +955,7 @@ const confirmAction = async () => {
         const res = await api.put(`/tracking/producto/${p.id}`, {
           estado: 'recogido',
           fechaRecogido: recojoDate,
+          contabilizadoAt: null,
         });
         return { productoId: p.id, tracking: res?.data ?? res };
       }));
@@ -971,6 +999,55 @@ const confirmAction = async () => {
       const href = URLS.eshopex(esh);
       window.open(href, '_blank', 'noopener,noreferrer');
     });
+  };
+
+  const openInventarioRecojo = () => {
+    setInventarioSelected(new Set());
+    setInventarioOpen(true);
+  };
+
+  const toggleInventarioSelect = (id) => {
+    setInventarioSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleContabilizarRecojo = async () => {
+    const items = inventarioRecojoList.filter((p) => inventarioSelected.has(p.id));
+    if (!items.length) {
+      alert('Selecciona al menos un producto para contabilizar.');
+      return;
+    }
+    if (inventarioSaving) return;
+    setInventarioSaving(true);
+    try {
+      const contabilizadoAt = new Date().toISOString();
+      const results = await Promise.allSettled(items.map(async (p) => {
+        const res = await api.put(`/tracking/producto/${p.id}`, { contabilizadoAt });
+        return { productoId: p.id, tracking: res?.data ?? res };
+      }));
+      const updated = results
+        .filter((result) => result.status === 'fulfilled')
+        .map((result) => result.value);
+      updated.forEach(({ productoId, tracking }) => applyTrackingUpdate(productoId, tracking));
+      const completedIds = new Set(updated.map((item) => item.productoId));
+      setInventarioSelected((prev) => {
+        const next = new Set(prev);
+        completedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      if (updated.length !== items.length) {
+        alert('Algunos productos no se pudieron contabilizar.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo completar el cotejo de inventario.');
+    } finally {
+      setInventarioSaving(false);
+    }
   };
 
   const markPagoLoading = (key, on) => {
@@ -1207,6 +1284,13 @@ const confirmAction = async () => {
     dhl: (code) => `https://www.dhl.com/en/express/tracking.html?AWB=${encodeURIComponent(code)}&brand=DHL`,
     amazon: (code) => `https://www.amazon.com/progress-tracker/package?trackingId=${encodeURIComponent(code)}`,
     eshopex: (code) => `https://usamybox.com/internacional/tracking_box.php?nrotrack=${encodeURIComponent(code)}`,
+  };
+
+  const buildUsaTrackingLink = (t) => {
+    const code = String(t?.trackingUsa || '').trim();
+    const operador = String(t?.transportista || '').trim().toLowerCase();
+    if (!code || !operador || !URLS[operador]) return null;
+    return URLS[operador](code);
   };
 
   // Construye el link segun estado y datos
@@ -2542,6 +2626,12 @@ const confirmAction = async () => {
               >
                 Abrir tracking
               </button>
+              <button
+                className="px-3 py-2 rounded border border-amber-300 text-amber-800 hover:bg-amber-50"
+                onClick={openInventarioRecojo}
+              >
+                Cotejo inventario
+              </button>
             </div>
 
             <div className="pr-0.5 flex-1 min-h-0 flex flex-col">
@@ -2692,6 +2782,132 @@ const confirmAction = async () => {
               </div>
             )}
             </div>
+          </div>
+        </div>
+      )}
+      {inventarioOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-start sm:items-center justify-center z-[60] overflow-y-auto p-2 sm:p-4">
+          <div className="bg-white w-full max-w-5xl rounded-xl shadow-lg p-4 sm:p-6 relative max-h-[95dvh] sm:max-h-[92dvh] overflow-hidden flex flex-col">
+            <button
+              className="absolute right-3 top-3 sm:right-4 sm:top-4 w-11 h-11 sm:w-10 sm:h-10 flex items-center justify-center text-2xl font-bold rounded-full border border-gray-300 bg-white shadow-sm hover:bg-gray-100 z-10"
+              onClick={() => setInventarioOpen(false)}
+              aria-label="Cerrar cotejo de inventario"
+            >
+              x
+            </button>
+
+            <div className="mb-4 pr-12">
+              <h2 className="text-lg sm:text-xl font-semibold">Cotejo de inventario</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Productos recogidos durante los ultimos {INVENTARIO_RECOJO_DIAS} dias y aun no contabilizados.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <button
+                type="button"
+                className="px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
+                onClick={() => {
+                  const allIds = inventarioRecojoList.map((p) => p.id);
+                  const allSelected = allIds.length > 0 && allIds.every((id) => inventarioSelected.has(id));
+                  setInventarioSelected(allSelected ? new Set() : new Set(allIds));
+                }}
+                disabled={inventarioSaving || inventarioRecojoList.length === 0}
+              >
+                {inventarioRecojoList.length > 0 && inventarioRecojoList.every((p) => inventarioSelected.has(p.id))
+                  ? 'Deseleccionar todos'
+                  : 'Seleccionar todos'}
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleContabilizarRecojo}
+                disabled={inventarioSaving || inventarioSelected.size === 0}
+              >
+                {inventarioSaving ? 'Contabilizando...' : `Contabilizar (${inventarioSelected.size})`}
+              </button>
+              <span className="text-sm text-gray-500">
+                Pendientes: {inventarioRecojoList.length}
+              </span>
+            </div>
+
+            {inventarioRecojoList.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
+                No hay productos pendientes de cotejo en los ultimos {INVENTARIO_RECOJO_DIAS} dias.
+              </div>
+            ) : (
+              <div className="overflow-auto rounded-xl ring-1 ring-gray-200 shadow-sm flex-1 min-h-0">
+                <table className="min-w-[900px] w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="p-2 text-left">Sel.</th>
+                      <th className="p-2 text-left">Producto</th>
+                      <th className="p-2 text-left">Tracking Eshopex</th>
+                      <th className="p-2 text-left">Tracking envio USA</th>
+                      <th className="p-2 text-left">Casillero</th>
+                      <th className="p-2 text-left">Fecha recojo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inventarioRecojoList.map((p) => {
+                      const t = getLastTracking(p);
+                      const esh = String(t?.trackingEshop || '').trim();
+                      const usa = String(t?.trackingUsa || '').trim();
+                      const usaLink = buildUsaTrackingLink(t);
+                      const fecha = fmtFechaTabla(t?.fechaRecogido || t?.fecha_recogido);
+                      return (
+                        <tr
+                          key={p.id}
+                          className={`border-t cursor-pointer hover:bg-amber-50 ${inventarioSelected.has(p.id) ? 'bg-amber-50' : ''}`}
+                          onClick={() => {
+                            if (!inventarioSaving) toggleInventarioSelect(p.id);
+                          }}
+                        >
+                          <td className="p-2">
+                            <input
+                              type="checkbox"
+                              checked={inventarioSelected.has(p.id)}
+                              disabled={inventarioSaving}
+                              onChange={() => toggleInventarioSelect(p.id)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </td>
+                          <td className="p-2 font-medium">{buildNombreProducto(p) || p.tipo || '-'}</td>
+                          <td className="p-2">
+                            {esh ? (
+                              <a
+                                href={URLS.eshopex(esh)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {esh}
+                              </a>
+                            ) : '-'}
+                          </td>
+                          <td className="p-2">
+                            {usaLink ? (
+                              <a
+                                href={usaLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {usa}
+                              </a>
+                            ) : (usa || '-')}
+                          </td>
+                          <td className="p-2">{t?.casillero || '-'}</td>
+                          <td className="p-2">{fecha}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
