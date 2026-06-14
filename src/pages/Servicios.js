@@ -315,6 +315,12 @@ const upsertCatalogItem = (items, item, sorter) => {
   return sorter(next);
 };
 
+const invalidateGastosPanelCache = () => {
+  Object.keys(localStorage)
+    .filter((key) => key.startsWith('gastos-panel-cache:'))
+    .forEach((key) => localStorage.removeItem(key));
+};
+
 function CatalogosAdmin() {
   const [productItems, setProductItems] = useState([]);
   const [expenseItems, setExpenseItems] = useState([]);
@@ -390,6 +396,7 @@ function CatalogosAdmin() {
       setSavingExpense(true);
       const created = await api.post('/catalog/expense-concepts', expenseForm);
       setExpenseItems((prev) => upsertCatalogItem(prev, created?.data ?? created, sortExpenseConcepts));
+      invalidateGastosPanelCache();
       setExpenseForm({ label: '', appliesDebit: true, appliesCredit: false, defaultCurrency: 'PEN', category: 'life' });
       setMessage('Concepto de gasto agregado.');
     } catch (err) {
@@ -404,6 +411,7 @@ function CatalogosAdmin() {
       await api.del(`/catalog/items/${id}`);
       setProductItems((prev) => prev.filter((item) => item.id !== id));
       setExpenseItems((prev) => prev.filter((item) => item.id !== id));
+      invalidateGastosPanelCache();
     } catch {
       setMessage('No se pudo desactivar el item.');
     }

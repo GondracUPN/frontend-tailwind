@@ -1,5 +1,5 @@
 // src/components/ModalGastoDebito.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
 import { convertPenToUsd, TC_FIJO } from '../utils/tipoCambio';
 import { localDateInputValue } from '../utils/dates';
@@ -75,9 +75,19 @@ const toDebitConceptValue = (value) => {
   return n || BASE_CONCEPTOS_DEBITO[0]?.value || 'comida';
 };
 
-export default function ModalGastoDebito({ onClose, onSaved, userId, defaultConcept = '', defaultPaymentCard = '' }) {
+export default function ModalGastoDebito({
+  onClose,
+  onSaved,
+  userId,
+  defaultConcept = '',
+  defaultPaymentCard = '',
+  expenseConcepts = [],
+}) {
   const [concepto, setConcepto] = useState(() => toDebitConceptValue(defaultConcept));
-  const [customConcepts, setCustomConcepts] = useState([]);
+  const customConcepts = useMemo(
+    () => (Array.isArray(expenseConcepts) ? expenseConcepts : []).filter((item) => item.appliesDebit),
+    [expenseConcepts],
+  );
   const [moneda, setMoneda] = useState('PEN');
   const [monto, setMonto] = useState('');
   const [fecha, setFecha] = useState(() => localDateInputValue());
@@ -125,25 +135,6 @@ export default function ModalGastoDebito({ onClose, onSaved, userId, defaultConc
     })();
     return () => { alive = false; };
   }, [userId, defaultPaymentCard]);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const res = await fetch(`${API_URL}/catalog/expense-concepts`, {
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) throw new Error('catalog');
-        const rows = await res.json();
-        if (!alive) return;
-        setCustomConcepts((Array.isArray(rows) ? rows : []).filter((item) => item.appliesDebit));
-      } catch {
-        if (alive) setCustomConcepts([]);
-      }
-    })();
-    return () => { alive = false; };
-  }, []);
 
   // En conceptos distintos a pago_tarjeta, forzar soles
   useEffect(() => {

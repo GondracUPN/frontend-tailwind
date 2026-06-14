@@ -1,5 +1,5 @@
 // src/components/ModalGastoCredito.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL } from '../api';
 import { localDateInputValue } from '../utils/dates';
 import CloseX from './CloseX';
@@ -53,12 +53,27 @@ const findConcept = (apiValue) => {
 
 const toDisplayConcept = (apiValue) => findConcept(apiValue)?.value || 'Comida';
 
-export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'create', initial = null, defaultCard = '' }) {
+export default function ModalGastoCredito({
+  onClose,
+  onSaved,
+  userId,
+  mode = 'create',
+  initial = null,
+  defaultCard = '',
+  expenseConcepts = [],
+}) {
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(true);
-  const [customConcepts, setCustomConcepts] = useState([]);
+  const customConcepts = useMemo(
+    () => (Array.isArray(expenseConcepts) ? expenseConcepts : []).filter((item) => item.appliesCredit),
+    [expenseConcepts],
+  );
 
-  const [concepto, setConcepto] = useState(initial?.concepto ? toDisplayConcept(initial?.concepto) : (CREDIT_CONCEPTS[0]?.value || 'Comida'));
+  const [concepto, setConcepto] = useState(() => {
+    if (!initial?.concepto) return CREDIT_CONCEPTS[0]?.value || 'Comida';
+    const custom = customConcepts.find((item) => normConcept(item.value) === normConcept(initial.concepto));
+    return custom?.label || toDisplayConcept(initial.concepto);
+  });
   const defaultMoneda = (() => (normConcept(initial?.concepto) === 'inversion' ? 'USD' : 'PEN'))();
   const [moneda, setMoneda] = useState(initial?.moneda || defaultMoneda);
   const [monto, setMonto] = useState(initial?.monto != null ? String(initial.monto) : '');
@@ -69,7 +84,10 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
   const [tarjetaCompra, setTarjetaCompra] = useState(initial?.tarjeta || defaultCard || '');
 
   const [saving, setSaving] = useState(false);
+  const [savingAction, setSavingAction] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const montoInputRef = useRef(null);
 
   const cardLabel = (c) => c?.label || c?.name || c?.tipo || c?.type || '';
   const cardValue = (c) => c?.type || c?.tipo || c?.label || c?.name || '';
@@ -95,25 +113,6 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
     })();
     return () => { alive = false; };
   }, [userId, initial, defaultCard]);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const res = await fetch(`${API_URL}/catalog/expense-concepts`, {
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) throw new Error('catalog');
-        const rows = await res.json();
-        if (!alive) return;
-        setCustomConcepts((Array.isArray(rows) ? rows : []).filter((item) => item.appliesCredit));
-      } catch {
-        if (alive) setCustomConcepts([]);
-      }
-    })();
-    return () => { alive = false; };
-  }, []);
 
   const handleConceptChange = (val) => {
     setConcepto(val);
@@ -151,7 +150,9 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
   const onSubmit = async (e) => {
     e?.preventDefault?.();
     if (saving) return;
+    const keepOpen = mode !== 'edit' && e?.nativeEvent?.submitter?.value === 'continue';
     setError('');
+    setSuccess('');
     const n = Number(monto);
     if (!isFinite(n) || n <= 0) return setError('Monto inválido.');
     if (!fecha) return setError('Selecciona fecha.');
@@ -181,19 +182,29 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
     }
 
     setSaving(true);
+    setSavingAction(keepOpen ? 'continue' : 'close');
     try {
       const url = mode === 'edit' && initial?.id ? `${API_URL}/gastos/${initial.id}` : `${API_URL}/gastos`;
       const method = mode === 'edit' && initial?.id ? 'PATCH' : 'POST';
       const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error(await res.text().catch(() => `HTTP ${res.status}`));
       const data = await res.json().catch(() => null);
-      onSaved?.(data);
-      onClose?.();
+      onSaved?.(data, { keepOpen });
+      if (keepOpen) {
+        setMonto('');
+        setNota('');
+        setDetalleMensual('');
+        setSuccess('Gasto guardado. Puedes continuar con el siguiente.');
+        window.setTimeout(() => montoInputRef.current?.focus(), 0);
+      } else {
+        onClose?.();
+      }
     } catch (err) {
       console.error('[ModalGastoCredito] save error:', err);
       setError('No se pudo guardar.');
     } finally {
       setSaving(false);
+      setSavingAction('');
     }
   };
 
@@ -206,6 +217,7 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
         <h2 className="text-lg font-semibold mb-3">{mode==='edit' ? 'Editar gasto (Crédito)' : 'Agregar gasto (Crédito)'}</h2>
 
         {error && (<div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>)}
+        {success && (<div className="mb-3 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-3 py-2">{success}</div>)}
 
         {loadingCards ? (
           <div className="text-sm text-gray-600 mb-3">Cargando tus tarjetas…</div>
@@ -245,7 +257,7 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
 
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Monto</span>
-              <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder={moneda === 'USD' ? '$ 0.00' : '0.00'} required />
+              <input ref={montoInputRef} type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder={moneda === 'USD' ? '$ 0.00' : '0.00'} required />
               <div className="mt-1 text-xs text-gray-500 min-h-[1rem]">{moneda === 'USD' ? (<span>≈ S/ {Number((Number(monto || 0) * TC_CREDITO).toFixed(2))} (TC {TC_CREDITO})</span>) : null}</div>
             </label>
 
@@ -281,9 +293,16 @@ export default function ModalGastoCredito({ onClose, onSaved, userId, mode = 'cr
             </label>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" className="px-4 py-2 rounded bg-gray-200 text-gray-800 hover:bg-gray-300" onClick={onClose}>Cancelar</button>
-            <button type="submit" disabled={saving || !cards.length} className="px-5 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60">{saving ? (mode==='edit' ? 'Actualizando…' : 'Guardando…') : (mode==='edit' ? 'Actualizar' : 'Guardar')}</button>
+          <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:justify-end">
+            <button type="button" className="w-full px-4 py-2 rounded bg-gray-200 text-gray-800 hover:bg-gray-300 sm:w-auto" onClick={onClose}>Cancelar</button>
+            <button type="submit" value="close" disabled={saving || !cards.length} className="w-full px-5 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 sm:w-auto">
+              {saving && savingAction === 'close' ? (mode === 'edit' ? 'Actualizando...' : 'Guardando...') : (mode === 'edit' ? 'Actualizar' : 'Guardar')}
+            </button>
+            {mode !== 'edit' && (
+              <button type="submit" value="continue" disabled={saving || !cards.length} className="w-full px-5 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 sm:w-auto">
+                {saving && savingAction === 'continue' ? 'Guardando...' : 'Guardar y continuar'}
+              </button>
+            )}
           </div>
         </form>
       </div>

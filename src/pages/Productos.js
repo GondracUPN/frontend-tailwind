@@ -534,6 +534,16 @@ export default function Productos({ setVista, setAnalisisBack }) {
         p.detalle?.conexion,
       ].filter(Boolean).join(' ');
     }
+    if (String(p.tipo || '').toLowerCase() === 'ipad') {
+      const detalle = p.detalle || {};
+      const linea = detalle.gama === 'Normal' ? '' : detalle.gama;
+      const modelo = detalle.gama === 'Normal' || detalle.gama === 'Mini'
+        ? detalle.generacion
+        : detalle.procesador;
+      const tamano = detalle.tamano || detalle[keyTamano] || detalle.tamanio;
+      const pantalla = tamano && String(tamano) !== String(modelo || '') ? tamano : '';
+      return ['iPad', linea, modelo, pantalla].filter(Boolean).join(' ');
+    }
     const parts = [
       p.tipo,
       p.detalle?.gama,

@@ -36,6 +36,11 @@ export default function FormProductoIpad({ detalle, onChange }) {
 
   const getTamanos = () => {
     if (customForSelection && metaList(customForSelection, 'sizes').length) return metaList(customForSelection, 'sizes');
+    if (gama === 'Normal') {
+      if (['8', '9'].includes(generacion)) return ['10.2'];
+      if (generacion === '10') return ['10.9'];
+      if (generacion === '11') return ['11'];
+    }
     if (gama === 'Air' && ['M2', 'M3'].includes(procesador)) return ['11', '13'];
     if (gama === 'Pro') {
       if (['M1', 'M2'].includes(procesador)) return ['11', '12.9'];
@@ -46,7 +51,12 @@ export default function FormProductoIpad({ detalle, onChange }) {
 
   const getAlmacenamiento = () => {
     if (customForSelection && metaList(customForSelection, 'storages').length) return metaList(customForSelection, 'storages');
-    if (gama === 'Normal') return [];
+    if (gama === 'Normal') {
+      if (generacion === '8') return ['32', '128'];
+      if (['9', '10'].includes(generacion)) return ['64', '256'];
+      if (generacion === '11') return ['128', '256', '512'];
+      return [];
+    }
     if (gama === 'Mini') {
       if (generacion === '6') return ['64', '256'];
       if (generacion === '7') return ['128', '256', '512'];
@@ -97,11 +107,31 @@ export default function FormProductoIpad({ detalle, onChange }) {
           <select
             className="w-full border p-2 rounded"
             value={generacion || ''}
-            onChange={e => onChange('generacion', e.target.value)}
+            onChange={e => {
+              onChange('generacion', e.target.value);
+              onChange('tamano', '');
+              onChange('almacenamiento', '');
+            }}
           >
             <option value="">Seleccione</option>
             {uniq([...(gama === 'Normal' ? generacionesNormales : generacionesMini), ...customOptions.filter((item) => item.family === gama).map((item) => item.value)]).map(g => (
               <option key={g} value={g}>{g}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {gama === 'Normal' && getTamanos().length > 0 && (
+        <div>
+          <label className="block font-medium">Tamaño de pantalla</label>
+          <select
+            className="w-full border p-2 rounded"
+            value={tamano}
+            onChange={e => onChange('tamano', e.target.value)}
+          >
+            <option value="">Seleccione</option>
+            {getTamanos().map(t => (
+              <option key={t} value={t}>{t} pulgadas</option>
             ))}
           </select>
         </div>
@@ -129,10 +159,10 @@ export default function FormProductoIpad({ detalle, onChange }) {
             </select>
           </div>
 
-          {/* tamano dinamico (label con n, campo 'tamano') */}
+          {/* tamano dinamico (campo 'tamano') */}
           {getTamanos().length > 0 && (
             <div>
-              <label className="block font-medium">tamano</label>
+              <label className="block font-medium">Tamaño de pantalla</label>
               <select
                 className="w-full border p-2 rounded"
                 value={tamano}
@@ -140,7 +170,7 @@ export default function FormProductoIpad({ detalle, onChange }) {
               >
                 <option value="">Seleccione</option>
                 {getTamanos().map(t => (
-                  <option key={t} value={t}>{t}</option>
+                  <option key={t} value={t}>{t} pulgadas</option>
                 ))}
               </select>
             </div>

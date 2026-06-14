@@ -34,6 +34,7 @@ const CARD_LABEL = {
 const INVESTMENT_EXCLUDED_CARD_TYPES = new Set(['interbank', 'bbva']);
 
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos
+const CACHE_VERSION = 2;
 
 const fmtUsd = (value) => {
   const n = Number(value);
@@ -80,6 +81,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [rows, setRows] = useState([]);
   const [cardsSummary, setCardsSummary] = useState([]);
   const [wallet, setWallet] = useState({ efectivoPen: 0, efectivoUsd: 0 });
+  const [expenseConcepts, setExpenseConcepts] = useState([]);
   const [conceptCategories, setConceptCategories] = useState({});
   const [loading, setLoading] = useState(true);
   const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
@@ -110,6 +112,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [debitConceptFilter, setDebitConceptFilter] = useState('all');
   const [debitPaymentCardFilter, setDebitPaymentCardFilter] = useState('all');
   const [creditCardFilter, setCreditCardFilter] = useState('all');
+  const [creditCurrencyFilter, setCreditCurrencyFilter] = useState('all');
 
   const token = localStorage.getItem('token');
   const user = useMemo(() => {
@@ -247,6 +250,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       if (!parsed?.ts) return null;
+      if (parsed.version !== CACHE_VERSION) return null;
       if (Date.now() - parsed.ts > CACHE_TTL_MS) return null;
       return parsed;
     } catch {
@@ -257,7 +261,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const writeCache = (data) => {
     if (!cacheKey) return;
     try {
-      localStorage.setItem(cacheKey, JSON.stringify({ ...data, ts: Date.now() }));
+      localStorage.setItem(cacheKey, JSON.stringify({ ...data, version: CACHE_VERSION, ts: Date.now() }));
     } catch {
       /* ignore cache write errors */
     }
@@ -276,6 +280,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         if (includeGastos && Array.isArray(cached.rows)) setRows(sortRows(cached.rows));
         if (Array.isArray(cached.cardsSummary)) setCardsSummary(cached.cardsSummary);
         if (cached.wallet) setWallet(cached.wallet);
+        if (Array.isArray(cached.expenseConcepts)) setExpenseConcepts(cached.expenseConcepts);
         if (cached.conceptCategories) setConceptCategories(cached.conceptCategories);
         setIsInitialLoadDone(true);
         if (!silent) {
@@ -319,7 +324,9 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       const nextRows = shouldLoadGastos && gData ? sortRows(Array.isArray(gData) ? gData : []) : rows;
       if (shouldLoadGastos && gData) setRows(nextRows);
       setCardsSummary(Array.isArray(cData) ? cData : []);
-      const nextConceptCategories = buildExpenseConceptCategoryMap(conceptsData);
+      const nextExpenseConcepts = Array.isArray(conceptsData) ? conceptsData : [];
+      setExpenseConcepts(nextExpenseConcepts);
+      const nextConceptCategories = buildExpenseConceptCategoryMap(nextExpenseConcepts);
       setConceptCategories(nextConceptCategories);
       const nextWallet = {
         efectivoPen: Number(wData?.efectivoPen || 0),
@@ -330,6 +337,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         rows: nextRows,
         cardsSummary: Array.isArray(cData) ? cData : [],
         wallet: nextWallet,
+        expenseConcepts: nextExpenseConcepts,
         conceptCategories: nextConceptCategories,
       });
       setIsInitialLoadDone(true);
@@ -371,6 +379,8 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       if (Array.isArray(cached.rows)) setRows(sortRows(cached.rows));
       if (Array.isArray(cached.cardsSummary)) setCardsSummary(cached.cardsSummary);
       if (cached.wallet) setWallet(cached.wallet);
+      if (Array.isArray(cached.expenseConcepts)) setExpenseConcepts(cached.expenseConcepts);
+      if (cached.conceptCategories) setConceptCategories(cached.conceptCategories);
       setIsInitialLoadDone(true);
       setLoading(false);
       reloadAll({ includeGastos: true, useCache: false, silent: true });
@@ -517,12 +527,13 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   }, [debitRows, debitConceptFilter, debitPaymentCardFilter]);
 
   const creditRowsFiltered = useMemo(() => {
-    if (creditCardFilter === 'all') return creditRows;
     return creditRows.filter((g) => {
       const card = g.tarjeta || g.tarjetaPago || 'N/A';
-      return card === creditCardFilter;
+      if (creditCardFilter !== 'all' && card !== creditCardFilter) return false;
+      if (creditCurrencyFilter !== 'all' && g.moneda !== creditCurrencyFilter) return false;
+      return true;
     });
-  }, [creditRows, creditCardFilter]);
+  }, [creditRows, creditCardFilter, creditCurrencyFilter]);
 
   const creditCardOptions = useMemo(() => {
     const set = new Set();
@@ -860,6 +871,18 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   ))}
                 </select>
               </label>
+              <label className="text-sm text-gray-700 flex items-center gap-2 w-full sm:w-auto">
+                Moneda
+                <select
+                  className="border rounded-lg px-3 py-2 text-sm w-full sm:w-auto"
+                  value={creditCurrencyFilter}
+                  onChange={(e) => setCreditCurrencyFilter(e.target.value)}
+                >
+                  <option value="all">Todas</option>
+                  <option value="PEN">Sol</option>
+                  <option value="USD">Dolar</option>
+                </select>
+              </label>
               <button onClick={openCre} className="w-full sm:w-auto px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 min-h-[44px]">Agregar gasto credito</button>
               <button onClick={openCreBulk} className="w-full sm:w-auto px-4 py-2 rounded bg-sky-600 text-white hover:bg-sky-700 min-h-[44px]">Agregar gastos masivos</button>
             </div>
@@ -904,6 +927,11 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                       </td>
                     </tr>
                   )})}
+                  {creditRowsFiltered.length === 0 && (
+                    <tr>
+                      <td className="p-3 text-gray-500" colSpan={6}>No hay gastos de credito con esos filtros.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -915,6 +943,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       {showDeb && (
         <ModalGastoDebito
           userId={targetUserId}
+          expenseConcepts={expenseConcepts}
           defaultConcept={debitConceptFilter !== 'all' ? debitConceptFilter : ''}
           defaultPaymentCard={debitConceptFilter === 'pago_tarjeta' && debitPaymentCardFilter !== 'all' ? debitPaymentCardFilter : ''}
           onClose={() => setShowDeb(false)}
@@ -928,10 +957,11 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       {showCre && (
         <ModalGastoCredito
           userId={targetUserId}
+          expenseConcepts={expenseConcepts}
           defaultCard={creditCardForCreate}
           onClose={() => setShowCre(false)}
-          onSaved={(row) => {
-            setShowCre(false);
+          onSaved={(row, { keepOpen } = {}) => {
+            if (!keepOpen) setShowCre(false);
             if (row) upsertRow(row);
             refreshTotals();
           }}

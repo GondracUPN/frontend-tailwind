@@ -486,6 +486,13 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
     if (tipo.toLowerCase() === 'iphone') {
       return ['iPhone', d.numero, d.modelo, d.almacenamiento].filter(Boolean).join(' ');
     }
+    if (tipo.toLowerCase() === 'ipad') {
+      const linea = d.gama === 'Normal' ? '' : d.gama;
+      const modelo = d.gama === 'Normal' || d.gama === 'Mini' ? d.generacion : d.procesador;
+      const tamano = d.tamano || d.tamanio;
+      const pantalla = tamano && String(tamano) !== String(modelo || '') ? tamano : '';
+      return ['iPad', linea, modelo, pantalla, d.almacenamiento].filter(Boolean).join(' ');
+    }
     if (tipo.toLowerCase() === 'otro') {
       return String(d.descripcionOtro || '').trim() || 'Otro';
     }
