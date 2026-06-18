@@ -24,6 +24,7 @@ export default function ModalAdelantoCompletar({ adelanto, producto, onClose, on
         fechaVenta,
         tipoCambio: Number(tipoCambio),
       });
+      try { localStorage.removeItem('ganancias:cache:v1'); } catch {}
       onSaved?.(saved);
     } catch (e) {
       console.error('[ModalAdelantoCompletar] Error al completar venta:', e);

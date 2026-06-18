@@ -29,6 +29,7 @@ const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
 const ESHOPEX_BG_REQUESTED_KEY = 'eshopex-carga-requested';
 const ESHOPEX_BG_OPEN_MODAL_KEY = 'eshopex-carga-open-modal';
 const ESHOPEX_BG_COUNT_KEY = 'eshopex-carga-pendientes-count';
+const RECALCULAR_ENVIOS_USADO_KEY = 'productos:recalcular-envios-nueva-tarifa-usado';
 const INVENTARIO_RECOJO_DIAS = 7;
 const EMPTY_ESH_PROGRESS = {
   status: 'idle',
@@ -152,6 +153,13 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [resumen, setResumen] = useState(() => cached?.resumen || null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
+  const [mostrarRecalcularEnvios, setMostrarRecalcularEnvios] = useState(() => {
+    try {
+      return localStorage.getItem(RECALCULAR_ENVIOS_USADO_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
   const [modalModo, setModalModo] = useState(null); // 'crear'|'detalle'|'costos'|'track'|'fotosManual'|'marca'
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   // Mapa: productoId -> fltima venta (o null)
@@ -265,6 +273,8 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [eshopexVincularLoading, setEshopexVincularLoading] = useState(() => new Set());
   const [eshopexVincularOpen, setEshopexVincularOpen] = useState(false);
   const [eshopexVincularRow, setEshopexVincularRow] = useState(null);
+  const [personalOpen, setPersonalOpen] = useState(false);
+  const [personalEshopex, setPersonalEshopex] = useState([]);
   const [soloDisponibles, setSoloDisponibles] = useState(false);
   const [soloVendidos, setSoloVendidos] = useState(false);
   const [soloAdelanto, setSoloAdelanto] = useState(false);
@@ -279,6 +289,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [fotosManualSeed, setFotosManualSeed] = useState({ trackingEshop: '', fechaRecepcion: '' });
   const [snImeiScannerOpen, setSnImeiScannerOpen] = useState(false);
   const [savingProductos, setSavingProductos] = useState(() => new Set());
+  const [recalculandoEnvios, setRecalculandoEnvios] = useState(false);
   const [adelantoModo, setAdelantoModo] = useState(null); // 'select' | 'create' | 'detail' | 'complete'
   const [adelantoProducto, setAdelantoProducto] = useState(null);
   const [adelantoActivo, setAdelantoActivo] = useState(null);
@@ -516,9 +527,29 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
   }, []);
 
+  const cargarPersonalEshopex = useCallback(async () => {
+    try {
+      const data = await api.get('/productos/personal-eshopex');
+      const list = Array.isArray(data) ? data : [];
+      setPersonalEshopex(list);
+      return list;
+    } catch (err) {
+      console.error('No se pudo cargar Personal Eshopex', err);
+      return [];
+    }
+  }, []);
+
+  useEffect(() => {
+    cargarPersonalEshopex();
+    const handler = () => { cargarPersonalEshopex(); };
+    window.addEventListener('personal-eshopex-updated', handler);
+    return () => window.removeEventListener('personal-eshopex-updated', handler);
+  }, [cargarPersonalEshopex]);
+
   // Nombre del producto para el texto (iPad, Air, M2, 11) o "Otros" con descripcion
   const buildNombreProducto = (p) => {
     if (!p) return '';
+    if (p.__personal) return String(p.descripcion || p.detalle?.descripcionOtro || 'Personal').trim() || 'Personal';
     if (p.tipo === 'otro') return (p.detalle?.descripcionOtro || '').trim() || 'Otros';
     if (String(p.tipo || '').toLowerCase() === 'iphone') {
       const numero = String(p.detalle?.numero || '').trim();
@@ -552,6 +583,37 @@ export default function Productos({ setVista, setAnalisisBack }) {
     ].filter(Boolean);
     return parts.join(' ');
   };
+
+  const personalProductos = React.useMemo(() => {
+    return (personalEshopex || []).map((item) => {
+      const id = item.id || item.trackingEshop || item.guia;
+      return {
+        __personal: true,
+        id: `personal:${id}`,
+        personalId: id,
+        tipo: 'personal',
+        descripcion: item.descripcion || 'Personal',
+        detalle: { descripcionOtro: item.descripcion || 'Personal' },
+        valor: { valorDec: Number(item.valorDec || 0) || 0 },
+        despacho: Boolean(item.despacho),
+        recogido: Boolean(item.recogido),
+        tracking: [{
+          estado: item.recogido ? 'recogido' : 'en_eshopex',
+          trackingEshop: item.trackingEshop || item.guia || '',
+          estatusEsho: item.estatusEsho || '',
+          fechaRecepcion: item.fechaRecepcion || '',
+          fechaRecogido: item.fechaRecogido || '',
+          casillero: item.casillero || '',
+          account: item.account || '',
+        }],
+      };
+    });
+  }, [personalEshopex]);
+
+  const productosConPersonal = React.useMemo(
+    () => [...(productos || []), ...personalProductos],
+    [productos, personalProductos],
+  );
 
   // Accion ACEPTAR (flujo unico: marcar recogidos + WhatsApp)
   const normalizeEstado = (estado) => String(estado || '').toLowerCase().trim();
@@ -653,6 +715,14 @@ const confirmAction = async () => {
     }
     return map;
   }, [productos, getEshopexCode]);
+  const personalByEshopex = React.useMemo(() => {
+    const map = {};
+    for (const item of personalEshopex || []) {
+      const code = String(item?.trackingEshop || item?.guia || '').trim();
+      if (code) map[code] = item;
+    }
+    return map;
+  }, [personalEshopex]);
   const trackingUsaEnEshopex = React.useMemo(() => {
     const set = new Set();
     for (const p of productos || []) {
@@ -712,6 +782,7 @@ const confirmAction = async () => {
   const isEntregado = (status) => /ENTREGADO/i.test(String(status || ''));
   const isPagado = (status) => /PAGADO/i.test(String(status || ''));
   const isRecojoReady = (p) => {
+    if (p?.__personal && p?.despacho) return true;
     const code = getEshopexCode(p);
     if (!code) return false;
     const row = eshopexCargaByGuia[code];
@@ -898,6 +969,7 @@ const confirmAction = async () => {
       const guiaDigits = guiaRaw.replace(/\D+/g, '');
       if (guiaDigits.length < 6) return false;
       if (productosByEshopex[guiaRaw]) return false;
+      if (personalByEshopex[guiaRaw]) return false;
       if (guiaDigits && trackingUsaEnEshopex.has(guiaDigits)) return false;
       if (estado.includes('PAGADO')) return false;
       return estado !== 'ENTREGADO';
@@ -918,7 +990,7 @@ const confirmAction = async () => {
         return a.idx - b.idx;
       })
       .map((item) => item.row);
-  }, [eshopexCargaRows, productosByEshopex, trackingUsaEnEshopex, casilleroByAccount, casillerosEnCamino]);
+  }, [eshopexCargaRows, productosByEshopex, personalByEshopex, trackingUsaEnEshopex, casilleroByAccount, casillerosEnCamino]);
   const eshopexPendientesCount = eshopexPendientes.length;
   useEffect(() => {
     try {
@@ -961,7 +1033,9 @@ const confirmAction = async () => {
     if (!items.length) { alert('Selecciona al menos un producto.'); return; }
     if (!recojoDate) { alert('Elige una fecha de recojo.'); return; }
     try {
-      const results = await Promise.allSettled(items.map(async (p) => {
+      const productosItems = items.filter((p) => !p.__personal);
+      const personalItems = items.filter((p) => p.__personal);
+      const results = await Promise.allSettled(productosItems.map(async (p) => {
         const res = await api.put(`/tracking/producto/${p.id}`, {
           estado: 'recogido',
           fechaRecogido: recojoDate,
@@ -975,14 +1049,40 @@ const confirmAction = async () => {
       updated.forEach(({ productoId, tracking }) => {
         applyTrackingUpdate(productoId, tracking);
       });
+      if (personalItems.length) {
+        const personalResults = await Promise.allSettled(
+          personalItems.map((p) =>
+            api.patch(`/productos/personal-eshopex/${p.personalId}`, {
+              recogido: true,
+              fechaRecogido: recojoDate,
+            }),
+          ),
+        );
+        const savedPersonal = personalResults
+          .filter((r) => r.status === 'fulfilled')
+          .map((r) => r.value);
+        if (savedPersonal.length) {
+          const byId = new Map(savedPersonal.map((item) => [String(item?.id || ''), item]));
+          setPersonalEshopex((prev) => (prev || []).map((item) => byId.get(String(item?.id || '')) || item));
+        }
+      }
 
-      const lineas = items.map(p => {
+      const grupos = new Map();
+      items.forEach((p) => {
         const t = getLastTracking(p) || {};
         const esh = (t.trackingEshop || '').trim();
-        const cas = t.casillero || '';
+        const cas = t.casillero || 'Sin casillero';
         const nombre = buildNombreProducto(p);
-        return `${esh} | ${nombre} | Casillero: ${cas}`;
+        if (!grupos.has(cas)) grupos.set(cas, []);
+        grupos.get(cas).push([nombre, esh].filter(Boolean).join(' | '));
       });
+      const lineas = [`Paquetes recojo ${recojoDate}`];
+      Array.from(grupos.entries())
+        .sort(([a], [b]) => String(a).localeCompare(String(b)))
+        .forEach(([cas, rows]) => {
+          lineas.push('', cas);
+          rows.forEach((row) => lineas.push(row));
+        });
 
       const url = `https://wa.me/+51938597478?text=${encodeURIComponent(lineas.join('\n'))}`;
       refreshProductos({ force: true, useCache: false, silent: true });
@@ -990,7 +1090,7 @@ const confirmAction = async () => {
       setRecojoOpen(false);
       setRecojoSelected(new Set());
       setRecojoDate('');
-      if (updated.length !== items.length) {
+      if (updated.length !== productosItems.length) {
         alert('Algunos productos no se pudieron marcar como recogidos.');
       }
     } catch (e) {
@@ -1250,6 +1350,99 @@ const confirmAction = async () => {
     }
   };
 
+  const handleEshopexGuardarPersonal = async (row) => {
+    const code = String(row?.guia || '').trim();
+    if (!code) return;
+    const accountKey = String(row?.account || '').trim().toLowerCase();
+    const casillero = accountKey ? casilleroByAccount[accountKey] : '';
+    const fecha = parseEshopexFecha(row?.fechaRecepcion || '');
+    const peso = parseEshopexPeso(row?.peso || '');
+    const valorRaw = String(row?.valor || '').replace(/,/g, '.').replace(/[^0-9.]+/g, ' ').trim();
+    const valorDec = Number((valorRaw.split(/\s+/).find(Boolean) || '0'));
+    const item = {
+      id: code,
+      trackingEshop: code,
+      descripcion: String(row?.descripcion || 'Personal').trim() || 'Personal',
+      peso,
+      valorDec: Number.isFinite(valorDec) ? valorDec : 0,
+      estatusEsho: normalizeCargaStatus(row?.estado || ''),
+      fechaRecepcion: fecha,
+      fechaRecepcionRaw: row?.fechaRecepcion || '',
+      casillero: casillero || '',
+      account: row?.account || '',
+      despacho: false,
+      recogido: false,
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      const saved = await api.post('/productos/personal-eshopex', item);
+      setPersonalEshopex((prev) => {
+        const list = Array.isArray(prev) ? prev : [];
+        const idx = list.findIndex((x) => String(x?.trackingEshop || x?.guia || '').trim() === code);
+        if (idx >= 0) {
+          const next = [...list];
+          next[idx] = saved;
+          return next;
+        }
+        return [saved, ...list];
+      });
+      window.dispatchEvent(new Event('personal-eshopex-updated'));
+      setEshopexVincularOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo guardar el paquete Personal.');
+    }
+  };
+
+  const updatePersonalEshopex = async (personalId, patch) => {
+    const saved = await api.patch(`/productos/personal-eshopex/${personalId}`, patch);
+    setPersonalEshopex((prev) => (prev || []).map((item) => (
+      String(item?.id || '') === String(personalId) ? saved : item
+    )));
+    window.dispatchEvent(new Event('personal-eshopex-updated'));
+    return saved;
+  };
+
+  const handlePersonalDespacho = async (personalId) => {
+    try {
+      await updatePersonalEshopex(personalId, { despacho: true });
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo marcar como despacho.');
+    }
+  };
+
+  const handleCasilleroDespacho = async (item) => {
+    if (item?.__personal) {
+      await handlePersonalDespacho(item.personalId);
+      return;
+    }
+    if (!item?.id) return;
+    try {
+      const updated = await api.patch(`/productos/${item.id}/despacho-casillero`, {});
+      setProductos((prev) => (prev || []).map((p) => (
+        Number(p.id) === Number(item.id) ? { ...p, ...updated, despacho: true } : p
+      )));
+      refreshProductos({ force: true, useCache: false, silent: true });
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo marcar el producto como despacho.');
+    }
+  };
+
+  const handlePersonalRemove = async (personalId) => {
+    const ok = window.confirm('Quitar este paquete de Personal?');
+    if (!ok) return;
+    try {
+      await api.del(`/productos/personal-eshopex/${personalId}`);
+      setPersonalEshopex((prev) => (prev || []).filter((item) => String(item?.id || '') !== String(personalId)));
+      window.dispatchEvent(new Event('personal-eshopex-updated'));
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo quitar el paquete Personal.');
+    }
+  };
+
   // Colores Tailwind por estado
   const badgeClasses = (estado) => {
     switch (normalizeEstado(estado)) {
@@ -1370,6 +1563,25 @@ const confirmAction = async () => {
       if (!silent) setCargando(false);
     }
   }, [productos.length, fetchResumen]);
+
+  const recalcularEnviosNuevaTarifa = useCallback(async () => {
+    const ok = window.confirm('Recalcular envios con tarifa nueva solo para compras posteriores al 01/05/2026?');
+    if (!ok) return;
+    setRecalculandoEnvios(true);
+    try {
+      const result = await api.post('/productos/recalcular-envios-nueva-tarifa', { cutoffDate: '2026-05-01' });
+      try { localStorage.removeItem(CACHE_KEY); } catch {}
+      await refreshProductos({ force: true, useCache: false });
+      try { localStorage.setItem(RECALCULAR_ENVIOS_USADO_KEY, '1'); } catch {}
+      setMostrarRecalcularEnvios(false);
+      alert(`Recalculo completo. Afectados: ${result?.afectados ?? 0}. Individuales: ${result?.individuales ?? 0}. Grupos: ${result?.grupos ?? 0}.`);
+    } catch (err) {
+      console.error('Error recalculando envios:', err);
+      alert(err?.message || 'No se pudo recalcular envios.');
+    } finally {
+      setRecalculandoEnvios(false);
+    }
+  }, [refreshProductos]);
 
   // Carga inicial: intenta cache, pero si no hay data hace fetch
   useEffect(() => {
@@ -2033,7 +2245,7 @@ const confirmAction = async () => {
           <div className="text-2xl font-semibold">{stats.vendido}</div>
         </div>
       </div>{/* Panel de casilleros */}
-      <ResumenCasilleros productos={productos} onCasilleroClick={abrirCasillero} />
+      <ResumenCasilleros productos={productosConPersonal} onCasilleroClick={abrirCasillero} />
 
       {/* Totales de montos */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
@@ -2238,6 +2450,13 @@ const confirmAction = async () => {
                 Recojo
               </button>
               <button
+                onClick={() => setPersonalOpen(true)}
+                className="w-full sm:w-auto bg-violet-700 text-white px-5 py-2 rounded hover:bg-violet-800"
+                title="Ver paquetes personales guardados desde Eshopex"
+              >
+                Personal
+              </button>
+              <button
                 onClick={() => setVentaMsgOpen(true)}
                 className="w-full sm:w-auto bg-pink-600 text-white px-5 py-2 rounded hover:bg-pink-700"
                 title="Generar texto de venta para WhatsApp"
@@ -2258,6 +2477,16 @@ const confirmAction = async () => {
               >
                 Scan SN/IMEI
               </button>
+              {mostrarRecalcularEnvios ? (
+                <button
+                  onClick={recalcularEnviosNuevaTarifa}
+                  disabled={recalculandoEnvios}
+                  className="w-full sm:w-auto bg-orange-600 text-white px-5 py-2 rounded hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  title="Recalcula envios con tarifa nueva solo para compras posteriores al 01/05/2026"
+                >
+                  {recalculandoEnvios ? 'Recalculando...' : 'Recalcular envios'}
+                </button>
+              ) : null}
               <button
                 onClick={abrirMarcaAgua}
                 className="w-full sm:w-auto bg-emerald-700 text-white px-5 py-2 rounded hover:bg-emerald-800"
@@ -2344,10 +2573,11 @@ const confirmAction = async () => {
       {!cargando && !error && (
         displayedProductos.length > 0 ? (
           <div className="overflow-x-auto -mx-4 sm:mx-0">
-            <table className="min-w-[1100px] w-full text-left border text-xs sm:text-sm">
+            <table className="min-w-[1150px] w-full text-left border text-xs sm:text-sm">
               <thead className="bg-gray-100">
                 <tr>
                   {selectMode && <th className="p-2">Sel.</th>}
+                  <th className="p-2">Código</th>
                   <th className="p-2">Tipo</th>
                   <th className="p-2">Estado</th>
                   <th className="p-2">Accesorios</th>
@@ -2420,6 +2650,9 @@ const confirmAction = async () => {
 
 
 
+                    <td className="p-2 font-mono font-semibold text-gray-800 select-all">
+                      {p.id ?? '-'}
+                    </td>
                     <td className="p-2">
                       <button
                         onClick={(e) => { e.stopPropagation(); if (!guardando) abrirDetalle(p); }}
@@ -2728,7 +2961,9 @@ const confirmAction = async () => {
                       const cargaRow = eshopexCargaByGuia[esh];
                       const statusInfo = recojoStatusMap[esh] || {};
                       const statusNorm = normalizeEshopexStatus(statusInfo.status);
-                      const estatusEsho = normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
+                      const estatusEsho = p?.__personal && p?.despacho
+                        ? 'Enviado a Peru (Despacho)'
+                        : normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
                       const cas = String(t?.casillero || '').trim().toLowerCase();
                       const isReady = isRecojoReady(p);
                       const checked = recojoSelected.has(p.id);
@@ -2921,6 +3156,98 @@ const confirmAction = async () => {
           </div>
         </div>
       )}
+      {personalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-5xl rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Personal</h2>
+              <button
+                className="w-9 h-9 flex items-center justify-center text-xl font-bold rounded-full hover:bg-gray-100"
+                onClick={() => setPersonalOpen(false)}
+                aria-label="Cerrar"
+              >
+                x
+              </button>
+            </div>
+            {!personalEshopex.length ? (
+              <div className="text-sm text-gray-500">No hay paquetes personales guardados.</div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm overflow-y-auto">
+                <table className="min-w-[900px] w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="p-2 text-left">Descripcion</th>
+                      <th className="p-2 text-left">Tracking Eshopex</th>
+                      <th className="p-2 text-left">Casillero</th>
+                      <th className="p-2 text-left">EstatusEsho</th>
+                      <th className="p-2 text-left">Fecha recepcion</th>
+                      <th className="p-2 text-left">DEC</th>
+                      <th className="p-2 text-left">Estado</th>
+                      <th className="p-2 text-left">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {personalEshopex.map((item) => {
+                      const id = String(item?.id || item?.trackingEshop || item?.guia || '');
+                      const accountKey = String(item?.account || '').trim().toLowerCase();
+                      const pagoKey = `${item?.trackingEshop || id}-${accountKey}`;
+                      const pagoLoading = eshopexPagoLoading.has(pagoKey);
+                      return (
+                        <tr key={id} className="border-t">
+                          <td className="p-2">{item?.descripcion || 'Personal'}</td>
+                          <td className="p-2">{item?.trackingEshop || '-'}</td>
+                          <td className="p-2">{item?.casillero || '-'}</td>
+                          <td className="p-2">{item?.estatusEsho || '-'}</td>
+                          <td className="p-2">{item?.fechaRecepcion || item?.fechaRecepcionRaw || '-'}</td>
+                          <td className="p-2">{item?.valorDec ? `$ ${Number(item.valorDec).toFixed(2)}` : '-'}</td>
+                          <td className="p-2">
+                            {item?.recogido ? 'Recogido' : item?.despacho ? 'Despacho' : 'En casillero'}
+                          </td>
+                          <td className="p-2">
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                className="px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
+                                onClick={() => abrirFotosManual({ trackingEshop: item?.trackingEshop || '', fechaRecepcion: item?.fechaRecepcion || item?.fechaRecepcionRaw || '' })}
+                              >
+                                Foto
+                              </button>
+                              <button
+                                type="button"
+                                className={`${!accountKey || pagoLoading ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-2 py-1 rounded`}
+                                disabled={!accountKey || pagoLoading}
+                                onClick={() => handleEshopexPrepago({ account: item?.account || '', guia: item?.trackingEshop || id })}
+                              >
+                                {pagoLoading ? 'Procesando...' : 'Pagar'}
+                              </button>
+                              {!item?.despacho && !item?.recogido ? (
+                                <button
+                                  type="button"
+                                  className="px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700"
+                                  onClick={() => handlePersonalDespacho(id)}
+                                >
+                                  Despacho
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className="px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+                                onClick={() => handlePersonalRemove(id)}
+                              >
+                                Quitar
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {eshopexCargaOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white w-full max-w-5xl rounded-xl shadow-lg p-6 relative mx-4">
@@ -3065,16 +3392,35 @@ const confirmAction = async () => {
       )}
       {eshopexVincularOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white w-full max-w-3xl rounded-xl shadow-lg p-6 relative mx-4">
+          <div className="bg-white w-full max-w-5xl rounded-xl shadow-lg p-6 relative mx-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">Vincular con producto</h2>
-              <button
-                className="w-9 h-9 flex items-center justify-center text-xl font-bold rounded-full hover:bg-gray-100"
-                onClick={() => setEshopexVincularOpen(false)}
-                aria-label="Cerrar"
-              >
-                x
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  className="w-9 h-9 flex items-center justify-center text-xl font-bold rounded-full hover:bg-gray-100"
+                  onClick={() => setEshopexVincularOpen(false)}
+                  aria-label="Cerrar"
+                >
+                  x
+                </button>
+              </div>
+            </div>
+            <div className="mb-4 rounded-xl border border-violet-200 bg-violet-50 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-violet-950">Guardar este pendiente como Personal</div>
+                  <div className="text-xs text-violet-800">
+                    Tracking: {String(eshopexVincularRow?.guia || '').trim() || '-'} · Casillero: {casilleroByAccount[String(eshopexVincularRow?.account || '').trim().toLowerCase()] || '-'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="w-full sm:w-auto px-3 py-2 rounded bg-violet-700 text-white hover:bg-violet-800"
+                  onClick={() => handleEshopexGuardarPersonal(eshopexVincularRow || {})}
+                >
+                  Agregar a Personal
+                </button>
+              </div>
             </div>
             {(() => {
               const row = eshopexVincularRow || {};
@@ -3088,14 +3434,16 @@ const confirmAction = async () => {
               });
               if (!candidates.length) {
                 return (
-                  <div className="text-sm text-gray-500">
-                    No hay productos en camino para ese casillero.
+                  <div className="rounded-xl ring-1 ring-gray-200 shadow-sm overflow-hidden">
+                    <div className="p-3 text-sm text-gray-500">
+                      No hay productos en camino para ese casillero.
+                    </div>
                   </div>
                 );
               }
               return (
                 <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm max-h-[60vh] overflow-y-auto">
-                  <table className="min-w-[700px] w-full text-sm">
+                  <table className="min-w-[900px] w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="p-2 text-left">Producto</th>
@@ -3189,9 +3537,10 @@ const confirmAction = async () => {
         {modalModo === 'casillero' && (
           <ModalCasillero
             casillero={selectedCasillero}
-            productos={productos}
+            productos={productosConPersonal}
             onClose={() => { setSelectedCasillero(null); cerrarModal(); }}
             onOpenProducto={(p) => { setProductoEnCasillero(p); setProductoSeleccionado(p); }}
+            onDespachoItem={handleCasilleroDespacho}
           />
         )}
         {modalModo === 'venta' && (

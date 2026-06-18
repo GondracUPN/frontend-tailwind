@@ -96,7 +96,7 @@ function estimarRangoDesdeRecepcion(fechaRecepcion, transportista, analytics) {
   return `${fmt(d1)} al ${fmt(d2)}`;
 }
 
-export default function ModalCasillero({ casillero, productos = [], onClose, onOpenProducto }) {
+export default function ModalCasillero({ casillero, productos = [], onClose, onOpenProducto, onDespachoItem }) {
   const activos = useMemo(() => {
     return (productos || []).filter((p) => {
       const t = p?.tracking?.[0];
@@ -108,6 +108,7 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
     for (const p of activos) {
       const groupKeyRaw = p?.envioGrupoId ?? p?.envioGrupo ?? p?.envioGrupoID ?? p?.id;
       const key = String(groupKeyRaw ?? p?.id ?? '');
+      if (p?.despacho) continue;
       const decUSD = Number(p?.valor?.valorDec ?? 0);
       if (!key) continue;
       if (!map.has(key) && isFinite(decUSD)) {
@@ -141,7 +142,7 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
             x
           </button>
           <h2 className="text-xl font-semibold">Casillero: {casillero}</h2>
-          <p className="text-sm text-gray-600 mt-1">Productos en camino (activos, no recogidos)</p>
+          <p className="text-sm text-gray-600 mt-1">Productos y personales activos en este casillero.</p>
           {/* Resumen */}
           <div className="mt-3 flex flex-wrap gap-2">
             <span className="text-xs px-2 py-1 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">Activos: {activos.length}</span>
@@ -167,13 +168,16 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
                     <th className="py-2 px-3">Fecha recepcion</th>
                     <th className="py-2 px-3">Transportista</th>
                     <th className="py-2 px-3">ETA</th>
+                    <th className="py-2 px-3">Accion</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {activos.map((p, idx) => {
                     const v = p?.valor || {};
                     const t = p?.tracking?.[0] || {};
-                    const tipo = p?.tipo || '-';
+                    const tipo = p?.__personal
+                      ? (p?.descripcion || p?.detalle?.descripcionOtro || 'Personal')
+                      : (p?.tipo || '-');
                     const decUSD = Number(v?.valorDec ?? 0);
                     const groupKeyRaw = p?.envioGrupoId ?? p?.envioGrupo ?? p?.envioGrupoID ?? p?.id;
                     const groupKey = String(groupKeyRaw ?? p?.id ?? '');
@@ -190,20 +194,37 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
                     return (
                       <tr key={p.id} className={idx % 2 ? 'bg-white' : 'bg-gray-50/50'}>
                         <td className="py-2 px-3">
-                          <button
-                            className="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 border"
-                            onClick={() => onOpenProducto && onOpenProducto(p)}
-                            title="Ver detalles del producto"
-                          >
-                            {tipo}
-                          </button>
+                          {p?.__personal ? (
+                            <span>{tipo}</span>
+                          ) : (
+                            <button
+                              className="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 border"
+                              onClick={() => onOpenProducto && onOpenProducto(p)}
+                              title="Ver detalles del producto"
+                            >
+                              {tipo}
+                            </button>
+                          )}
                         </td>
                         <td className="py-2 px-3">{showDec ? fmtUSD(decUSD) : '-'}</td>
-                        <td className="py-2 px-3">{labelFromEstado(estado)}</td>
+                        <td className="py-2 px-3">
+                          {p?.despacho ? `${labelFromEstado(estado)} (Despacho)` : labelFromEstado(estado)}
+                        </td>
                         <td className="py-2 px-3">{compra ? fmtDate(compra) : (<span className="text-red-600">Sin fecha</span>)}</td>
                         <td className="py-2 px-3">{fmtDate(recep)}</td>
                         <td className="py-2 px-3">{transp || '-'}</td>
                         <td className="py-2 px-3">{eta}</td>
+                        <td className="py-2 px-3">
+                          {!p?.despacho ? (
+                            <button
+                              type="button"
+                              className="px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700"
+                              onClick={() => onDespachoItem && onDespachoItem(p)}
+                            >
+                              Despacho
+                            </button>
+                          ) : '-'}
+                        </td>
                       </tr>
                     );
                   })}

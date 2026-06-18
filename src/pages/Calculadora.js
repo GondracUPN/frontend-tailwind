@@ -6,18 +6,18 @@ import api, { API_URL } from "../api";
    Constantes de negocio
    ========================= */
 const TARIFAS = [
-  { maxKg: 0.5,  precio: 30.60 }, { maxKg: 1.0,  precio: 55.00 },
-  { maxKg: 1.5,  precio: 74.00 }, { maxKg: 2.0,  precio: 90.00 },
-  { maxKg: 2.5,  precio: 110.00 },{ maxKg: 3.0,  precio: 120.00 },
-  { maxKg: 3.5,  precio: 130.00 },{ maxKg: 4.0,  precio: 140.00 },
-  { maxKg: 4.5,  precio: 150.00 },{ maxKg: 5.0,  precio: 160.00 },
-  { maxKg: 5.5,  precio: 170.00 },{ maxKg: 6.0,  precio: 180.00 },
-  { maxKg: 6.5,  precio: 190.00 },{ maxKg: 7.0,  precio: 200.00 },
-  { maxKg: 7.5,  precio: 210.00 },{ maxKg: 8.0,  precio: 220.00 },
-  { maxKg: 8.5,  precio: 230.00 },{ maxKg: 9.0,  precio: 240.00 },
-  { maxKg: 9.5,  precio: 250.00 },{ maxKg: 10.0, precio: 260.00 },
+  { maxKg: 0.5,  precio: 31.79 }, { maxKg: 1.0,  precio: 56.19 },
+  { maxKg: 1.5,  precio: 75.86 }, { maxKg: 2.0,  precio: 91.86 },
+  { maxKg: 2.5,  precio: 112.53 },{ maxKg: 3.0,  precio: 122.53 },
+  { maxKg: 3.5,  precio: 133.20 },{ maxKg: 4.0,  precio: 143.20 },
+  { maxKg: 4.5,  precio: 153.87 },{ maxKg: 5.0,  precio: 163.87 },
+  { maxKg: 5.5,  precio: 174.54 },{ maxKg: 6.0,  precio: 184.54 },
+  { maxKg: 6.5,  precio: 195.21 },{ maxKg: 7.0,  precio: 205.21 },
+  { maxKg: 7.5,  precio: 215.88 },{ maxKg: 8.0,  precio: 225.88 },
+  { maxKg: 8.5,  precio: 236.55 },{ maxKg: 9.0,  precio: 246.55 },
+  { maxKg: 9.5,  precio: 257.22 },{ maxKg: 10.0, precio: 267.22 },
 ];
-const ADICIONAL_05KG = 10;   // S/ por cada 0.5 kg > 10 kg
+const ADICIONAL_05KG = 10.52;   // S/ por cada 0.5 kg > 10 kg
 const TC_KENNY = 3.64;       // TC fijo Kenny
 const TC_JORGE_DEFAULT = 3.8;
 const CALC_CACHE_KEY = 'productos:calc-cache:v1';
@@ -418,20 +418,15 @@ const roundTenth05Down = (kg) => {
   return (rem <= 5 ? tens : tens + 1) / 10;
 };
 
-// Envio eShopex (interpolacion lineal)
+// Envio eShopex por tramo de peso.
 const tarifaEshopexInterpolada = (pesoKg) => {
   if (!pesoKg || pesoKg <= 0) return 0;
   const P = TARIFAS;
-  if (pesoKg <= P[0].maxKg) return (P[0].precio * pesoKg) / P[0].maxKg;
-  for (let i = 1; i < P.length; i++) {
-    const a = P[i - 1], b = P[i];
-    if (pesoKg <= b.maxKg) {
-      const t = (pesoKg - a.maxKg) / (b.maxKg - a.maxKg);
-      return a.precio + t * (b.precio - a.precio);
-    }
+  for (let i = 0; i < P.length; i++) {
+    if (pesoKg <= P[i].maxKg) return P[i].precio;
   }
   const extraKg = pesoKg - 10;
-  return P[P.length - 1].precio + (extraKg / 0.5) * ADICIONAL_05KG;
+  return P[P.length - 1].precio + Math.ceil(extraKg / 0.5) * ADICIONAL_05KG;
 };
 const tarifaHasta3Kg = (pesoKg) =>
   tarifaEshopexInterpolada(Math.min(Math.max(pesoKg || 0, 0), 3));

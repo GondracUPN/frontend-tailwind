@@ -28,7 +28,8 @@ export default function ResumenCasilleros({ productos = [], loading = false, onC
 
       base[cas].total += 1;
       const estado = (t?.estado || '').toLowerCase();
-      if (estado !== 'recogido') {
+      const noCuentaCasillero = Boolean(p?.despacho);
+      if (estado !== 'recogido' && !noCuentaCasillero) {
         base[cas].actuales += 1;
         const decUSD = Number(p?.valor?.valorDec ?? 0);
         const groupKeyRaw = p?.envioGrupoId ?? p?.envioGrupo ?? p?.envioGrupoID ?? p?.id;

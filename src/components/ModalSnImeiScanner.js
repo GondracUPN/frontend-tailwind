@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import CloseX from './CloseX';
 import api from '../api';
 
@@ -199,6 +199,79 @@ const resultToneClass = (tone) => {
   return 'bg-slate-50 text-slate-800 ring-slate-100';
 };
 
+const SN_IMEI_HISTORY_KEY = 'sn-imei-scanner-history:v1';
+const SN_IMEI_HISTORY_LIMIT = 150;
+
+const readHistory = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SN_IMEI_HISTORY_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeHistory = (items) => {
+  try {
+    localStorage.setItem(SN_IMEI_HISTORY_KEY, JSON.stringify(items.slice(0, SN_IMEI_HISTORY_LIMIT)));
+  } catch {
+    // localStorage can be unavailable in private browsing or full storage.
+  }
+};
+
+const findFieldValue = (fields, patterns) => {
+  const found = (fields || []).find((field) =>
+    patterns.some((pattern) => pattern.test(String(field.label || ''))),
+  );
+  return found ? String(found.value || '').trim() : '';
+};
+
+const formatHistoryDate = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('es-PE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const buildHistoryRecord = (result, lookup, service) => {
+  const fields = Array.isArray(result?.fields) ? result.fields : [];
+  const serial = cleanSerial(findFieldValue(fields, [/^serial/i, /\bserial number\b/i, /\bs\/n\b/i]));
+  const imei1 = onlyDigits(findFieldValue(fields, [/^imei number$/i, /^imei$/i]));
+  const imei2 = onlyDigits(findFieldValue(fields, [/^imei2 number$/i, /^imei2$/i]));
+  const identifier = cleanSerial(result?.identifier || lookup?.value || '');
+  const identifiers = unique([identifier, serial, imei1, imei2].filter(Boolean));
+  const checkedAt = new Date().toISOString();
+
+  return {
+    id: `${checkedAt}-${identifier || Math.random().toString(36).slice(2)}`,
+    checkedAt,
+    serviceId: result?.serviceId || service?.id || '',
+    serviceName: result?.serviceName || service?.label || '',
+    costUSD: result?.costUSD ?? service?.cost ?? '',
+    identifier,
+    type: result?.type || lookup?.type || '',
+    serial,
+    imei1,
+    imei2,
+    identifiers,
+    fields,
+  };
+};
+
+const mergeHistoryRecord = (items, record) => {
+  const recordIds = new Set(record.identifiers || []);
+  const withoutMatch = (items || []).filter((item) => {
+    if (item.serviceId !== record.serviceId) return true;
+    return !(item.identifiers || []).some((value) => recordIds.has(value));
+  });
+  return [record, ...withoutMatch].slice(0, SN_IMEI_HISTORY_LIMIT);
+};
+
 export default function ModalSnImeiScanner({ onClose }) {
   const [imageUrl, setImageUrl] = useState('');
   const [urlInput, setUrlInput] = useState('');
@@ -218,6 +291,12 @@ export default function ModalSnImeiScanner({ onClose }) {
   const [copied, setCopied] = useState(false);
   const [copiedIdentifier, setCopiedIdentifier] = useState('');
   const [hasScanned, setHasScanned] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [historyQuery, setHistoryQuery] = useState('');
+
+  useEffect(() => {
+    setHistory(readHistory());
+  }, []);
 
   const parsed = useMemo(() => parseIds(text), [text]);
   const manualOption = useMemo(() => parseManualIdentifier(manualInput), [manualInput]);
@@ -237,6 +316,25 @@ export default function ModalSnImeiScanner({ onClose }) {
       return options.find((item) => item.type === type && item.value === value);
     }).filter(Boolean);
   }, [manualOption, parsed.serial, parsed.imei1, parsed.imei2]);
+  const filteredHistory = useMemo(() => {
+    const query = cleanSerial(historyQuery);
+    if (!query) return history.slice(0, 10);
+    return history.filter((item) => {
+      const haystack = [
+        item.identifier,
+        item.serial,
+        item.imei1,
+        item.imei2,
+        ...(item.identifiers || []),
+      ].join(' ').toUpperCase();
+      return haystack.includes(query);
+    }).slice(0, 25);
+  }, [history, historyQuery]);
+  const selectedLookupHistory = useMemo(() => {
+    const selectedValue = cleanSerial(selectedLookup?.value || '');
+    if (!selectedValue) return null;
+    return history.find((item) => (item.identifiers || []).includes(selectedValue)) || null;
+  }, [history, selectedLookup]);
 
   const resetScanState = () => {
     setError('');
@@ -341,6 +439,12 @@ export default function ModalSnImeiScanner({ onClose }) {
         serviceId: selectedServiceId,
       });
       setSickwResult(result);
+      const record = buildHistoryRecord(result, selectedLookup, selectedService);
+      setHistory((current) => {
+        const next = mergeHistoryRecord(current, record);
+        writeHistory(next);
+        return next;
+      });
       if (result?.balance) setBalance({ sickw: result.balance });
     } catch (err) {
       console.error('[ModalSnImeiScanner] SICKW error:', err);
@@ -385,6 +489,26 @@ export default function ModalSnImeiScanner({ onClose }) {
     } catch {
       setCopiedIdentifier('');
     }
+  };
+
+  const handleHistoryItem = (item) => {
+    const value = item.serial || item.imei1 || item.identifier || item.imei2;
+    if (!value) return;
+    setManualInput(value);
+    setSelectedLookup({
+      type: /^\d{15}$/.test(String(value)) ? 'imei' : 'sn',
+      label: 'Historial',
+      value,
+    });
+    setSickwResult(null);
+    setCheckError('');
+  };
+
+  const clearHistory = () => {
+    if (!window.confirm('Borrar historial de SN/IMEI guardado en este navegador?')) return;
+    setHistory([]);
+    writeHistory([]);
+    setHistoryQuery('');
   };
 
   return (
@@ -569,6 +693,11 @@ export default function ModalSnImeiScanner({ onClose }) {
               >
                 {checking ? 'Consultando...' : `Consultar ${selectedService.label}`}
               </button>
+              {selectedLookupHistory && !sickwResult && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  Ya fue consultado el {formatHistoryDate(selectedLookupHistory.checkedAt)} con {selectedLookupHistory.serviceName || 'API'}.
+                </div>
+              )}
               {checkError && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{checkError}</div>}
             </div>
 
@@ -603,6 +732,58 @@ export default function ModalSnImeiScanner({ onClose }) {
                 </div>
               </div>
             )}
+
+            <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">Historial consultado</div>
+                  <div className="text-xs text-gray-500">{history.length} registros guardados en este navegador</div>
+                </div>
+                {history.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearHistory}
+                    className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
+              <div className="space-y-3 p-4">
+                <input
+                  value={historyQuery}
+                  onChange={(e) => setHistoryQuery(e.target.value)}
+                  placeholder="Buscar por SN o IMEI"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                />
+                {filteredHistory.length > 0 ? (
+                  <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                    {filteredHistory.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => handleHistoryItem(item)}
+                        className="block w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-left hover:border-blue-200 hover:bg-blue-50"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-gray-500">{formatHistoryDate(item.checkedAt)}</span>
+                          <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-gray-600 ring-1 ring-gray-200">{item.serviceName || 'API'}</span>
+                        </div>
+                        <div className="mt-1 grid gap-1 text-xs text-gray-700 sm:grid-cols-2">
+                          <div className="min-w-0">SN: <span className="break-all font-mono font-semibold">{item.serial || '-'}</span></div>
+                          <div className="min-w-0">IMEI: <span className="break-all font-mono font-semibold">{item.imei1 || item.identifier || '-'}</span></div>
+                          {item.imei2 ? <div className="min-w-0 sm:col-span-2">IMEI2: <span className="break-all font-mono font-semibold">{item.imei2}</span></div> : null}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-6 text-center text-sm text-gray-500">
+                    {history.length ? 'No hay coincidencias.' : 'Todavia no hay consultas guardadas.'}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -47,18 +47,18 @@ const CALCU_RAPIDA_TC_DEFAULT = '3.75';
 const PAGE_KEEP_ALIVE_TTL_MS = 10 * 60 * 1000;
 const APP_LOGO_URL = `${process.env.PUBLIC_URL || ''}/logo.png`;
 const CALCU_RAPIDA_TARIFAS = [
-  { maxKg: 0.5, precio: 30.60 }, { maxKg: 1.0, precio: 55.00 },
-  { maxKg: 1.5, precio: 74.00 }, { maxKg: 2.0, precio: 90.00 },
-  { maxKg: 2.5, precio: 110.00 }, { maxKg: 3.0, precio: 120.00 },
-  { maxKg: 3.5, precio: 130.00 }, { maxKg: 4.0, precio: 140.00 },
-  { maxKg: 4.5, precio: 150.00 }, { maxKg: 5.0, precio: 160.00 },
-  { maxKg: 5.5, precio: 170.00 }, { maxKg: 6.0, precio: 180.00 },
-  { maxKg: 6.5, precio: 190.00 }, { maxKg: 7.0, precio: 200.00 },
-  { maxKg: 7.5, precio: 210.00 }, { maxKg: 8.0, precio: 220.00 },
-  { maxKg: 8.5, precio: 230.00 }, { maxKg: 9.0, precio: 240.00 },
-  { maxKg: 9.5, precio: 250.00 }, { maxKg: 10.0, precio: 260.00 },
+  { maxKg: 0.5, precio: 31.79 }, { maxKg: 1.0, precio: 56.19 },
+  { maxKg: 1.5, precio: 75.86 }, { maxKg: 2.0, precio: 91.86 },
+  { maxKg: 2.5, precio: 112.53 }, { maxKg: 3.0, precio: 122.53 },
+  { maxKg: 3.5, precio: 133.20 }, { maxKg: 4.0, precio: 143.20 },
+  { maxKg: 4.5, precio: 153.87 }, { maxKg: 5.0, precio: 163.87 },
+  { maxKg: 5.5, precio: 174.54 }, { maxKg: 6.0, precio: 184.54 },
+  { maxKg: 6.5, precio: 195.21 }, { maxKg: 7.0, precio: 205.21 },
+  { maxKg: 7.5, precio: 215.88 }, { maxKg: 8.0, precio: 225.88 },
+  { maxKg: 8.5, precio: 236.55 }, { maxKg: 9.0, precio: 246.55 },
+  { maxKg: 9.5, precio: 257.22 }, { maxKg: 10.0, precio: 267.22 },
 ];
-const CALCU_RAPIDA_ADICIONAL_05KG = 10;
+const CALCU_RAPIDA_ADICIONAL_05KG = 10.52;
 const EMPTY_ESH_PROGRESS = {
   status: 'idle',
   total: 0,
@@ -334,22 +334,53 @@ const roundTenth05DownCalc = (kg) => {
 const tarifaEshopexCalc = (pesoKg) => {
   if (!pesoKg || pesoKg <= 0) return 0;
   const points = CALCU_RAPIDA_TARIFAS;
-  if (pesoKg <= points[0].maxKg) return (points[0].precio * pesoKg) / points[0].maxKg;
-  for (let i = 1; i < points.length; i += 1) {
-    const prev = points[i - 1];
-    const next = points[i];
-    if (pesoKg <= next.maxKg) {
-      const t = (pesoKg - prev.maxKg) / (next.maxKg - prev.maxKg);
-      return prev.precio + t * (next.precio - prev.precio);
-    }
+  for (let i = 0; i < points.length; i += 1) {
+    if (pesoKg <= points[i].maxKg) return points[i].precio;
   }
   const extraKg = pesoKg - 10;
-  return points[points.length - 1].precio + (extraKg / 0.5) * CALCU_RAPIDA_ADICIONAL_05KG;
+  return points[points.length - 1].precio + Math.ceil(extraKg / 0.5) * CALCU_RAPIDA_ADICIONAL_05KG;
 };
 
 const tarifaHasta3KgCalc = (pesoKg) => tarifaEshopexCalc(Math.min(Math.max(pesoKg || 0, 0), 3));
 const honorariosPorDecCalc = (dec) => (dec <= 100 ? 16.30 : dec <= 200 ? 25.28 : dec <= 1000 ? 39.76 : 60.16);
 const seguroPorDecCalc = (dec) => (dec <= 100 ? 8.86 : dec <= 200 ? 15.98 : 21.10);
+
+const migratePersonalEshopexLocalStorage = async (current = []) => {
+  const legacyKey = 'productos:personal-eshopex:v1';
+  try {
+    const raw = localStorage.getItem(legacyKey);
+    const legacy = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(legacy) || legacy.length === 0) return current;
+    const existing = new Set(
+      (current || [])
+        .map((item) => String(item?.trackingEshop || item?.guia || '').trim())
+        .filter(Boolean),
+    );
+    const pending = legacy.filter((item) => {
+      const code = String(item?.trackingEshop || item?.guia || item?.id || '').trim();
+      return code && !existing.has(code);
+    });
+    if (!pending.length) {
+      localStorage.removeItem(legacyKey);
+      return current;
+    }
+    const results = await Promise.allSettled(
+      pending.map((item) =>
+        api.post('/productos/personal-eshopex', {
+          ...item,
+          trackingEshop: String(item?.trackingEshop || item?.guia || item?.id || '').trim(),
+        }),
+      ),
+    );
+    const saved = results
+      .filter((result) => result.status === 'fulfilled')
+      .map((result) => result.value);
+    if (saved.length === pending.length) localStorage.removeItem(legacyKey);
+    return [...saved, ...(current || [])];
+  } catch {
+    return current;
+  }
+};
 
 const SIDEBAR_NAV = [
   { id: 'home', label: 'Inicio', icon: FiHome },
@@ -388,6 +419,7 @@ function App() {
   const [eshopexVincularOpen, setEshopexVincularOpen] = useState(false);
   const [eshopexVincularRow, setEshopexVincularRow] = useState(null);
   const [eshopexVincularLoading, setEshopexVincularLoading] = useState(() => new Set());
+  const [personalEshopexGlobal, setPersonalEshopexGlobal] = useState([]);
   const [calcuRapidaOpen, setCalcuRapidaOpen] = useState(false);
   const [calcuRapida, setCalcuRapida] = useState(() => ({
     precioUsd: '',
@@ -422,6 +454,25 @@ function App() {
     } catch {
       /* ignore */
     }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const loadPersonal = async () => {
+      try {
+        const data = await api.get('/productos/personal-eshopex');
+        const migrated = await migratePersonalEshopexLocalStorage(Array.isArray(data) ? data : []);
+        if (alive) setPersonalEshopexGlobal(migrated);
+      } catch {
+        if (alive) setPersonalEshopexGlobal([]);
+      }
+    };
+    loadPersonal();
+    window.addEventListener('personal-eshopex-updated', loadPersonal);
+    return () => {
+      alive = false;
+      window.removeEventListener('personal-eshopex-updated', loadPersonal);
+    };
   }, []);
 
   useEffect(() => {
@@ -675,8 +726,16 @@ function App() {
   }, [eshopexUi.loading]);
 
   const eshopexModalPendientes = useMemo(
-    () => getFilteredEshopexPendientes(eshopexModalRows, productosGlobal),
-    [eshopexModalRows, productosGlobal],
+    () => {
+      const personalCodes = new Set(
+        (personalEshopexGlobal || [])
+          .map((item) => String(item?.trackingEshop || item?.guia || item?.id || '').trim())
+          .filter(Boolean),
+      );
+      return getFilteredEshopexPendientes(eshopexModalRows, productosGlobal)
+        .filter((row) => !personalCodes.has(String(row?.guia || '').trim()));
+    },
+    [eshopexModalRows, productosGlobal, personalEshopexGlobal],
   );
 
   const productosByEshopexGlobal = useMemo(() => {
@@ -818,6 +877,48 @@ function App() {
       alert('No se pudo vincular el tracking Eshopex.');
     } finally {
       markVincularLoading(key, false);
+    }
+  };
+
+  const handleEshopexGuardarPersonalGlobal = async (row) => {
+    const code = String(row?.guia || '').trim();
+    if (!code) return;
+    const accountKey = String(row?.account || '').trim().toLowerCase();
+    const casillero = accountKey ? (CASILLERO_BY_ACCOUNT[accountKey] || '') : '';
+    const valorRaw = String(row?.valor || '').replace(/,/g, '.').replace(/[^0-9.]+/g, ' ').trim();
+    const valorDec = Number((valorRaw.split(/\s+/).find(Boolean) || '0'));
+    const item = {
+      id: code,
+      trackingEshop: code,
+      descripcion: String(row?.descripcion || 'Personal').trim() || 'Personal',
+      peso: parseEshopexPeso(row?.peso || ''),
+      valorDec: Number.isFinite(valorDec) ? valorDec : 0,
+      estatusEsho: String(row?.estado || '').trim(),
+      fechaRecepcion: parseEshopexFecha(row?.fechaRecepcion || ''),
+      fechaRecepcionRaw: row?.fechaRecepcion || '',
+      casillero,
+      account: row?.account || '',
+      despacho: false,
+      recogido: false,
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      const saved = await api.post('/productos/personal-eshopex', item);
+      setPersonalEshopexGlobal((prev) => {
+        const list = Array.isArray(prev) ? prev : [];
+        const idx = list.findIndex((x) => String(x?.trackingEshop || x?.guia || '').trim() === code);
+        if (idx >= 0) {
+          const next = [...list];
+          next[idx] = saved;
+          return next;
+        }
+        return [saved, ...list];
+      });
+      window.dispatchEvent(new Event('personal-eshopex-updated'));
+      setEshopexVincularOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo guardar el paquete Personal.');
     }
   };
 
@@ -1500,7 +1601,7 @@ function App() {
       )}
       {eshopexVincularOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4">
-          <div className="bg-white w-full max-w-3xl rounded-xl shadow-lg p-6 relative max-h-[92vh] overflow-auto">
+          <div className="bg-white w-full max-w-5xl rounded-xl shadow-lg p-6 relative max-h-[92vh] overflow-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">Vincular con producto</h2>
               <button
@@ -1510,6 +1611,23 @@ function App() {
               >
                 x
               </button>
+            </div>
+            <div className="mb-4 rounded-xl border border-violet-200 bg-violet-50 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-violet-950">Guardar este pendiente como Personal</div>
+                  <div className="text-xs text-violet-800">
+                    Tracking: {String(eshopexVincularRow?.guia || '').trim() || '-'} · Casillero: {CASILLERO_BY_ACCOUNT[String(eshopexVincularRow?.account || '').trim().toLowerCase()] || '-'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="w-full sm:w-auto px-3 py-2 rounded bg-violet-700 text-white hover:bg-violet-800"
+                  onClick={() => handleEshopexGuardarPersonalGlobal(eshopexVincularRow || {})}
+                >
+                  Agregar a Personal
+                </button>
+              </div>
             </div>
             {(() => {
               const row = eshopexVincularRow || {};
@@ -1523,7 +1641,7 @@ function App() {
               });
               if (!candidates.length) {
                 return (
-                  <div className="text-sm text-gray-500">
+                  <div className="rounded-xl ring-1 ring-gray-200 shadow-sm p-3 text-sm text-gray-500">
                     No hay productos en camino para ese casillero.
                   </div>
                 );

@@ -1163,6 +1163,25 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  return { unidades, activos, capital, capitalUsd };
  }, [comprasPeriodoVista, data?.noVendidosDelPeriodo, dateMode, yearMonthKeyFromCompras, appliedDates.from, getCompraUsdBase]);
 
+ const inventarioTotalPeriodo = (!appliedDates.from && !appliedDates.to)
+ ? (data?.summary?.inventoryHistoricalPurchasedUnits ?? generalInvTotalUnits)
+ : (data?.summary?.comprasPeriodoUnidades ?? '-');
+
+ const inventarioPromedioMensual = useMemo(() => {
+ const mostrarPromedio = (!appliedDates.from && !appliedDates.to) || dateMode === 'year';
+ if (!mostrarPromedio) return null;
+ const meses = new Map();
+ for (const p of data?.comprasPeriodo || []) {
+ const mes = String(p?.fechaCompra || '').slice(0, 7);
+ if (!/^\d{4}-\d{2}$/.test(mes)) continue;
+ const unidades = Number(p?.participacion ?? 1) || 0;
+ meses.set(mes, (meses.get(mes) || 0) + unidades);
+ }
+ if (!meses.size) return null;
+ const total = Array.from(meses.values()).reduce((sum, n) => sum + n, 0);
+ return +(total / meses.size).toFixed(1);
+ }, [appliedDates.from, appliedDates.to, dateMode, data?.comprasPeriodo]);
+
  const inventarioTipoComprasVista = useMemo(() => {
  const key = dateMode === 'year' ? yearMonthKeyFromCompras : appliedDates.from;
  const activosSet = new Set(
@@ -1736,18 +1755,28 @@ const gananciasResumen = useMemo(() => {
  <Card
  title="Inventario"
  value={
- <div className="flex items-center gap-4">
- <div className="flex flex-col">
- <span className="text-xs text-gray-500">Neto</span>
- <span>
+ <div className="w-full">
+ <div className="grid grid-cols-3 divide-x divide-gray-200">
+ <div className="flex flex-col justify-end pr-3">
+ <span className="text-xs font-normal leading-4 text-gray-500">Neto</span>
+ <span className="leading-7">
  {data.summary?.inventoryUnsoldUnits ?? data.summary?.inventoryActiveUnits ?? '-'}
  </span>
  </div>
- <span className="text-gray-300">|</span>
- <div className="flex flex-col">
- <span className="text-xs text-gray-500">Activo</span>
- <span>{data.summary?.inventoryAvailableUnits ?? '-'}</span>
+ <div className="flex flex-col justify-end px-3">
+ <span className="text-xs font-normal leading-4 text-gray-500">Activo</span>
+ <span className="leading-7">{data.summary?.inventoryAvailableUnits ?? '-'}</span>
  </div>
+ <div className="flex flex-col justify-end pl-3">
+ <span className="text-xs font-normal leading-4 text-gray-500">Total</span>
+ <span className="leading-7">{inventarioTotalPeriodo ?? '-'}</span>
+ </div>
+ </div>
+ {inventarioPromedioMensual != null ? (
+ <div className="mt-2 text-[11px] font-normal leading-4 text-gray-400">
+ Prom/mes: {inventarioPromedioMensual.toLocaleString('es-PE', { maximumFractionDigits: 1 })}
+ </div>
+ ) : null}
  </div>
  }
  />

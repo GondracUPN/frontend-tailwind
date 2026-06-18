@@ -5,6 +5,8 @@ import { EXPENSE_CATEGORY_OPTIONS } from '../utils/expenseConcepts';
 
 const ModalProducto = lazy(() => import('../components/ModalProducto'));
 
+const RECALCULAR_ENVIOS_USADO_KEY = 'productos:recalcular-envios-nueva-tarifa-usado';
+
 function UsuariosAdmin() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -109,6 +111,13 @@ function InventarioAdmin({ onIrProductos }) {
   const [error, setError] = useState('');
   const [openModal, setOpenModal] = useState(false);
   const [ventasMap, setVentasMap] = useState({}); // { [productoId]: venta | null }
+  const [recalculoEnviosActivo, setRecalculoEnviosActivo] = useState(() => {
+    try {
+      return localStorage.getItem(RECALCULAR_ENVIOS_USADO_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
 
   const load = useCallback(async () => {
     try {
@@ -227,6 +236,7 @@ function InventarioAdmin({ onIrProductos }) {
       const r = res?.data ?? res;
       const errs = Array.isArray(r?.errores) ? r.errores.length : 0;
       alert(`Enviados: ${r.enviados ?? 0} / ${r.total ?? visibles.length}. Errores: ${errs}`);
+      await load();
     } catch (e) {
       alert('No se pudo sincronizar con el catálogo');
     } finally {
@@ -234,9 +244,17 @@ function InventarioAdmin({ onIrProductos }) {
     }
   };
 
+  const activarRecalculoEnvios = () => {
+    try {
+      localStorage.removeItem(RECALCULAR_ENVIOS_USADO_KEY);
+    } catch {}
+    setRecalculoEnviosActivo(true);
+    alert('Listo. El boton "Recalcular envios" volvera a aparecer en Productos.');
+  };
+
   // Derivar lista visible: solo 'Disponible'
   const visibles = React.useMemo(() => {
-    return (productos || []).filter((p) => getVentaStatus(p).label === 'Disponible');
+    return (productos || []).filter((p) => getVentaStatus(p).label === 'Disponible' && !p.catalogoEnviado);
   }, [productos, getVentaStatus]);
 
   return (
@@ -246,6 +264,14 @@ function InventarioAdmin({ onIrProductos }) {
         <button onClick={()=>setOpenModal(true)} className="bg-green-600 text-white px-3 py-2 rounded">Agregar producto</button>
         <button onClick={load} className="bg-gray-200 px-3 py-2 rounded">Refrescar</button>
         <button onClick={onIrProductos} className="bg-indigo-600 text-white px-3 py-2 rounded">Ver en Productos</button>
+        <button
+          onClick={activarRecalculoEnvios}
+          disabled={recalculoEnviosActivo}
+          className="bg-orange-600 text-white px-3 py-2 rounded disabled:cursor-not-allowed disabled:opacity-50"
+          title="Vuelve a mostrar el boton Recalcular envios en Productos"
+        >
+          {recalculoEnviosActivo ? 'Recalculo activo' : 'Activar recalculo envios'}
+        </button>
         <button onClick={enviarDisponiblesAlCatalogo} className="bg-amber-500 text-white px-3 py-2 rounded">Enviar disponibles al catálogo</button>
       </div>
       {loading ? <p>Cargando...</p> : error ? <p className="text-red-600">{error}</p> : (

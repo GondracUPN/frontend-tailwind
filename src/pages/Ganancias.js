@@ -15,6 +15,14 @@ const normalizeVendedor = (value) =>
   (value == null ? '' : String(value)).trim().toLowerCase();
 const getVentaSeller = (venta) =>
   normalizeVendedor(venta?.vendedor ?? venta?.producto?.vendedor);
+const isSellerMatch = (ventaSeller, targetSeller) => {
+  const vend = normalizeVendedor(ventaSeller);
+  const target = normalizeVendedor(targetSeller);
+  if (!vend || !target) return false;
+  if (vend === target) return true;
+  if (target === 'gonzalo' && /^gonzalo\s*\([^)]+\)$/.test(vend)) return true;
+  return false;
+};
 
 const SELLER_SLUGS = ['gonzalo', 'renato'];
 const SPLIT_VENDOR = 'ambos';
@@ -51,7 +59,7 @@ const shareForSeller = (venta, seller) => {
   const vend = getVentaSeller(venta);
   const target = normalizeVendedor(seller);
   if (!vend || !target) return 0;
-  if (vend === target) return 1;
+  if (isSellerMatch(vend, target)) return 1;
   if (vend === SPLIT_VENDOR && SELLER_SLUGS.includes(target)) return SPLIT_SHARE;
   return 0;
 };
