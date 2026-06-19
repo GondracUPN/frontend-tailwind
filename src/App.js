@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useState, useEffect, useMemo } from 'react';
 import Home from './pages/Home';
-import api from './api';
+import api, { API_URL } from './api';
 import {
   FiActivity,
   FiBarChart2,
@@ -431,10 +431,12 @@ function App() {
   const [calcuRapidaEbay, setCalcuRapidaEbay] = useState(() => ({
     url: '',
     loading: false,
+    zipLoading: false,
     error: '',
     title: '',
     priceUSD: null,
     shippingUSD: null,
+    images: [],
   }));
   const [sidebarHidden, setSidebarHidden] = useState(() => {
     try {
@@ -998,7 +1000,15 @@ function App() {
 
   const setCalcuRapidaEbayUrl = (event) => {
     const value = event?.target?.value ?? '';
-    setCalcuRapidaEbay((prev) => ({ ...prev, url: value, error: '' }));
+    setCalcuRapidaEbay((prev) => ({
+      ...prev,
+      url: value,
+      error: '',
+      title: '',
+      priceUSD: null,
+      shippingUSD: null,
+      images: [],
+    }));
   };
 
   const buscarCalcuRapidaEbay = async () => {
@@ -1018,6 +1028,7 @@ function App() {
         title: String(data?.title || ''),
         priceUSD: price,
         shippingUSD: shipping,
+        images: Array.isArray(data?.images) ? data.images : [],
       }));
       setCalcuRapida((prev) => ({
         ...prev,
@@ -1030,6 +1041,48 @@ function App() {
         loading: false,
         error: String(err?.response?.data?.message || err?.message || 'No se pudo leer el URL de eBay.'),
       }));
+    }
+  };
+
+  const descargarFotosCalcuRapida = async () => {
+    const images = Array.isArray(calcuRapidaEbay.images) ? calcuRapidaEbay.images : [];
+    if (!images.length || calcuRapidaEbay.zipLoading) return;
+    const baseTitle = (calcuRapidaEbay.title || 'ebay-fotos')
+      .replace(/[^a-z0-9]+/gi, ' ')
+      .trim()
+      .replace(/\s+/g, '_')
+      .slice(0, 120);
+    setCalcuRapidaEbay((prev) => ({ ...prev, zipLoading: true, error: '' }));
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/utils/ebay/images-zip`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ urls: images }),
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `${baseTitle || 'ebay-fotos'}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (err) {
+      setCalcuRapidaEbay((prev) => ({
+        ...prev,
+        error: String(err?.message || 'No se pudieron descargar las fotos en ZIP.'),
+      }));
+    } finally {
+      setCalcuRapidaEbay((prev) => ({ ...prev, zipLoading: false }));
     }
   };
 
@@ -1351,6 +1404,19 @@ function App() {
                     }`}
                   >
                     {calcuRapidaEbay.loading ? 'Buscando...' : 'Buscar'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={descargarFotosCalcuRapida}
+                    disabled={calcuRapidaEbay.loading || calcuRapidaEbay.zipLoading || !(calcuRapidaEbay.images || []).length}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                      (calcuRapidaEbay.images || []).length && !calcuRapidaEbay.loading && !calcuRapidaEbay.zipLoading
+                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        : 'bg-slate-300 text-slate-600'
+                    }`}
+                    title={(calcuRapidaEbay.images || []).length ? 'Descargar fotos del producto' : 'Busca un producto con fotos primero'}
+                  >
+                    {calcuRapidaEbay.zipLoading ? 'Descargando...' : 'Descargar'}
                   </button>
                 </div>
                 {calcuRapidaEbay.error && (

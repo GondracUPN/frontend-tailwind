@@ -260,6 +260,7 @@ const buildHistoryRecord = (result, lookup, service) => {
     imei2,
     identifiers,
     fields,
+    raw: result?.raw || '',
   };
 };
 
@@ -293,6 +294,7 @@ export default function ModalSnImeiScanner({ onClose }) {
   const [hasScanned, setHasScanned] = useState(false);
   const [history, setHistory] = useState([]);
   const [historyQuery, setHistoryQuery] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => {
     setHistory(readHistory());
@@ -318,7 +320,7 @@ export default function ModalSnImeiScanner({ onClose }) {
   }, [manualOption, parsed.serial, parsed.imei1, parsed.imei2]);
   const filteredHistory = useMemo(() => {
     const query = cleanSerial(historyQuery);
-    if (!query) return history.slice(0, 10);
+    if (!query) return history;
     return history.filter((item) => {
       const haystack = [
         item.identifier,
@@ -328,7 +330,7 @@ export default function ModalSnImeiScanner({ onClose }) {
         ...(item.identifiers || []),
       ].join(' ').toUpperCase();
       return haystack.includes(query);
-    }).slice(0, 25);
+    });
   }, [history, historyQuery]);
   const selectedLookupHistory = useMemo(() => {
     const selectedValue = cleanSerial(selectedLookup?.value || '');
@@ -500,7 +502,16 @@ export default function ModalSnImeiScanner({ onClose }) {
       label: 'Historial',
       value,
     });
-    setSickwResult(null);
+    setSelectedServiceId(item.serviceId || selectedServiceId);
+    setSickwResult({
+      serviceId: item.serviceId || '',
+      serviceName: item.serviceName || '',
+      costUSD: item.costUSD ?? '',
+      identifier: item.identifier || value,
+      type: item.type || (/^\d{15}$/.test(String(value)) ? 'imei' : 'sn'),
+      raw: item.raw || '',
+      fields: Array.isArray(item.fields) ? item.fields : [],
+    });
     setCheckError('');
   };
 
@@ -733,60 +744,122 @@ export default function ModalSnImeiScanner({ onClose }) {
               </div>
             )}
 
-            <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
+            <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-gray-900">Historial consultado</div>
                   <div className="text-xs text-gray-500">{history.length} registros guardados en este navegador</div>
                 </div>
-                {history.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={clearHistory}
-                    className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                  >
-                    Limpiar
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(true)}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  Ver historial
+                </button>
               </div>
-              <div className="space-y-3 p-4">
+            </div>
+          </div>
+        </div>
+      </div>
+      {historyOpen && (
+        <div
+          className="fixed inset-0 z-[60] bg-neutral-900/50 backdrop-blur-sm flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setHistoryOpen(false); }}
+        >
+          <div className="w-full max-w-3xl max-h-[88vh] overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-gray-200" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Historial SN / IMEI</h3>
+                <p className="text-sm text-gray-500">{history.length} registros guardados en este navegador.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(false)}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-xl font-semibold text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                aria-label="Cerrar historial"
+              >
+                x
+              </button>
+            </div>
+            <div className="border-b border-gray-100 p-4">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <input
                   value={historyQuery}
                   onChange={(e) => setHistoryQuery(e.target.value)}
                   placeholder="Buscar por SN o IMEI"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                 />
-                {filteredHistory.length > 0 ? (
-                  <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-                    {filteredHistory.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => handleHistoryItem(item)}
-                        className="block w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-left hover:border-blue-200 hover:bg-blue-50"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-xs font-semibold text-gray-500">{formatHistoryDate(item.checkedAt)}</span>
-                          <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-gray-600 ring-1 ring-gray-200">{item.serviceName || 'API'}</span>
-                        </div>
-                        <div className="mt-1 grid gap-1 text-xs text-gray-700 sm:grid-cols-2">
-                          <div className="min-w-0">SN: <span className="break-all font-mono font-semibold">{item.serial || '-'}</span></div>
-                          <div className="min-w-0">IMEI: <span className="break-all font-mono font-semibold">{item.imei1 || item.identifier || '-'}</span></div>
-                          {item.imei2 ? <div className="min-w-0 sm:col-span-2">IMEI2: <span className="break-all font-mono font-semibold">{item.imei2}</span></div> : null}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-6 text-center text-sm text-gray-500">
-                    {history.length ? 'No hay coincidencias.' : 'Todavia no hay consultas guardadas.'}
-                  </div>
+                {history.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearHistory}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    Limpiar
+                  </button>
                 )}
               </div>
             </div>
+            <div className="max-h-[60vh] overflow-y-auto p-4">
+              {filteredHistory.length > 0 ? (
+                <div className="space-y-2">
+                  {filteredHistory.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <span className="block text-xs font-semibold text-gray-500">{formatHistoryDate(item.checkedAt)}</span>
+                          <span className="mt-1 inline-flex rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-gray-600 ring-1 ring-gray-200">{item.serviceName || 'API'}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleHistoryItem(item);
+                            setHistoryOpen(false);
+                          }}
+                          className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                        >
+                          Cargar
+                        </button>
+                      </div>
+                      <div className="mt-1 grid gap-1 text-xs text-gray-700 sm:grid-cols-2">
+                        <div className="min-w-0">SN: <span className="break-all font-mono font-semibold">{item.serial || '-'}</span></div>
+                        <div className="min-w-0">IMEI: <span className="break-all font-mono font-semibold">{item.imei1 || item.identifier || '-'}</span></div>
+                        {item.imei2 ? <div className="min-w-0 sm:col-span-2">IMEI2: <span className="break-all font-mono font-semibold">{item.imei2}</span></div> : null}
+                      </div>
+                      {Array.isArray(item.fields) && item.fields.length > 0 && (
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          {item.fields.map((field, index) => (
+                            <div key={`${item.id}-${field.label}-${index}`} className="rounded-md bg-white px-2 py-1.5 ring-1 ring-gray-200">
+                              <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{field.label}</div>
+                              <div className="mt-0.5 break-words text-xs font-semibold text-gray-900">{field.value || '-'}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {item.raw && (
+                        <details className="mt-3 rounded-md bg-white px-2 py-1.5 ring-1 ring-gray-200">
+                          <summary className="cursor-pointer text-xs font-semibold text-gray-700">Ver respuesta original</summary>
+                          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words text-[11px] text-gray-700">{item.raw}</pre>
+                        </details>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-10 text-center text-sm text-gray-500">
+                  {history.length ? 'No hay coincidencias.' : 'Todavia no hay consultas guardadas.'}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

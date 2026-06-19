@@ -271,6 +271,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [eshopexCargaRefreshKey, setEshopexCargaRefreshKey] = useState(0);
   const [eshopexPagoLoading, setEshopexPagoLoading] = useState(() => new Set());
   const [eshopexVincularLoading, setEshopexVincularLoading] = useState(() => new Set());
+  const [casilleroDespachoLoading, setCasilleroDespachoLoading] = useState(() => new Set());
   const [eshopexVincularOpen, setEshopexVincularOpen] = useState(false);
   const [eshopexVincularRow, setEshopexVincularRow] = useState(null);
   const [personalOpen, setPersonalOpen] = useState(false);
@@ -1178,6 +1179,24 @@ const confirmAction = async () => {
     });
   };
 
+  const getDespachoGroupValue = (item) =>
+    String(item?.envioGrupoId ?? item?.envioGrupo ?? item?.envioGrupoID ?? '').trim();
+
+  const getCasilleroDespachoKey = (item) => {
+    if (item?.__personal) return `personal:${item.personalId || item.id || ''}`;
+    const group = getDespachoGroupValue(item);
+    return group ? `grupo:${group}` : `producto:${item?.id || ''}`;
+  };
+
+  const markCasilleroDespachoLoading = (key, on) => {
+    setCasilleroDespachoLoading((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
   const openEshopexVincularModal = (row) => {
     setEshopexVincularRow(row || null);
     setEshopexVincularOpen(true);
@@ -1403,30 +1422,52 @@ const confirmAction = async () => {
     return saved;
   };
 
-  const handlePersonalDespacho = async (personalId) => {
+  const handlePersonalDespacho = async (personalId, despacho = true) => {
     try {
-      await updatePersonalEshopex(personalId, { despacho: true });
+      await updatePersonalEshopex(personalId, {
+        despacho,
+        despachoAt: despacho ? undefined : null,
+      });
     } catch (err) {
       console.error(err);
-      alert('No se pudo marcar como despacho.');
+      alert(despacho ? 'No se pudo marcar como despacho.' : 'No se pudo anular el despacho.');
     }
   };
 
-  const handleCasilleroDespacho = async (item) => {
+  const handleCasilleroDespacho = async (item, despacho = true) => {
+    if (!item?.__personal && !item?.id) return;
+    const loadingKey = getCasilleroDespachoKey(item);
+    if (!loadingKey || casilleroDespachoLoading.has(loadingKey)) return;
+    markCasilleroDespachoLoading(loadingKey, true);
     if (item?.__personal) {
-      await handlePersonalDespacho(item.personalId);
+      await handlePersonalDespacho(item.personalId, despacho);
+      markCasilleroDespachoLoading(loadingKey, false);
       return;
     }
-    if (!item?.id) return;
     try {
-      const updated = await api.patch(`/productos/${item.id}/despacho-casillero`, {});
-      setProductos((prev) => (prev || []).map((p) => (
-        Number(p.id) === Number(item.id) ? { ...p, ...updated, despacho: true } : p
-      )));
+      const group = getDespachoGroupValue(item);
+      const targets = group
+        ? (productosRef.current || []).filter((p) => getDespachoGroupValue(p) === group)
+        : [item];
+      const endpointSuffix = despacho ? 'despacho-casillero' : 'despacho-casillero/anular';
+      const toUpdate = targets.filter((p) => Boolean(p?.despacho) !== despacho);
+      const updatedList = await Promise.all(
+        toUpdate.map((p) => api.patch(`/productos/${p.id}/${endpointSuffix}`, {})),
+      );
+      const updatedById = new Map(updatedList.map((p) => [Number(p.id), p]));
+      const targetIds = new Set(targets.map((p) => Number(p.id)));
+      setProductos((prev) => (prev || []).map((p) => {
+        const updated = updatedById.get(Number(p.id));
+        if (updated) return { ...p, ...updated, despacho };
+        if (targetIds.has(Number(p.id))) return { ...p, despacho };
+        return p;
+      }));
       refreshProductos({ force: true, useCache: false, silent: true });
     } catch (err) {
       console.error(err);
-      alert('No se pudo marcar el producto como despacho.');
+      alert(despacho ? 'No se pudo marcar el producto como despacho.' : 'No se pudo anular el despacho del producto.');
+    } finally {
+      markCasilleroDespachoLoading(loadingKey, false);
     }
   };
 
@@ -3541,6 +3582,7 @@ const confirmAction = async () => {
             onClose={() => { setSelectedCasillero(null); cerrarModal(); }}
             onOpenProducto={(p) => { setProductoEnCasillero(p); setProductoSeleccionado(p); }}
             onDespachoItem={handleCasilleroDespacho}
+            despachoLoadingKeys={casilleroDespachoLoading}
           />
         )}
         {modalModo === 'venta' && (

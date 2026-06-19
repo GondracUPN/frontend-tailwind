@@ -96,7 +96,20 @@ function estimarRangoDesdeRecepcion(fechaRecepcion, transportista, analytics) {
   return `${fmt(d1)} al ${fmt(d2)}`;
 }
 
-export default function ModalCasillero({ casillero, productos = [], onClose, onOpenProducto, onDespachoItem }) {
+function EtaCompacta({ value }) {
+  const raw = String(value || '').trim();
+  if (!raw || raw === '-') return <span>-</span>;
+  const parts = raw.split(/\s+al\s+/i);
+  if (parts.length < 2) return <span>{raw}</span>;
+  return (
+    <div className="leading-tight">
+      <div>{parts[0]} al</div>
+      <div>{parts.slice(1).join(' al ')}</div>
+    </div>
+  );
+}
+
+export default function ModalCasillero({ casillero, productos = [], onClose, onOpenProducto, onDespachoItem, despachoLoadingKeys }) {
   const activos = useMemo(() => {
     return (productos || []).filter((p) => {
       const t = p?.tracking?.[0];
@@ -130,10 +143,10 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
   const seenDec = new Set();
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white w-full sm:max-w-4xl rounded-2xl shadow-2xl p-0 relative mx-4 max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-3 sm:p-4" onClick={onClose}>
+      <div className="bg-white w-fit max-w-[calc(100vw-1.5rem)] sm:max-w-[900px] rounded-2xl shadow-2xl p-0 relative max-h-[92vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <div className="px-6 pt-5 pb-4 border-b bg-gradient-to-r from-indigo-50 to-white">
+        <div className="shrink-0 px-5 sm:px-6 pt-5 pb-4 border-b bg-gradient-to-r from-indigo-50 to-white">
           <button
             className="absolute top-4 right-4 text-2xl leading-none text-purple-600 hover:text-purple-800 font-bold"
             onClick={onClose}
@@ -153,22 +166,21 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
         </div>
 
         {/* Body */}
-        <div className="p-6 overflow-auto max-h-[calc(90vh-72px)]">
+        <div className="flex-1 min-h-0 overflow-auto p-3 sm:p-4 pb-5">
           {!activos.length ? (
             <div className="text-gray-600">No hay productos activos en este casillero.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border rounded-lg overflow-hidden">
-                <thead className="bg-gray-50">
+            <div className="w-fit max-w-full overflow-auto rounded-xl border border-gray-200">
+              <table className="w-[820px] max-w-none text-xs sm:text-[13px]">
+                <thead className="sticky top-0 z-10 bg-gray-50 shadow-[0_1px_0_0_rgba(229,231,235,1)]">
                   <tr className="text-left text-gray-600">
-                    <th className="py-2 px-3">Producto</th>
-                    <th className="py-2 px-3">DEC ($)</th>
-                    <th className="py-2 px-3">Estado</th>
-                    <th className="py-2 px-3">Fecha compra</th>
-                    <th className="py-2 px-3">Fecha recepcion</th>
-                    <th className="py-2 px-3">Transportista</th>
-                    <th className="py-2 px-3">ETA</th>
-                    <th className="py-2 px-3">Accion</th>
+                    <th className="py-1.5 px-2 w-[105px]">Producto</th>
+                    <th className="py-1.5 px-2 w-[75px]">DEC ($)</th>
+                    <th className="py-1.5 px-2 w-[110px]">Estado</th>
+                    <th className="py-1.5 px-2 w-[130px]">Fechas</th>
+                    <th className="py-1.5 px-2 w-[190px]">Tracking</th>
+                    <th className="py-1.5 px-2 w-[115px]">ETA</th>
+                    <th className="py-1.5 px-2 w-[95px]">Accion</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -183,22 +195,29 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
                     const groupKey = String(groupKeyRaw ?? p?.id ?? '');
                     const showDec = groupKey ? !seenDec.has(groupKey) : true;
                     if (groupKey && showDec) seenDec.add(groupKey);
+                    const despachoGroup = String(p?.envioGrupoId ?? p?.envioGrupo ?? p?.envioGrupoID ?? '').trim();
+                    const despachoKey = p?.__personal
+                      ? `personal:${p.personalId || p.id || ''}`
+                      : (despachoGroup ? `grupo:${despachoGroup}` : `producto:${p?.id || ''}`);
+                    const despachoLoading = Boolean(despachoLoadingKeys?.has?.(despachoKey));
                     const estado = t?.estado || '';
                     const recep = t?.fechaRecepcion || '';
                     const compra = v?.fechaCompra || '';
                     const transp = t?.transportista || '';
+                    const trackingEshop = String(t?.trackingEshop || '').trim();
+                    const trackingUsa = String(t?.trackingUsa || '').trim();
                     const eta = recep
                       ? estimarFecha(recep, transp)
                       : estimarRangoDesdeCompra(compra, analytics);
 
                     return (
                       <tr key={p.id} className={idx % 2 ? 'bg-white' : 'bg-gray-50/50'}>
-                        <td className="py-2 px-3">
+                        <td className="py-1.5 px-2 align-top">
                           {p?.__personal ? (
                             <span>{tipo}</span>
                           ) : (
                             <button
-                              className="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 border"
+                              className="px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 border"
                               onClick={() => onOpenProducto && onOpenProducto(p)}
                               title="Ver detalles del producto"
                             >
@@ -206,24 +225,52 @@ export default function ModalCasillero({ casillero, productos = [], onClose, onO
                             </button>
                           )}
                         </td>
-                        <td className="py-2 px-3">{showDec ? fmtUSD(decUSD) : '-'}</td>
-                        <td className="py-2 px-3">
+                        <td className="py-1.5 px-2 align-top">{showDec ? fmtUSD(decUSD) : '-'}</td>
+                        <td className="py-1.5 px-2 align-top">
                           {p?.despacho ? `${labelFromEstado(estado)} (Despacho)` : labelFromEstado(estado)}
                         </td>
-                        <td className="py-2 px-3">{compra ? fmtDate(compra) : (<span className="text-red-600">Sin fecha</span>)}</td>
-                        <td className="py-2 px-3">{fmtDate(recep)}</td>
-                        <td className="py-2 px-3">{transp || '-'}</td>
-                        <td className="py-2 px-3">{eta}</td>
-                        <td className="py-2 px-3">
-                          {!p?.despacho ? (
-                            <button
-                              type="button"
-                              className="px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700"
-                              onClick={() => onDespachoItem && onDespachoItem(p)}
-                            >
-                              Despacho
-                            </button>
-                          ) : '-'}
+                        <td className="py-1.5 px-2 align-top">
+                          <div className="space-y-1 leading-tight">
+                            <div>
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Compra</span>
+                              <div>{compra ? fmtDate(compra) : (<span className="text-red-600">Sin fecha</span>)}</div>
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Recepcion</span>
+                              <div>{fmtDate(recep)}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-1.5 px-2 align-top">
+                          <div className="space-y-1 leading-tight">
+                            <div>
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Eshopex</span>
+                              <div className="font-medium text-gray-900 break-all">{trackingEshop || '-'}</div>
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">USA</span>
+                              <div className="text-gray-700 break-all">{trackingUsa || '-'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-1.5 px-2 align-top">
+                          <EtaCompacta value={eta} />
+                        </td>
+                        <td className="py-1.5 px-2 align-top">
+                          <button
+                            type="button"
+                            disabled={despachoLoading}
+                            className={`px-2 py-0.5 rounded text-white disabled:opacity-70 disabled:cursor-wait ${
+                              p?.despacho
+                                ? 'bg-red-600 hover:bg-red-700'
+                                : 'bg-amber-600 hover:bg-amber-700'
+                            }`}
+                            onClick={() => onDespachoItem && onDespachoItem(p, !p?.despacho)}
+                          >
+                            {despachoLoading
+                              ? (p?.despacho ? 'Anulando...' : 'Guardando...')
+                              : (p?.despacho ? 'Anular' : 'Despacho')}
+                          </button>
                         </td>
                       </tr>
                     );
