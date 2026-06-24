@@ -276,6 +276,9 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [eshopexVincularRow, setEshopexVincularRow] = useState(null);
   const [personalOpen, setPersonalOpen] = useState(false);
   const [personalEshopex, setPersonalEshopex] = useState([]);
+  const [personalRecojoDate, setPersonalRecojoDate] = useState('');
+  const [personalSelected, setPersonalSelected] = useState(new Set());
+  const [personalRecogidoLoading, setPersonalRecogidoLoading] = useState(() => new Set());
   const [soloDisponibles, setSoloDisponibles] = useState(false);
   const [soloVendidos, setSoloVendidos] = useState(false);
   const [soloAdelanto, setSoloAdelanto] = useState(false);
@@ -683,6 +686,54 @@ const confirmAction = async () => {
     });
   }, [productos, getLastTracking]);
 
+  const recojoPackages = React.useMemo(() => {
+    const map = new Map();
+    for (const p of recojoList || []) {
+      const t = getLastTracking(p) || {};
+      const esh = String(t?.trackingEshop || '').trim();
+      const key = esh ? `esh:${esh}` : `prod:${p.id}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key,
+          product: p,
+          productos: [],
+          tracking: t,
+          trackingEshop: esh,
+          casillero: String(t?.casillero || '').trim(),
+          fechaRecepcion: t?.fechaRecepcion || '',
+        });
+      }
+      map.get(key).productos.push(p);
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const ta = a.fechaRecepcion ? Date.parse(a.fechaRecepcion) : 0;
+      const tb = b.fechaRecepcion ? Date.parse(b.fechaRecepcion) : 0;
+      if (ta && tb) return ta - tb;
+      return ta - tb;
+    });
+  }, [recojoList, getLastTracking]);
+
+  const recojoCasilleroGroups = React.useMemo(() => {
+    const map = new Map();
+    for (const pkg of recojoPackages || []) {
+      const label = String(pkg.casillero || '').trim() || 'Sin casillero';
+      const key = label.toLowerCase();
+      if (!map.has(key)) map.set(key, { key, label, packages: [] });
+      map.get(key).packages.push(pkg);
+    }
+    return Array.from(map.values())
+      .map((group) => ({
+        ...group,
+        packages: group.packages.sort((a, b) => {
+          const ta = a.fechaRecepcion ? Date.parse(a.fechaRecepcion) : 0;
+          const tb = b.fechaRecepcion ? Date.parse(b.fechaRecepcion) : 0;
+          if (ta && tb) return ta - tb;
+          return ta - tb;
+        }),
+      }))
+      .sort((a, b) => b.packages.length - a.packages.length || a.label.localeCompare(b.label));
+  }, [recojoPackages]);
+
   const inventarioRecojoList = React.useMemo(() => {
     const hoy = new Date();
     const hoyUtc = Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
@@ -923,8 +974,8 @@ const confirmAction = async () => {
         return merged;
       });
     }
-    const codes = recojoList
-      .map((p) => (getLastTracking(p)?.trackingEshop || '').trim())
+    const codes = recojoPackages
+      .map((pkg) => String(pkg.trackingEshop || '').trim())
       .filter(Boolean);
     if (!codes.length) return;
     const currentMap = recojoStatusRef.current || {};
@@ -961,7 +1012,57 @@ const confirmAction = async () => {
       });
     })();
     return () => { alive = false; };
-  }, [recojoOpen, recojoList, readEshopexCache, writeEshopexCache, getLastTracking]);
+  }, [recojoOpen, recojoPackages, readEshopexCache, writeEshopexCache]);
+
+  useEffect(() => {
+    if (!personalOpen) return;
+    const cached = readEshopexCache();
+    if (cached && typeof cached === 'object') {
+      setRecojoStatusMap((prev) => {
+        const merged = { ...cached, ...prev };
+        recojoStatusRef.current = merged;
+        return merged;
+      });
+    }
+    const codes = (personalEshopex || [])
+      .map((item) => String(item?.trackingEshop || item?.guia || '').trim())
+      .filter(Boolean);
+    if (!codes.length) return;
+    const currentMap = recojoStatusRef.current || {};
+    const missing = codes.filter((code) => {
+      const entry = currentMap[code];
+      return !entry || entry.loading;
+    });
+    if (!missing.length) return;
+    let alive = true;
+    (async () => {
+      setRecojoStatusMap((prev) => {
+        const next = { ...prev };
+        missing.forEach((code) => { next[code] = { loading: true }; });
+        recojoStatusRef.current = next;
+        return next;
+      });
+      const entries = await Promise.all(
+        missing.map(async (code) => {
+          try {
+            const data = await api.get(`/tracking/eshopex-status/${encodeURIComponent(code)}`);
+            return [code, { ...data, loading: false }];
+          } catch {
+            return [code, { status: null, date: null, time: null, loading: false }];
+          }
+        }),
+      );
+      if (!alive) return;
+      setRecojoStatusMap((prev) => {
+        const next = { ...prev };
+        entries.forEach(([code, data]) => { next[code] = data; });
+        writeEshopexCache(next);
+        recojoStatusRef.current = next;
+        return next;
+      });
+    })();
+    return () => { alive = false; };
+  }, [personalOpen, personalEshopex, readEshopexCache, writeEshopexCache]);
 
   const eshopexPendientes = React.useMemo(() => {
     const filtered = (eshopexCargaRows || []).filter((row) => {
@@ -1030,12 +1131,17 @@ const confirmAction = async () => {
   };
 
   const handleRecojoWhatsapp = async () => {
-    const items = recojoList.filter((p) => recojoSelected.has(p.id) && isRecojoReady(p));
+    const items = recojoPackages.filter((pkg) => recojoSelected.has(pkg.id) && isRecojoReady(pkg.product));
     if (!items.length) { alert('Selecciona al menos un producto.'); return; }
     if (!recojoDate) { alert('Elige una fecha de recojo.'); return; }
     try {
-      const productosItems = items.filter((p) => !p.__personal);
-      const personalItems = items.filter((p) => p.__personal);
+      const productosById = new Map();
+      items.forEach((pkg) => {
+        (pkg.productos || []).forEach((p) => {
+          if (!p?.__personal && p?.id != null) productosById.set(String(p.id), p);
+        });
+      });
+      const productosItems = Array.from(productosById.values());
       const results = await Promise.allSettled(productosItems.map(async (p) => {
         const res = await api.put(`/tracking/producto/${p.id}`, {
           estado: 'recogido',
@@ -1050,30 +1156,15 @@ const confirmAction = async () => {
       updated.forEach(({ productoId, tracking }) => {
         applyTrackingUpdate(productoId, tracking);
       });
-      if (personalItems.length) {
-        const personalResults = await Promise.allSettled(
-          personalItems.map((p) =>
-            api.patch(`/productos/personal-eshopex/${p.personalId}`, {
-              recogido: true,
-              fechaRecogido: recojoDate,
-            }),
-          ),
-        );
-        const savedPersonal = personalResults
-          .filter((r) => r.status === 'fulfilled')
-          .map((r) => r.value);
-        if (savedPersonal.length) {
-          const byId = new Map(savedPersonal.map((item) => [String(item?.id || ''), item]));
-          setPersonalEshopex((prev) => (prev || []).map((item) => byId.get(String(item?.id || '')) || item));
-        }
-      }
 
       const grupos = new Map();
-      items.forEach((p) => {
-        const t = getLastTracking(p) || {};
-        const esh = (t.trackingEshop || '').trim();
-        const cas = t.casillero || 'Sin casillero';
-        const nombre = buildNombreProducto(p);
+      items.forEach((pkg) => {
+        const esh = String(pkg.trackingEshop || '').trim();
+        const cas = String(pkg.casillero || '').trim() || 'Sin casillero';
+        const nombres = (pkg.productos || [])
+          .map((p) => buildNombreProducto(p) || p?.tipo || 'Producto')
+          .filter(Boolean);
+        const nombre = nombres.length > 1 ? nombres.join(' + ') : (nombres[0] || 'Producto');
         if (!grupos.has(cas)) grupos.set(cas, []);
         grupos.get(cas).push([nombre, esh].filter(Boolean).join(' | '));
       });
@@ -1101,11 +1192,10 @@ const confirmAction = async () => {
   };
 
   const handleRecojoTrackingLinks = () => {
-    const items = recojoList.filter((p) => recojoSelected.has(p.id));
+    const items = recojoPackages.filter((pkg) => recojoSelected.has(pkg.id));
     if (!items.length) { alert('Selecciona al menos un producto.'); return; }
-    items.forEach((p) => {
-      const t = getLastTracking(p);
-      const esh = (t?.trackingEshop || '').trim();
+    items.forEach((pkg) => {
+      const esh = String(pkg.trackingEshop || '').trim();
       if (!esh) return;
       const href = URLS.eshopex(esh);
       window.open(href, '_blank', 'noopener,noreferrer');
@@ -1291,12 +1381,12 @@ const confirmAction = async () => {
 
   const recojoCasilleros = React.useMemo(() => {
     const map = {};
-    for (const p of recojoList || []) {
-      const t = getLastTracking(p);
-      const esh = (t?.trackingEshop || '').trim();
+    for (const pkg of recojoPackages || []) {
+      const t = pkg.tracking || {};
+      const esh = String(pkg.trackingEshop || '').trim();
       const cargaRow = eshopexCargaByGuia[esh];
       const estatusEsho = normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
-      const casRaw = String(t?.casillero || '').trim();
+      const casRaw = String(pkg.casillero || t?.casillero || '').trim();
       const casKey = casRaw.toLowerCase();
       const accountFromCas = casKey ? accountByCasillero[casKey] : '';
       const accountKey = String(cargaRow?.account || accountFromCas || '').trim().toLowerCase();
@@ -1326,8 +1416,8 @@ const confirmAction = async () => {
     }
     return Object.values(map)
       .filter((item) => item.ready > 0)
-      .sort((a, b) => a.casLabel.localeCompare(b.casLabel));
-  }, [recojoList, eshopexCargaByGuia, accountByCasillero, casilleroByAccount, getLastTracking]);
+      .sort((a, b) => b.ready - a.ready || a.casLabel.localeCompare(b.casLabel));
+  }, [recojoPackages, eshopexCargaByGuia, accountByCasillero, casilleroByAccount]);
 
   const handleEshopexVincular = async (row, producto) => {
     const code = String(row?.guia || '').trim();
@@ -1431,6 +1521,90 @@ const confirmAction = async () => {
     } catch (err) {
       console.error(err);
       alert(despacho ? 'No se pudo marcar como despacho.' : 'No se pudo anular el despacho.');
+    }
+  };
+
+  const togglePersonalSelect = (id) => {
+    setPersonalSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handlePersonalRecogidoSelected = async () => {
+    const selectedItems = (personalEshopex || []).filter((item) => {
+      const id = String(item?.id || item?.trackingEshop || item?.guia || '');
+      return id && personalSelected.has(id) && !item?.recogido;
+    });
+    if (!selectedItems.length) {
+      alert('Selecciona al menos un paquete Personal.');
+      return;
+    }
+    if (!personalRecojoDate) {
+      alert('Elige una fecha de recojo.');
+      return;
+    }
+    const ids = selectedItems.map((item) => String(item?.id || item?.trackingEshop || item?.guia || ''));
+    setPersonalRecogidoLoading((prev) => new Set([...prev, ...ids]));
+    try {
+      const results = await Promise.allSettled(
+        ids.map((id) =>
+          updatePersonalEshopex(id, {
+            recogido: true,
+            fechaRecogido: personalRecojoDate,
+            despacho: false,
+            despachoAt: null,
+          }),
+        ),
+      );
+      const savedIds = new Set(
+        results
+          .filter((result) => result.status === 'fulfilled')
+          .map((result) => String(result.value?.id || ''))
+          .filter(Boolean),
+      );
+      setPersonalSelected((prev) => {
+        const next = new Set(prev);
+        savedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      if (savedIds.size) {
+        const grupos = new Map();
+        selectedItems
+          .filter((item) => savedIds.has(String(item?.id || '')))
+          .forEach((item) => {
+            const cas = String(item?.casillero || 'Sin casillero').trim() || 'Sin casillero';
+            const nombre = String(item?.descripcion || 'Personal').trim() || 'Personal';
+            const esh = String(item?.trackingEshop || item?.guia || '').trim();
+            if (!grupos.has(cas)) grupos.set(cas, []);
+            grupos.get(cas).push([nombre, esh].filter(Boolean).join(' | '));
+          });
+        const lineas = [`Paquetes recojo ${personalRecojoDate}`];
+        Array.from(grupos.entries())
+          .sort(([a], [b]) => String(a).localeCompare(String(b)))
+          .forEach(([cas, rows]) => {
+            lineas.push('', cas);
+            rows
+              .sort((a, b) => String(a).localeCompare(String(b)))
+              .forEach((row) => lineas.push(row));
+          });
+        const url = `https://wa.me/+51938597478?text=${encodeURIComponent(lineas.join('\n'))}`;
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+      if (savedIds.size !== ids.length) {
+        alert('Algunos paquetes Personal no se pudieron marcar como recogidos.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo marcar como recogido.');
+    } finally {
+      setPersonalRecogidoLoading((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
     }
   };
 
@@ -2491,7 +2665,11 @@ const confirmAction = async () => {
                 Recojo
               </button>
               <button
-                onClick={() => setPersonalOpen(true)}
+                onClick={() => {
+                  setPersonalRecojoDate('');
+                  setPersonalSelected(new Set());
+                  setPersonalOpen(true);
+                }}
                 className="w-full sm:w-auto bg-violet-700 text-white px-5 py-2 rounded hover:bg-violet-800"
                 title="Ver paquetes personales guardados desde Eshopex"
               >
@@ -2925,12 +3103,12 @@ const confirmAction = async () => {
                   type="button"
                   className="px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 w-full sm:w-auto"
                   onClick={() => {
-                    const allIds = recojoList.filter((p) => isRecojoReady(p)).map((p) => p.id);
+                    const allIds = recojoPackages.filter((pkg) => isRecojoReady(pkg.product)).map((pkg) => pkg.id);
                     const allSelected = recojoSelected.size === allIds.length && allIds.length > 0;
                     setRecojoSelected(allSelected ? new Set() : new Set(allIds));
                   }}
                 >
-                  {recojoSelected.size === recojoList.filter((p) => isRecojoReady(p)).length && recojoList.some((p) => isRecojoReady(p))
+                  {recojoSelected.size === recojoPackages.filter((pkg) => isRecojoReady(pkg.product)).length && recojoPackages.some((pkg) => isRecojoReady(pkg.product))
                     ? 'Deseleccionar'
                     : 'Seleccionar todos'}
                 </button>
@@ -2946,125 +3124,140 @@ const confirmAction = async () => {
               </div>
 
               <div className="text-sm text-gray-500">
-                Productos en Eshopex: {recojoList.length}
+                Paquetes en Eshopex: {recojoPackages.length}
               </div>
 
-              <div className="overflow-x-auto">
-                <div className="flex gap-2 items-center min-w-max pb-1">
-                  {recojoCasilleros.map((c) => {
-                    const accountKey = String(c.accountKey || '').trim().toLowerCase();
-                    const pagoKey = `cas-${c.casKey}-${accountKey}`;
-                    const pagoLoading = eshopexPagoLoading.has(pagoKey);
-                    const canPay = c.payable > 0 && accountKey;
-                    return (
-                      <button
-                        key={`${c.casKey}-pago`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!canPay) return;
-                          handleEshopexPrepago({ account: accountKey, guia: `cas-${c.casKey}` });
-                        }}
-                        disabled={!canPay || pagoLoading}
-                        className={`${(!canPay || pagoLoading) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-3 py-2 rounded whitespace-nowrap`}
-                        title={!canPay ? 'Sin paquetes disponibles para pagar' : `Pagar casillero ${c.casLabel}`}
-                      >
-                        {pagoLoading ? 'Procesando...' : `${c.casLabel} (${c.ready || 0})`}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
             </div>
 
-            {recojoList.length === 0 ? (
+            {recojoPackages.length === 0 ? (
               <div className="text-sm text-gray-500">No hay productos en Eshopex.</div>
             ) : (
-              <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm flex-1 min-h-0 overflow-y-auto">
-                <table className="min-w-[900px] w-full text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="p-2 text-left">Sel.</th>
-                      <th className="p-2 text-left">Producto</th>
-                      <th className="p-2 text-left">Estatus</th>
-                      <th className="p-2 text-left">Tracking Eshopex</th>
-                      <th className="p-2 text-left">EstatusEsho</th>
-                      <th className="p-2 text-left">Fecha recepcion</th>
-                      <th className="p-2 text-left">Casillero</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recojoList.map((p) => {
-                      const t = getLastTracking(p);
-                      const esh = (t?.trackingEshop || '').trim();
-                      const fecha = t?.fechaRecepcion
-                        ? new Date(t.fechaRecepcion).toLocaleDateString('es-PE', { timeZone: 'UTC' })
-                        : '-';
-                      const cargaRow = eshopexCargaByGuia[esh];
-                      const statusInfo = recojoStatusMap[esh] || {};
-                      const statusNorm = normalizeEshopexStatus(statusInfo.status);
-                      const estatusEsho = p?.__personal && p?.despacho
-                        ? 'Enviado a Peru (Despacho)'
-                        : normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
-                      const cas = String(t?.casillero || '').trim().toLowerCase();
-                      const isReady = isRecojoReady(p);
-                      const checked = recojoSelected.has(p.id);
-                      return (
-                        <tr key={p.id} className="border-t">
-                          <td className="p-2">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              disabled={!isReady}
-                              title={isReady ? '' : 'Solo disponible cuando esta Pagado o En Sucursal'}
-                              onChange={() => toggleRecojoSelect(p.id)}
-                            />
-                          </td>
-                          <td className="p-2">{buildNombreProducto(p) || p.tipo}</td>
-                          <td className="p-2">
-                            <div className="text-sm font-medium">
-                              {statusInfo.loading ? 'Cargando' : (statusInfo.status ? statusNorm.label : 'No hay informacion')}
-                            </div>
-                            {(statusInfo.date || statusInfo.time) && (
-                              <div className="text-xs text-gray-500">
-                                {(statusInfo.date || '')} {(statusInfo.time || '')}
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-2">
-                            {esh ? (
-                              <a
-                                href={URLS.eshopex(esh)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-600 underline"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                Ver tracking
-                              </a>
-                            ) : (
-                              <span className="text-gray-500">-</span>
-                            )}
-                            <div className="text-sm">{esh || '-'}</div>
-                          </td>
-                          <td className="p-2">
-                            <div className="text-sm font-medium">
-                              {estatusEsho || 'No hay informacion'}
-                            </div>
-                          </td>
-                          <td className="p-2">
-                            <div className="text-sm">{fecha}</div>
-                            {isReady && (
-                              <div className="text-xs text-emerald-600 font-semibold">Listo para Recoger</div>
-                            )}
-                          </td>
-                          <td className="p-2">
-                            <div className="text-sm">{cas || '-'}</div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
+                {recojoCasilleroGroups.map((group) => {
+                  const casInfo = recojoCasilleros.find((c) => c.casKey === group.key);
+                  const accountKey = String(casInfo?.accountKey || '').trim().toLowerCase();
+                  const pagoKey = `cas-${group.key}-${accountKey}`;
+                  const pagoLoading = eshopexPagoLoading.has(pagoKey);
+                  const canPay = Number(casInfo?.payable || 0) > 0 && accountKey;
+                  return (
+                  <div key={group.key} className="rounded-xl border border-gray-200 shadow-sm overflow-hidden bg-white">
+                    <div className="flex items-center justify-between gap-3 bg-gray-100 border-b border-gray-200 px-3 py-2">
+                      <div className="font-semibold text-gray-800">{group.label}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm text-gray-500">{group.packages.length} paquete{group.packages.length === 1 ? '' : 's'}</div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!canPay) return;
+                            handleEshopexPrepago({ account: accountKey, guia: `cas-${group.key}` });
+                          }}
+                          disabled={!canPay || pagoLoading}
+                          className={`${(!canPay || pagoLoading) ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-3 py-1.5 rounded text-sm whitespace-nowrap`}
+                          title={!canPay ? 'Sin paquetes disponibles para pagar' : `Pagar casillero ${group.label}`}
+                        >
+                          {pagoLoading ? 'Procesando...' : 'Pagar'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-[900px] w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="p-2 text-left">Sel.</th>
+                            <th className="p-2 text-left">Producto</th>
+                            <th className="p-2 text-left">Estatus</th>
+                            <th className="p-2 text-left">Tracking Eshopex</th>
+                            <th className="p-2 text-left">EstatusEsho</th>
+                            <th className="p-2 text-left">Fecha recepcion</th>
+                            <th className="p-2 text-left">Casillero</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.packages.map((pkg) => {
+                            const p = pkg.product;
+                            const t = pkg.tracking || getLastTracking(p);
+                            const esh = String(pkg.trackingEshop || t?.trackingEshop || '').trim();
+                            const fecha = pkg.fechaRecepcion
+                              ? new Date(pkg.fechaRecepcion).toLocaleDateString('es-PE', { timeZone: 'UTC' })
+                              : '-';
+                            const cargaRow = eshopexCargaByGuia[esh];
+                            const statusInfo = recojoStatusMap[esh] || {};
+                            const statusNorm = normalizeEshopexStatus(statusInfo.status);
+                            const estatusEsho = normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
+                            const cas = String(pkg.casillero || t?.casillero || '').trim();
+                            const isReady = isRecojoReady(p);
+                            const checked = recojoSelected.has(pkg.id);
+                            const nombres = (pkg.productos || [])
+                              .map((producto) => buildNombreProducto(producto) || producto?.tipo || 'Producto')
+                              .filter(Boolean);
+                            const nombre = nombres.length > 1 ? nombres.join(' + ') : (nombres[0] || buildNombreProducto(p) || p.tipo);
+                            return (
+                              <tr key={pkg.id} className="border-t">
+                                <td className="p-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={!isReady}
+                                    title={isReady ? '' : 'Solo disponible cuando esta Pagado o En Sucursal'}
+                                    onChange={() => toggleRecojoSelect(pkg.id)}
+                                  />
+                                </td>
+                                <td className="p-2">
+                                  <div>{nombre}</div>
+                                  {(pkg.productos || []).length > 1 && (
+                                    <div className="text-xs text-gray-500">Mismo tracking: {(pkg.productos || []).length} productos</div>
+                                  )}
+                                </td>
+                                <td className="p-2">
+                                  <div className="text-sm font-medium">
+                                    {statusInfo.loading ? 'Cargando' : (statusInfo.status ? statusNorm.label : 'No hay informacion')}
+                                  </div>
+                                  {(statusInfo.date || statusInfo.time) && (
+                                    <div className="text-xs text-gray-500">
+                                      {(statusInfo.date || '')} {(statusInfo.time || '')}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="p-2">
+                                  {esh ? (
+                                    <a
+                                      href={URLS.eshopex(esh)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 underline"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      Ver tracking
+                                    </a>
+                                  ) : (
+                                    <span className="text-gray-500">-</span>
+                                  )}
+                                  <div className="text-sm">{esh || '-'}</div>
+                                </td>
+                                <td className="p-2">
+                                  <div className="text-sm font-medium">
+                                    {estatusEsho || 'No hay informacion'}
+                                  </div>
+                                </td>
+                                <td className="p-2">
+                                  <div className="text-sm">{fecha}</div>
+                                  {isReady && (
+                                    <div className="text-xs text-emerald-600 font-semibold">Listo para Recoger</div>
+                                  )}
+                                </td>
+                                <td className="p-2">
+                                  <div className="text-sm">{cas || '-'}</div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  );
+                })}
               </div>
             )}
             </div>
@@ -3210,13 +3403,54 @@ const confirmAction = async () => {
                 x
               </button>
             </div>
+            <div className="flex flex-col sm:flex-row sm:items-end gap-2 mb-4">
+              <button
+                type="button"
+                className="px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-300 disabled:text-gray-600 disabled:cursor-not-allowed"
+                disabled={!personalRecojoDate || personalSelected.size === 0}
+                onClick={handlePersonalRecogidoSelected}
+                title={!personalRecojoDate ? 'Elige una fecha de recojo' : ''}
+              >
+                Marcar recogido
+              </button>
+              <button
+                type="button"
+                className="px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
+                onClick={() => {
+                  const selectableIds = (personalEshopex || [])
+                    .filter((item) => !item?.recogido)
+                    .map((item) => String(item?.id || item?.trackingEshop || item?.guia || ''))
+                    .filter(Boolean);
+                  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => personalSelected.has(id));
+                  setPersonalSelected(allSelected ? new Set() : new Set(selectableIds));
+                }}
+              >
+                {(personalEshopex || [])
+                  .filter((item) => !item?.recogido)
+                  .map((item) => String(item?.id || item?.trackingEshop || item?.guia || ''))
+                  .filter(Boolean)
+                  .every((id) => personalSelected.has(id)) && personalSelected.size > 0
+                  ? 'Deseleccionar'
+                  : 'Seleccionar todos'}
+              </button>
+              <div className="w-full sm:w-auto">
+                <label className="block text-sm font-medium mb-1">Fecha de recojo</label>
+                <input
+                  type="date"
+                  className="border rounded px-3 py-2 w-full sm:w-auto"
+                  value={personalRecojoDate}
+                  onChange={(e) => setPersonalRecojoDate(e.target.value)}
+                />
+              </div>
+            </div>
             {!personalEshopex.length ? (
               <div className="text-sm text-gray-500">No hay paquetes personales guardados.</div>
             ) : (
               <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm overflow-y-auto">
-                <table className="min-w-[900px] w-full text-sm">
+                <table className="min-w-[1050px] w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
+                      <th className="p-2 text-left">Sel.</th>
                       <th className="p-2 text-left">Descripcion</th>
                       <th className="p-2 text-left">Tracking Eshopex</th>
                       <th className="p-2 text-left">Casillero</th>
@@ -3224,43 +3458,66 @@ const confirmAction = async () => {
                       <th className="p-2 text-left">Fecha recepcion</th>
                       <th className="p-2 text-left">DEC</th>
                       <th className="p-2 text-left">Estado</th>
+                      <th className="p-2 text-left">Fecha entrega</th>
                       <th className="p-2 text-left">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {personalEshopex.map((item) => {
                       const id = String(item?.id || item?.trackingEshop || item?.guia || '');
+                      const trackingEshop = String(item?.trackingEshop || item?.guia || '').trim();
+                      const cargaRow = eshopexCargaByGuia[trackingEshop];
+                      const statusInfo = recojoStatusMap[trackingEshop] || {};
+                      const statusNorm = normalizeEshopexStatus(statusInfo.status);
+                      const estatusEsho = statusInfo.loading
+                        ? 'Cargando'
+                        : normalizeCargaStatus(statusInfo.status || cargaRow?.estado || item?.estatusEsho || '');
+                      const fechaRecepcionCarga = cargaRow?.fechaRecepcion || '';
                       const accountKey = String(item?.account || '').trim().toLowerCase();
                       const pagoKey = `${item?.trackingEshop || id}-${accountKey}`;
                       const pagoLoading = eshopexPagoLoading.has(pagoKey);
+                      const recogidoLoading = personalRecogidoLoading.has(id);
+                      const checked = personalSelected.has(id);
                       return (
                         <tr key={id} className="border-t">
+                          <td className="p-2">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={item?.recogido || recogidoLoading}
+                              onChange={() => togglePersonalSelect(id)}
+                              title={item?.recogido ? 'Ya esta recogido' : ''}
+                            />
+                          </td>
                           <td className="p-2">{item?.descripcion || 'Personal'}</td>
-                          <td className="p-2">{item?.trackingEshop || '-'}</td>
+                          <td className="p-2">{trackingEshop || '-'}</td>
                           <td className="p-2">{item?.casillero || '-'}</td>
-                          <td className="p-2">{item?.estatusEsho || '-'}</td>
-                          <td className="p-2">{item?.fechaRecepcion || item?.fechaRecepcionRaw || '-'}</td>
+                          <td className="p-2">{estatusEsho || statusNorm.label || '-'}</td>
+                          <td className="p-2">{fechaRecepcionCarga || item?.fechaRecepcion || item?.fechaRecepcionRaw || '-'}</td>
                           <td className="p-2">{item?.valorDec ? `$ ${Number(item.valorDec).toFixed(2)}` : '-'}</td>
                           <td className="p-2">
                             {item?.recogido ? 'Recogido' : item?.despacho ? 'Despacho' : 'En casillero'}
                           </td>
+                          <td className="p-2">{fmtFechaTabla(item?.fechaRecogido)}</td>
                           <td className="p-2">
                             <div className="flex flex-wrap gap-2">
                               <button
                                 type="button"
                                 className="px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
-                                onClick={() => abrirFotosManual({ trackingEshop: item?.trackingEshop || '', fechaRecepcion: item?.fechaRecepcion || item?.fechaRecepcionRaw || '' })}
+                                onClick={() => abrirFotosManual({ trackingEshop: item?.trackingEshop || '', fechaRecepcion: fechaRecepcionCarga || item?.fechaRecepcion || item?.fechaRecepcionRaw || '' })}
                               >
                                 Foto
                               </button>
-                              <button
-                                type="button"
-                                className={`${!accountKey || pagoLoading ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-2 py-1 rounded`}
-                                disabled={!accountKey || pagoLoading}
-                                onClick={() => handleEshopexPrepago({ account: item?.account || '', guia: item?.trackingEshop || id })}
-                              >
-                                {pagoLoading ? 'Procesando...' : 'Pagar'}
-                              </button>
+                              {!item?.despacho && !item?.recogido ? (
+                                <button
+                                  type="button"
+                                  className={`${!accountKey || pagoLoading ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700'} px-2 py-1 rounded`}
+                                  disabled={!accountKey || pagoLoading}
+                                  onClick={() => handleEshopexPrepago({ account: item?.account || '', guia: item?.trackingEshop || id })}
+                                >
+                                  {pagoLoading ? 'Procesando...' : 'Pagar'}
+                                </button>
+                              ) : null}
                               {!item?.despacho && !item?.recogido ? (
                                 <button
                                   type="button"
