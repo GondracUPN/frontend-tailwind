@@ -73,20 +73,38 @@ test('muestra la foto solamente al pulsar Ver foto', async () => {
   render(<Inventario setVista={jest.fn()} />);
 
   expect(screen.queryByRole('img', { name: 'iPhone 15 Pro' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Ampliar')).not.toBeInTheDocument();
   fireEvent.click(await screen.findByRole('button', { name: 'Ampliar foto de iPhone 15 Pro' }));
-  expect(screen.getByRole('img', { name: 'iPhone 15 Pro' })).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'iPhone 15 Pro' })).toHaveClass('max-h-[calc(100dvh-1.5rem)]');
   fireEvent.click(screen.getByRole('button', { name: 'Ampliar foto' }));
   expect(screen.getByRole('button', { name: 'Reducir foto' })).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'iPhone 15 Pro' })).toHaveClass('w-full', 'max-w-none');
   expect(screen.getByRole('button', { name: 'Cerrar foto' })).toBeInTheDocument();
 });
 
-test('guarda el primer precio en soles dentro de la ficha', async () => {
+test('mantiene el serial y el IMEI ocultos fuera de la ficha', async () => {
+  api.get.mockResolvedValue([{
+    ...entry,
+    ficha: { serial: 'SN-PRIVADO-123', imei: '490154203237518' },
+  }]);
+  render(<Inventario setVista={jest.fn()} />);
+
+  expect(await screen.findByText(/iPhone 15 Pro/)).toBeInTheDocument();
+  expect(screen.queryByText('SN-PRIVADO-123')).not.toBeInTheDocument();
+  expect(screen.queryByText('490154203237518')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Completar ficha' }));
+  expect(screen.getByLabelText('Serial')).toHaveValue('SN-PRIVADO-123');
+  expect(screen.getByLabelText('IMEI 1')).toHaveValue('490154203237518');
+});
+
+test('guarda el precio en soles dentro de la ficha', async () => {
   api.get.mockResolvedValue([entry]);
   api.patch.mockResolvedValue({ primerPrecioSoles: 125.5 });
   render(<Inventario setVista={jest.fn()} />);
 
   fireEvent.click(await screen.findByRole('button', { name: 'Completar ficha' }));
-  const priceInput = screen.getByLabelText('Primer precio (S/)');
+  const priceInput = screen.getByLabelText('Precio (S/)');
   expect(priceInput).toHaveValue(null);
   fireEvent.change(priceInput, { target: { value: '125.50' } });
   fireEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
@@ -96,6 +114,27 @@ test('guarda el primer precio en soles dentro de la ficha', async () => {
     expect.objectContaining({ primerPrecioSoles: 125.5 }),
   ));
   expect(api.patch).not.toHaveBeenCalledWith('/productos/42', expect.anything());
+});
+
+test('guarda y muestra el último precio en la vista rápida', async () => {
+  api.get.mockResolvedValue([{
+    ...entry,
+    ficha: { ultimoPrecioSoles: 99.9 },
+  }]);
+  api.patch.mockResolvedValue({ ultimoPrecioSoles: 89.5 });
+  render(<Inventario setVista={jest.fn()} />);
+
+  expect(await screen.findByText('S/ 99.90')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Completar ficha' }));
+  const lastPriceInput = screen.getByLabelText('Último precio (S/)');
+  expect(lastPriceInput).toHaveValue(99.9);
+  fireEvent.change(lastPriceInput, { target: { value: '89.50' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
+
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
+    '/inventario/42',
+    expect.objectContaining({ ultimoPrecioSoles: 89.5 }),
+  ));
 });
 
 test('solicita fecha solo cuando la garantía es limitada', async () => {
@@ -110,6 +149,45 @@ test('solicita fecha solo cuando la garantía es limitada', async () => {
   fireEvent.change(screen.getByLabelText('Tipo de garantía'), { target: { value: 'limitada' } });
   expect(screen.getByLabelText('Garantía hasta')).toBeRequired();
   expect(screen.queryByLabelText('Detalle de garantía')).not.toBeInTheDocument();
+});
+
+test('para un producto nuevo oculta batería y garantía y limpia esos datos al guardar', async () => {
+  const newEntry = {
+    ...entry,
+    producto: { ...entry.producto, estado: 'Nuevo' },
+    ficha: {
+      ciclosBateria: 12,
+      saludBateria: 98,
+      tieneGarantia: true,
+      tipoGarantia: 'limitada',
+      garantiaHasta: '2027-01-01',
+    },
+  };
+  api.get.mockResolvedValue([newEntry]);
+  api.patch.mockResolvedValue({});
+  render(<Inventario setVista={jest.fn()} />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Completar ficha' }));
+
+  expect(screen.getByLabelText('Color')).toBeInTheDocument();
+  expect(screen.getByLabelText('Serial')).toBeInTheDocument();
+  expect(screen.getByLabelText('IMEI 1')).toBeInTheDocument();
+  expect(screen.getByLabelText('IMEI 2')).toBeInTheDocument();
+  expect(screen.queryByLabelText('Ciclos de batería')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Salud de batería (%)')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('¿Tiene garantía?')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
+    '/inventario/42',
+    expect.objectContaining({
+      ciclosBateria: null,
+      saludBateria: null,
+      tieneGarantia: false,
+      tipoGarantia: null,
+      garantiaHasta: null,
+    }),
+  ));
 });
 
 test('Factura US carga el producto por code y calcula 25 por ciento adicional', async () => {

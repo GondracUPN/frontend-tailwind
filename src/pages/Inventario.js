@@ -51,9 +51,17 @@ const EMPTY_FORM = {
   fotosTomadas: false,
   marketplaceSubido: false,
   primerPrecioSoles: '',
+  ultimoPrecioSoles: '',
 };
 
 const text = (value) => String(value ?? '').trim();
+const isNewProduct = (producto) => text(producto?.estado).toLowerCase() === 'nuevo';
+const formatSoles = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return null;
+  return amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
 
 const buildNombre = (producto) => {
   const detalle = producto?.detalle || {};
@@ -110,6 +118,7 @@ const toForm = (entry) => {
     observaciones: ficha.observaciones || '',
     accesorios: ficha.accesorios?.length ? ficha.accesorios : sourceAccessories,
     primerPrecioSoles: ficha.primerPrecioSoles ?? '',
+    ultimoPrecioSoles: ficha.ultimoPrecioSoles ?? '',
   };
 };
 
@@ -388,17 +397,23 @@ export default function Inventario({ setVista }) {
   const save = async (event) => {
     event.preventDefault();
     if (!editing?.producto?.id) return;
-    if (form.tieneGarantia && !form.tipoGarantia) {
+    const productoNuevo = isNewProduct(editing.producto);
+    if (!productoNuevo && form.tieneGarantia && !form.tipoGarantia) {
       setNotice('Selecciona si la garantía es limitada o AppleCare.');
       return;
     }
-    if (form.tieneGarantia && form.tipoGarantia === 'limitada' && !form.garantiaHasta) {
+    if (!productoNuevo && form.tieneGarantia && form.tipoGarantia === 'limitada' && !form.garantiaHasta) {
       setNotice('La garantía limitada necesita una fecha de vencimiento.');
       return;
     }
     const primerPrecioSoles = form.primerPrecioSoles === '' ? null : Number(form.primerPrecioSoles);
     if (primerPrecioSoles !== null && (!Number.isFinite(primerPrecioSoles) || primerPrecioSoles < 0)) {
-      setNotice('El primer precio debe ser un número válido mayor o igual a 0.');
+      setNotice('El precio debe ser un número válido mayor o igual a 0.');
+      return;
+    }
+    const ultimoPrecioSoles = form.ultimoPrecioSoles === '' ? null : Number(form.ultimoPrecioSoles);
+    if (ultimoPrecioSoles !== null && (!Number.isFinite(ultimoPrecioSoles) || ultimoPrecioSoles < 0)) {
+      setNotice('El último precio debe ser un número válido mayor o igual a 0.');
       return;
     }
     const id = editing.producto.id;
@@ -408,12 +423,13 @@ export default function Inventario({ setVista }) {
       const payload = {
         enAlmacen: Boolean(form.enAlmacen),
         color: text(form.color) || null,
-        ciclosBateria: form.ciclosBateria === '' ? null : Number(form.ciclosBateria),
-        saludBateria: form.saludBateria === '' ? null : Number(form.saludBateria),
+        ciclosBateria: productoNuevo || form.ciclosBateria === '' ? null : Number(form.ciclosBateria),
+        saludBateria: productoNuevo || form.saludBateria === '' ? null : Number(form.saludBateria),
         primerPrecioSoles,
-        tieneGarantia: Boolean(form.tieneGarantia),
-        tipoGarantia: form.tieneGarantia ? form.tipoGarantia : null,
-        garantiaHasta: form.tieneGarantia ? (form.garantiaHasta || null) : null,
+        ultimoPrecioSoles,
+        tieneGarantia: productoNuevo ? false : Boolean(form.tieneGarantia),
+        tipoGarantia: !productoNuevo && form.tieneGarantia ? form.tipoGarantia : null,
+        garantiaHasta: !productoNuevo && form.tieneGarantia ? (form.garantiaHasta || null) : null,
         garantiaDetalle: null,
         serial: text(form.serial) || null,
         imei: text(form.imei) || null,
@@ -581,13 +597,14 @@ export default function Inventario({ setVista }) {
           <>
           {showDesktopTable ? (
           <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <table className="min-w-[1050px] w-full text-sm">
+            <table className="min-w-[1180px] w-full text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3 text-left">Code</th>
                   <th className="px-4 py-3 text-left">Producto</th>
                   <th className="px-4 py-3 text-left">Cotejo</th>
                   <th className="px-4 py-3 text-left">Datos</th>
+                  <th className="px-4 py-3 text-left">Último precio</th>
                   <th className="px-4 py-3 text-left">Accesorios</th>
                   <th className="px-4 py-3 text-center">Fotos</th>
                   <th className="px-4 py-3 text-center">Marketplace</th>
@@ -617,6 +634,13 @@ export default function Inventario({ setVista }) {
                         <div className="mt-0.5 text-xs text-slate-400">
                           {ficha?.ciclosBateria != null ? `${ficha.ciclosBateria} ciclos` : 'Ciclos —'} · {ficha?.saludBateria != null ? `${ficha.saludBateria}% batería` : 'Salud —'}
                         </div>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        {formatSoles(ficha?.ultimoPrecioSoles) ? (
+                          <div className="font-semibold text-emerald-700">S/ {formatSoles(ficha.ultimoPrecioSoles)}</div>
+                        ) : (
+                          <span className="text-xs text-slate-400">Sin definir</span>
+                        )}
                       </td>
                       <td className="max-w-56 px-4 py-3 text-xs text-slate-600">{(ficha?.accesorios || []).join(', ') || 'Sin registrar'}</td>
                       <td className="px-4 py-3 text-center">
@@ -659,7 +683,6 @@ export default function Inventario({ setVista }) {
                   <div className="relative aspect-[16/8] bg-slate-100 sm:aspect-[16/9]">
                     {ficha?.fotoUrl ? (
                       <button type="button" onClick={() => openPhotoViewer(ficha.fotoUrl, buildNombre(producto))} className="group relative h-full w-full cursor-zoom-in bg-cover bg-center transition duration-200 hover:brightness-95" style={{ backgroundImage: `url(${ficha.fotoUrl})` }} aria-label={`Ampliar foto de ${buildNombre(producto)}`}>
-                        <span className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-lg bg-slate-950/75 px-2.5 py-1.5 text-xs font-semibold text-white backdrop-blur"><FiZoomIn /> Ampliar</span>
                       </button>
                     ) : (
                       <div className="flex h-full flex-col items-center justify-center gap-2 text-slate-400">
@@ -684,12 +707,12 @@ export default function Inventario({ setVista }) {
                       {(ficha?.accesorios || []).slice(0, 3).map((item) => <Pill key={item}>{item}</Pill>)}
                     </div>
 
-                    {(ficha?.serial || ficha?.imei) && (
-                      <div className="mt-3 grid gap-1 rounded-xl bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-600 ring-1 ring-slate-100">
-                        {ficha?.serial && <div className="break-all"><span className="font-sans font-semibold text-slate-500">SN:</span> {ficha.serial}</div>}
-                        {ficha?.imei && <div className="break-all"><span className="font-sans font-semibold text-slate-500">IMEI:</span> {ficha.imei}</div>}
-                      </div>
-                    )}
+                    <div className="mt-3 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+                      <span className="text-xs font-semibold text-emerald-700">Último precio</span>
+                      <span className="text-base font-bold text-emerald-800">
+                        {formatSoles(ficha?.ultimoPrecioSoles) ? `S/ ${formatSoles(ficha.ultimoPrecioSoles)}` : 'Sin definir'}
+                      </span>
+                    </div>
 
                     <div className={`mt-4 grid grid-cols-3 border-y border-slate-100 ${isTablet && !isLandscape ? 'gap-1 py-2' : 'gap-2 py-3'}`}>
                       {[
@@ -872,20 +895,33 @@ export default function Inventario({ setVista }) {
                     <label className="text-xs font-medium text-slate-600">Serial<input value={form.serial} onChange={(e) => setForm({ ...form, serial: e.target.value })} placeholder="Número de serie" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none focus:border-slate-400" /></label>
                     <label className="text-xs font-medium text-slate-600">IMEI 1<input value={form.imei} onChange={(e) => setForm({ ...form, imei: e.target.value })} placeholder="IMEI principal" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none focus:border-slate-400" /></label>
                     <label className="text-xs font-medium text-slate-600">IMEI 2<input value={form.imei2} onChange={(e) => setForm({ ...form, imei2: e.target.value })} placeholder="Segundo IMEI si corresponde" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none focus:border-slate-400" /></label>
-                    <label className="text-xs font-medium text-slate-600">Ciclos de batería<input type="number" min="0" max="100000" value={form.ciclosBateria} onChange={(e) => setForm({ ...form, ciclosBateria: e.target.value })} placeholder="Ej. 145" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" /></label>
-                    <label className="text-xs font-medium text-slate-600">Salud de batería (%)<input type="number" min="0" max="100" value={form.saludBateria} onChange={(e) => setForm({ ...form, saludBateria: e.target.value })} placeholder="Ej. 92" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" /></label>
-                    <div className="text-xs font-medium text-slate-600 sm:col-span-2">
-                      <label htmlFor="inventario-primer-precio">Primer precio (S/)</label>
+                    {!isNewProduct(editing.producto) && (
+                      <>
+                        <label className="text-xs font-medium text-slate-600">Ciclos de batería<input type="number" min="0" max="100000" value={form.ciclosBateria} onChange={(e) => setForm({ ...form, ciclosBateria: e.target.value })} placeholder="Ej. 145" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" /></label>
+                        <label className="text-xs font-medium text-slate-600">Salud de batería (%)<input type="number" min="0" max="100" value={form.saludBateria} onChange={(e) => setForm({ ...form, saludBateria: e.target.value })} placeholder="Ej. 92" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" /></label>
+                      </>
+                    )}
+                    <div className="text-xs font-medium text-slate-600">
+                      <label htmlFor="inventario-primer-precio">Precio (S/)</label>
                       <div className="relative mt-1.5">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">S/</span>
                         <input id="inventario-primer-precio" type="number" min="0" step="0.01" inputMode="decimal" value={form.primerPrecioSoles} onChange={(e) => setForm({ ...form, primerPrecioSoles: e.target.value })} placeholder="Ingresar precio" className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-3 text-sm font-semibold outline-none focus:border-slate-400" />
                       </div>
                     </div>
-                    <label className="flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 sm:col-span-2">
-                      ¿Tiene garantía?
-                      <input type="checkbox" checked={Boolean(form.tieneGarantia)} onChange={(event) => setForm((current) => ({ ...current, tieneGarantia: event.target.checked, tipoGarantia: event.target.checked ? current.tipoGarantia : '', garantiaHasta: event.target.checked ? current.garantiaHasta : '' }))} className="h-7 w-7 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-500" />
-                    </label>
-                    {form.tieneGarantia && (
+                    <div className="text-xs font-medium text-slate-600">
+                      <label htmlFor="inventario-ultimo-precio">Último precio (S/)</label>
+                      <div className="relative mt-1.5">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">S/</span>
+                        <input id="inventario-ultimo-precio" type="number" min="0" step="0.01" inputMode="decimal" value={form.ultimoPrecioSoles} onChange={(e) => setForm({ ...form, ultimoPrecioSoles: e.target.value })} placeholder="Precio mínimo final" className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-3 text-sm font-semibold outline-none focus:border-slate-400" />
+                      </div>
+                    </div>
+                    {!isNewProduct(editing.producto) && (
+                      <label className="flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 sm:col-span-2">
+                        ¿Tiene garantía?
+                        <input type="checkbox" checked={Boolean(form.tieneGarantia)} onChange={(event) => setForm((current) => ({ ...current, tieneGarantia: event.target.checked, tipoGarantia: event.target.checked ? current.tipoGarantia : '', garantiaHasta: event.target.checked ? current.garantiaHasta : '' }))} className="h-7 w-7 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-500" />
+                      </label>
+                    )}
+                    {!isNewProduct(editing.producto) && form.tieneGarantia && (
                       <label className="text-xs font-medium text-slate-600">
                         Tipo de garantía
                         <select value={form.tipoGarantia} onChange={(event) => setForm((current) => ({ ...current, tipoGarantia: event.target.value, garantiaHasta: event.target.value === 'limitada' ? current.garantiaHasta : '' }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400">
@@ -895,13 +931,13 @@ export default function Inventario({ setVista }) {
                         </select>
                       </label>
                     )}
-                    {form.tieneGarantia && form.tipoGarantia && (
+                    {!isNewProduct(editing.producto) && form.tieneGarantia && form.tipoGarantia && (
                       <label className="text-xs font-medium text-slate-600">
                         Garantía hasta {form.tipoGarantia === 'applecare' ? '(opcional)' : ''}
                         <input required={form.tipoGarantia === 'limitada'} type="date" value={form.garantiaHasta} onChange={(e) => setForm({ ...form, garantiaHasta: e.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" />
                       </label>
                     )}
-                    {form.tieneGarantia && form.tipoGarantia === 'applecare' && (
+                    {!isNewProduct(editing.producto) && form.tieneGarantia && form.tipoGarantia === 'applecare' && (
                       <div className="flex items-center rounded-xl border border-blue-100 bg-blue-50 px-3 py-3 text-xs text-blue-800">La fecha de AppleCare es opcional.</div>
                     )}
                   </div>
@@ -937,17 +973,24 @@ export default function Inventario({ setVista }) {
         </Suspense>
       )}
       {viewingPhoto && (
-        <div className="fixed inset-0 z-[100] h-[100dvh] overflow-auto overscroll-contain bg-white/10 backdrop-blur-[2px]" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget) closePhotoViewer(); }}>
+        <div className="fixed inset-0 z-[100] h-[100dvh] overflow-auto overscroll-contain bg-transparent backdrop-blur-[2px]" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget) closePhotoViewer(); }}>
           <button type="button" onClick={closePhotoViewer} className="fixed right-3 top-3 z-10 flex h-12 w-12 items-center justify-center rounded-full bg-white/75 text-2xl text-slate-900 shadow-lg ring-1 ring-black/10 backdrop-blur-md hover:bg-white sm:right-5 sm:top-5" aria-label="Cerrar foto"><FiX /></button>
           <div className="flex min-h-full min-w-full items-center justify-center p-3 sm:p-6">
             <button
               type="button"
               aria-label={viewerZoom > 1 ? 'Reducir foto' : 'Ampliar foto'}
               onClick={() => setViewerZoom((value) => (value > 1 ? 1 : 2))}
-              className={viewerZoom > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'}
-              style={{ width: `${viewerZoom * 100}%`, maxWidth: 'none', touchAction: 'pinch-zoom' }}
+              className={`flex items-center justify-center ${viewerZoom > 1 ? 'w-[200%] min-w-[200%] cursor-zoom-out' : 'h-auto w-auto max-h-full max-w-full cursor-zoom-in'}`}
+              style={{ touchAction: 'pinch-zoom' }}
             >
-              <img src={viewingPhoto.url} alt={viewingPhoto.nombre} draggable={false} className="block h-auto w-full object-contain drop-shadow-2xl" />
+              <img
+                src={viewingPhoto.url}
+                alt={viewingPhoto.nombre}
+                draggable={false}
+                className={viewerZoom > 1
+                  ? 'block h-auto w-full max-w-none object-contain drop-shadow-2xl'
+                  : 'block h-auto w-auto max-h-[calc(100dvh-1.5rem)] max-w-[calc(100vw-1.5rem)] rounded-lg object-contain drop-shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:max-w-[calc(100vw-3rem)]'}
+              />
             </button>
           </div>
         </div>
