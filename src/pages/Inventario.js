@@ -50,6 +50,7 @@ const EMPTY_FORM = {
   observaciones: '',
   fotosTomadas: false,
   marketplaceSubido: false,
+  valorProducto: '',
 };
 
 const text = (value) => String(value ?? '').trim();
@@ -108,6 +109,7 @@ const toForm = (entry) => {
     imei2: ficha.imei2 || '',
     observaciones: ficha.observaciones || '',
     accesorios: ficha.accesorios?.length ? ficha.accesorios : sourceAccessories,
+    valorProducto: entry?.producto?.valor?.valorProducto ?? '',
   };
 };
 
@@ -135,6 +137,7 @@ export default function Inventario({ setVista }) {
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState('');
   const [viewingPhoto, setViewingPhoto] = useState(null);
+  const [viewerZoom, setViewerZoom] = useState(1);
   const [facuOpen, setFacuOpen] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -145,6 +148,11 @@ export default function Inventario({ setVista }) {
   const [scanImageData, setScanImageData] = useState('');
   const [scanImageName, setScanImageName] = useState('');
   const [scanDragActive, setScanDragActive] = useState(false);
+  const [showDesktopTable, setShowDesktopTable] = useState(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(min-width: 1280px)').matches
+      : false
+  ));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -160,6 +168,19 @@ export default function Inventario({ setVista }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const media = window.matchMedia('(min-width: 1280px)');
+    const updateView = (event) => setShowDesktopTable(event.matches);
+    setShowDesktopTable(media.matches);
+    if (typeof media.addEventListener === 'function') media.addEventListener('change', updateView);
+    else media.addListener?.(updateView);
+    return () => {
+      if (typeof media.removeEventListener === 'function') media.removeEventListener('change', updateView);
+      else media.removeListener?.(updateView);
+    };
+  }, []);
 
   const replaceFicha = (productoId, ficha) => {
     setEntries((current) => current.map((entry) => (
@@ -198,6 +219,17 @@ export default function Inventario({ setVista }) {
     setScanImageData('');
     setScanImageName('');
     setScanDragActive(false);
+  };
+
+  const openPhotoViewer = (url, nombre) => {
+    if (!url) return;
+    setViewerZoom(1);
+    setViewingPhoto({ url, nombre });
+  };
+
+  const closePhotoViewer = () => {
+    setViewingPhoto(null);
+    setViewerZoom(1);
   };
 
   const toggleAccessory = (accessory) => {
@@ -322,6 +354,11 @@ export default function Inventario({ setVista }) {
       setNotice('La garantía limitada necesita una fecha de vencimiento.');
       return;
     }
+    const valorProducto = form.valorProducto === '' ? null : Number(form.valorProducto);
+    if (valorProducto !== null && (!Number.isFinite(valorProducto) || valorProducto < 0)) {
+      setNotice('El primer precio debe ser un número válido mayor o igual a 0.');
+      return;
+    }
     const id = editing.producto.id;
     setSaving(true);
     setNotice('');
@@ -346,6 +383,22 @@ export default function Inventario({ setVista }) {
       let ficha = await api.patch(`/inventario/${id}`, payload);
       if (photoData) ficha = await api.post(`/inventario/${id}/foto`, { dataUrl: photoData });
       replaceFicha(id, ficha);
+      const currentValor = editing.producto?.valor;
+      const currentPrice = Number(currentValor?.valorProducto ?? 0);
+      if (valorProducto !== null && valorProducto !== currentPrice) {
+        if (!currentValor) throw new Error('El producto no tiene datos de valor para actualizar.');
+        const updatedProduct = await api.patch(`/productos/${id}`, {
+          valor: {
+            valorProducto,
+            valorDec: Number(currentValor.valorDec || 0),
+            peso: Number(currentValor.peso || 0),
+            fechaCompra: currentValor.fechaCompra,
+          },
+        });
+        setEntries((current) => current.map((entry) => (
+          entry.producto?.id === id ? { ...entry, producto: updatedProduct } : entry
+        )));
+      }
       setEditing(null);
       setPhotoData('');
     } catch (err) {
@@ -499,7 +552,8 @@ export default function Inventario({ setVista }) {
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white py-20 text-center text-sm text-slate-500">No hay productos que coincidan con este filtro.</div>
         ) : (
           <>
-          <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm xl:block">
+          {showDesktopTable ? (
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
             <table className="min-w-[1050px] w-full text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
@@ -544,7 +598,7 @@ export default function Inventario({ setVista }) {
                             <input type="checkbox" aria-label={`Fotos ${buildNombre(producto)}`} checked={Boolean(ficha?.fotosTomadas)} disabled={disabled} onChange={() => quickPatch(entry, { fotosTomadas: !ficha?.fotosTomadas })} className="h-6 w-6 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-500" />
                           </label>
                           {ficha?.fotoUrl ? (
-                            <button type="button" onClick={() => setViewingPhoto({ url: ficha.fotoUrl, nombre: buildNombre(producto) })} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100">
+                            <button type="button" onClick={() => openPhotoViewer(ficha.fotoUrl, buildNombre(producto))} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100">
                               <FiEye /> Ver foto
                             </button>
                           ) : (
@@ -568,7 +622,8 @@ export default function Inventario({ setVista }) {
               </tbody>
             </table>
           </div>
-          <div className="grid gap-3 sm:gap-4 md:grid-cols-2 xl:hidden">
+          ) : (
+          <div className="grid gap-3 sm:gap-4 md:grid-cols-3">
             {filtered.map((entry) => {
               const { producto, ficha } = entry;
               const disabled = busyId === producto.id;
@@ -576,7 +631,9 @@ export default function Inventario({ setVista }) {
                 <article key={producto.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-slate-300 hover:shadow-md">
                   <div className="relative aspect-[16/8] bg-slate-100 sm:aspect-[16/9]">
                     {ficha?.fotoUrl ? (
-                      <img src={ficha.fotoUrl} alt={buildNombre(producto)} className="h-full w-full object-cover" />
+                      <button type="button" onClick={() => openPhotoViewer(ficha.fotoUrl, buildNombre(producto))} className="group relative h-full w-full cursor-zoom-in bg-cover bg-center transition duration-200 hover:brightness-95" style={{ backgroundImage: `url(${ficha.fotoUrl})` }} aria-label={`Ampliar foto de ${buildNombre(producto)}`}>
+                        <span className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-lg bg-slate-950/75 px-2.5 py-1.5 text-xs font-semibold text-white backdrop-blur"><FiZoomIn /> Ampliar</span>
+                      </button>
                     ) : (
                       <div className="flex h-full flex-col items-center justify-center gap-2 text-slate-400">
                         <FiImage className="h-8 w-8" /><span className="text-xs">Sin foto de inventario</span>
@@ -620,8 +677,13 @@ export default function Inventario({ setVista }) {
                       ))}
                     </div>
 
-                    <div className="mt-4 grid gap-3">
-                      <span className="text-xs text-slate-500">Recogido: {lastPickupDate(producto) || 'Sin fecha'}</span>
+                    <div className={`mt-4 grid gap-2 ${ficha?.fotoUrl ? '' : 'grid-cols-2'}`}>
+                      <span className={`text-xs text-slate-500 ${ficha?.fotoUrl ? '' : 'col-span-2'}`}>Recogido: {lastPickupDate(producto) || 'Sin fecha'}</span>
+                      {!ficha?.fotoUrl && (
+                        <button type="button" onClick={() => openEditor(entry)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                          <FiCamera /> Agregar foto
+                        </button>
+                      )}
                       <button type="button" onClick={() => openEditor(entry)} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">
                         <FiEdit3 /> Completar ficha
                       </button>
@@ -631,12 +693,13 @@ export default function Inventario({ setVista }) {
               );
             })}
           </div>
+          )}
           </>
         )}
       </div>
 
       {editing && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:p-4 lg:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setEditing(null); }}>
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:p-4 lg:p-6" role="dialog" aria-modal="true" aria-label="Completar ficha de inventario" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setEditing(null); }}>
           <form onSubmit={save} className="h-[100dvh] w-full max-w-5xl overflow-y-auto bg-white shadow-2xl sm:h-auto sm:max-h-[96vh] sm:rounded-2xl">
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-5 sm:py-4">
               <div>
@@ -673,7 +736,7 @@ export default function Inventario({ setVista }) {
                       <FiCamera /> {photoPreview ? 'Cambiar foto' : 'Seleccionar foto'}
                       <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={choosePhoto} className="sr-only" />
                     </label>
-                    {photoPreview && <button type="button" onClick={() => setViewingPhoto({ url: photoPreview, nombre: buildNombre(editing.producto) })} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"><FiImage /> Ver foto</button>}
+                    {photoPreview && <button type="button" onClick={() => openPhotoViewer(photoPreview, buildNombre(editing.producto))} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"><FiImage /> Ver foto</button>}
                     {photoPreview && <button type="button" onClick={removePhoto} className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50"><FiTrash2 /> Eliminar</button>}
                   </div>
                 </div>
@@ -784,6 +847,13 @@ export default function Inventario({ setVista }) {
                     <label className="text-xs font-medium text-slate-600">IMEI 2<input value={form.imei2} onChange={(e) => setForm({ ...form, imei2: e.target.value })} placeholder="Segundo IMEI si corresponde" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none focus:border-slate-400" /></label>
                     <label className="text-xs font-medium text-slate-600">Ciclos de batería<input type="number" min="0" max="100000" value={form.ciclosBateria} onChange={(e) => setForm({ ...form, ciclosBateria: e.target.value })} placeholder="Ej. 145" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" /></label>
                     <label className="text-xs font-medium text-slate-600">Salud de batería (%)<input type="number" min="0" max="100" value={form.saludBateria} onChange={(e) => setForm({ ...form, saludBateria: e.target.value })} placeholder="Ej. 92" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" /></label>
+                    <div className="text-xs font-medium text-slate-600 sm:col-span-2">
+                      <label htmlFor="inventario-valor-producto">Primer precio / valor del producto (USD)</label>
+                      <div className="relative mt-1.5">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">$</span>
+                        <input id="inventario-valor-producto" type="number" min="0" step="0.01" inputMode="decimal" value={form.valorProducto} onChange={(e) => setForm({ ...form, valorProducto: e.target.value })} placeholder="0.00" className="h-11 w-full rounded-xl border border-slate-200 pl-7 pr-3 text-sm font-semibold outline-none focus:border-slate-400" />
+                      </div>
+                    </div>
                     <label className="flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 sm:col-span-2">
                       ¿Tiene garantía?
                       <input type="checkbox" checked={Boolean(form.tieneGarantia)} onChange={(event) => setForm((current) => ({ ...current, tieneGarantia: event.target.checked, tipoGarantia: event.target.checked ? current.tipoGarantia : '', garantiaHasta: event.target.checked ? current.garantiaHasta : '' }))} className="h-7 w-7 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-500" />
@@ -840,15 +910,18 @@ export default function Inventario({ setVista }) {
         </Suspense>
       )}
       {viewingPhoto && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setViewingPhoto(null); }}>
-          <div className="w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-              <div className="min-w-0 truncate text-sm font-semibold text-slate-900">{viewingPhoto.nombre}</div>
-              <button type="button" onClick={() => setViewingPhoto(null)} className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100" aria-label="Cerrar foto"><FiX /></button>
-            </div>
-            <div className="flex max-h-[82vh] items-center justify-center bg-slate-950 p-2">
-              <img src={viewingPhoto.url} alt={viewingPhoto.nombre} className="max-h-[80vh] max-w-full object-contain" />
-            </div>
+        <div className="fixed inset-0 z-[100] h-[100dvh] overflow-auto overscroll-contain bg-white/10 backdrop-blur-[2px]" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget) closePhotoViewer(); }}>
+          <button type="button" onClick={closePhotoViewer} className="fixed right-3 top-3 z-10 flex h-12 w-12 items-center justify-center rounded-full bg-white/75 text-2xl text-slate-900 shadow-lg ring-1 ring-black/10 backdrop-blur-md hover:bg-white sm:right-5 sm:top-5" aria-label="Cerrar foto"><FiX /></button>
+          <div className="flex min-h-full min-w-full items-center justify-center p-3 sm:p-6">
+            <button
+              type="button"
+              aria-label={viewerZoom > 1 ? 'Reducir foto' : 'Ampliar foto'}
+              onClick={() => setViewerZoom((value) => (value > 1 ? 1 : 2))}
+              className={viewerZoom > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'}
+              style={{ width: `${viewerZoom * 100}%`, maxWidth: 'none', touchAction: 'pinch-zoom' }}
+            >
+              <img src={viewingPhoto.url} alt={viewingPhoto.nombre} draggable={false} className="block h-auto w-full object-contain drop-shadow-2xl" />
+            </button>
           </div>
         </div>
       )}
