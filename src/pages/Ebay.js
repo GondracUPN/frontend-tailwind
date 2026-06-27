@@ -372,6 +372,12 @@ const textIncludesKeyword = (title, keyword) => {
   return tokens.every((token) => normalizedTitle.includes(token));
 };
 
+const isAppleKeywordSearch = (keyword) => {
+  const normalized = normalizeTitleText(keyword);
+  if (!normalized) return true;
+  return /\b(?:apple|iphone|ipad|macbook|imac|mac\s+mini|airpods?|iwatch)\b/.test(normalized);
+};
+
 const hasAnyProductFormValue = (form) =>
   Object.values(form || {}).some((value) => compactValue(value));
 
@@ -1466,6 +1472,7 @@ function Ebay({ setVista }) {
       };
       const filterProductItems = (rawItems) => {
         if (productType === 'keyword') {
+          if (!isAppleKeywordSearch(productKeyword)) return rawItems;
           const deviceItems = rawItems.filter((item) => isLikelyAppleCatalogTitle(item?.title || ''));
           return compactValue(productKeyword)
             ? deviceItems.filter((item) => textIncludesKeyword(item?.title || '', productKeyword))
@@ -2218,7 +2225,7 @@ function Ebay({ setVista }) {
                     type="text"
                     value={productKeyword}
                     onChange={(e) => setProductKeyword(e.target.value)}
-                    placeholder="Ej. MacBook A2337, iPad Pro M4, iPhone 16 Pro"
+                    placeholder="Ej. Samsung S24, LEGO, MacBook A2337"
                     className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-sky-500"
                   />
                 </FieldShell>

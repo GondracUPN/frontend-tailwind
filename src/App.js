@@ -1,8 +1,10 @@
 import React, { Suspense, lazy, useState, useEffect, useMemo } from 'react';
 import Home from './pages/Home';
 import api, { API_URL } from './api';
+import { normalizeProductLookupUrl } from './utils/productUrl';
 import {
   FiActivity,
+  FiArchive,
   FiBarChart2,
   FiBox,
   FiBriefcase,
@@ -21,6 +23,7 @@ import {
 } from 'react-icons/fi';
 
 const Productos = lazy(() => import('./pages/Productos'));
+const Inventario = lazy(() => import('./pages/Inventario'));
 const Servicios = lazy(() => import('./pages/Servicios'));
 const Calculadora = lazy(() => import('./pages/Calculadora'));
 const Ganancias = lazy(() => import('./pages/Ganancias'));
@@ -385,6 +388,7 @@ const migratePersonalEshopexLocalStorage = async (current = []) => {
 const SIDEBAR_NAV = [
   { id: 'home', label: 'Inicio', icon: FiHome },
   { id: 'productos', label: 'Productos', icon: FiBox },
+  { id: 'inventario', label: 'Inventario', icon: FiArchive },
   { id: 'analisis', label: 'Analisis', icon: FiActivity },
   { id: 'calculadora', label: 'Calculadora', icon: FiHash },
   { id: 'ganancias', label: 'Ganancias', icon: FiDollarSign },
@@ -1012,12 +1016,12 @@ function App() {
   };
 
   const buscarCalcuRapidaEbay = async () => {
-    const url = String(calcuRapidaEbay.url || '').trim();
+    const url = normalizeProductLookupUrl(calcuRapidaEbay.url);
     if (!url) {
       setCalcuRapidaEbay((prev) => ({ ...prev, error: 'Ingresa un URL de eBay.' }));
       return;
     }
-    setCalcuRapidaEbay((prev) => ({ ...prev, loading: true, error: '' }));
+    setCalcuRapidaEbay((prev) => ({ ...prev, url, loading: true, error: '' }));
     try {
       const data = await api.get(`/utils/ebay?url=${encodeURIComponent(url)}`);
       const price = Number.isFinite(Number(data?.priceUSD)) ? Number(data.priceUSD) : null;
@@ -1129,6 +1133,8 @@ function App() {
         return <Home setVista={navigateTo} setAnalisisBack={setAnalisisBack} />;
       case 'productos':
         return <Productos setVista={navigateTo} setAnalisisBack={setAnalisisBack} />;
+      case 'inventario':
+        return <Inventario setVista={navigateTo} />;
       case 'servicios':
         return <Servicios setVista={navigateTo} />;
       case 'calculadora':

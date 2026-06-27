@@ -19,7 +19,8 @@ const SICKW_SERVICES = [
   { id: '30', label: 'Apple Basic Info', description: 'Servicio #30', cost: '0.05' },
   { id: '81', label: 'Apple MDM Status', description: 'Servicio #81', cost: '0.30' },
   { id: '8', label: 'SIM Lock Status', description: 'SICKW Servicio #8', cost: '0.025' },
-  { id: 'ifreeicloud-238', label: 'iFreeiCloud Free Check', description: 'Servicio #238', cost: '0.00' },
+  { id: '30+81', label: 'Revisar MacBook / iPad MDM', description: 'Servicios #30 + #81 simultaneos', cost: '0.35' },
+  { id: '30+8', label: 'iPhone / iPad SIM Lock', description: 'Servicios #30 + #8 simultaneos', cost: '0.075' },
 ];
 
 const normalizeOcrDigits = (value) =>
@@ -167,13 +168,15 @@ const collectSerialCandidates = (text, imeis) => {
     .slice(0, 5);
 };
 
-const parseIds = (text) => {
+export const parseIds = (text) => {
   const imeis = extractImeis(text);
   const serialCandidates = collectSerialCandidates(text, imeis);
   return {
     serial: serialCandidates[0] || '',
     imei1: imeis[0] || '',
     imei2: imeis[1] || '',
+    serials: serialCandidates,
+    imeis,
   };
 };
 
@@ -199,33 +202,6 @@ const resultToneClass = (tone) => {
   return 'bg-slate-50 text-slate-800 ring-slate-100';
 };
 
-const SN_IMEI_HISTORY_KEY = 'sn-imei-scanner-history:v1';
-const SN_IMEI_HISTORY_LIMIT = 150;
-
-const readHistory = () => {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(SN_IMEI_HISTORY_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const writeHistory = (items) => {
-  try {
-    localStorage.setItem(SN_IMEI_HISTORY_KEY, JSON.stringify(items.slice(0, SN_IMEI_HISTORY_LIMIT)));
-  } catch {
-    // localStorage can be unavailable in private browsing or full storage.
-  }
-};
-
-const findFieldValue = (fields, patterns) => {
-  const found = (fields || []).find((field) =>
-    patterns.some((pattern) => pattern.test(String(field.label || ''))),
-  );
-  return found ? String(found.value || '').trim() : '';
-};
-
 const formatHistoryDate = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
@@ -236,41 +212,6 @@ const formatHistoryDate = (value) => {
     hour: '2-digit',
     minute: '2-digit',
   });
-};
-
-const buildHistoryRecord = (result, lookup, service) => {
-  const fields = Array.isArray(result?.fields) ? result.fields : [];
-  const serial = cleanSerial(findFieldValue(fields, [/^serial/i, /\bserial number\b/i, /\bs\/n\b/i]));
-  const imei1 = onlyDigits(findFieldValue(fields, [/^imei number$/i, /^imei$/i]));
-  const imei2 = onlyDigits(findFieldValue(fields, [/^imei2 number$/i, /^imei2$/i]));
-  const identifier = cleanSerial(result?.identifier || lookup?.value || '');
-  const identifiers = unique([identifier, serial, imei1, imei2].filter(Boolean));
-  const checkedAt = new Date().toISOString();
-
-  return {
-    id: `${checkedAt}-${identifier || Math.random().toString(36).slice(2)}`,
-    checkedAt,
-    serviceId: result?.serviceId || service?.id || '',
-    serviceName: result?.serviceName || service?.label || '',
-    costUSD: result?.costUSD ?? service?.cost ?? '',
-    identifier,
-    type: result?.type || lookup?.type || '',
-    serial,
-    imei1,
-    imei2,
-    identifiers,
-    fields,
-    raw: result?.raw || '',
-  };
-};
-
-const mergeHistoryRecord = (items, record) => {
-  const recordIds = new Set(record.identifiers || []);
-  const withoutMatch = (items || []).filter((item) => {
-    if (item.serviceId !== record.serviceId) return true;
-    return !(item.identifiers || []).some((value) => recordIds.has(value));
-  });
-  return [record, ...withoutMatch].slice(0, SN_IMEI_HISTORY_LIMIT);
 };
 
 export default function ModalSnImeiScanner({ onClose }) {
@@ -293,12 +234,56 @@ export default function ModalSnImeiScanner({ onClose }) {
   const [copiedIdentifier, setCopiedIdentifier] = useState('');
   const [hasScanned, setHasScanned] = useState(false);
   const [history, setHistory] = useState([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
   const [historyQuery, setHistoryQuery] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [lookupStatus, setLookupStatus] = useState(null);
+  const [lookupNotice, setLookupNotice] = useState('');
 
   useEffect(() => {
-    setHistory(readHistory());
+    let active = true;
+    setHistoryLoading(true);
+    api.get('/sickw/history?limit=150')
+      .then((result) => {
+        if (!active) return;
+        setHistory(Array.isArray(result?.items) ? result.items : []);
+        setHistoryTotal(Number(result?.total) || 0);
+        setHistoryError('');
+      })
+      .catch((err) => {
+        if (active) setHistoryError(err?.message || 'No se pudo cargar el historial.');
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!historyOpen) return undefined;
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setHistoryLoading(true);
+      try {
+        const query = historyQuery.trim();
+        const result = await api.get(`/sickw/history?limit=150${query ? `&query=${encodeURIComponent(query)}` : ''}`);
+        if (!active) return;
+        setHistory(Array.isArray(result?.items) ? result.items : []);
+        setHistoryTotal(Number(result?.total) || 0);
+        setHistoryError('');
+      } catch (err) {
+        if (active) setHistoryError(err?.message || 'No se pudo buscar en el historial.');
+      } finally {
+        if (active) setHistoryLoading(false);
+      }
+    }, 300);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [historyOpen, historyQuery]);
 
   const parsed = useMemo(() => parseIds(text), [text]);
   const manualOption = useMemo(() => parseManualIdentifier(manualInput), [manualInput]);
@@ -318,26 +303,6 @@ export default function ModalSnImeiScanner({ onClose }) {
       return options.find((item) => item.type === type && item.value === value);
     }).filter(Boolean);
   }, [manualOption, parsed.serial, parsed.imei1, parsed.imei2]);
-  const filteredHistory = useMemo(() => {
-    const query = cleanSerial(historyQuery);
-    if (!query) return history;
-    return history.filter((item) => {
-      const haystack = [
-        item.identifier,
-        item.serial,
-        item.imei1,
-        item.imei2,
-        ...(item.identifiers || []),
-      ].join(' ').toUpperCase();
-      return haystack.includes(query);
-    });
-  }, [history, historyQuery]);
-  const selectedLookupHistory = useMemo(() => {
-    const selectedValue = cleanSerial(selectedLookup?.value || '');
-    if (!selectedValue) return null;
-    return history.find((item) => (item.identifiers || []).includes(selectedValue)) || null;
-  }, [history, selectedLookup]);
-
   const resetScanState = () => {
     setError('');
     setCheckError('');
@@ -347,6 +312,8 @@ export default function ModalSnImeiScanner({ onClose }) {
     setText('');
     setSelectedLookup(null);
     setSickwResult(null);
+    setLookupStatus(null);
+    setLookupNotice('');
     setProgress(0);
   };
 
@@ -360,6 +327,8 @@ export default function ModalSnImeiScanner({ onClose }) {
     setSickwResult(null);
     setCopied(false);
     setCopiedIdentifier('');
+    setLookupStatus(null);
+    setLookupNotice('');
     setSelectedLookup(option);
   };
 
@@ -441,16 +410,24 @@ export default function ModalSnImeiScanner({ onClose }) {
         serviceId: selectedServiceId,
       });
       setSickwResult(result);
-      const record = buildHistoryRecord(result, selectedLookup, selectedService);
-      setHistory((current) => {
-        const next = mergeHistoryRecord(current, record);
-        writeHistory(next);
-        return next;
+      setLookupNotice(result?.lookupStatus?.message || '');
+      setLookupStatus({
+        ...(result?.lookupStatus || {}),
+        state: 'cached',
+        result,
       });
+      if (result?.historyRecord) {
+        setHistory((current) => [result.historyRecord, ...current].slice(0, 150));
+        setHistoryTotal((current) => current + 1);
+      }
+      if (Array.isArray(result?.historyRecords) && result.historyRecords.length) {
+        setHistory((current) => [...result.historyRecords, ...current].slice(0, 150));
+        setHistoryTotal((current) => current + result.historyRecords.length);
+      }
       if (result?.balance) setBalance({ sickw: result.balance });
     } catch (err) {
       console.error('[ModalSnImeiScanner] SICKW error:', err);
-      setCheckError(err?.message || 'No se pudo consultar Apple Basic Info.');
+      setCheckError(err?.message || `No se pudo consultar ${selectedService.label}.`);
     } finally {
       setChecking(false);
     }
@@ -512,14 +489,9 @@ export default function ModalSnImeiScanner({ onClose }) {
       raw: item.raw || '',
       fields: Array.isArray(item.fields) ? item.fields : [],
     });
+    setLookupStatus({ state: 'cached' });
+    setLookupNotice('Resultado cargado desde el historial. No se realizo una consulta nueva.');
     setCheckError('');
-  };
-
-  const clearHistory = () => {
-    if (!window.confirm('Borrar historial de SN/IMEI guardado en este navegador?')) return;
-    setHistory([]);
-    writeHistory([]);
-    setHistoryQuery('');
   };
 
   return (
@@ -626,6 +598,8 @@ export default function ModalSnImeiScanner({ onClose }) {
                       onClick={() => {
                         setSelectedServiceId(service.id);
                         setSickwResult(null);
+                        setLookupStatus(null);
+                        setLookupNotice('');
                         setCheckError('');
                       }}
                       disabled={loading || checking}
@@ -672,7 +646,12 @@ export default function ModalSnImeiScanner({ onClose }) {
                     <div key={key} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                       <button
                         type="button"
-                        onClick={() => setSelectedLookup(option)}
+                        onClick={() => {
+                          setSelectedLookup(option);
+                          setSickwResult(null);
+                          setLookupStatus(null);
+                          setLookupNotice('');
+                        }}
                         className={`flex min-w-0 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition ${active ? 'border-blue-500 bg-white ring-2 ring-blue-100' : 'border-gray-200 bg-white hover:border-gray-300'}`}
                       >
                         <span className="text-xs font-semibold text-gray-500">{option.label}</span>
@@ -699,14 +678,20 @@ export default function ModalSnImeiScanner({ onClose }) {
               <button
                 type="button"
                 onClick={checkSickw}
-                disabled={loading || checking || !selectedLookup?.value}
+                disabled={loading || checking || lookupStatus?.state === 'cached' || !selectedLookup?.value}
                 className="mt-4 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {checking ? 'Consultando...' : `Consultar ${selectedService.label}`}
+                {checking
+                  ? 'Consultando...'
+                  : lookupStatus?.state === 'cached'
+                      ? 'Consulta ya realizada'
+                      : lookupStatus?.state === 'partial'
+                        ? 'Consultar solamente el servicio faltante'
+                        : `Consultar ${selectedService.label}`}
               </button>
-              {selectedLookupHistory && !sickwResult && (
-                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                  Ya fue consultado el {formatHistoryDate(selectedLookupHistory.checkedAt)} con {selectedLookupHistory.serviceName || 'API'}.
+              {lookupNotice && (
+                <div className={`mt-3 rounded-lg border px-3 py-2 text-sm ${lookupStatus?.state === 'cached' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                  {lookupNotice}
                 </div>
               )}
               {checkError && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{checkError}</div>}
@@ -748,7 +733,7 @@ export default function ModalSnImeiScanner({ onClose }) {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-gray-900">Historial consultado</div>
-                  <div className="text-xs text-gray-500">{history.length} registros guardados en este navegador</div>
+                  <div className="text-xs text-gray-500">{historyTotal} consultas guardadas permanentemente</div>
                 </div>
                 <button
                   type="button"
@@ -773,7 +758,7 @@ export default function ModalSnImeiScanner({ onClose }) {
             <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Historial SN / IMEI</h3>
-                <p className="text-sm text-gray-500">{history.length} registros guardados en este navegador.</p>
+                <p className="text-sm text-gray-500">{historyTotal} consultas guardadas en la base de datos.</p>
               </div>
               <button
                 type="button"
@@ -785,28 +770,22 @@ export default function ModalSnImeiScanner({ onClose }) {
               </button>
             </div>
             <div className="border-b border-gray-100 p-4">
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <div>
                 <input
                   value={historyQuery}
                   onChange={(e) => setHistoryQuery(e.target.value)}
                   placeholder="Buscar por SN o IMEI"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                 />
-                {history.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={clearHistory}
-                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-                  >
-                    Limpiar
-                  </button>
-                )}
               </div>
             </div>
             <div className="max-h-[60vh] overflow-y-auto p-4">
-              {filteredHistory.length > 0 ? (
+              {historyError && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{historyError}</div>}
+              {historyLoading ? (
+                <div className="px-3 py-10 text-center text-sm text-gray-500">Cargando historial...</div>
+              ) : history.length > 0 ? (
                 <div className="space-y-2">
-                  {filteredHistory.map((item) => (
+                  {history.map((item) => (
                     <div
                       key={item.id}
                       className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
@@ -828,8 +807,8 @@ export default function ModalSnImeiScanner({ onClose }) {
                         </button>
                       </div>
                       <div className="mt-1 grid gap-1 text-xs text-gray-700 sm:grid-cols-2">
-                        <div className="min-w-0">SN: <span className="break-all font-mono font-semibold">{item.serial || '-'}</span></div>
-                        <div className="min-w-0">IMEI: <span className="break-all font-mono font-semibold">{item.imei1 || item.identifier || '-'}</span></div>
+                        <div className="min-w-0">SN: <span className="break-all font-mono font-semibold">{item.serial || (item.type === 'sn' ? item.identifier : '') || '-'}</span></div>
+                        <div className="min-w-0">IMEI: <span className="break-all font-mono font-semibold">{item.imei1 || (/^\d{15}$/.test(String(item.identifier || '')) ? item.identifier : '') || '-'}</span></div>
                         {item.imei2 ? <div className="min-w-0 sm:col-span-2">IMEI2: <span className="break-all font-mono font-semibold">{item.imei2}</span></div> : null}
                       </div>
                       {Array.isArray(item.fields) && item.fields.length > 0 && (
@@ -853,7 +832,7 @@ export default function ModalSnImeiScanner({ onClose }) {
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-10 text-center text-sm text-gray-500">
-                  {history.length ? 'No hay coincidencias.' : 'Todavia no hay consultas guardadas.'}
+                  {historyQuery.trim() ? 'No hay coincidencias.' : 'Todavia no hay consultas guardadas.'}
                 </div>
               )}
             </div>

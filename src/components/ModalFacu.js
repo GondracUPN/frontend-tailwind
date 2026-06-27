@@ -38,6 +38,23 @@ function buildItemNameWithIds(baseName, sn, imei1, imei2) {
   return parts.filter(Boolean).join(" ");
 }
 
+function buildInventoryProductName(producto) {
+  const detalle = producto?.detalle || {};
+  const clean = (value) => String(value || "").trim();
+  const tipo = clean(producto?.tipo).toLowerCase();
+  if (tipo === "otro") return clean(detalle.descripcionOtro) || "Otros";
+  if (tipo === "iphone") return ["iPhone", detalle.numero, detalle.modelo].map(clean).filter(Boolean).join(" ");
+  if (tipo === "watch") return ["Apple Watch", detalle.gama, detalle.generacion, detalle.tamano || detalle.tamanio, detalle.conexion].map(clean).filter(Boolean).join(" ");
+  if (tipo === "ipad") {
+    const linea = detalle.gama === "Normal" ? "" : detalle.gama;
+    const modelo = detalle.gama === "Normal" || detalle.gama === "Mini" ? detalle.generacion : detalle.procesador;
+    const tamano = detalle.tamano || detalle.tamanio;
+    const pantalla = tamano && String(tamano) !== String(modelo || "") ? tamano : "";
+    return ["iPad", linea, modelo, pantalla].map(clean).filter(Boolean).join(" ");
+  }
+  return [producto?.tipo, detalle.gama, detalle.procesador, detalle.tamano || detalle.tamanio].map(clean).filter(Boolean).join(" ") || "Producto";
+}
+
 function buildModalContentHTML({
   seller,
   placedOn,
@@ -260,7 +277,7 @@ function buildModalContentHTML({
 `.trim();
 }
 
-export default function ModalFacu({ onClose }) {
+export default function ModalFacu({ onClose, inventoryMode = false, codeSearch = false, inventoryEntries = [] }) {
   const [seller, setSeller] = useState("961firstave");
   const [placedOn, setPlacedOn] = useState("");
   const [orderNumber, setOrderNumber] = useState("");
@@ -275,6 +292,46 @@ export default function ModalFacu({ onClose }) {
   const [publishingTemplate, setPublishingTemplate] = useState(false);
   const [publishStatus, setPublishStatus] = useState("");
   const [publishAt, setPublishAt] = useState("");
+  const [productCode, setProductCode] = useState("");
+  const [productLookupStatus, setProductLookupStatus] = useState("");
+  const [productLookupLoading, setProductLookupLoading] = useState(false);
+
+  const loadInventoryProduct = async () => {
+    const match = String(productCode || "").trim().match(/(\d+)/);
+    const productId = match ? Number(match[1]) : 0;
+    if (!productId) {
+      setProductLookupStatus("Ingresa un Code válido, por ejemplo MS-266.");
+      return;
+    }
+    setProductLookupLoading(true);
+    setProductLookupStatus("");
+    let entry = (inventoryEntries || []).find((item) => Number(item?.producto?.id) === productId);
+    if (!entry) {
+      try {
+        entry = await api.get(`/inventario/producto/${productId}`);
+      } catch {
+        entry = null;
+      }
+    }
+    if (!entry) {
+      setProductLookupStatus("No se encontró ningún producto con ese Code.");
+      setProductLookupLoading(false);
+      return;
+    }
+
+    const producto = entry.producto || {};
+    const ficha = entry.ficha || {};
+    const basePrice = Number(producto?.valor?.valorProducto || 0);
+    setProductCode(`MS-${producto.id}`);
+    setItemNameBase(buildInventoryProductName(producto));
+    setSerialNumber(String(ficha.serial || ""));
+    setImei1(String(ficha.imei || ""));
+    setImei2(String(ficha.imei2 || ""));
+    setPrice((basePrice * 1.25).toFixed(2));
+    setPlacedOn(String(producto?.valor?.fechaCompra || "").slice(0, 10));
+    setProductLookupStatus(`Producto MS-${producto.id} cargado. Precio sugerido: valor del producto + 25%.`);
+    setProductLookupLoading(false);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -366,7 +423,7 @@ export default function ModalFacu({ onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b">
-          <h2 className="text-base font-semibold">Generar FACU - Printer friendly (solo textos)</h2>
+          <h2 className="text-base font-semibold">{inventoryMode ? "Factura US desde Inventario" : "Generar FACU - Printer friendly (solo textos)"}</h2>
           <div className="flex items-center">
             <button onClick={onClose} className="text-gray-700 hover:text-black text-sm" aria-label="Close modal">&lt; Back</button>
           </div>
@@ -374,6 +431,26 @@ export default function ModalFacu({ onClose }) {
 
         <div className="flex-1 overflow-y-auto">
           <div className="grid gap-4 p-4 sm:p-6 border-b">
+            {(inventoryMode || codeSearch) && (
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <label className="min-w-0 flex-1 text-sm">
+                    <span className="mb-1 block font-medium text-blue-950">Code del producto</span>
+                    <input
+                      value={productCode}
+                      onChange={(e) => { setProductCode(e.target.value); setProductLookupStatus(""); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); loadInventoryProduct(); } }}
+                      className="input bg-white font-mono"
+                      placeholder="MS-123"
+                    />
+                  </label>
+                  <button type="button" onClick={loadInventoryProduct} disabled={productLookupLoading} className="h-10 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-wait disabled:opacity-60">
+                    {productLookupLoading ? "Buscando..." : "Cargar producto"}
+                  </button>
+                </div>
+                {productLookupStatus && <div className={`mt-2 text-xs ${productLookupStatus.startsWith("No se") ? "text-red-700" : "text-blue-800"}`}>{productLookupStatus}</div>}
+              </div>
+            )}
             <div className="grid sm:grid-cols-3 gap-3">
               <label className="text-sm">
                 <span className="block text-gray-600 mb-1">Valor DEC (USD)</span>

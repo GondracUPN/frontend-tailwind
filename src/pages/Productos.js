@@ -1887,6 +1887,9 @@ const confirmAction = async () => {
     if (q) {
       // versifn solo-dfgitos para casos donde pegas un cfdigo largo que contiene el real
       const qDigits = q.replace(/\D+/g, '');
+      const compactCodeQuery = q.replace(/[\s_-]+/g, '');
+      const codeQueryMatch = compactCodeQuery.match(/^(?:ms(?:code)?|code)?(\d+)$/i);
+      const requestedProductId = codeQueryMatch ? Number(codeQueryMatch[1]) : null;
 
       list = list.filter((p) => {
         const t = p.tracking?.[0] || {};
@@ -1900,6 +1903,7 @@ const confirmAction = async () => {
         // - normal: usa/esh contienen q  O q contiene usa/esh
         // - solo-dfgitos: usaDigits/eshDigits contienen qDigits  O qDigits contiene usaDigits/eshDigits
         const match =
+          (requestedProductId != null && Number(p.id) === requestedProductId) ||
           (usa && (usa.includes(q) || q.includes(usa))) ||
           (esh && (esh.includes(q) || q.includes(esh))) ||
           (qDigits && usaDigits && (usaDigits.includes(qDigits) || qDigits.includes(usaDigits))) ||
@@ -2540,7 +2544,7 @@ const confirmAction = async () => {
               <input
                 type="text"
                 className="border rounded px-2 py-1 w-full sm:w-60"
-                placeholder="Buscar tracking (USA/Eshopex)"
+                placeholder="Buscar Code o tracking (MS-123, MS123 o 123)"
                 value={trackingQuery}
                 onChange={(e) => setTrackingQuery(e.target.value)}
               />
@@ -2796,7 +2800,7 @@ const confirmAction = async () => {
               <thead className="bg-gray-100">
                 <tr>
                   {selectMode && <th className="p-2">Sel.</th>}
-                  <th className="p-2">Código</th>
+                  <th className="p-2">Code</th>
                   <th className="p-2">Tipo</th>
                   <th className="p-2">Estado</th>
                   <th className="p-2">Accesorios</th>
@@ -3908,7 +3912,7 @@ const confirmAction = async () => {
           />
         )}
         {modalModo === 'facu' && (
-          <ModalFacu onClose={cerrarModal} />
+          <ModalFacu onClose={cerrarModal} codeSearch />
         )}
       </Suspense>
       {sellerAssignOpen && (

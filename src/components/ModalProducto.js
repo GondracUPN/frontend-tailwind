@@ -6,6 +6,7 @@ import FormProductoIphone from './formParts/FormProductoIphone';
 import FormProductoWatch from './formParts/FormProductoWatch';
 import FormProductoOtro from './formParts/FormProductoOtro';
 import api from '../api';
+import { normalizeProductLookupUrl } from '../utils/productUrl';
 
 const normalizeText = (val) =>
   String(val || '')
@@ -550,13 +551,14 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
   };
 
   const fetchEbay = async () => {
-    const url = String(ebayUrl || '').trim();
+    const url = normalizeProductLookupUrl(ebayUrl);
     if (!url) {
       setEbayError('Ingresa un URL de eBay.');
       return;
     }
     setEbayLoading(true);
     setEbayError('');
+    setEbayUrl(url);
     try {
       const data = await api.get(`/utils/ebay?url=${encodeURIComponent(url)}`);
       const price = Number.isFinite(data?.priceUSD) ? data.priceUSD : 0;

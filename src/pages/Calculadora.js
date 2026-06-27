@@ -1,6 +1,7 @@
 // src/pages/Calculadora.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import api, { API_URL } from "../api";
+import { normalizeProductLookupUrl } from "../utils/productUrl";
 
 /* =========================
    Constantes de negocio
@@ -536,13 +537,14 @@ export default function Calculadora({ setVista }) {
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   const fetchEbay = useCallback(async () => {
-    const url = String(ebayUrl || '').trim();
+    const url = normalizeProductLookupUrl(ebayUrl);
     if (!url) {
       setEbayError("Ingresa un URL de eBay.");
       return;
     }
     setEbayLoading(true);
     setEbayError("");
+    setEbayUrl(url);
     try {
       const data = await api.get(`/utils/ebay?url=${encodeURIComponent(url)}`);
       const price = Number.isFinite(data?.priceUSD) ? data.priceUSD : null;
