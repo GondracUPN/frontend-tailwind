@@ -50,7 +50,7 @@ const EMPTY_FORM = {
   observaciones: '',
   fotosTomadas: false,
   marketplaceSubido: false,
-  valorProducto: '',
+  primerPrecioSoles: '',
 };
 
 const text = (value) => String(value ?? '').trim();
@@ -109,7 +109,7 @@ const toForm = (entry) => {
     imei2: ficha.imei2 || '',
     observaciones: ficha.observaciones || '',
     accesorios: ficha.accesorios?.length ? ficha.accesorios : sourceAccessories,
-    valorProducto: entry?.producto?.valor?.valorProducto ?? '',
+    primerPrecioSoles: ficha.primerPrecioSoles ?? '',
   };
 };
 
@@ -153,6 +153,7 @@ export default function Inventario({ setVista }) {
       ? window.matchMedia('(min-width: 1280px)').matches
       : false
   ));
+  const [uncheckConfirm, setUncheckConfirm] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -203,6 +204,36 @@ export default function Inventario({ setVista }) {
     } finally {
       setBusyId(null);
     }
+  };
+
+  const requestQuickCheck = (entry, key, checked) => {
+    const apply = () => quickPatch(entry, { [key]: !checked });
+    if (key === 'enAlmacen' && checked) {
+      setUncheckConfirm({
+        message: 'Este producto está confirmado en almacén. ¿Estás seguro de quitar el cotejo?',
+        onConfirm: apply,
+      });
+      return;
+    }
+    apply();
+  };
+
+  const requestFormCheck = (key, nextChecked) => {
+    const apply = () => setForm((current) => ({ ...current, [key]: nextChecked }));
+    if (key === 'enAlmacen' && !nextChecked && form.enAlmacen) {
+      setUncheckConfirm({
+        message: 'Este producto está confirmado en almacén. ¿Estás seguro de quitar el cotejo?',
+        onConfirm: apply,
+      });
+      return;
+    }
+    apply();
+  };
+
+  const confirmStorageUncheck = () => {
+    const action = uncheckConfirm?.onConfirm;
+    setUncheckConfirm(null);
+    action?.();
   };
 
   const openEditor = (entry) => {
@@ -354,8 +385,8 @@ export default function Inventario({ setVista }) {
       setNotice('La garantía limitada necesita una fecha de vencimiento.');
       return;
     }
-    const valorProducto = form.valorProducto === '' ? null : Number(form.valorProducto);
-    if (valorProducto !== null && (!Number.isFinite(valorProducto) || valorProducto < 0)) {
+    const primerPrecioSoles = form.primerPrecioSoles === '' ? null : Number(form.primerPrecioSoles);
+    if (primerPrecioSoles !== null && (!Number.isFinite(primerPrecioSoles) || primerPrecioSoles < 0)) {
       setNotice('El primer precio debe ser un número válido mayor o igual a 0.');
       return;
     }
@@ -368,6 +399,7 @@ export default function Inventario({ setVista }) {
         color: text(form.color) || null,
         ciclosBateria: form.ciclosBateria === '' ? null : Number(form.ciclosBateria),
         saludBateria: form.saludBateria === '' ? null : Number(form.saludBateria),
+        primerPrecioSoles,
         tieneGarantia: Boolean(form.tieneGarantia),
         tipoGarantia: form.tieneGarantia ? form.tipoGarantia : null,
         garantiaHasta: form.tieneGarantia ? (form.garantiaHasta || null) : null,
@@ -383,22 +415,6 @@ export default function Inventario({ setVista }) {
       let ficha = await api.patch(`/inventario/${id}`, payload);
       if (photoData) ficha = await api.post(`/inventario/${id}/foto`, { dataUrl: photoData });
       replaceFicha(id, ficha);
-      const currentValor = editing.producto?.valor;
-      const currentPrice = Number(currentValor?.valorProducto ?? 0);
-      if (valorProducto !== null && valorProducto !== currentPrice) {
-        if (!currentValor) throw new Error('El producto no tiene datos de valor para actualizar.');
-        const updatedProduct = await api.patch(`/productos/${id}`, {
-          valor: {
-            valorProducto,
-            valorDec: Number(currentValor.valorDec || 0),
-            peso: Number(currentValor.peso || 0),
-            fechaCompra: currentValor.fechaCompra,
-          },
-        });
-        setEntries((current) => current.map((entry) => (
-          entry.producto?.id === id ? { ...entry, producto: updatedProduct } : entry
-        )));
-      }
       setEditing(null);
       setPhotoData('');
     } catch (err) {
@@ -581,7 +597,7 @@ export default function Inventario({ setVista }) {
                       </td>
                       <td className="px-4 py-3">
                         <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2 font-medium text-slate-700 hover:bg-slate-100">
-                          <input type="checkbox" checked={Boolean(ficha?.enAlmacen)} disabled={disabled} onChange={() => quickPatch(entry, { enAlmacen: !ficha?.enAlmacen })} className="h-6 w-6 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-500" />
+                           <input type="checkbox" checked={Boolean(ficha?.enAlmacen)} disabled={disabled} onChange={() => requestQuickCheck(entry, 'enAlmacen', Boolean(ficha?.enAlmacen))} className="h-6 w-6 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-500" />
                           {ficha?.enAlmacen ? 'En almacén' : 'Por cotejar'}
                         </label>
                       </td>
@@ -623,7 +639,7 @@ export default function Inventario({ setVista }) {
             </table>
           </div>
           ) : (
-          <div className="grid gap-3 sm:gap-4 md:grid-cols-3">
+          <div className="grid gap-3 sm:gap-4 md:landscape:grid-cols-3 md:portrait:grid-cols-4 md:portrait:gap-3">
             {filtered.map((entry) => {
               const { producto, ficha } = entry;
               const disabled = busyId === producto.id;
@@ -641,7 +657,7 @@ export default function Inventario({ setVista }) {
                     )}
                     <span className="absolute left-3 top-3 rounded-lg bg-slate-950/80 px-2.5 py-1.5 font-mono text-xs font-semibold text-white shadow-sm backdrop-blur">MS-{producto.id}</span>
                   </div>
-                  <div className="p-4">
+                  <div className="p-4 md:portrait:p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <h2 className="text-base font-semibold leading-5 text-slate-950">{buildNombre(producto)}</h2>
@@ -664,14 +680,14 @@ export default function Inventario({ setVista }) {
                       </div>
                     )}
 
-                    <div className="mt-4 grid grid-cols-3 gap-2 border-y border-slate-100 py-3">
+                    <div className="mt-4 grid grid-cols-3 gap-2 border-y border-slate-100 py-3 md:portrait:gap-1 md:portrait:py-2">
                       {[
                         ['enAlmacen', <FiArchive />, 'Almacén', Boolean(ficha?.enAlmacen)],
                         ['fotosTomadas', <FiCamera />, 'Fotos', Boolean(ficha?.fotosTomadas)],
                         ['marketplaceSubido', <FiShoppingBag />, 'Marketplace', Boolean(ficha?.marketplaceSubido)],
                       ].map(([key, icon, label, checked]) => (
-                        <label key={key} className={`flex min-h-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border p-2 text-center text-[11px] font-semibold transition active:scale-[0.98] ${checked ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
-                          <input type="checkbox" className="sr-only" checked={checked} disabled={disabled} onChange={() => quickPatch(entry, { [key]: !checked })} />
+                        <label key={key} className={`flex min-h-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border p-2 text-center text-[11px] font-semibold transition active:scale-[0.98] md:portrait:min-h-14 md:portrait:px-1 md:portrait:text-[10px] ${checked ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                          <input type="checkbox" className="sr-only" checked={checked} disabled={disabled} onChange={() => requestQuickCheck(entry, key, checked)} />
                           <span className="text-lg">{checked ? <FiCheck /> : icon}</span>{label}
                         </label>
                       ))}
@@ -761,7 +777,7 @@ export default function Inventario({ setVista }) {
                     ['marketplaceSubido', 'Publicado en Marketplace'],
                   ].map(([key, label]) => (
                     <label key={key} className="flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
-                      {label}<input type="checkbox" checked={Boolean(form[key])} onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.checked }))} className="h-7 w-7 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-500" />
+                      {label}<input type="checkbox" checked={Boolean(form[key])} onChange={(event) => requestFormCheck(key, event.target.checked)} className="h-7 w-7 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-500" />
                     </label>
                   ))}
                 </div>
@@ -848,10 +864,10 @@ export default function Inventario({ setVista }) {
                     <label className="text-xs font-medium text-slate-600">Ciclos de batería<input type="number" min="0" max="100000" value={form.ciclosBateria} onChange={(e) => setForm({ ...form, ciclosBateria: e.target.value })} placeholder="Ej. 145" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" /></label>
                     <label className="text-xs font-medium text-slate-600">Salud de batería (%)<input type="number" min="0" max="100" value={form.saludBateria} onChange={(e) => setForm({ ...form, saludBateria: e.target.value })} placeholder="Ej. 92" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" /></label>
                     <div className="text-xs font-medium text-slate-600 sm:col-span-2">
-                      <label htmlFor="inventario-valor-producto">Primer precio / valor del producto (USD)</label>
+                      <label htmlFor="inventario-primer-precio">Primer precio (S/)</label>
                       <div className="relative mt-1.5">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">$</span>
-                        <input id="inventario-valor-producto" type="number" min="0" step="0.01" inputMode="decimal" value={form.valorProducto} onChange={(e) => setForm({ ...form, valorProducto: e.target.value })} placeholder="0.00" className="h-11 w-full rounded-xl border border-slate-200 pl-7 pr-3 text-sm font-semibold outline-none focus:border-slate-400" />
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">S/</span>
+                        <input id="inventario-primer-precio" type="number" min="0" step="0.01" inputMode="decimal" value={form.primerPrecioSoles} onChange={(e) => setForm({ ...form, primerPrecioSoles: e.target.value })} placeholder="Ingresar precio" className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-3 text-sm font-semibold outline-none focus:border-slate-400" />
                       </div>
                     </div>
                     <label className="flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 sm:col-span-2">
@@ -922,6 +938,19 @@ export default function Inventario({ setVista }) {
             >
               <img src={viewingPhoto.url} alt={viewingPhoto.nombre} draggable={false} className="block h-auto w-full object-contain drop-shadow-2xl" />
             </button>
+          </div>
+        </div>
+      )}
+      {uncheckConfirm && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm" role="alertdialog" aria-modal="true" aria-labelledby="confirmar-quitar-cotejo">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-black/10">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-amber-100 text-xl font-bold text-amber-700">!</div>
+            <h2 id="confirmar-quitar-cotejo" className="mt-4 text-lg font-semibold text-slate-950">Confirmar cambio</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{uncheckConfirm.message}</p>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setUncheckConfirm(null)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">No, mantener</button>
+              <button type="button" onClick={confirmStorageUncheck} className="min-h-11 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700">Sí, quitar</button>
+            </div>
           </div>
         </div>
       )}

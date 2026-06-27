@@ -46,6 +46,25 @@ test('lista un producto disponible y abre su ficha de cotejo', async () => {
   await waitFor(() => expect(api.get).toHaveBeenCalledWith('/inventario'));
 });
 
+test('confirma antes de quitar el cotejo de almacén', async () => {
+  api.get.mockResolvedValue([{ ...entry, ficha: { enAlmacen: true } }]);
+  api.patch.mockResolvedValue({ enAlmacen: false });
+  render(<Inventario setVista={jest.fn()} />);
+
+  const storageCheck = await screen.findByRole('checkbox', { name: 'Almacén' });
+  fireEvent.click(storageCheck);
+  expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  expect(api.patch).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: 'No, mantener' }));
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  expect(storageCheck).toBeChecked();
+
+  fireEvent.click(storageCheck);
+  fireEvent.click(screen.getByRole('button', { name: 'Sí, quitar' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/inventario/42', { enAlmacen: false }));
+});
+
 test('muestra la foto solamente al pulsar Ver foto', async () => {
   api.get.mockResolvedValue([{
     ...entry,
@@ -61,40 +80,22 @@ test('muestra la foto solamente al pulsar Ver foto', async () => {
   expect(screen.getByRole('button', { name: 'Cerrar foto' })).toBeInTheDocument();
 });
 
-test('actualiza el primer precio desde completar ficha', async () => {
-  const pricedEntry = {
-    ...entry,
-    producto: {
-      ...entry.producto,
-      valor: { valorProducto: 100, valorDec: 120, peso: 2, fechaCompra: '2026-06-10' },
-    },
-  };
-  api.get.mockResolvedValue([pricedEntry]);
-  api.patch.mockImplementation((path, payload) => {
-    if (path === '/productos/42') {
-      return Promise.resolve({
-        ...pricedEntry.producto,
-        valor: { ...pricedEntry.producto.valor, ...payload.valor },
-      });
-    }
-    return Promise.resolve({});
-  });
+test('guarda el primer precio en soles dentro de la ficha', async () => {
+  api.get.mockResolvedValue([entry]);
+  api.patch.mockResolvedValue({ primerPrecioSoles: 125.5 });
   render(<Inventario setVista={jest.fn()} />);
 
   fireEvent.click(await screen.findByRole('button', { name: 'Completar ficha' }));
-  const priceInput = screen.getByLabelText('Primer precio / valor del producto (USD)');
-  expect(priceInput).toHaveValue(100);
+  const priceInput = screen.getByLabelText('Primer precio (S/)');
+  expect(priceInput).toHaveValue(null);
   fireEvent.change(priceInput, { target: { value: '125.50' } });
   fireEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
 
-  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/productos/42', {
-    valor: {
-      valorProducto: 125.5,
-      valorDec: 120,
-      peso: 2,
-      fechaCompra: '2026-06-10',
-    },
-  }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
+    '/inventario/42',
+    expect.objectContaining({ primerPrecioSoles: 125.5 }),
+  ));
+  expect(api.patch).not.toHaveBeenCalledWith('/productos/42', expect.anything());
 });
 
 test('solicita fecha solo cuando la garantía es limitada', async () => {
