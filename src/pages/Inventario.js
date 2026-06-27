@@ -148,9 +148,15 @@ export default function Inventario({ setVista }) {
   const [scanImageData, setScanImageData] = useState('');
   const [scanImageName, setScanImageName] = useState('');
   const [scanDragActive, setScanDragActive] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(() => (
+    typeof window !== 'undefined' ? window.innerWidth > window.innerHeight : false
+  ));
+  const [isTablet, setIsTablet] = useState(() => (
+    typeof window !== 'undefined' ? Math.min(window.innerWidth, window.innerHeight) >= 600 : false
+  ));
   const [showDesktopTable, setShowDesktopTable] = useState(() => (
-    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? window.matchMedia('(min-width: 1280px)').matches
+    typeof window !== 'undefined'
+      ? window.innerWidth >= 1280 && Number(window.navigator?.maxTouchPoints || 0) === 0
       : false
   ));
   const [uncheckConfirm, setUncheckConfirm] = useState(null);
@@ -171,15 +177,20 @@ export default function Inventario({ setVista }) {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
-    const media = window.matchMedia('(min-width: 1280px)');
-    const updateView = (event) => setShowDesktopTable(event.matches);
-    setShowDesktopTable(media.matches);
-    if (typeof media.addEventListener === 'function') media.addEventListener('change', updateView);
-    else media.addListener?.(updateView);
+    if (typeof window === 'undefined') return undefined;
+    const updateView = () => {
+      setIsLandscape(window.innerWidth > window.innerHeight);
+      setIsTablet(Math.min(window.innerWidth, window.innerHeight) >= 600);
+      setShowDesktopTable(
+        window.innerWidth >= 1280 && Number(window.navigator?.maxTouchPoints || 0) === 0,
+      );
+    };
+    updateView();
+    window.addEventListener('resize', updateView);
+    window.addEventListener('orientationchange', updateView);
     return () => {
-      if (typeof media.removeEventListener === 'function') media.removeEventListener('change', updateView);
-      else media.removeListener?.(updateView);
+      window.removeEventListener('resize', updateView);
+      window.removeEventListener('orientationchange', updateView);
     };
   }, []);
 
@@ -639,7 +650,7 @@ export default function Inventario({ setVista }) {
             </table>
           </div>
           ) : (
-          <div className="grid gap-3 sm:gap-4 md:landscape:grid-cols-3 md:portrait:grid-cols-4 md:portrait:gap-3">
+          <div className={`grid gap-3 sm:gap-4 ${isTablet ? (isLandscape ? 'grid-cols-4' : 'grid-cols-3') : 'grid-cols-1 sm:grid-cols-2'}`}>
             {filtered.map((entry) => {
               const { producto, ficha } = entry;
               const disabled = busyId === producto.id;
@@ -657,7 +668,7 @@ export default function Inventario({ setVista }) {
                     )}
                     <span className="absolute left-3 top-3 rounded-lg bg-slate-950/80 px-2.5 py-1.5 font-mono text-xs font-semibold text-white shadow-sm backdrop-blur">MS-{producto.id}</span>
                   </div>
-                  <div className="p-4 md:portrait:p-3">
+                  <div className={isTablet && !isLandscape ? 'p-3' : 'p-4'}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <h2 className="text-base font-semibold leading-5 text-slate-950">{buildNombre(producto)}</h2>
@@ -680,13 +691,13 @@ export default function Inventario({ setVista }) {
                       </div>
                     )}
 
-                    <div className="mt-4 grid grid-cols-3 gap-2 border-y border-slate-100 py-3 md:portrait:gap-1 md:portrait:py-2">
+                    <div className={`mt-4 grid grid-cols-3 border-y border-slate-100 ${isTablet && !isLandscape ? 'gap-1 py-2' : 'gap-2 py-3'}`}>
                       {[
                         ['enAlmacen', <FiArchive />, 'Almacén', Boolean(ficha?.enAlmacen)],
                         ['fotosTomadas', <FiCamera />, 'Fotos', Boolean(ficha?.fotosTomadas)],
                         ['marketplaceSubido', <FiShoppingBag />, 'Marketplace', Boolean(ficha?.marketplaceSubido)],
                       ].map(([key, icon, label, checked]) => (
-                        <label key={key} className={`flex min-h-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border p-2 text-center text-[11px] font-semibold transition active:scale-[0.98] md:portrait:min-h-14 md:portrait:px-1 md:portrait:text-[10px] ${checked ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                        <label key={key} className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border text-center font-semibold transition active:scale-[0.98] ${isTablet && !isLandscape ? 'min-h-14 px-1 py-2 text-[10px]' : 'min-h-16 p-2 text-[11px]'} ${checked ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
                           <input type="checkbox" className="sr-only" checked={checked} disabled={disabled} onChange={() => requestQuickCheck(entry, key, checked)} />
                           <span className="text-lg">{checked ? <FiCheck /> : icon}</span>{label}
                         </label>
