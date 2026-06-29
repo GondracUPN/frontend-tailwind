@@ -116,6 +116,75 @@ test('guarda el precio en soles dentro de la ficha', async () => {
   expect(api.patch).not.toHaveBeenCalledWith('/productos/42', expect.anything());
 });
 
+test('copia los datos disponibles con el formato de iPhone y el precio normal', async () => {
+  const writeText = jest.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  });
+  api.get.mockResolvedValue([entry]);
+  render(<Inventario setVista={jest.fn()} />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Completar ficha' }));
+  fireEvent.change(screen.getByLabelText('Precio (S/)'), { target: { value: '1250' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Copiar datos' }));
+
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(
+    'iPhone 15 Pro\n256 GB\nS/ 1250',
+  ));
+  expect(await screen.findByRole('button', { name: 'Copiado' })).toBeInTheDocument();
+});
+
+test('copia RAM, SSD y conectividad sin dejar lineas vacias', async () => {
+  const writeText = jest.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  });
+  api.get.mockResolvedValue([{
+    ...entry,
+    producto: {
+      ...entry.producto,
+      tipo: 'macbook',
+      detalle: {
+        gama: 'Pro', procesador: 'M4 Pro', tamano: '14', ram: '24 GB', almacenamiento: '1TB', conexion: 'Wifi + Cel',
+      },
+    },
+  }]);
+  render(<Inventario setVista={jest.fn()} />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Completar ficha' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Copiar datos' }));
+
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(
+    'MacBook Pro M4 Pro 14" 24 GB RAM Wifi Celular\n1 TB SSD',
+  ));
+});
+
+test('copia Wifi o GPS aunque el producto no tenga conexion celular', async () => {
+  const writeText = jest.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  });
+  api.get.mockResolvedValue([{
+    ...entry,
+    producto: {
+      ...entry.producto,
+      tipo: 'ipad',
+      detalle: { gama: 'Pro', tamano: '13', almacenamiento: '256', conexion: 'Wifi' },
+    },
+  }]);
+  render(<Inventario setVista={jest.fn()} />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Completar ficha' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Copiar datos' }));
+
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(
+    'iPad Pro 13" Wifi\n256 GB',
+  ));
+});
+
 test('guarda y muestra el último precio en la vista rápida', async () => {
   api.get.mockResolvedValue([{
     ...entry,

@@ -3,6 +3,7 @@ import {
   FiArchive,
   FiCamera,
   FiCheck,
+  FiCopy,
   FiEdit3,
   FiEye,
   FiFileText,
@@ -92,6 +93,77 @@ const buildSpecs = (producto) => {
     .join(' · ');
 };
 
+const formatCapacity = (value, { ssd = false } = {}) => {
+  const raw = text(value).toUpperCase();
+  if (!raw) return '';
+  const amount = raw.match(/\d+(?:[.,]\d+)?/)?.[0]?.replace(',', '.');
+  if (!amount) return '';
+  const unit = raw.includes('TB') ? 'TB' : 'GB';
+  return `${amount} ${unit}${ssd ? ' SSD' : ''}`;
+};
+
+const formatRam = (value) => {
+  const raw = text(value).toUpperCase();
+  if (!raw) return '';
+  const amount = raw.match(/\d+(?:[.,]\d+)?/)?.[0]?.replace(',', '.');
+  return amount ? `${amount} GB RAM` : '';
+};
+
+const formatConnection = (value) => {
+  const raw = text(value).toLowerCase();
+  if (!raw) return '';
+  const cellular = /\b(cel|cellular|lte|5g)\b/.test(raw);
+  if (raw.includes('gps')) return cellular ? 'GPS Celular' : 'GPS';
+  if (raw.includes('wifi') || raw.includes('wi-fi')) return cellular ? 'Wifi Celular' : 'Wifi';
+  return cellular ? 'Celular' : text(value);
+};
+
+const buildClipboardText = (producto, precio) => {
+  const detalle = producto?.detalle || {};
+  const tipo = text(producto?.tipo).toLowerCase();
+  const nombre = buildNombre(producto);
+  const mac = tipo.includes('mac') || /\b(macbook|mac\s*mini|macmini|imac)\b/i.test(nombre);
+  const tamano = text(detalle.tamano || detalle.tamanio);
+  const tamanoSinComillas = tamano.replace(/["”″]+$/, '');
+  const nombreConTamano = (mac || tipo === 'ipad') && tamano && nombre.endsWith(tamano)
+    ? `${nombre.slice(0, -tamano.length)}${tamanoSinComillas}"`
+    : nombre;
+  const capacidad = formatCapacity(detalle.almacenamiento, { ssd: mac });
+  const conexion = formatConnection(detalle.conexion);
+  const conexionTitulo = ['Wifi Celular', 'Wifi', 'GPS Celular', 'GPS'].includes(conexion) ? conexion : '';
+  const titulo = [nombreConTamano, formatRam(detalle.ram), conexionTitulo].filter(Boolean).join(' ');
+  const precioNumero = Number(precio);
+  const precioSoles = precio !== '' && precio !== null && precio !== undefined && Number.isFinite(precioNumero)
+    ? String(precioNumero)
+    : '';
+  return [
+    titulo,
+    capacidad,
+    precioSoles ? `S/ ${precioSoles}` : '',
+  ].filter(Boolean).join('\n');
+};
+
+const copyToClipboard = async (value) => {
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // Algunos navegadores bloquean la API moderna; se intenta el método compatible.
+    }
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  document.body.removeChild(textarea);
+  if (!copied) throw new Error('El navegador rechazó el acceso al portapapeles.');
+};
+
 const lastPickupDate = (producto) => {
   const rows = Array.isArray(producto?.tracking) ? [...producto.tracking] : [];
   rows.sort((a, b) => (b.id || 0) - (a.id || 0));
@@ -169,6 +241,7 @@ export default function Inventario({ setVista }) {
       : false
   ));
   const [uncheckConfirm, setUncheckConfirm] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -270,6 +343,19 @@ export default function Inventario({ setVista }) {
     setScanImageData('');
     setScanImageName('');
     setScanDragActive(false);
+    setCopied(false);
+  };
+
+  const copyProductData = async () => {
+    if (!editing?.producto) return;
+    try {
+      await copyToClipboard(buildClipboardText(editing.producto, form.primerPrecioSoles));
+      setCopied(true);
+      setNotice('');
+    } catch {
+      setCopied(false);
+      setNotice('No se pudieron copiar los datos. Revisa el permiso del portapapeles.');
+    }
   };
 
   const openPhotoViewer = (url, nombre) => {
@@ -961,6 +1047,9 @@ export default function Inventario({ setVista }) {
             </div>
 
             <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:flex sm:justify-end sm:px-5 sm:py-4">
+              <button type="button" onClick={copyProductData} className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 sm:col-span-1">
+                {copied ? <><FiCheck /> Copiado</> : <><FiCopy /> Copiar datos</>}
+              </button>
               <button type="button" disabled={saving} onClick={() => setEditing(null)} className="min-h-11 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
               <button type="submit" disabled={saving} className="inline-flex min-h-11 min-w-36 items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60">{saving ? <><FiRefreshCw className="animate-spin" /> Guardando...</> : <><FiCheck /> Guardar ficha</>}</button>
             </div>
