@@ -30,7 +30,9 @@ function shippingSuiteFor(casilleroKey, amazon = false) {
   return `${amazon ? "STE" : "Ste"} 110${code ? ` ${code}` : ""}`;
 }
 function decShipNameFor(casilleroKey) {
-  return String(CASILLEROS[casilleroKey] || "").trim();
+  return String(CASILLEROS[casilleroKey] || "")
+    .replace(/\s*\bPEZ\d+\b\s*$/i, "")
+    .trim();
 }
 const DEC_FORM_EMAIL_BY_CASILLERO = {
   Walter: "gongarc2001@gmail.com",
@@ -660,7 +662,47 @@ ${safeItems.map((it) => `
 `.trim();
 }
 
-function buildAmazonTemplateHTML({
+export function allocateDecByReference(lines, totalDec) {
+  const normalized = (Array.isArray(lines) ? lines : []).map((line) => ({
+    ...line,
+    qty: Math.max(1, Math.floor(Number(line?.qty) || 1)),
+    ref: Math.max(0, Number(line?.ref) || 0),
+  }));
+  if (!normalized.length) return [];
+
+  const total = Math.max(0, Number(totalDec) || 0);
+  const totalUnits = normalized.reduce((sum, line) => sum + line.qty, 0);
+  const totalWeight = normalized.reduce((sum, line) => sum + (line.ref * line.qty), 0);
+  let used = 0;
+  const allocated = normalized.map((line, index) => {
+    const weight = totalWeight > 0 ? line.ref * line.qty : line.qty;
+    const divisor = totalWeight > 0 ? totalWeight : totalUnits;
+    const targetLineTotal = index === normalized.length - 1
+      ? Math.max(0, +(total - used).toFixed(2))
+      : +((total * (weight / divisor)).toFixed(2));
+    const unitPrice = +(targetLineTotal / line.qty).toFixed(2);
+    used = +(used + unitPrice * line.qty).toFixed(2);
+    const { ref, ...item } = line;
+    return { ...item, price: unitPrice };
+  });
+
+  const residual = +(total - allocated.reduce(
+    (sum, line) => sum + (Number(line.price) || 0) * (Number(line.qty) || 1),
+    0,
+  )).toFixed(2);
+  if (residual) {
+    const exactIndex = allocated.map((line) => Number(line.qty) || 1).lastIndexOf(1);
+    if (exactIndex >= 0) {
+      allocated[exactIndex] = {
+        ...allocated[exactIndex],
+        price: +(Number(allocated[exactIndex].price || 0) + residual).toFixed(2),
+      };
+    }
+  }
+  return allocated;
+}
+
+export function buildAmazonTemplateHTML({
   placedOn,
   orderNumber,
   casilleroKey,
@@ -1315,6 +1357,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         id: `manual-${nextId}`,
         name: "",
         decRef: "",
+        qty: 1,
         linkHref: "",
       },
     ]));
@@ -1323,6 +1366,14 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setManualLinkedLines((prev) =>
       prev.map((line) => (line.id === id ? { ...line, ...patch } : line))
     );
+  };
+  const removeManualLinkedLine = (id) => {
+    setManualLinkedLines((prev) => prev.filter((line) => line.id !== id));
+    setLinkedImages((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
   const resetSeleccion = () => {
     setProductoSel(null);
@@ -1469,6 +1520,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setGroupLinkedAsSame(false);
     setLinkedImages({});
     setManualMainDecRef("");
+    setQty(1);
     setPrice(decClean);
     setPlacedOn(toYYYYMMDD(fechaCompra));
     setManualLinkedLines([]);
@@ -1692,38 +1744,110 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       return Number.isFinite(n) && n > 0 ? n : 0;
     };
     const namedLines = [
-      { name: itemName, decRef: parseRef(manualMainDecRef), linkHref: itemLinkHref },
+      {
+        id: "manual-main",
+        name: itemName,
+        decRef: parseRef(manualMainDecRef),
+        qty: Math.max(1, Math.floor(Number(qty) || 1)),
+        linkHref: itemLinkHref,
+      },
       ...manualLinkedLines.map((line) => ({
+        id: line?.id,
         name: line?.name || "",
         decRef: parseRef(line?.decRef),
+        qty: Math.max(1, Math.floor(Number(line?.qty) || 1)),
         linkHref: line?.linkHref || "",
       })),
     ]
       .map((line) => ({ ...line, name: String(line.name || "").trim() }))
       .filter((line) => line.name);
 
-    const total = Number(price) || 0;
-    const count = Math.max(1, namedLines.length || 1);
-    const totalRef = namedLines.reduce((s, line) => s + line.decRef, 0);
-    const fallbackShare = count ? 1 / count : 1;
-    let used = 0;
-    return Array.from({ length: count }).map((_, idx) => {
-      const line = namedLines[idx] || { name: "", decRef: 0 };
-      const share = totalRef > 0 ? (line.decRef / totalRef) : fallbackShare;
-      const isLast = idx === count - 1;
-      const linePrice = isLast
-        ? +(total - used).toFixed(2)
-        : +((total * share).toFixed(2));
-      used += linePrice;
+    return allocateDecByReference(namedLines.map((line, idx) => {
+      const image = idx === 0 ? null : linkedImages[line.id];
       return {
-        qty: 1,
+        qty: line.qty,
         name: line.name || "",
-        price: linePrice,
+        ref: line.decRef,
         shippingSvc: shippingSvc || "Standard Shipping",
         linkHref: store === "amazon" ? (line.linkHref || "") : "",
+        imageSmall: idx === 0 ? imageSmall : (image?.small || DEFAULT_IMAGE_SRC),
+        imageLarge: idx === 0 ? imageLarge : (image?.large || DEFAULT_IMAGE_SRC),
+      };
+    }), Number(price) || 0);
+  }, [productoSel, store, itemName, itemLinkHref, manualMainDecRef, manualLinkedLines, price, shippingSvc, qty, linkedImages, imageSmall, imageLarge]);
+
+  const amazonSelectedItemsWithExtras = useMemo(() => {
+    if (store !== "amazon" || !productoSel) return null;
+    const mainQty = Math.max(1, Math.floor(Number(qty) || 1));
+    const extras = manualLinkedLines
+      .map((line) => ({
+        ...line,
+        name: String(line?.name || "").trim(),
+        qty: Math.max(1, Math.floor(Number(line?.qty) || 1)),
+        ref: Math.max(0, Number(line?.decRef) || 0),
+      }))
+      .filter((line) => line.name);
+    const group = linkedGroup.length > 1 ? linkedGroup : [productoSel];
+    if (mainQty === 1 && !extras.length) return null;
+
+    const productRef = (p) => {
+      const normalPrice = Number(pickValorProducto(p)) || 0;
+      return normalPrice > 0 ? normalPrice : (Number(pickDec(p)) || 0);
+    };
+    let productLines;
+    if (groupLinkedAsSame && group.length > 1) {
+      const totalRef = group.reduce((sum, p) => sum + productRef(p), 0);
+      const groupedQty = Math.max(mainQty, group.length);
+      productLines = [{
+        qty: groupedQty,
+        name: itemName || buildCoreName(productoSel),
+        ref: group.length ? totalRef / group.length : productRef(productoSel),
+        shippingSvc,
+        productId: productoSel?.id ?? null,
+        grouped: true,
+        groupedIds: group.map((p) => p?.id).filter(Boolean),
+        linkHref: itemLinkHref,
+        imageSmall,
+        imageLarge,
+      }];
+    } else {
+      productLines = group.map((p) => {
+        const isMain = Number(p?.id) === Number(productoSel?.id);
+        const linkedImage = isMain ? null : linkedImages[p.id];
+        const hasCustomLinkedHref = Object.prototype.hasOwnProperty.call(linkedItemLinks, p?.id);
+        return {
+          qty: isMain ? mainQty : 1,
+          name: isMain
+            ? (itemName || buildCoreName(p))
+            : (linkedItemNames[p.id] || randomNames[p.id]?.full || buildCoreName(p)),
+          ref: productRef(p),
+          shippingSvc,
+          productId: p?.id ?? null,
+          linkHref: isMain
+            ? itemLinkHref
+            : (hasCustomLinkedHref ? linkedItemLinks[p.id] : resolveProductHref(p)),
+          imageSmall: isMain ? imageSmall : (linkedImage?.small || DEFAULT_IMAGE_SRC),
+          imageLarge: isMain ? imageLarge : (linkedImage?.large || DEFAULT_IMAGE_SRC),
+        };
+      });
+    }
+    const extraLines = extras.map((line) => {
+      const extraImage = linkedImages[line.id];
+      return {
+        qty: line.qty,
+        name: line.name,
+        ref: line.ref,
+        shippingSvc,
+        linkHref: line.linkHref || "",
+        imageSmall: extraImage?.small || DEFAULT_IMAGE_SRC,
+        imageLarge: extraImage?.large || DEFAULT_IMAGE_SRC,
       };
     });
-  }, [productoSel, store, itemName, itemLinkHref, manualMainDecRef, manualLinkedLines, price, shippingSvc]);
+    return allocateDecByReference(
+      [...productLines, ...extraLines],
+      Number(price) || Number(pickDec(productoSel)) || 0,
+    );
+  }, [store, productoSel, qty, manualLinkedLines, linkedGroup, groupLinkedAsSame, itemName, itemLinkHref, shippingSvc, linkedImages, linkedItemLinks, linkedItemNames, randomNames, imageSmall, imageLarge, price]);
 
   const ebaySelectedItemsWithExtras = useMemo(() => {
     if (store !== "ebay" || !productoSel || manualLinkedLines.length === 0) return null;
@@ -1798,14 +1922,35 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
 
   const htmlItems = useMemo(() => {
     if (productoSel) {
+      if (amazonSelectedItemsWithExtras) return amazonSelectedItemsWithExtras;
       if (ebaySelectedItemsWithExtras) return ebaySelectedItemsWithExtras;
       return linkedItems && linkedItems.length ? linkedItems : null;
     }
     return manualItems;
-  }, [productoSel, linkedItems, manualItems, ebaySelectedItemsWithExtras]);
+  }, [productoSel, linkedItems, manualItems, ebaySelectedItemsWithExtras, amazonSelectedItemsWithExtras]);
   const manualHasMultiple = !productoSel && manualLinkedLines.length > 0;
-  const showManualItemsEditor = store === "ebay" || !productoSel;
-  const manualNeedsDecRef = store === "ebay" || manualHasMultiple;
+  const showManualItemsEditor = store === "ebay" || store === "amazon" || !productoSel;
+  const manualNeedsDecRef = store === "ebay" || store === "amazon" || manualHasMultiple;
+  const amazonAdditionalImageTargets = useMemo(() => {
+    if (store !== "amazon" || groupLinkedAsSame) {
+      return store === "amazon"
+        ? manualLinkedLines.map((line, idx) => ({
+            id: line.id,
+            name: String(line?.name || "").trim() || `Producto extra ${idx + 2}`,
+          }))
+        : [];
+    }
+    return [
+      ...linkedGroupOthers.map((p) => ({
+        id: p.id,
+        name: linkedItemNames[p.id] || randomNames[p.id]?.full || buildCoreName(p),
+      })),
+      ...manualLinkedLines.map((line, idx) => ({
+        id: line.id,
+        name: String(line?.name || "").trim() || `Producto extra ${idx + 2}`,
+      })),
+    ];
+  }, [store, groupLinkedAsSame, linkedGroupOthers, linkedItemNames, randomNames, manualLinkedLines]);
   const deliveryHeadline = useMemo(
     () => deliveryHeadlineFor(deliveryMode, deliveredOn, customDeliveryText),
     [deliveryMode, deliveredOn, customDeliveryText]
@@ -2170,7 +2315,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       role="dialog"
     >
       <div
-        className={`${store === "ebay" ? "max-w-5xl" : "max-w-[1400px]"} w-full bg-white rounded-xl shadow-xl max-h-[94vh] flex flex-col overflow-hidden`}
+        className={`${store === "ebay" ? "max-w-5xl" : "max-w-[1600px]"} w-full bg-white rounded-xl shadow-xl max-h-[94vh] flex flex-col overflow-hidden`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b">
@@ -2179,7 +2324,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         </div>
 
         <div className="flex-1 overflow-y-auto">
-        <div className={store === "ebay" ? "" : "grid xl:grid-cols-[500px_minmax(0,1fr)]"}>
+        <div className={store === "ebay" ? "" : "grid xl:grid-cols-[minmax(760px,1.55fr)_minmax(420px,0.75fr)]"}>
         <div className={`grid gap-4 p-4 sm:p-6 ${store === "ebay" ? "border-b" : "border-b xl:border-b-0 xl:border-r"}`}>
           {hardError ? (
             <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">{hardError}</div>
@@ -2354,8 +2499,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             </label>
           </div>
 
-          <div className="grid sm:grid-cols-4 gap-3">
-            <label className="text-sm sm:col-span-2">
+          <div className={`grid gap-3 ${store === "amazon" ? "lg:grid-cols-6" : "sm:grid-cols-4"}`}>
+            <label className={`text-sm ${store === "amazon" ? "lg:col-span-2" : "sm:col-span-2"}`}>
               <span className="block text-gray-600 mb-1">Item name</span>
               <div className="space-y-2">
                 <input
@@ -2391,7 +2536,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
               </div>
             </label>
             {store === "amazon" ? (
-              <label className="text-sm sm:col-span-2">
+              <label className="text-sm lg:col-span-2">
                 <span className="block text-gray-600 mb-1">Link producto</span>
                 <input
                   value={itemLinkHref}
@@ -2401,12 +2546,31 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                 />
               </label>
             ) : null}
+            {store === "amazon" ? (
+              <label className="text-sm">
+                <span className="block text-gray-600 mb-1">Cantidad producto principal</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={qty}
+                  onChange={(e) => setQty(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                  className="input"
+                />
+              </label>
+            ) : null}
+            {store === "amazon" && productoSel ? (
+              <label className="text-sm">
+                <span className="block text-gray-600 mb-1">Precio normal principal</span>
+                <input className="input" value={pickValorProducto(productoSel) || ""} readOnly placeholder="-" />
+              </label>
+            ) : null}
             {store === "ebay" ? (
               <label className="text-sm">
                 <span className="block text-gray-600 mb-1">Shipping service</span>
                 <input value={shippingSvc} onChange={(e) => setShippingSvc(e.target.value)} className="input" placeholder="Standard Shipping" />
               </label>
-            ) : <div />}
+            ) : store !== "amazon" ? <div /> : null}
             {!productoSel && manualHasMultiple ? (
               <label className="text-sm">
                 <span className="block text-gray-600 mb-1">DEC ref (item 1)</span>
@@ -2422,6 +2586,22 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
               </label>
             ) : null}
           </div>
+
+          {store === "amazon" && productoSel ? (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+              <div>
+                <div className="text-sm font-semibold text-blue-950">Producto principal y adicionales</div>
+                <div className="mt-0.5 text-xs text-blue-700">La cantidad del principal está arriba. Añade aquí productos distintos.</div>
+              </div>
+              <button
+                type="button"
+                onClick={addManualLinkedLine}
+                className="shrink-0 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+              >
+                + Agregar otro producto
+              </button>
+            </div>
+          ) : null}
 
           {linkedGroup.length > 1 && !groupLinkedAsSame ? (
             <div className="grid sm:grid-cols-2 gap-3">
@@ -2468,39 +2648,60 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             </div>
           ) : null}
 
-          {showManualItemsEditor ? (
+          {showManualItemsEditor && !(store === "amazon" && productoSel && manualLinkedLines.length === 0) ? (
             <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
               <div className="flex items-center justify-between gap-3 mb-2">
                 <div className="text-sm font-medium text-gray-700">
-                  {store === "ebay" ? "Agregar producto extra (eBay)" : "Items adicionales (manual)"}
+                  {store === "ebay"
+                    ? "Agregar producto extra (eBay)"
+                    : store === "amazon"
+                      ? "Agregar producto extra (Amazon)"
+                      : "Items adicionales (manual)"}
                 </div>
-                <button
-                  type="button"
-                  onClick={addManualLinkedLine}
-                  className="px-3 py-1.5 rounded bg-gray-800 text-white text-xs hover:bg-gray-900"
-                >
-                  + Agregar linea
-                </button>
+                {store !== "amazon" || !productoSel ? (
+                  <button
+                    type="button"
+                    onClick={addManualLinkedLine}
+                    className="px-3 py-1.5 rounded bg-gray-800 text-white text-xs hover:bg-gray-900"
+                  >
+                    + Agregar producto
+                  </button>
+                ) : null}
               </div>
               <div className="text-[11px] text-gray-500 mb-3">
                 {store === "ebay"
                   ? "Ingresa el valor normal de cada extra; eBay reparte el Valor DEC total proporcionalmente."
+                  : store === "amazon"
+                    ? "Ingresa cantidad y precio normal de cada producto. Amazon reparte el DEC total proporcionalmente entre precio y cantidad."
                   : manualHasMultiple
                   ? "Modo manual: define DEC ref por item y se prorratea el Valor DEC total en base a esos refs."
                   : "Modo manual: con 1 producto no se necesita DEC ref por item."}
               </div>
               {manualLinkedLines.length > 0 ? (
-                <div className="grid sm:grid-cols-2 gap-3">
+                <div className="grid gap-3">
                   {manualLinkedLines.map((line, idx) => (
-                    <label key={line.id} className="text-[11px] text-gray-600">
-                      <span className="block mb-1">Item name manual #{idx + 2}</span>
+                    <div key={line.id} className="rounded-lg border border-gray-200 bg-white p-3 text-[11px] text-gray-600 shadow-sm">
+                      <span className="mb-2 block font-semibold text-gray-700">Producto extra #{idx + 2}</span>
                       <div className="space-y-2">
-                        <div className={`grid ${manualNeedsDecRef ? "grid-cols-[1fr_130px_auto]" : "grid-cols-[1fr_auto]"} gap-2`}>
+                        <div className={`grid ${store === "amazon" ? "sm:grid-cols-[minmax(0,1fr)_85px_130px_auto_auto]" : manualNeedsDecRef ? "sm:grid-cols-[1fr_130px_auto_auto]" : "sm:grid-cols-[1fr_auto_auto]"} gap-2`}>
                         <input
                           className="input text-xs py-1.5 flex-1"
                           value={line.name}
                           onChange={(e) => updateManualLinkedLine(line.id, { name: e.target.value })}
+                          placeholder="Nombre del producto"
                         />
+                        {store === "amazon" ? (
+                          <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            className="input text-xs py-1.5"
+                            value={line.qty || 1}
+                            onChange={(e) => updateManualLinkedLine(line.id, { qty: Math.max(1, Math.floor(Number(e.target.value) || 1)) })}
+                            placeholder="Cant."
+                            aria-label={`Cantidad producto extra ${idx + 2}`}
+                          />
+                        ) : null}
                         {manualNeedsDecRef ? (
                           <input
                             type="number"
@@ -2509,7 +2710,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                             className="input text-xs py-1.5"
                             value={line.decRef || ""}
                             onChange={(e) => updateManualLinkedLine(line.id, { decRef: e.target.value })}
-                            placeholder={store === "ebay" ? "Valor normal" : "DEC ref"}
+                            placeholder={store === "amazon" ? "Precio normal" : store === "ebay" ? "Valor normal" : "DEC ref"}
+                            aria-label={`Precio producto extra ${idx + 2}`}
                           />
                         ) : null}
                         <button
@@ -2519,6 +2721,14 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                           className="px-2 rounded-lg bg-indigo-600 text-white text-xs hover:bg-indigo-700"
                         >
                           <FaDice className="text-sm" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeManualLinkedLine(line.id)}
+                          title="Quitar producto extra"
+                          className="px-2 rounded-lg border border-red-200 bg-white text-red-600 text-xs hover:bg-red-50"
+                        >
+                          &times;
                         </button>
                         </div>
                         {store === "amazon" ? (
@@ -2530,7 +2740,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                           />
                         ) : null}
                       </div>
-                    </label>
+                    </div>
                   ))}
                 </div>
               ) : null}
@@ -2597,28 +2807,27 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                     <div className="mt-1">{imageStatus || "Usando placeholder hasta que cargues una imagen."}</div>
                   </div>
                 </div>
-                {store === "amazon" && linkedGroupOthers.length > 0 && !groupLinkedAsSame ? (
+                {store === "amazon" && amazonAdditionalImageTargets.length > 0 ? (
                   <div className="pt-2 border-t border-gray-200 space-y-3">
-                    <div className="text-sm font-medium text-gray-700">Imagen por producto vinculado</div>
-                    {linkedGroupOthers.map((p) => {
-                      const entry = getLinkedImageEntry(p.id);
-                      const linkedName = linkedItemNames[p.id] || randomNames[p.id]?.full || buildCoreName(p);
+                    <div className="text-sm font-medium text-gray-700">Imagen por producto extra</div>
+                    {amazonAdditionalImageTargets.map((target) => {
+                      const entry = getLinkedImageEntry(target.id);
                       return (
-                        <div key={`img-linked-${p.id}`} className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
-                          <div className="text-xs font-medium text-gray-700">#{p.id} {linkedName || buildCoreName(p)}</div>
+                        <div key={`img-linked-${target.id}`} className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
+                          <div className="text-xs font-medium text-gray-700">{target.name}</div>
                           <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end">
                             <label className="text-sm">
                               <span className="block text-gray-600 mb-1">URL de imagen</span>
                               <input
                                 value={entry.url || ""}
-                                onChange={(e) => setLinkedImageEntry(p.id, { url: e.target.value })}
+                                onChange={(e) => setLinkedImageEntry(target.id, { url: e.target.value })}
                                 className="input"
                                 placeholder="https://..."
                               />
                             </label>
                             <button
                               type="button"
-                              onClick={() => handleLoadRemoteLinkedImage(p.id)}
+                              onClick={() => handleLoadRemoteLinkedImage(target.id)}
                               disabled={entry.busy || !String(entry.url || "").trim()}
                               className={`px-3 py-2 rounded text-sm ${entry.busy || !String(entry.url || "").trim() ? "bg-gray-300 text-gray-600" : "bg-black text-white hover:bg-gray-900"}`}
                             >
@@ -2628,17 +2837,17 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                           <div className="flex flex-wrap items-center gap-3">
                             <label className="px-3 py-2 rounded border border-gray-300 text-sm cursor-pointer hover:bg-white">
                               Subir imagen
-                              <input type="file" accept="image/*" className="hidden" onChange={(e) => handleLinkedImageFile(p.id, e)} />
+                              <input type="file" accept="image/*" className="hidden" onChange={(e) => handleLinkedImageFile(target.id, e)} />
                             </label>
-                            <button type="button" onClick={() => resetLinkedImage(p.id)} className="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-white">Limpiar imagen</button>
+                            <button type="button" onClick={() => resetLinkedImage(target.id)} className="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-white">Limpiar imagen</button>
                             <div className="text-xs text-gray-500">{entry.fileName ? `Archivo: ${entry.fileName}` : "Acepta URL o archivo local."}</div>
                           </div>
                           <div className="grid sm:grid-cols-[110px_160px_1fr] gap-4 items-center">
                             <div className="rounded-lg border border-gray-300 bg-white p-2 flex items-center justify-center">
-                              <img src={entry.small || DEFAULT_IMAGE_SRC} alt={`90x90-${p.id}`} className="w-[90px] h-[90px] object-cover" />
+                              <img src={entry.small || DEFAULT_IMAGE_SRC} alt={`90x90-${target.id}`} className="w-[90px] h-[90px] object-cover" />
                             </div>
                             <div className="rounded-lg border border-gray-300 bg-white p-2 flex items-center justify-center overflow-hidden">
-                              <img src={entry.large || DEFAULT_IMAGE_SRC} alt={`284x284-${p.id}`} className="w-[142px] h-[142px] object-cover" />
+                              <img src={entry.large || DEFAULT_IMAGE_SRC} alt={`284x284-${target.id}`} className="w-[142px] h-[142px] object-cover" />
                             </div>
                             <div className={`text-xs ${String(entry.status || "").includes("No se pudo") ? "text-red-600" : "text-gray-600"}`}>
                               <div>Proceso aplicado: 284x284 y luego 90x90.</div>
@@ -2690,7 +2899,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         </div>
         ) : null}
 
-        <div className={isHtmlStore ? "p-4 sm:p-6" : "hidden"}>
+        <div className={isHtmlStore ? "self-start p-4 sm:p-6" : "hidden"} data-testid="dec-template-tools">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between mb-2 gap-4">
             <div>
               <h3 className="font-semibold">HTML (solo contenedor destino)</h3>
@@ -2730,7 +2939,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             </div>
           </div>
 
-          <textarea id="dec-html-ta" className="w-full max-w-md h-[200px] border rounded p-3 font-mono text-xs resize-none" readOnly value={html} />
+          <textarea id="dec-html-ta" className="h-[200px] w-full max-w-md resize-none rounded border p-3 font-mono text-xs" readOnly value={html} />
           <p className="text-xs text-gray-500 mt-2">
             {store === "amazon"
               ? <>Copia este bloque y reemplaza en el DOM únicamente la parte <code>&lt;div data-component="default"&gt;...&lt;/div&gt;</code>.</>

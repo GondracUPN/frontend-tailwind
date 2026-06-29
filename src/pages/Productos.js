@@ -29,7 +29,6 @@ const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
 const ESHOPEX_BG_REQUESTED_KEY = 'eshopex-carga-requested';
 const ESHOPEX_BG_OPEN_MODAL_KEY = 'eshopex-carga-open-modal';
 const ESHOPEX_BG_COUNT_KEY = 'eshopex-carga-pendientes-count';
-const RECALCULAR_ENVIOS_USADO_KEY = 'productos:recalcular-envios-nueva-tarifa-usado';
 const INVENTARIO_RECOJO_DIAS = 7;
 const EMPTY_ESH_PROGRESS = {
   status: 'idle',
@@ -153,13 +152,6 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [resumen, setResumen] = useState(() => cached?.resumen || null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
-  const [mostrarRecalcularEnvios, setMostrarRecalcularEnvios] = useState(() => {
-    try {
-      return localStorage.getItem(RECALCULAR_ENVIOS_USADO_KEY) !== '1';
-    } catch {
-      return true;
-    }
-  });
   const [modalModo, setModalModo] = useState(null); // 'crear'|'detalle'|'costos'|'track'|'fotosManual'|'marca'
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   // Mapa: productoId -> fltima venta (o null)
@@ -217,6 +209,16 @@ export default function Productos({ setVista, setAnalisisBack }) {
       return next;
     });
     cerrarAdelanto();
+  };
+
+  const handleAdelantoCuotaSaved = (adelanto) => {
+    if (!adelanto?.productoId) return;
+    setAdelantosMap(prev => {
+      const next = { ...prev, [adelanto.productoId]: adelanto };
+      writeCache(productosRef.current, ventasRef.current, resumenRef.current, next);
+      return next;
+    });
+    setAdelantoActivo(adelanto);
   };
 
   const handleAdelantoCompleto = (ventaGuardada, productoId) => {
@@ -293,7 +295,6 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [fotosManualSeed, setFotosManualSeed] = useState({ trackingEshop: '', fechaRecepcion: '' });
   const [snImeiScannerOpen, setSnImeiScannerOpen] = useState(false);
   const [savingProductos, setSavingProductos] = useState(() => new Set());
-  const [recalculandoEnvios, setRecalculandoEnvios] = useState(false);
   const [adelantoModo, setAdelantoModo] = useState(null); // 'select' | 'create' | 'detail' | 'complete'
   const [adelantoProducto, setAdelantoProducto] = useState(null);
   const [adelantoActivo, setAdelantoActivo] = useState(null);
@@ -1779,25 +1780,6 @@ const confirmAction = async () => {
     }
   }, [productos.length, fetchResumen]);
 
-  const recalcularEnviosNuevaTarifa = useCallback(async () => {
-    const ok = window.confirm('Recalcular envios con tarifa nueva solo para compras posteriores al 01/05/2026?');
-    if (!ok) return;
-    setRecalculandoEnvios(true);
-    try {
-      const result = await api.post('/productos/recalcular-envios-nueva-tarifa', { cutoffDate: '2026-05-01' });
-      try { localStorage.removeItem(CACHE_KEY); } catch {}
-      await refreshProductos({ force: true, useCache: false });
-      try { localStorage.setItem(RECALCULAR_ENVIOS_USADO_KEY, '1'); } catch {}
-      setMostrarRecalcularEnvios(false);
-      alert(`Recalculo completo. Afectados: ${result?.afectados ?? 0}. Individuales: ${result?.individuales ?? 0}. Grupos: ${result?.grupos ?? 0}.`);
-    } catch (err) {
-      console.error('Error recalculando envios:', err);
-      alert(err?.message || 'No se pudo recalcular envios.');
-    } finally {
-      setRecalculandoEnvios(false);
-    }
-  }, [refreshProductos]);
-
   // Carga inicial: intenta cache, pero si no hay data hace fetch
   useEffect(() => {
     if (didInitRef.current) return;
@@ -2700,16 +2682,6 @@ const confirmAction = async () => {
               >
                 Scan SN/IMEI
               </button>
-              {mostrarRecalcularEnvios ? (
-                <button
-                  onClick={recalcularEnviosNuevaTarifa}
-                  disabled={recalculandoEnvios}
-                  className="w-full sm:w-auto bg-orange-600 text-white px-5 py-2 rounded hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  title="Recalcula envios con tarifa nueva solo para compras posteriores al 01/05/2026"
-                >
-                  {recalculandoEnvios ? 'Recalculando...' : 'Recalcular envios'}
-                </button>
-              ) : null}
               <button
                 onClick={abrirMarcaAgua}
                 className="w-full sm:w-auto bg-emerald-700 text-white px-5 py-2 rounded hover:bg-emerald-800"
@@ -3877,6 +3849,7 @@ const confirmAction = async () => {
             producto={adelantoProducto}
             adelanto={adelantoActivo}
             onClose={cerrarAdelanto}
+            onSaved={handleAdelantoCuotaSaved}
             onCompletar={() => abrirAdelantoCompletar(adelantoProducto, adelantoActivo)}
           />
         )}

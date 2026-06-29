@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 
+const TRANSPORTISTAS = ['USPS', 'UPS', 'FedEx', 'Amz'];
+
 export default function ModalTracking({ producto, onClose, onSaved }) {
   const [loading, setLoading] = useState(true);
   const [trackRec, setTrackRec] = useState(null);
@@ -237,12 +239,11 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
               <div>
                 <label className="block text-sm font-medium">Transportista</label>
                 <select className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  aria-label="Transportista"
                   value={transportista}
                   onChange={e => setTransportista(e.target.value)}>
                   <option value="">Selecciona</option>
-                  <option value="USPS">USPS</option>
-                  <option value="UPS">UPS</option>
-                  <option value="FedEx">FedEx</option>
+                  {TRANSPORTISTAS.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </div>
 
@@ -340,12 +341,11 @@ export default function ModalTracking({ producto, onClose, onSaved }) {
               <div>
                 <label className="block text-sm font-medium">Transportista</label>
                 <select className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  aria-label="Transportista"
                   value={transportista}
                   onChange={e => setTransportista(e.target.value)}>
                   <option value="">Selecciona</option>
-                  <option value="USPS">USPS</option>
-                  <option value="UPS">UPS</option>
-                  <option value="FedEx">FedEx</option>
+                  {TRANSPORTISTAS.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </div>
 
