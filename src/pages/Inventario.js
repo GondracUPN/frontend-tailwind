@@ -5,7 +5,6 @@ import {
   FiCheck,
   FiCopy,
   FiEdit3,
-  FiEye,
   FiFileText,
   FiHome,
   FiImage,
@@ -79,7 +78,7 @@ const buildNombre = (producto) => {
       .map(text).filter(Boolean).join(' ');
   }
   if (tipo === 'ipad') {
-    return ['iPad', detalle.gama, detalle.generacion, detalle.tamano]
+    return ['iPad', detalle.gama, detalle.generacion, detalle.procesador, detalle.tamano]
       .map(text).filter(Boolean).join(' ');
   }
   return [producto?.tipo, detalle.modelo].map(text).filter(Boolean).join(' ') || 'Producto';
@@ -235,11 +234,6 @@ export default function Inventario({ setVista }) {
   const [isTablet, setIsTablet] = useState(() => (
     typeof window !== 'undefined' ? Math.min(window.innerWidth, window.innerHeight) >= 600 : false
   ));
-  const [showDesktopTable, setShowDesktopTable] = useState(() => (
-    typeof window !== 'undefined'
-      ? window.innerWidth >= 1280 && Number(window.navigator?.maxTouchPoints || 0) === 0
-      : false
-  ));
   const [uncheckConfirm, setUncheckConfirm] = useState(null);
   const [copied, setCopied] = useState(false);
 
@@ -263,9 +257,6 @@ export default function Inventario({ setVista }) {
     const updateView = () => {
       setIsLandscape(window.innerWidth > window.innerHeight);
       setIsTablet(Math.min(window.innerWidth, window.innerHeight) >= 600);
-      setShowDesktopTable(
-        window.innerWidth >= 1280 && Number(window.navigator?.maxTouchPoints || 0) === 0,
-      );
     };
     updateView();
     window.addEventListener('resize', updateView);
@@ -397,7 +388,6 @@ export default function Inventario({ setVista }) {
     const reader = new FileReader();
     reader.onload = () => {
       setPhotoData(String(reader.result || ''));
-      setForm((current) => ({ ...current, fotosTomadas: true }));
       setNotice('');
     };
     reader.readAsDataURL(file);
@@ -548,7 +538,6 @@ export default function Inventario({ setVista }) {
     try {
       const ficha = await api.del(`/inventario/${id}/foto`);
       replaceFicha(id, ficha);
-      setForm((current) => ({ ...current, fotosTomadas: false }));
       setPhotoData('');
     } catch (err) {
       setNotice(err?.message || 'No se pudo eliminar la foto.');
@@ -680,86 +669,6 @@ export default function Inventario({ setVista }) {
         ) : filtered.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white py-20 text-center text-sm text-slate-500">No hay productos que coincidan con este filtro.</div>
         ) : (
-          <>
-          {showDesktopTable ? (
-          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <table className="min-w-[1180px] w-full text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 text-left">Code</th>
-                  <th className="px-4 py-3 text-left">Producto</th>
-                  <th className="px-4 py-3 text-left">Cotejo</th>
-                  <th className="px-4 py-3 text-left">Datos</th>
-                  <th className="px-4 py-3 text-left">Último precio</th>
-                  <th className="px-4 py-3 text-left">Accesorios</th>
-                  <th className="px-4 py-3 text-center">Fotos</th>
-                  <th className="px-4 py-3 text-center">Marketplace</th>
-                  <th className="px-4 py-3 text-right">Acción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filtered.map((entry) => {
-                  const { producto, ficha } = entry;
-                  const disabled = busyId === producto.id;
-                  return (
-                    <tr key={`row-${producto.id}`} className="hover:bg-slate-50/70">
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-semibold text-slate-700">MS-{producto.id}</td>
-                      <td className="px-4 py-3">
-                        <div className="font-semibold text-slate-950">{buildNombre(producto)}</div>
-                        <div className="mt-0.5 text-xs text-slate-500">{buildSpecs(producto) || 'Sin especificaciones'}</div>
-                        <div className="mt-0.5 text-xs text-slate-400">Recogido: {lastPickupDate(producto) || 'Sin fecha'}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2 font-medium text-slate-700 hover:bg-slate-100">
-                           <input type="checkbox" checked={Boolean(ficha?.enAlmacen)} disabled={disabled} onChange={() => requestQuickCheck(entry, 'enAlmacen', Boolean(ficha?.enAlmacen))} className="h-6 w-6 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-500" />
-                          {ficha?.enAlmacen ? 'En almacén' : 'Por cotejar'}
-                        </label>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        <div>{ficha?.color || 'Color pendiente'}</div>
-                        <div className="mt-0.5 text-xs text-slate-400">
-                          {ficha?.ciclosBateria != null ? `${ficha.ciclosBateria} ciclos` : 'Ciclos —'} · {ficha?.saludBateria != null ? `${ficha.saludBateria}% batería` : 'Salud —'}
-                        </div>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        {formatSoles(ficha?.ultimoPrecioSoles) ? (
-                          <div className="font-semibold text-emerald-700">S/ {formatSoles(ficha.ultimoPrecioSoles)}</div>
-                        ) : (
-                          <span className="text-xs text-slate-400">Sin definir</span>
-                        )}
-                      </td>
-                      <td className="max-w-56 px-4 py-3 text-xs text-slate-600">{(ficha?.accesorios || []).join(', ') || 'Sin registrar'}</td>
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg hover:bg-slate-100">
-                            <input type="checkbox" aria-label={`Fotos ${buildNombre(producto)}`} checked={Boolean(ficha?.fotosTomadas)} disabled={disabled} onChange={() => quickPatch(entry, { fotosTomadas: !ficha?.fotosTomadas })} className="h-6 w-6 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-500" />
-                          </label>
-                          {ficha?.fotoUrl ? (
-                            <button type="button" onClick={() => openPhotoViewer(ficha.fotoUrl, buildNombre(producto))} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100">
-                              <FiEye /> Ver foto
-                            </button>
-                          ) : (
-                            <button type="button" onClick={() => openEditor(entry)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100">
-                              <FiCamera /> Agregar foto
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <label className="mx-auto flex h-11 w-11 cursor-pointer items-center justify-center rounded-lg hover:bg-slate-100">
-                          <input type="checkbox" aria-label={`Marketplace ${buildNombre(producto)}`} checked={Boolean(ficha?.marketplaceSubido)} disabled={disabled} onChange={() => quickPatch(entry, { marketplaceSubido: !ficha?.marketplaceSubido })} className="h-6 w-6 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-500" />
-                        </label>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button type="button" onClick={() => openEditor(entry)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"><FiEdit3 /> Completar ficha</button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          ) : (
           <div className={`grid gap-3 sm:gap-4 ${isTablet ? (isLandscape ? 'grid-cols-4' : 'grid-cols-3') : 'grid-cols-1 sm:grid-cols-2'}`}>
             {filtered.map((entry) => {
               const { producto, ficha } = entry;
@@ -793,10 +702,14 @@ export default function Inventario({ setVista }) {
                       {(ficha?.accesorios || []).slice(0, 3).map((item) => <Pill key={item}>{item}</Pill>)}
                     </div>
 
-                    <div className="mt-3 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
-                      <span className="text-xs font-semibold text-emerald-700">Último precio</span>
-                      <span className="text-base font-bold text-emerald-800">
-                        {formatSoles(ficha?.ultimoPrecioSoles) ? `S/ ${formatSoles(ficha.ultimoPrecioSoles)}` : 'Sin definir'}
+                    <div aria-label="Precios del producto" className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 whitespace-nowrap">
+                      <span className="flex items-center gap-1.5 text-sm text-slate-700">
+                        <span className="text-xs font-semibold">P</span>
+                        <strong>{formatSoles(ficha?.primerPrecioSoles) ? `S/ ${formatSoles(ficha.primerPrecioSoles)}` : '—'}</strong>
+                      </span>
+                      <span className="flex items-center gap-1.5 text-sm text-emerald-800">
+                        <span className="text-xs font-semibold">PU</span>
+                        <strong>{formatSoles(ficha?.ultimoPrecioSoles) ? `S/ ${formatSoles(ficha.ultimoPrecioSoles)}` : '—'}</strong>
                       </span>
                     </div>
 
@@ -829,8 +742,6 @@ export default function Inventario({ setVista }) {
               );
             })}
           </div>
-          )}
-          </>
         )}
       </div>
 

@@ -82,6 +82,56 @@ test('muestra la foto solamente al pulsar Ver foto', async () => {
   expect(screen.getByRole('button', { name: 'Cerrar foto' })).toBeInTheDocument();
 });
 
+test('mantiene las tarjetas con portada en escritorio y muestra más columnas', async () => {
+  const originalWidth = window.innerWidth;
+  const originalHeight = window.innerHeight;
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 });
+  Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 });
+  api.get.mockResolvedValue([{
+    ...entry,
+    ficha: { fotoUrl: 'https://res.cloudinary.com/demo/image/upload/portada.jpg' },
+  }]);
+
+  render(<Inventario setVista={jest.fn()} />);
+
+  const cover = await screen.findByRole('button', { name: 'Ampliar foto de iPhone 15 Pro' });
+  expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  expect(cover.closest('article').parentElement).toHaveClass('grid-cols-4');
+
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth });
+  Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight });
+});
+
+test('subir la portada marca almacén pero no la sesión de fotos', async () => {
+  api.patch.mockResolvedValue({ enAlmacen: false, fotosTomadas: false });
+  api.post.mockResolvedValue({
+    fotoUrl: 'https://res.cloudinary.com/demo/image/upload/portada.jpg',
+    enAlmacen: true,
+    fotosTomadas: false,
+  });
+  render(<Inventario setVista={jest.fn()} />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Completar ficha' }));
+  const photosFinished = screen.getByRole('checkbox', { name: 'Sesión de fotos terminada' });
+  const coverInput = screen.getByText('Arrastra la foto aquí').closest('label').querySelector('input');
+  expect(photosFinished).not.toBeChecked();
+
+  fireEvent.change(coverInput, {
+    target: { files: [new File(['foto'], 'portada.jpg', { type: 'image/jpeg' })] },
+  });
+
+  expect(await screen.findByText('Nueva foto seleccionada; se subirá al guardar.')).toBeInTheDocument();
+  expect(photosFinished).not.toBeChecked();
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
+
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+    '/inventario/42/foto',
+    expect.objectContaining({ dataUrl: expect.stringContaining('data:image/jpeg;base64,') }),
+  ));
+  expect(screen.getByRole('checkbox', { name: 'Almacén' })).toBeChecked();
+  expect(screen.getByRole('checkbox', { name: 'Fotos' })).not.toBeChecked();
+});
+
 test('mantiene el serial y el IMEI ocultos fuera de la ficha', async () => {
   api.get.mockResolvedValue([{
     ...entry,
@@ -172,28 +222,33 @@ test('copia Wifi o GPS aunque el producto no tenga conexion celular', async () =
     producto: {
       ...entry.producto,
       tipo: 'ipad',
-      detalle: { gama: 'Pro', tamano: '13', almacenamiento: '256', conexion: 'Wifi' },
+      detalle: { gama: 'Pro', procesador: 'M4', tamano: '13', almacenamiento: '256', conexion: 'Wifi' },
     },
   }]);
   render(<Inventario setVista={jest.fn()} />);
 
+  expect(await screen.findByText('iPad Pro M4 13')).toBeInTheDocument();
   fireEvent.click(await screen.findByRole('button', { name: 'Completar ficha' }));
   fireEvent.click(screen.getByRole('button', { name: 'Copiar datos' }));
 
   await waitFor(() => expect(writeText).toHaveBeenCalledWith(
-    'iPad Pro 13" Wifi\n256 GB',
+    'iPad Pro M4 13" Wifi\n256 GB',
   ));
 });
 
 test('guarda y muestra el último precio en la vista rápida', async () => {
   api.get.mockResolvedValue([{
     ...entry,
-    ficha: { ultimoPrecioSoles: 99.9 },
+    ficha: { primerPrecioSoles: 125.5, ultimoPrecioSoles: 99.9 },
   }]);
   api.patch.mockResolvedValue({ ultimoPrecioSoles: 89.5 });
   render(<Inventario setVista={jest.fn()} />);
 
-  expect(await screen.findByText('S/ 99.90')).toBeInTheDocument();
+  const prices = await screen.findByLabelText('Precios del producto');
+  expect(within(prices).getByText('P')).toBeInTheDocument();
+  expect(within(prices).getByText('S/ 125.50')).toBeInTheDocument();
+  expect(within(prices).getByText('PU')).toBeInTheDocument();
+  expect(within(prices).getByText('S/ 99.90')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Completar ficha' }));
   const lastPriceInput = screen.getByLabelText('Último precio (S/)');
   expect(lastPriceInput).toHaveValue(99.9);

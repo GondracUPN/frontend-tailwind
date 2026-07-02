@@ -113,7 +113,7 @@ function InventarioAdmin({ onIrProductos }) {
     try {
       setLoading(true);
       setError('');
-      const data = await api.get('/productos');
+      const data = await api.get('/productos/catalog-pending');
       const list = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
       setProductos(list);
     } catch (e) {
@@ -225,7 +225,7 @@ function InventarioAdmin({ onIrProductos }) {
       const res = await api.post('/productos/catalog-sync', {});
       const r = res?.data ?? res;
       const errs = Array.isArray(r?.errores) ? r.errores.length : 0;
-      alert(`Enviados: ${r.enviados ?? 0} / ${r.total ?? visibles.length}. Errores: ${errs}`);
+      alert(`Procesados: ${r.marcados ?? r.enviados ?? 0} / ${r.total ?? visibles.length}. Enviados nuevos: ${r.enviados ?? 0}. Errores: ${errs}`);
       await load();
     } catch (e) {
       alert('No se pudo sincronizar con el catálogo');
