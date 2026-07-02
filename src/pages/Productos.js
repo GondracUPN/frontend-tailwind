@@ -2571,7 +2571,13 @@ const confirmAction = async () => {
                   <select
                     className="border rounded px-2 py-1 w-full sm:w-auto"
                     value={filtroGama}
-                    onChange={(e) => setFiltroGama(e.target.value)}
+                    onChange={(e) => {
+                      setFiltroGama(e.target.value);
+                      if (filtroTipo === 'macbook' || filtroTipo === 'ipad') {
+                        setFiltroProc('todos');
+                        setFiltroTam('todos');
+                      }
+                    }}
                   >
                     <option value="todos">{filtroTipo === 'iphone' ? 'Todos' : 'Todas'}</option>
                     {opcionesGama.map((opt) => (
