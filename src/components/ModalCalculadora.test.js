@@ -22,6 +22,7 @@ beforeEach(() => {
 test('recalcula precio mínimo y medio con el tipo de cambio ingresado', () => {
   render(<ModalCalculadora producto={producto} onClose={jest.fn()} />);
 
+  expect(screen.getByText('MacBook Pro · M3 Pro · 14" · 18 · 512')).toBeInTheDocument();
   const minimumCard = screen.getByText('Precio minimo (+20%)').parentElement;
   const mediumCard = screen.getByText('Precio medio (+40%)').parentElement;
   expect(within(minimumCard).getByText('S/ 510.00')).toBeInTheDocument();
@@ -31,6 +32,17 @@ test('recalcula precio mínimo y medio con el tipo de cambio ingresado', () => {
 
   expect(within(minimumCard).getByText('S/ 540.00')).toBeInTheDocument();
   expect(within(mediumCard).getByText('S/ 630.00')).toBeInTheDocument();
+});
+
+test('resume un iPhone sin agregar procesador, pantalla ni RAM', () => {
+  render(<ModalCalculadora producto={{
+    ...producto,
+    tipo: 'iphone',
+    detalle: { numero: '15', modelo: 'Pro', almacenamiento: '256 GB' },
+  }} onClose={jest.fn()} />);
+
+  expect(screen.getByText('iPhone 15 Pro · 256')).toBeInTheDocument();
+  expect(screen.queryByText(/M3 Pro/)).not.toBeInTheDocument();
 });
 
 test('abre al lado los últimos equipos vendidos similares', async () => {
@@ -54,7 +66,7 @@ test('abre al lado los últimos equipos vendidos similares', async () => {
   const history = await screen.findByLabelText('Últimos equipos vendidos similares');
   expect(within(history).getByText('MacBook Pro')).toBeInTheDocument();
   expect(within(history).getByText('Procesador:')).toHaveTextContent('M3 Pro');
-  expect(within(history).getByText('Pantalla:')).toHaveTextContent('14');
+  expect(within(history).getByText('Pantalla:')).toHaveTextContent('14"');
   expect(within(history).getByText('RAM:')).toHaveTextContent('18 GB');
   expect(within(history).getByText('SSD:')).toHaveTextContent('1 TB');
   expect(within(history).getByText('Estado:')).toHaveTextContent('usado');
@@ -120,7 +132,7 @@ test('muestra solo los datos correspondientes a iPhone y Apple Watch', async () 
 
   const ipad = within(history).getByText('iPad Pro').closest('article');
   expect(within(ipad).getByText('Procesador:')).toHaveTextContent('M2');
-  expect(within(ipad).getByText('Pantalla:')).toHaveTextContent('11');
+  expect(within(ipad).getByText('Pantalla:')).toHaveTextContent('11"');
   expect(within(ipad).getByText('RAM:')).toHaveTextContent('8 GB');
   expect(within(ipad).getByText('Almacenamiento:')).toHaveTextContent('256 GB');
   expect(within(ipad).queryByText('SSD:')).not.toBeInTheDocument();

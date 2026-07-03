@@ -26,6 +26,38 @@ const buildProductName = (product) => {
   const typeLabel = type === 'macbook' ? 'MacBook' : clean(product?.tipo);
   return [typeLabel, detail.gama].map(clean).filter(Boolean).join(' ');
 };
+const compactNumber = (value) => {
+  const raw = clean(value);
+  if (!raw) return '';
+  const amount = raw.match(/\d+(?:[.,]\d+)?/)?.[0]?.replace(',', '.');
+  return amount || raw;
+};
+const formatScreen = (value) => {
+  const amount = compactNumber(value);
+  return amount ? `${amount}"` : '';
+};
+const buildCalculatorProductSummary = (product) => {
+  const detail = product?.detalle || {};
+  const type = clean(product?.tipo).toLowerCase();
+  const values = [buildProductName(product)];
+  const add = (value, numeric = false) => {
+    const normalized = numeric ? compactNumber(value) : clean(value);
+    if (normalized) values.push(normalized);
+  };
+
+  if (type === 'iphone') {
+    add(detail.almacenamiento, true);
+  } else if (type === 'watch') {
+    add(detail.tamano, true);
+    add(detail.conexion);
+  } else {
+    add(detail.procesador);
+    add(formatScreen(detail.tamano));
+    add(detail.ram, true);
+    add(detail.almacenamiento, true);
+  }
+  return values.filter(Boolean).join(' · ');
+};
 const buildSoldSpecs = (product) => {
   const detail = product?.detalle || {};
   const type = clean(product?.tipo).toLowerCase();
@@ -43,7 +75,7 @@ const buildSoldSpecs = (product) => {
     add('Conexión', detail.conexion);
   } else {
     add('Procesador', detail.procesador);
-    add('Pantalla', detail.tamano);
+    add('Pantalla', formatScreen(detail.tamano));
     add('RAM', detail.ram);
     add(type === 'macbook' ? 'SSD' : 'Almacenamiento', detail.almacenamiento);
   }
@@ -124,7 +156,7 @@ export default function ModalCalculadora({ producto, onClose }) {
           <div>
             <h2 className="text-xl font-semibold mb-1">Calculadora rapida</h2>
             <p className="text-sm text-gray-600 mb-4">
-              Producto: <span className="font-medium">{buildProductName(producto) || producto?.tipo}</span> - Costo total base:{' '}
+              Producto: <span className="font-medium">{buildCalculatorProductSummary(producto) || producto?.tipo}</span> - Costo total base:{' '}
               <span className="font-semibold">{fmtSoles(costoTotalBase)}</span>
             </p>
           </div>
