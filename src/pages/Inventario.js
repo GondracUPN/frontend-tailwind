@@ -4,6 +4,7 @@ import {
   FiCamera,
   FiCheck,
   FiCopy,
+  FiDownload,
   FiEdit3,
   FiFileText,
   FiHome,
@@ -17,7 +18,7 @@ import {
   FiZoomIn,
   FiZoomOut,
 } from 'react-icons/fi';
-import api from '../api';
+import api, { API_URL } from '../api';
 import parseSnImeiIds from '../utils/snImeiOcr';
 
 const ModalFacu = lazy(() => import('../components/ModalFacu'));
@@ -236,6 +237,7 @@ export default function Inventario({ setVista }) {
   ));
   const [uncheckConfirm, setUncheckConfirm] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [downloadingPhotos, setDownloadingPhotos] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -549,7 +551,8 @@ export default function Inventario({ setVista }) {
   const stats = useMemo(() => ({
     total: entries.length,
     almacen: entries.filter((entry) => entry.ficha?.enAlmacen).length,
-    sinFoto: entries.filter((entry) => !entry.ficha?.fotosTomadas || !entry.ficha?.fotoUrl).length,
+    sinFoto: entries.filter((entry) => !entry.ficha?.fotoUrl).length,
+    conFoto: entries.filter((entry) => Boolean(entry.ficha?.fotoUrl)).length,
     sinMarketplace: entries.filter((entry) => !entry.ficha?.marketplaceSubido).length,
   }), [entries]);
 
@@ -559,7 +562,8 @@ export default function Inventario({ setVista }) {
       const { producto, ficha } = entry;
       if (filter === 'almacen' && !ficha?.enAlmacen) return false;
       if (filter === 'pendientes' && ficha?.enAlmacen) return false;
-      if (filter === 'sinFoto' && ficha?.fotosTomadas && ficha?.fotoUrl) return false;
+      if (filter === 'sinFoto' && ficha?.fotoUrl) return false;
+      if (filter === 'conFoto' && !ficha?.fotoUrl) return false;
       if (filter === 'sinMarketplace' && ficha?.marketplaceSubido) return false;
       if (!needle) return true;
       const compactCodeQuery = needle.replace(/[\s_-]+/g, '');
@@ -590,6 +594,47 @@ export default function Inventario({ setVista }) {
       return ((Number(a.producto?.id) || 0) - (Number(b.producto?.id) || 0)) * direction;
     });
   }, [entries, filter, query, sortOrder]);
+
+  const downloadPhotoCovers = async () => {
+    const productoIds = filtered
+      .filter((entry) => entry.ficha?.fotoUrl)
+      .map((entry) => entry.producto?.id)
+      .filter(Boolean);
+    if (!productoIds.length || downloadingPhotos) return;
+    setDownloadingPhotos(true);
+    setError('');
+    try {
+      const token = localStorage.getItem('token');
+      const watermarkResponse = await fetch(`${process.env.PUBLIC_URL || ''}/logo.png`);
+      if (!watermarkResponse.ok) throw new Error('No se encontró la marca de agua.');
+      const formData = new FormData();
+      formData.append('productoIds', JSON.stringify(productoIds));
+      formData.append('watermark', await watermarkResponse.blob(), 'logo.png');
+      const response = await fetch(`${API_URL}/inventario/fotos-zip`, {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
+      });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        throw new Error(detail || `HTTP ${response.status}`);
+      }
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = 'inventario-portadas.zip';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL?.(objectUrl), 1000);
+    } catch (err) {
+      setError(err?.message || 'No se pudieron descargar las portadas.');
+    } finally {
+      setDownloadingPhotos(false);
+    }
+  };
 
   const photoPreview = photoData || editing?.ficha?.fotoUrl || '';
 
@@ -653,12 +698,17 @@ export default function Inventario({ setVista }) {
             </button>
             {[
               ['todos', 'Todos'], ['almacen', 'En almacén'], ['pendientes', 'Por cotejar'],
-              ['sinFoto', 'Sin foto'], ['sinMarketplace', 'Sin Marketplace'],
+              ['sinFoto', 'Sin foto'], ['conFoto', 'Con fotos'], ['sinMarketplace', 'Sin Marketplace'],
             ].map(([value, label]) => (
               <button key={value} type="button" onClick={() => setFilter(value)} className={`whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium ${filter === value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
                 {label}
               </button>
             ))}
+            {filter === 'conFoto' && (
+              <button type="button" onClick={downloadPhotoCovers} disabled={downloadingPhotos || filtered.length === 0} className="inline-flex whitespace-nowrap items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+                <FiDownload /> {downloadingPhotos ? 'Preparando ZIP...' : `Descargar portadas (${filtered.length})`}
+              </button>
+            )}
           </div>
         </section>
 

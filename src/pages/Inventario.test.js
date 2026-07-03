@@ -82,6 +82,65 @@ test('muestra la foto solamente al pulsar Ver foto', async () => {
   expect(screen.getByRole('button', { name: 'Cerrar foto' })).toBeInTheDocument();
 });
 
+test('filtra equipos con portada y descarga todas las visibles en ZIP', async () => {
+  const originalFetch = global.fetch;
+  const originalCreateObjectUrl = URL.createObjectURL;
+  const originalRevokeObjectUrl = URL.revokeObjectURL;
+  const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      blob: async () => new Blob(['logo'], { type: 'image/png' }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      blob: async () => new Blob(['zip'], { type: 'application/zip' }),
+    });
+  URL.createObjectURL = jest.fn(() => 'blob:inventario-portadas');
+  URL.revokeObjectURL = jest.fn();
+  api.get.mockResolvedValue([
+    {
+      ...entry,
+      ficha: { fotoUrl: 'https://res.cloudinary.com/demo/image/upload/portada.jpg' },
+    },
+    {
+      ...entry,
+      producto: {
+        ...entry.producto,
+        id: 43,
+        tipo: 'ipad',
+        detalle: { gama: 'Pro', procesador: 'M2', tamano: '11' },
+      },
+      ficha: null,
+    },
+  ]);
+
+  try {
+    render(<Inventario setVista={jest.fn()} />);
+    expect(await screen.findByText('MS-43')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Con fotos' }));
+
+    expect(screen.getByText('MS-42')).toBeInTheDocument();
+    expect(screen.queryByText('MS-43')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar portadas (1)' }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+    expect(global.fetch).toHaveBeenNthCalledWith(1, expect.stringContaining('/logo.png'));
+    const [url, options] = global.fetch.mock.calls[1];
+    expect(url).toContain('/inventario/fotos-zip');
+    expect(options.method).toBe('POST');
+    expect(options.body).toBeInstanceOf(FormData);
+    expect(options.body.get('productoIds')).toBe(JSON.stringify([42]));
+    expect(options.body.get('watermark')).toBeInstanceOf(Blob);
+    expect(anchorClick).toHaveBeenCalled();
+  } finally {
+    global.fetch = originalFetch;
+    URL.createObjectURL = originalCreateObjectUrl;
+    URL.revokeObjectURL = originalRevokeObjectUrl;
+    anchorClick.mockRestore();
+  }
+});
+
 test('mantiene las tarjetas con portada en escritorio y muestra más columnas', async () => {
   const originalWidth = window.innerWidth;
   const originalHeight = window.innerHeight;

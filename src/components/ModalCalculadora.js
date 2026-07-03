@@ -4,7 +4,11 @@ import React, { useMemo, useState } from 'react';
 import { TC_FIJO } from '../utils/tipoCambio';
 import api from '../api';
 
-const fmtSoles = (v) => (isNaN(v) ? '-' : `S/ ${Number(v).toFixed(2)}`);
+const fmtSoles = (v) => {
+  const amount = Number(v);
+  if (!Number.isFinite(amount)) return '-';
+  return `S/ ${(Math.round((amount + Math.sign(amount || 1) * 1e-9) * 100) / 100).toFixed(2)}`;
+};
 const fmtDate = (value) => {
   const [year, month, day] = String(value || '').slice(0, 10).split('-');
   return year && month && day ? `${day}/${month}/${year}` : '—';
@@ -13,6 +17,11 @@ const roundUp10 = (n) => {
   const x = Number(n);
   if (!isFinite(x)) return NaN;
   return Math.ceil(x / 10) * 10;
+};
+const roundUp50 = (n) => {
+  const x = Number(n);
+  if (!isFinite(x)) return NaN;
+  return Math.ceil(x / 50) * 50;
 };
 
 const clean = (value) => String(value ?? '').trim();
@@ -107,7 +116,7 @@ export default function ModalCalculadora({ producto, onClose }) {
   // Sugerencias basadas en el costo recalculado con el TC ingresado.
   const { pvMin, pvMed } = useMemo(() => {
     const pvMinRounded = roundUp10(costoUsado * 1.2); // +20%
-    const pvMedRounded = roundUp10(costoUsado * 1.4); // +40%
+    const pvMedRounded = roundUp50(costoUsado * 1.3); // +30%, siempre termina en 00 o 50
     return { pvMin: pvMinRounded, pvMed: pvMedRounded };
   }, [costoUsado]);
 
@@ -122,6 +131,7 @@ export default function ModalCalculadora({ producto, onClose }) {
 
   const gananciaMin = pvMin - costoUsado;
   const gananciaMed = pvMed - costoUsado;
+  const treintaPorCientoExacto = costoUsado * 0.3;
 
   const toggleHistory = async () => {
     const nextOpen = !historyOpen;
@@ -182,10 +192,13 @@ export default function ModalCalculadora({ producto, onClose }) {
                 </div>
               </div>
               <div className="border rounded-lg p-4 bg-gray-50">
-                <div className="text-sm text-gray-500 mb-1">Precio medio (+40%)</div>
+                <div className="text-sm text-gray-500 mb-1">Precio medio (+30%)</div>
                 <div className="text-2xl font-semibold">{fmtSoles(pvMed)}</div>
                 <div className="text-sm text-gray-700 mt-1">
-                  Ganancia: <strong>{fmtSoles(gananciaMed)}</strong>
+                  30% exacto: <strong>{fmtSoles(treintaPorCientoExacto)}</strong>
+                </div>
+                <div className="text-sm text-gray-700 mt-1">
+                  Ganancia redondeada: <strong>{fmtSoles(gananciaMed)}</strong>
                 </div>
               </div>
             </div>

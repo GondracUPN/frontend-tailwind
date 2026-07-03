@@ -24,14 +24,28 @@ test('recalcula precio mínimo y medio con el tipo de cambio ingresado', () => {
 
   expect(screen.getByText('MacBook Pro · M3 Pro · 14" · 18 · 512')).toBeInTheDocument();
   const minimumCard = screen.getByText('Precio minimo (+20%)').parentElement;
-  const mediumCard = screen.getByText('Precio medio (+40%)').parentElement;
+  const mediumCard = screen.getByText('Precio medio (+30%)').parentElement;
   expect(within(minimumCard).getByText('S/ 510.00')).toBeInTheDocument();
-  expect(within(mediumCard).getByText('S/ 590.00')).toBeInTheDocument();
+  expect(within(mediumCard).getByText('S/ 550.00')).toBeInTheDocument();
+  expect(within(mediumCard).getByText('S/ 126.00')).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText('Tipo de cambio (US$ a S/)'), { target: { value: '4' } });
 
   expect(within(minimumCard).getByText('S/ 540.00')).toBeInTheDocument();
-  expect(within(mediumCard).getByText('S/ 630.00')).toBeInTheDocument();
+  expect(within(mediumCard).getByText('S/ 600.00')).toBeInTheDocument();
+  expect(within(mediumCard).getByText('S/ 135.00')).toBeInTheDocument();
+});
+
+test('redondea el precio medio hacia arriba para terminar en 00 o 50', () => {
+  render(<ModalCalculadora producto={{
+    ...producto,
+    valor: { valorProducto: 0, costoEnvio: 0, costoTotal: 3617.45 },
+  }} onClose={jest.fn()} />);
+
+  const mediumCard = screen.getByText('Precio medio (+30%)').parentElement;
+  expect(within(mediumCard).getByText('S/ 4750.00')).toBeInTheDocument();
+  expect(within(mediumCard).getByText('S/ 1085.24')).toBeInTheDocument();
+  expect(within(mediumCard).getByText('S/ 1132.55')).toBeInTheDocument();
 });
 
 test('resume un iPhone sin agregar procesador, pantalla ni RAM', () => {
