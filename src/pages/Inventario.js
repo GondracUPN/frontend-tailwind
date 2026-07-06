@@ -551,8 +551,8 @@ export default function Inventario({ setVista }) {
   const stats = useMemo(() => ({
     total: entries.length,
     almacen: entries.filter((entry) => entry.ficha?.enAlmacen).length,
-    sinFoto: entries.filter((entry) => !entry.ficha?.fotoUrl).length,
-    conFoto: entries.filter((entry) => Boolean(entry.ficha?.fotoUrl)).length,
+    sinFoto: entries.filter((entry) => !entry.ficha?.fotosTomadas).length,
+    conFoto: entries.filter((entry) => Boolean(entry.ficha?.fotosTomadas)).length,
     sinMarketplace: entries.filter((entry) => !entry.ficha?.marketplaceSubido).length,
   }), [entries]);
 
@@ -562,8 +562,8 @@ export default function Inventario({ setVista }) {
       const { producto, ficha } = entry;
       if (filter === 'almacen' && !ficha?.enAlmacen) return false;
       if (filter === 'pendientes' && ficha?.enAlmacen) return false;
-      if (filter === 'sinFoto' && ficha?.fotoUrl) return false;
-      if (filter === 'conFoto' && !ficha?.fotoUrl) return false;
+      if (filter === 'sinFoto' && ficha?.fotosTomadas) return false;
+      if (filter === 'conFoto' && !ficha?.fotosTomadas) return false;
       if (filter === 'sinMarketplace' && ficha?.marketplaceSubido) return false;
       if (!needle) return true;
       const compactCodeQuery = needle.replace(/[\s_-]+/g, '');
@@ -594,6 +594,11 @@ export default function Inventario({ setVista }) {
       return ((Number(a.producto?.id) || 0) - (Number(b.producto?.id) || 0)) * direction;
     });
   }, [entries, filter, query, sortOrder]);
+
+  const downloadablePhotoCoverCount = useMemo(
+    () => filtered.filter((entry) => entry.ficha?.fotoUrl).length,
+    [filtered],
+  );
 
   const downloadPhotoCovers = async () => {
     const productoIds = filtered
@@ -705,8 +710,8 @@ export default function Inventario({ setVista }) {
               </button>
             ))}
             {filter === 'conFoto' && (
-              <button type="button" onClick={downloadPhotoCovers} disabled={downloadingPhotos || filtered.length === 0} className="inline-flex whitespace-nowrap items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
-                <FiDownload /> {downloadingPhotos ? 'Preparando ZIP...' : `Descargar portadas (${filtered.length})`}
+              <button type="button" onClick={downloadPhotoCovers} disabled={downloadingPhotos || downloadablePhotoCoverCount === 0} className="inline-flex whitespace-nowrap items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+                <FiDownload /> {downloadingPhotos ? 'Preparando ZIP...' : `Descargar portadas (${downloadablePhotoCoverCount})`}
               </button>
             )}
           </div>

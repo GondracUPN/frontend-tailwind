@@ -82,7 +82,7 @@ test('muestra la foto solamente al pulsar Ver foto', async () => {
   expect(screen.getByRole('button', { name: 'Cerrar foto' })).toBeInTheDocument();
 });
 
-test('filtra equipos con portada y descarga todas las visibles en ZIP', async () => {
+test('filtra por check de fotos y descarga solo portadas disponibles en ZIP', async () => {
   const originalFetch = global.fetch;
   const originalCreateObjectUrl = URL.createObjectURL;
   const originalRevokeObjectUrl = URL.revokeObjectURL;
@@ -101,7 +101,10 @@ test('filtra equipos con portada y descarga todas las visibles en ZIP', async ()
   api.get.mockResolvedValue([
     {
       ...entry,
-      ficha: { fotoUrl: 'https://res.cloudinary.com/demo/image/upload/portada.jpg' },
+      ficha: {
+        fotoUrl: 'https://res.cloudinary.com/demo/image/upload/portada.jpg',
+        fotosTomadas: true,
+      },
     },
     {
       ...entry,
@@ -111,7 +114,23 @@ test('filtra equipos con portada y descarga todas las visibles en ZIP', async ()
         tipo: 'ipad',
         detalle: { gama: 'Pro', procesador: 'M2', tamano: '11' },
       },
-      ficha: null,
+      ficha: {
+        fotoUrl: 'https://res.cloudinary.com/demo/image/upload/solo-portada.jpg',
+        fotosTomadas: false,
+      },
+    },
+    {
+      ...entry,
+      producto: {
+        ...entry.producto,
+        id: 44,
+        tipo: 'macbook',
+        detalle: { gama: 'Air', procesador: 'M3', tamano: '13' },
+      },
+      ficha: {
+        fotoUrl: null,
+        fotosTomadas: true,
+      },
     },
   ]);
 
@@ -121,6 +140,7 @@ test('filtra equipos con portada y descarga todas las visibles en ZIP', async ()
     fireEvent.click(screen.getByRole('button', { name: 'Con fotos' }));
 
     expect(screen.getByText('MS-42')).toBeInTheDocument();
+    expect(screen.getByText('MS-44')).toBeInTheDocument();
     expect(screen.queryByText('MS-43')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Descargar portadas (1)' }));
 
