@@ -666,10 +666,11 @@ export default function Inventario({ setVista }) {
           </div>
         </header>
 
-        <section className="mb-5 grid grid-cols-2 gap-2.5 sm:mb-6 sm:gap-3 lg:grid-cols-4">
+        <section className="mb-5 grid grid-cols-2 gap-2.5 sm:mb-6 sm:gap-3 lg:grid-cols-5">
           {[
             ['Disponibles', stats.total, 'text-slate-950'],
             ['Confirmados en almacén', stats.almacen, 'text-emerald-700'],
+            ['Con fotos', stats.conFoto, 'text-indigo-700'],
             ['Sin foto completa', stats.sinFoto, 'text-amber-700'],
             ['Sin Marketplace', stats.sinMarketplace, 'text-blue-700'],
           ].map(([label, value, tone]) => (
