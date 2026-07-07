@@ -98,19 +98,27 @@ test('filtra por check de fotos y descarga solo portadas disponibles en ZIP', as
     });
   URL.createObjectURL = jest.fn(() => 'blob:inventario-portadas');
   URL.revokeObjectURL = jest.fn();
-  api.get.mockResolvedValue([
-    {
+  const coverEntries = Array.from({ length: 12 }, (_, index) => {
+    const id = 42 + index;
+    return {
       ...entry,
+      producto: {
+        ...entry.producto,
+        id,
+      },
       ficha: {
-        fotoUrl: 'https://res.cloudinary.com/demo/image/upload/portada.jpg',
+        fotoUrl: `https://res.cloudinary.com/demo/image/upload/${id}.jpg`,
         fotosTomadas: true,
       },
-    },
+    };
+  });
+  api.get.mockResolvedValue([
+    ...coverEntries,
     {
       ...entry,
       producto: {
         ...entry.producto,
-        id: 43,
+        id: 99,
         tipo: 'ipad',
         detalle: { gama: 'Pro', procesador: 'M2', tamano: '11' },
       },
@@ -123,7 +131,7 @@ test('filtra por check de fotos y descarga solo portadas disponibles en ZIP', as
       ...entry,
       producto: {
         ...entry.producto,
-        id: 44,
+        id: 100,
         tipo: 'macbook',
         detalle: { gama: 'Air', procesador: 'M3', tamano: '13' },
       },
@@ -136,13 +144,14 @@ test('filtra por check de fotos y descarga solo portadas disponibles en ZIP', as
 
   try {
     render(<Inventario setVista={jest.fn()} />);
-    expect(await screen.findByText('MS-43')).toBeInTheDocument();
+    expect(await screen.findByText('MS-99')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Con fotos' }));
 
     expect(screen.getByText('MS-42')).toBeInTheDocument();
-    expect(screen.getByText('MS-44')).toBeInTheDocument();
-    expect(screen.queryByText('MS-43')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Descargar portadas (1)' }));
+    expect(screen.getByText('MS-53')).toBeInTheDocument();
+    expect(screen.getByText('MS-100')).toBeInTheDocument();
+    expect(screen.queryByText('MS-99')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar portadas (12)' }));
 
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
     expect(global.fetch).toHaveBeenNthCalledWith(1, expect.stringContaining('/logo.png'));
@@ -150,7 +159,7 @@ test('filtra por check de fotos y descarga solo portadas disponibles en ZIP', as
     expect(url).toContain('/inventario/fotos-zip');
     expect(options.method).toBe('POST');
     expect(options.body).toBeInstanceOf(FormData);
-    expect(options.body.get('productoIds')).toBe(JSON.stringify([42]));
+    expect(options.body.get('productoIds')).toBe(JSON.stringify([53, 52, 51, 50, 49, 48, 47, 46, 45, 44, 43, 42]));
     expect(options.body.get('watermark')).toBeInstanceOf(Blob);
     expect(anchorClick).toHaveBeenCalled();
   } finally {
