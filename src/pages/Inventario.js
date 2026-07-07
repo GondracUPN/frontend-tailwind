@@ -596,13 +596,13 @@ export default function Inventario({ setVista }) {
   }, [entries, filter, query, sortOrder]);
 
   const downloadablePhotoCoverCount = useMemo(
-    () => filtered.filter((entry) => entry.ficha?.fotoUrl).length,
+    () => filtered.filter((entry) => entry.ficha?.fotosTomadas).length,
     [filtered],
   );
 
   const downloadPhotoCovers = async () => {
     const productoIds = filtered
-      .filter((entry) => entry.ficha?.fotoUrl)
+      .filter((entry) => entry.ficha?.fotosTomadas)
       .map((entry) => entry.producto?.id)
       .filter(Boolean);
     if (!productoIds.length || downloadingPhotos) return;
@@ -610,12 +610,9 @@ export default function Inventario({ setVista }) {
     setError('');
     try {
       const token = localStorage.getItem('token');
-      const watermarkResponse = await fetch(`${process.env.PUBLIC_URL || ''}/logo.png`);
-      if (!watermarkResponse.ok) throw new Error('No se encontró la marca de agua.');
       const formData = new FormData();
       formData.append('scope', 'conFotosPortada');
       formData.append('productoIds', JSON.stringify(productoIds));
-      formData.append('watermark', await watermarkResponse.blob(), 'logo.png');
       const response = await fetch(`${API_URL}/inventario/fotos-zip`, {
         method: 'POST',
         headers: {
@@ -625,7 +622,14 @@ export default function Inventario({ setVista }) {
       });
       if (!response.ok) {
         const detail = await response.text().catch(() => '');
-        throw new Error(detail || `HTTP ${response.status}`);
+        let message = detail;
+        try {
+          const parsed = JSON.parse(detail);
+          message = Array.isArray(parsed?.message) ? parsed.message.join('\n') : (parsed?.message || detail);
+        } catch {
+          message = detail;
+        }
+        throw new Error(message || `HTTP ${response.status}`);
       }
       const objectUrl = URL.createObjectURL(await response.blob());
       const link = document.createElement('a');

@@ -25,9 +25,17 @@ const copyText = async (value) => {
   }
 };
 
+const productCode = (product) => `MS-${product?.id || ''}`;
+const compactText = (value) => String(value || '').toLowerCase().replace(/[\s_-]+/g, '');
+const productOptionLabel = (product) => {
+  if (!product) return '';
+  return `${productCode(product)} - ${product.label || 'Producto'}`;
+};
+
 export default function ModalVentaMensaje({ onClose, productos = [] }) {
   const [telefono, setTelefono] = useState('');
   const [productoId, setProductoId] = useState('');
+  const [productoQuery, setProductoQuery] = useState('');
   const [precio, setPrecio] = useState('');
   const [lugar, setLugar] = useState('almacen');
   const [copied, setCopied] = useState('');
@@ -38,6 +46,23 @@ export default function ModalVentaMensaje({ onClose, productos = [] }) {
     () => productos.find((p) => String(p.id) === String(productoId)) || null,
     [productos, productoId],
   );
+  const filteredProducts = useMemo(() => {
+    const query = String(productoQuery || '').trim().toLowerCase();
+    if (!query) return productos;
+    const compactQuery = compactText(query);
+    return productos.filter((product) => {
+      const id = String(product?.id || '');
+      const label = String(product?.label || '').toLowerCase();
+      const code = productCode(product).toLowerCase();
+      const compactCode = compactText(code);
+      return (
+        label.includes(query) ||
+        code.includes(query) ||
+        compactCode.includes(compactQuery) ||
+        id.includes(compactQuery)
+      );
+    });
+  }, [productos, productoQuery]);
   const lugarLabel = useMemo(
     () => LUGARES.find((x) => x.value === lugar)?.label || 'Coordinar',
     [lugar],
@@ -46,7 +71,7 @@ export default function ModalVentaMensaje({ onClose, productos = [] }) {
   const waBase = numeroPe ? `wa.me/${numeroPe}` : '';
   const waText = [
     waBase,
-    `Producto: ${selectedProduct?.label || '-'}`,
+    `Producto: ${selectedProduct ? productOptionLabel(selectedProduct) : '-'}`,
     `Precio acordado: ${precio ? `S/ ${precio}` : '-'}`,
     `Lugar: ${lugarLabel}`,
     tel9 || '-',
@@ -107,15 +132,23 @@ export default function ModalVentaMensaje({ onClose, productos = [] }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
           <label className="text-sm sm:col-span-2">
             <span className="block text-gray-600 mb-1">Producto</span>
+            <input
+              type="text"
+              value={productoQuery}
+              onChange={(e) => setProductoQuery(e.target.value)}
+              placeholder="Buscar por producto o Code (MS-123, MS123 o 123)"
+              className="mb-2 w-full border rounded px-3 py-2"
+            />
             <select
               className="w-full border rounded px-3 py-2"
               value={productoId}
               onChange={(e) => setProductoId(e.target.value)}
             >
               <option value="">Selecciona un producto</option>
-              {productos.map((p) => (
-                <option key={p.id} value={String(p.id)}>{p.label}</option>
+              {filteredProducts.map((p) => (
+                <option key={p.id} value={String(p.id)}>{productOptionLabel(p)}</option>
               ))}
+              {filteredProducts.length === 0 && <option value="" disabled>No hay productos que coincidan</option>}
             </select>
           </label>
 

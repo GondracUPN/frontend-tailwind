@@ -87,15 +87,10 @@ test('filtra por check de fotos y descarga solo portadas disponibles en ZIP', as
   const originalCreateObjectUrl = URL.createObjectURL;
   const originalRevokeObjectUrl = URL.revokeObjectURL;
   const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-  global.fetch = jest.fn()
-    .mockResolvedValueOnce({
-      ok: true,
-      blob: async () => new Blob(['logo'], { type: 'image/png' }),
-    })
-    .mockResolvedValueOnce({
-      ok: true,
-      blob: async () => new Blob(['zip'], { type: 'application/zip' }),
-    });
+  global.fetch = jest.fn().mockResolvedValueOnce({
+    ok: true,
+    blob: async () => new Blob(['zip'], { type: 'application/zip' }),
+  });
   URL.createObjectURL = jest.fn(() => 'blob:inventario-portadas');
   URL.revokeObjectURL = jest.fn();
   const coverEntries = Array.from({ length: 12 }, (_, index) => {
@@ -151,17 +146,16 @@ test('filtra por check de fotos y descarga solo portadas disponibles en ZIP', as
     expect(screen.getByText('MS-53')).toBeInTheDocument();
     expect(screen.getByText('MS-100')).toBeInTheDocument();
     expect(screen.queryByText('MS-99')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Descargar portadas (12)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar portadas (13)' }));
 
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
-    expect(global.fetch).toHaveBeenNthCalledWith(1, expect.stringContaining('/logo.png'));
-    const [url, options] = global.fetch.mock.calls[1];
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const [url, options] = global.fetch.mock.calls[0];
     expect(url).toContain('/inventario/fotos-zip');
     expect(options.method).toBe('POST');
     expect(options.body).toBeInstanceOf(FormData);
     expect(options.body.get('scope')).toBe('conFotosPortada');
-    expect(options.body.get('productoIds')).toBe(JSON.stringify([53, 52, 51, 50, 49, 48, 47, 46, 45, 44, 43, 42]));
-    expect(options.body.get('watermark')).toBeInstanceOf(Blob);
+    expect(options.body.get('productoIds')).toBe(JSON.stringify([100, 53, 52, 51, 50, 49, 48, 47, 46, 45, 44, 43, 42]));
+    expect(options.body.get('watermark')).toBeNull();
     expect(anchorClick).toHaveBeenCalled();
   } finally {
     global.fetch = originalFetch;
