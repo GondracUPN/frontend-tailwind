@@ -613,6 +613,7 @@ export default function Inventario({ setVista }) {
       const watermarkResponse = await fetch(`${process.env.PUBLIC_URL || ''}/logo.png`);
       if (!watermarkResponse.ok) throw new Error('No se encontró la marca de agua.');
       const formData = new FormData();
+      formData.append('scope', 'conFotosPortada');
       formData.append('productoIds', JSON.stringify(productoIds));
       formData.append('watermark', await watermarkResponse.blob(), 'logo.png');
       const response = await fetch(`${API_URL}/inventario/fotos-zip`, {

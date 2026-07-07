@@ -159,6 +159,7 @@ test('filtra por check de fotos y descarga solo portadas disponibles en ZIP', as
     expect(url).toContain('/inventario/fotos-zip');
     expect(options.method).toBe('POST');
     expect(options.body).toBeInstanceOf(FormData);
+    expect(options.body.get('scope')).toBe('conFotosPortada');
     expect(options.body.get('productoIds')).toBe(JSON.stringify([53, 52, 51, 50, 49, 48, 47, 46, 45, 44, 43, 42]));
     expect(options.body.get('watermark')).toBeInstanceOf(Blob);
     expect(anchorClick).toHaveBeenCalled();
