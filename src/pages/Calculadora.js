@@ -433,7 +433,7 @@ const tarifaHasta3Kg = (pesoKg) =>
   tarifaEshopexInterpolada(Math.min(Math.max(pesoKg || 0, 0), 3));
 
 // Honorarios / Seguro segn DEC (USD)
-const honorariosPorDEC = (dec) => (dec <= 100 ? 16.30 : dec <= 200 ? 25.28 : dec <= 1000 ? 39.76 : 60.16);
+const honorariosPorDEC = (dec) => (dec <= 100 ? 23.50 : dec <= 200 ? 28.80 : dec <= 1000 ? 39.76 : 60.16);
 const seguroPorDEC     = (dec) => (dec <= 100 ? 8.86  : dec <= 200 ? 15.98 : 21.10);
 
 /* =========================

@@ -4,6 +4,8 @@ import LoginGastos from './LoginGastos';
 import { EXPENSE_CATEGORY_OPTIONS } from '../utils/expenseConcepts';
 
 const ModalProducto = lazy(() => import('../components/ModalProducto'));
+const PRODUCTOS_CACHE_KEY = 'productos:cache:v2';
+const PRECIO_NUEVA_TARIFA_APLICADA_KEY = 'productos:precio-nueva-tarifa-aplicada:v1';
 
 function UsuariosAdmin() {
   const [users, setUsers] = useState([]);
@@ -283,6 +285,52 @@ function InventarioAdmin({ onIrProductos }) {
             onSaved={upsertProducto}
           />
         </Suspense>
+      )}
+    </div>
+  );
+}
+
+function TarifasAdmin() {
+  const [actualizando, setActualizando] = useState(false);
+  const [aplicado, setAplicado] = useState(() => (
+    localStorage.getItem(PRECIO_NUEVA_TARIFA_APLICADA_KEY) === '1'
+  ));
+
+  const actualizarPrecio = async () => {
+    if (actualizando || aplicado) return;
+    const ok = window.confirm('Actualizar precios con la nueva tabla de honorarios?');
+    if (!ok) return;
+    setActualizando(true);
+    try {
+      const result = await api.post('/productos/recalcular-envios-nueva-tarifa', {});
+      localStorage.setItem(PRECIO_NUEVA_TARIFA_APLICADA_KEY, '1');
+      localStorage.removeItem(PRODUCTOS_CACHE_KEY);
+      setAplicado(true);
+      const afectados = Number(result?.afectados || 0);
+      const individuales = Number(result?.individuales || 0);
+      const grupos = Number(result?.grupos || 0);
+      alert(`Precios actualizados: ${afectados} productos (${individuales} individuales, ${grupos} grupos).`);
+    } catch (err) {
+      console.error('[Servicios] Error actualizando precios con nueva tarifa', err);
+      alert('No se pudieron actualizar los precios.');
+    } finally {
+      setActualizando(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl bg-white p-4 shadow">
+      <h2 className="mb-2 text-xl font-semibold">Tarifas</h2>
+      {aplicado ? (
+        <p className="text-sm text-gray-600">Nueva tabla de honorarios aplicada.</p>
+      ) : (
+        <button
+          onClick={actualizarPrecio}
+          disabled={actualizando}
+          className="rounded bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+        >
+          {actualizando ? 'Actualizando...' : 'Actualizar precio'}
+        </button>
       )}
     </div>
   );
@@ -682,6 +730,7 @@ export default function Servicios({ setVista }) {
       <div className="grid md:grid-cols-2 gap-6">
         <UsuariosAdmin />
         <InventarioAdmin onIrProductos={() => setVista('productos')} />
+        <TarifasAdmin />
         <CatalogosAdmin />
       </div>
     </div>

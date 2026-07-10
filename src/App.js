@@ -345,7 +345,7 @@ const tarifaEshopexCalc = (pesoKg) => {
 };
 
 const tarifaHasta3KgCalc = (pesoKg) => tarifaEshopexCalc(Math.min(Math.max(pesoKg || 0, 0), 3));
-const honorariosPorDecCalc = (dec) => (dec <= 100 ? 16.30 : dec <= 200 ? 25.28 : dec <= 1000 ? 39.76 : 60.16);
+const honorariosPorDecCalc = (dec) => (dec <= 100 ? 23.50 : dec <= 200 ? 28.80 : dec <= 1000 ? 39.76 : 60.16);
 const seguroPorDecCalc = (dec) => (dec <= 100 ? 8.86 : dec <= 200 ? 15.98 : 21.10);
 
 const migratePersonalEshopexLocalStorage = async (current = []) => {
