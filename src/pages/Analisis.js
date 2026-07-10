@@ -1387,6 +1387,11 @@ const gananciasResumen = useMemo(() => {
   detail: `${months} meses`,
   };
   }, [data?.comprasPeriodo, data?.summary?.capitalTotal, dateMode, isGeneral, yearKey]);
+
+  const capitalTotalShippingAverage = useMemo(() => {
+  if (!capitalTotalAverage?.months) return null;
+  return +(capitalTotalBreakdown.shippingPen / capitalTotalAverage.months).toFixed(2);
+  }, [capitalTotalAverage?.months, capitalTotalBreakdown.shippingPen]);
  const ventasMargenRows = useMemo(() => {
  const rows = Array.isArray(data?.sales?.perMonth) ? data.sales.perMonth : [];
  const byMonth = new Map(rows.map((m) => [String(m?.month || '').slice(0, 7), m]));
@@ -1807,7 +1812,10 @@ const gananciasResumen = useMemo(() => {
   {capitalTotalAverage ? (
   <>
   <span className="block">Producto USD prom.: {fmtUSD(capitalTotalBreakdown.productUsd / capitalTotalAverage.months)}</span>
-  <span className="block">Envio prom.: <Currency v={capitalTotalBreakdown.shippingPen / capitalTotalAverage.months} /></span>
+  {dateMode === 'year' ? (
+  <span className="block">Envio: <Currency v={capitalTotalBreakdown.shippingPen} /></span>
+  ) : null}
+  <span className="block">Envio prom.: <Currency v={capitalTotalShippingAverage} /></span>
   </>
   ) : null}
   </>
