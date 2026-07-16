@@ -161,6 +161,7 @@ export default function ModalFotosManual({
         <button
           className="absolute top-3 right-3 text-gray-500 hover:text-gray-800"
           onClick={onClose}
+          aria-label="Cerrar modal"
         >
           x
         </button>

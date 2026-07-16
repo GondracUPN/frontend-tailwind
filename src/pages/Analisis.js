@@ -293,6 +293,22 @@ const countEstados = (series = []) => {
 
 };
 
+const applyAccessoryFilter = (series = [], category) => {
+ const key = String(category || '').trim().toLowerCase();
+ if (!key || key === 'todos') return series;
+ return series.filter((row) => String(row?.accesoriosCategoria || 'sin_nada').toLowerCase() === key);
+};
+
+const countAccessoryCategories = (series = []) => {
+ const counts = { caja: 0, accesorios: 0, sin_nada: 0, total: 0 };
+ series.forEach((row) => {
+  const key = String(row?.accesoriosCategoria || 'sin_nada').toLowerCase();
+  counts.total += 1;
+  if (Object.prototype.hasOwnProperty.call(counts, key)) counts[key] += 1;
+ });
+ return counts;
+};
+
 
 
 
@@ -376,28 +392,6 @@ const buildTrendStats = (series = []) => {
 
 };
 
-const buildSpreadStats = (costSeries = [], saleSeries = []) => {
-
- const costVals = costSeries.map((p) => p.val).filter((v) => isFinite(v) && v > 0);
-
- const saleVals = saleSeries.map((p) => p.val).filter((v) => isFinite(v) && v > 0);
-
- const costMedian = medianLocal(costVals);
-
- const saleMedian = medianLocal(saleVals);
-
- if (!isFinite(costMedian) || !isFinite(saleMedian)) return null;
-
- const spread = +(saleMedian - costMedian).toFixed(2);
-
- const pct = costMedian ? +((spread / costMedian) * 100).toFixed(2) : null;
-
- return { costMedian, saleMedian, spread, pct };
-
-};
-
-
-
 const roundUp10 = (value) => {
 
 
@@ -430,6 +424,7 @@ const roundUp10 = (value) => {
      date: rawDate,
      productoId: row?.productoId ?? null,
      estado: normalizeEstado(row?.estado),
+     accesoriosCategoria: row?.accesoriosCategoria || 'sin_nada',
     };
    })
    .filter(Boolean)
@@ -470,7 +465,7 @@ const roundUp10 = (value) => {
  const [sellerFilter, setSellerFilter] = useState('');
  const [compareMode, setCompareMode] = useState('month');
 
- const [productFilters, setProductFilters] = useState({ tipo: '', gama: '', proc: '', pantalla: '' });
+ const [productFilters, setProductFilters] = useState({ tipo: '', gama: '', proc: '', pantalla: '', estado: '', ram: '', ssd: '' });
 
 
  const cacheKey = useMemo(() => {
@@ -490,19 +485,6 @@ const roundUp10 = (value) => {
 
 
 
- productFilters.tipo || '',
-
-
-
- productFilters.gama || '',
-
-
-
- productFilters.proc || '',
-
-
-
- productFilters.pantalla || '',
  sellerFilter || '',
 
 
@@ -511,11 +493,11 @@ const roundUp10 = (value) => {
 
 
 
- return `analytics:lastSummary:v3:${parts}`;
+ return `analytics:lastSummary:v5:${parts}`;
 
 
 
- }, [dateMode, appliedDates.from, appliedDates.to, productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter]);
+ }, [dateMode, appliedDates.from, appliedDates.to, sellerFilter]);
 
 
 
@@ -566,9 +548,26 @@ const roundUp10 = (value) => {
 });
 
 const dataRef = useRef(data);
+const loadRequestRef = useRef(0);
 useEffect(() => {
 dataRef.current = data;
 }, [data]);
+
+useEffect(() => {
+ try {
+  const raw = cacheKey ? localStorage.getItem(cacheKey) : null;
+  const cached = raw ? JSON.parse(raw) : null;
+  const next = cached && typeof cached === 'object' ? cached : null;
+  dataRef.current = next;
+  setData(next);
+  const rawTs = cacheKey ? localStorage.getItem(`${cacheKey}:ts`) : null;
+  setLastUpdated(rawTs ? Number(rawTs) : null);
+ } catch {
+  dataRef.current = null;
+  setData(null);
+  setLastUpdated(null);
+ }
+}, [cacheKey]);
 
 const [isStale, setIsStale] = useState(false);
 
@@ -620,7 +619,23 @@ const [isStale, setIsStale] = useState(false);
   saleTrend: null,
   estadoFiltro: "todos",
   estadoCounts: { nuevo: 0, usado: 0 },
+  accesoriosFiltro: 'todos',
+  accesoriosCounts: { caja: 0, accesorios: 0, sin_nada: 0, total: 0 },
  });
+
+ useEffect(() => {
+  if (!curvaModal.open) return undefined;
+  const previousOverflow = document.body.style.overflow;
+  const handleKeyDown = (event) => {
+   if (event.key === 'Escape') setCurvaModal((state) => ({ ...state, open: false }));
+  };
+  document.body.style.overflow = 'hidden';
+  window.addEventListener('keydown', handleKeyDown);
+  return () => {
+   document.body.style.overflow = previousOverflow;
+   window.removeEventListener('keydown', handleKeyDown);
+  };
+ }, [curvaModal.open]);
 
  const monthStart = (monthStr = '') => {
  if (!monthStr) return '';
@@ -652,7 +667,8 @@ const [isStale, setIsStale] = useState(false);
  };
 
  const openCurvaModal = ({ title, costSeries, saleSeries, comprasDetalle }) => {
-  const counts = countEstados(comprasDetalle || []);
+ const counts = countEstados(comprasDetalle || []);
+  const accesoriosCounts = countAccessoryCategories(comprasDetalle || []);
   const estadoFiltro = counts.nuevo || counts.usado
    ? (counts.nuevo >= counts.usado ? 'nuevo' : 'usado')
    : 'todos';
@@ -666,17 +682,20 @@ const [isStale, setIsStale] = useState(false);
     comprasDetalleRaw: comprasDetalle || [],
     estadoFiltro,
     estadoCounts: counts,
+    accesoriosFiltro: 'todos',
+    accesoriosCounts,
   });
  };
 
  const curvaDerived = (() => {
   const selectedEstado = curvaModal.estadoFiltro || 'todos';
+  const selectedAccesorios = curvaModal.accesoriosFiltro || 'todos';
   const costAll = curvaModal.costSeriesRaw || curvaModal.costSeries || [];
   const comprasAll = curvaModal.comprasDetalleRaw || [];
   const saleAll = curvaModal.saleSeriesRaw || curvaModal.saleSeries || [];
-  let costFiltered = applyEstadoFilter(costAll, selectedEstado);
-  let saleFiltered = applyEstadoFilter(saleAll, selectedEstado);
-  const comprasFiltered = applyEstadoFilter(comprasAll, selectedEstado);
+  let costFiltered = applyAccessoryFilter(applyEstadoFilter(costAll, selectedEstado), selectedAccesorios);
+  let saleFiltered = applyAccessoryFilter(applyEstadoFilter(saleAll, selectedEstado), selectedAccesorios);
+  const comprasFiltered = applyAccessoryFilter(applyEstadoFilter(comprasAll, selectedEstado), selectedAccesorios);
   let usedFallback = false;
   if (selectedEstado !== 'todos' && costFiltered.length === 0 && saleFiltered.length > 0) {
     const ids = new Set(saleFiltered.map((p) => p.productoId).filter(Boolean));
@@ -691,11 +710,15 @@ const [isStale, setIsStale] = useState(false);
   const saleSeriesClean = saleClean.series;
   return {
     selectedEstado,
+    selectedAccesorios,
     costSeries: costSeriesClean,
     saleSeries: saleSeriesClean,
     costOutliers: costClean.removed,
     saleOutliers: saleClean.removed,
-    spreadStats: buildSpreadStats(costSeriesClean, saleSeriesClean),
+    priceMedians: {
+      cost: medianLocal(costSeriesClean.map((point) => point.val)),
+      sale: medianLocal(saleSeriesClean.map((point) => point.val)),
+    },
     costTrend: buildTrendStats(costSeriesClean),
     saleTrend: buildTrendStats(saleSeriesClean),
     costStats: buildDropStats(costSeriesClean),
@@ -715,6 +738,13 @@ const estadoOptions = [
   { key: 'nuevo', label: 'Nuevo', count: estadoCounts.nuevo },
   { key: 'usado', label: 'Usado', count: estadoCounts.usado },
 ];
+const accesoriosCounts = curvaModal.accesoriosCounts || { caja: 0, accesorios: 0, sin_nada: 0, total: 0 };
+const accesoriosOptions = [
+  { key: 'todos', label: 'Todos', count: accesoriosCounts.total },
+  { key: 'caja', label: 'Con caja', count: accesoriosCounts.caja },
+  { key: 'accesorios', label: 'Solo accesorios', count: accesoriosCounts.accesorios },
+  { key: 'sin_nada', label: 'Sin nada', count: accesoriosCounts.sin_nada },
+];
 const renderCurvaChart = (costSeries, saleSeries) => {
   const all = [...(costSeries || []), ...(saleSeries || [])];
   if (!all.length) {
@@ -725,39 +755,48 @@ const renderCurvaChart = (costSeries, saleSeries) => {
   const pad = 42;
   const minX = Math.min(...all.map((p) => p.ts));
   const maxX = Math.max(...all.map((p) => p.ts));
-  const minY = Math.min(...all.map((p) => p.val));
-  const maxY = Math.max(...all.map((p) => p.val));
   const rangeX = Math.max(1, maxX - minX);
-  const rangeY = Math.max(1, maxY - minY);
-  const padY = rangeY * 0.12;
-  const minYAdj = minY - padY;
-  const maxYAdj = maxY + padY;
-  const rangeYAdj = Math.max(1, maxYAdj - minYAdj);
+  const axisBounds = (series) => {
+    const values = (series || []).map((point) => point.val).filter(Number.isFinite);
+    if (!values.length) return { min: 0, range: 1 };
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = Math.max(1, max - min);
+    const padding = range * 0.12;
+    return { min: Math.max(0, min - padding), range: Math.max(1, (max + padding) - Math.max(0, min - padding)) };
+  };
+  const costBounds = axisBounds(costSeries);
+  const saleBounds = axisBounds(saleSeries);
   const x = (ts) => pad + ((ts - minX) / rangeX) * (width - pad * 2);
-  const y = (val) => height - pad - ((val - minYAdj) / rangeYAdj) * (height - pad * 2);
-  const buildPath = (series) => {
+  const yFor = (val, bounds) => height - pad - ((val - bounds.min) / bounds.range) * (height - pad * 2);
+  const yCost = (val) => yFor(val, costBounds);
+  const ySale = (val) => yFor(val, saleBounds);
+  const buildPath = (series, yValue) => {
     if (!series.length) return '';
     return series
-      .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${x(p.ts).toFixed(2)} ${y(p.val).toFixed(2)}`)
+      .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${x(p.ts).toFixed(2)} ${yValue(p.val).toFixed(2)}`)
       .join(' ');
-  };const buildArea = (series) => {
+  };const buildArea = (series, yValue) => {
     if (!series.length) return '';
     const baseY = height - pad;
     const head = series
-      .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${x(p.ts).toFixed(2)} ${y(p.val).toFixed(2)}`)
+      .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${x(p.ts).toFixed(2)} ${yValue(p.val).toFixed(2)}`)
       .join(' ');
     const tail = `L ${x(series[series.length - 1].ts).toFixed(2)} ${baseY.toFixed(2)} L ${x(series[0].ts).toFixed(2)} ${baseY.toFixed(2)} Z`;
     return `${head} ${tail}`;
   };
-  const costPath = buildPath(costSeries || []);
-  const salePath = buildPath(saleSeries || []);
-  const costArea = buildArea(costSeries || []);
-  const saleArea = buildArea(saleSeries || []);
+  const costPath = buildPath(costSeries || [], yCost);
+  const salePath = buildPath(saleSeries || [], ySale);
+  const costArea = buildArea(costSeries || [], yCost);
+  const saleArea = buildArea(saleSeries || [], ySale);
   const gridY = 5;
   const gridX = 6;
-  const yTicks = Array.from({ length: gridY + 1 }, (_, i) => minYAdj + (rangeYAdj * i) / gridY);
+  const costTicks = Array.from({ length: gridY + 1 }, (_, i) => costBounds.min + (costBounds.range * i) / gridY);
+  const saleTicks = Array.from({ length: gridY + 1 }, (_, i) => saleBounds.min + (saleBounds.range * i) / gridY);
+  const primaryTicks = costSeries?.length ? costTicks : saleTicks;
+  const primaryY = costSeries?.length ? yCost : ySale;
+  const primaryFormat = costSeries?.length ? fmtUSD : fmtSolesLocal;
   const xTicks = Array.from({ length: gridX + 1 }, (_, i) => minX + (rangeX * i) / gridX);
-  const labelY = (val) => fmtSolesLocal(val).replace('S/', 'S/');
   const minLabel = fmtDate(new Date(minX));
   const maxLabel = fmtDate(new Date(maxX));
 
@@ -786,18 +825,18 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
       <rect x="8" y="8" width={width - 16} height={height - 16} rx="16" fill="#f8fafc" />
 
-      {yTicks.map((val, idx) => (
+      {primaryTicks.map((val, idx) => (
         <g key={`gridy-${idx}`}>
           <line
             x1={pad}
-            y1={y(val)}
+            y1={primaryY(val)}
             x2={width - pad}
-            y2={y(val)}
+            y2={primaryY(val)}
             stroke="#e2e8f0"
             strokeDasharray="4 6"
           />
-          <text x={12} y={y(val) + 4} fontSize="10" fill="#94a3b8">
-            {labelY(val)}
+          <text x={10} y={primaryY(val) + 4} fontSize="9" fill={costSeries?.length ? '#059669' : '#4f46e5'}>
+            {primaryFormat(val)}
           </text>
         </g>
       ))}
@@ -823,10 +862,10 @@ const renderCurvaChart = (costSeries, saleSeries) => {
           <path d={salePath} fill="none" stroke="#6366f1" strokeWidth="2.6" filter="url(#softGlow)" />
         )}
         {(costSeries || []).map((p, idx) => (
-          <circle key={`c-${idx}`} cx={x(p.ts)} cy={y(p.val)} r="4" fill="#10b981" stroke="#ffffff" strokeWidth="2"><title>{`Compra: ${fmtSolesLocal(p.val)} | ${fmtDate(p.date)}`}</title></circle>
+          <circle key={`c-${idx}`} cx={x(p.ts)} cy={yCost(p.val)} r="4" fill="#10b981" stroke="#ffffff" strokeWidth="2"><title>{`Compra: ${fmtUSD(p.val)} | ${fmtDate(p.date)}`}</title></circle>
         ))}
         {(saleSeries || []).map((p, idx) => (
-          <circle key={`s-${idx}`} cx={x(p.ts)} cy={y(p.val)} r="4" fill="#6366f1" stroke="#ffffff" strokeWidth="2"><title>{`Venta: ${fmtSolesLocal(p.val)} | ${fmtDate(p.date)}`}</title></circle>
+          <circle key={`s-${idx}`} cx={x(p.ts)} cy={ySale(p.val)} r="4" fill="#6366f1" stroke="#ffffff" strokeWidth="2"><title>{`Venta: ${fmtSolesLocal(p.val)} | ${fmtDate(p.date)}`}</title></circle>
         ))}
       </g>
 
@@ -874,13 +913,9 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
  const profitFilters = useMemo(
  () => ({
- tipo: productFilters.tipo || undefined,
- gama: productFilters.gama || undefined,
- procesador: productFilters.proc || undefined,
- pantalla: productFilters.pantalla || undefined,
  vendedor: sellerFilter || undefined,
  }),
- [productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter],
+ [sellerFilter],
  );
  const buildSummaryQuery = useCallback(({ fromDate = '', toDate = '' } = {}) => {
  const q = new URLSearchParams();
@@ -892,13 +927,9 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  q.set('toVenta', toDate);
  q.set('toCompra', toDate);
  }
- if (productFilters.tipo) q.set('tipo', productFilters.tipo);
- if (productFilters.gama) q.set('gama', productFilters.gama);
- if (productFilters.proc) q.set('procesador', productFilters.proc);
- if (productFilters.pantalla) q.set('pantalla', productFilters.pantalla);
  if (sellerFilter) q.set('vendedor', sellerFilter);
  return q;
- }, [productFilters.tipo, productFilters.gama, productFilters.proc, productFilters.pantalla, sellerFilter]);
+ }, [sellerFilter]);
  const loadYearly = useCallback(async () => {
  setYearlyError('');
  try {
@@ -958,6 +989,8 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
  const load = useCallback(async () => {
 
+ const requestId = ++loadRequestRef.current;
+
 
 
  setLoading(!dataRef.current); // si hay snapshot, no bloquear todo el layout
@@ -980,6 +1013,8 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
  const res = await getAnalyticsSummary(Object.fromEntries(q.entries()));
+
+ if (requestId !== loadRequestRef.current) return;
 
 
 
@@ -1017,6 +1052,8 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
  } catch (e) {
 
+ if (requestId !== loadRequestRef.current) return;
+
 
 
  setError(e.message || 'Error');
@@ -1024,6 +1061,8 @@ const renderCurvaChart = (costSeries, saleSeries) => {
 
 
  } finally {
+
+ if (requestId !== loadRequestRef.current) return;
 
 
 
@@ -4060,17 +4099,18 @@ Activo
 
  const groups = data?.productGroups || [];
 
-
-
- const gamas = Array.from(new Set(groups.map((g)=>g.gama).filter(Boolean))).sort();
-
-
-
- const procs = Array.from(new Set(groups.map((g)=>g.proc).filter(Boolean))).sort();
-
-
-
- const pantallas = Array.from(new Set(groups.map((g)=>g.pantalla).filter(Boolean))).sort();
+ const typeGroups = productFilters.tipo ? groups.filter((g) => g.tipo === productFilters.tipo) : groups;
+ const gamaGroups = productFilters.gama ? typeGroups.filter((g) => g.gama === productFilters.gama) : typeGroups;
+ const procGroups = productFilters.proc ? gamaGroups.filter((g) => g.proc === productFilters.proc) : gamaGroups;
+ const screenGroups = productFilters.pantalla ? procGroups.filter((g) => g.pantalla === productFilters.pantalla) : procGroups;
+ const stateGroups = productFilters.estado ? screenGroups.filter((g) => g.estado === productFilters.estado) : screenGroups;
+ const ramGroups = productFilters.ram ? stateGroups.filter((g) => g.ram === productFilters.ram) : stateGroups;
+ const gamas = Array.from(new Set(typeGroups.map((g)=>g.gama).filter(Boolean))).sort();
+ const procs = Array.from(new Set(gamaGroups.map((g)=>g.proc).filter(Boolean))).sort();
+ const pantallas = Array.from(new Set(procGroups.map((g)=>g.pantalla).filter(Boolean))).sort();
+ const estados = Array.from(new Set(screenGroups.map((g)=>g.estado).filter(Boolean))).sort();
+ const rams = Array.from(new Set(stateGroups.map((g)=>g.ram).filter(Boolean))).sort();
+ const ssds = Array.from(new Set(ramGroups.map((g)=>g.ssd).filter(Boolean))).sort();
 
 
 
@@ -4091,6 +4131,12 @@ Activo
 
 
  if (productFilters.pantalla && g.pantalla !== productFilters.pantalla) return false;
+
+ if (productFilters.estado && g.estado !== productFilters.estado) return false;
+
+ if (productFilters.ram && g.ram !== productFilters.ram) return false;
+
+ if (productFilters.ssd && g.ssd !== productFilters.ssd) return false;
 
 
 
@@ -4115,7 +4161,7 @@ Activo
  <select
  className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
  value={productFilters.tipo}
- onChange={(e)=> setProductFilters((s)=>({ ...s, tipo: e.target.value, gama: '', proc: '', pantalla: '' }))}
+ onChange={(e)=> setProductFilters((s)=>({ ...s, tipo: e.target.value, gama: '', proc: '', pantalla: '', estado: '', ram: '', ssd: '' }))}
  >
 
 
@@ -4151,7 +4197,7 @@ Activo
  <select
  className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
  value={productFilters.gama}
- onChange={(e)=> setProductFilters((s)=>({ ...s, gama: e.target.value }))}
+ onChange={(e)=> setProductFilters((s)=>({ ...s, gama: e.target.value, proc: '', pantalla: '', estado: '', ram: '', ssd: '' }))}
  >
 
 
@@ -4171,7 +4217,7 @@ Activo
  <select
  className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
  value={productFilters.proc}
- onChange={(e)=> setProductFilters((s)=>({ ...s, proc: e.target.value }))}
+ onChange={(e)=> setProductFilters((s)=>({ ...s, proc: e.target.value, pantalla: '', estado: '', ram: '', ssd: '' }))}
  >
 
 
@@ -4191,7 +4237,7 @@ Activo
  <select
  className="border rounded px-2 py-1 text-sm w-full sm:w-auto"
  value={productFilters.pantalla}
- onChange={(e)=> setProductFilters((s)=>({ ...s, pantalla: e.target.value }))}
+ onChange={(e)=> setProductFilters((s)=>({ ...s, pantalla: e.target.value, estado: '', ram: '', ssd: '' }))}
  >
 
 
@@ -4207,6 +4253,31 @@ Activo
  </select>
  </label>
 
+ <label className="text-sm flex flex-col gap-1 w-full sm:w-auto">Estado
+ <select className="border rounded px-2 py-1 text-sm w-full sm:w-auto" value={productFilters.estado} onChange={(e)=> setProductFilters((s)=>({ ...s, estado: e.target.value, ram: '', ssd: '' }))}>
+  <option value="">Nuevo y usado</option>
+  {estados.map(x=> <option key={x} value={x}>{x === 'nuevo' ? 'Nuevo' : x === 'usado' ? 'Usado' : x}</option>)}
+ </select>
+ </label>
+
+ <label className="text-sm flex flex-col gap-1 w-full sm:w-auto">RAM
+ <select className="border rounded px-2 py-1 text-sm w-full sm:w-auto" value={productFilters.ram} onChange={(e)=> setProductFilters((s)=>({ ...s, ram: e.target.value, ssd: '' }))}>
+  <option value="">Todas</option>
+  {rams.map(x=> <option key={x} value={x}>{x}</option>)}
+ </select>
+ </label>
+
+ <label className="text-sm flex flex-col gap-1 w-full sm:w-auto">SSD / almacenamiento
+ <select className="border rounded px-2 py-1 text-sm w-full sm:w-auto" value={productFilters.ssd} onChange={(e)=> setProductFilters((s)=>({ ...s, ssd: e.target.value }))}>
+  <option value="">Todos</option>
+  {ssds.map(x=> <option key={x} value={x}>{x}</option>)}
+ </select>
+ </label>
+
+ <button type="button" className="h-8 rounded border border-slate-300 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50" onClick={() => setProductFilters({ tipo: '', gama: '', proc: '', pantalla: '', estado: '', ram: '', ssd: '' })}>
+  Limpiar filtros
+ </button>
+
 
 
  </div>
@@ -4214,6 +4285,13 @@ Activo
 
 
  <div className="grid grid-cols-1 gap-5">
+
+
+ {filtered.length === 0 && (
+  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+   No hay productos para esta combinación de filtros. Prueba limpiando uno de ellos.
+  </div>
+ )}
 
 
 
@@ -4237,114 +4315,10 @@ const comprasDetalle = [...(g.comprasDetalle || [])].sort(
  const ventasDetalle = comprasDetalle.map((c) => ventasByProducto.get(c.productoId) || null);
 
  const estadoByProducto = new Map(comprasDetalle.map((c) => [c.productoId, normalizeEstado(c.estado)]));
-const costSeriesBase = buildSeries(comprasDetalle, { dateKey: 'fechaCompra', valueKey: 'costoTotal' });
+const costSeriesBase = buildSeries(comprasDetalle, { dateKey: 'fechaCompra', valueKey: 'precioUSD' });
 const costSeries = costSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.get(p.productoId) || p.estado || '' }));
 const saleSeriesBase = buildSeries(ventasDetalleRaw, { dateKey: 'fechaVenta', valueKey: 'precioVenta' });
 const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.get(p.productoId) || p.estado || '' }));
-
-
-
- const ventaRef = (() => {
-
-
-
- const precios = ventasDetalleRaw.map((v) => Number(v?.precioVenta || 0)).filter((n) => isFinite(n) && n > 0);
-
-
-
- return medianLocal(precios) || Number(g.ventas?.p50 || 0) || null;
-
-
-
- })();
-
-
-
- const costoRef = (() => {
-
-
-
- const costos = comprasDetalle.map((c) => Number(c?.costoTotal || 0)).filter((n) => isFinite(n) && n > 0);
-
-
-
- if (costos.length) return +(costos.reduce((s, n) => s + n, 0) / costos.length).toFixed(2);
-
-
-
- return Number(g.compras?.mean || 0) || null;
-
-
-
- })();
-
-
-
- const preciosUSD = comprasDetalle.map((c) => Number(c?.precioUSD || 0)).filter((n) => isFinite(n) && n > 0);
-
-
-
- const promedioUSD = avgLocal(preciosUSD);
-
-
-
- const ventaPromedio = avgLocal(ventasDetalleRaw.map((v) => Number(v?.precioVenta || 0)).filter((n) => isFinite(n) && n > 0));
-
-
-
- const ventaBaseHist = ventaPromedio || ventaRef || null;
-
-
-
- const ventaRango20 = costoRef ? roundUp10(costoRef * 1.2) : null;
-
-
-
- const ventaRango40 = costoRef ? roundUp10(costoRef * 1.4) : null;
-
-
-
- const baseRango = (ventaRango20 != null && ventaRango40 != null)
-
-
-
- ? ((ventaRango20 + ventaRango40) / 2)
-
-
-
- : (costoRef ? costoRef * 1.3 : null);
-
-
-
- const ventaObjetivo = (() => {
-
-
-
- if (!ventaBaseHist && !baseRango) return null;
-
-
-
- const candidato = (ventaBaseHist && baseRango)
-
-
-
- ? ((ventaBaseHist + baseRango) / 2)
-
-
-
- : (ventaBaseHist ?? baseRango);
-
-
-
- if (!isFinite(candidato)) return null;
-
-
-
- return roundUp10(candidato);
-
-
-
- })();
 
 
 
@@ -4398,65 +4372,37 @@ const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.g
 
  const tcReferencia = tcPromedio || TC_FIJO || null;
 
-
-
- const ventaObjetivoUSD = (ventaObjetivo && tcReferencia) ? +((ventaObjetivo / tcReferencia).toFixed(2)) : null;
-
-
-
- const margenObjetivo = (ventaObjetivo && costoRef) ? +((((ventaObjetivo - costoRef) / costoRef) * 100).toFixed(2)) : null;
-
-
-
- const ventaBaseParaCompra = ventaObjetivo || ventaBaseHist || null;
-
-
-
- const compraMax20USD = (ventaBaseParaCompra && tcReferencia)
-
-
-
- ? +(((ventaBaseParaCompra / 1.2) / tcReferencia).toFixed(2))
-
-
-
- : null;
-
-
-
- const compraMax40USD = (ventaBaseParaCompra && tcReferencia)
-
-
-
- ? +(((ventaBaseParaCompra / 1.4) / tcReferencia).toFixed(2))
-
-
-
- : null;
-
-
-
- const compraRangoUSD = (compraMax20USD && compraMax40USD)
-
-
-
- ? `${fmtUSD(Math.min(compraMax20USD, compraMax40USD))} - ${fmtUSD(Math.max(compraMax20USD, compraMax40USD))}`
-
-
-
- : '-';
-
-
-
- const ventaRangoTexto = (ventaRango20 != null && ventaRango40 != null)
-
-
-
- ? `${fmtSolesLocal(Math.min(ventaRango20, ventaRango40))} - ${fmtSolesLocal(Math.max(ventaRango20, ventaRango40))}`
-
-
-
- : '-';
+ const presentationMeta = [
+  { key: 'caja', label: 'Con caja' },
+  { key: 'accesorios', label: 'Solo accesorios' },
+  { key: 'sin_nada', label: 'Sin nada' },
+ ];
+ const presentationRecommendations = presentationMeta.map((meta) => {
+  const purchases = comprasDetalle.filter((row) => (row.accesoriosCategoria || 'sin_nada') === meta.key);
+  const sales = ventasDetalleRaw.filter((row) => (row.accesoriosCategoria || 'sin_nada') === meta.key);
+  const categorySaleSeries = sanitizeSeries(buildSeries(sales, { dateKey: 'fechaVenta', valueKey: 'precioVenta' })).series;
+  const trend = buildTrendStats(categorySaleSeries);
+  const latest = categorySaleSeries.at(-1) || null;
+  const daysSinceLatest = latest ? Math.max(0, Math.round((Date.now() - latest.ts) / (1000 * 60 * 60 * 24))) : 0;
+  const averageCostSoles = avgLocal(purchases.map((row) => Number(row.costoTotal || 0)));
+  const averagePurchaseUsd = avgLocal(purchases.map((row) => Number(row.precioUSD || 0)));
+  const historicalSale = medianLocal(sales.map((row) => Number(row.precioVenta || 0)).filter((value) => value > 0));
+  const suggestedSale = latest
+   ? roundUp10(Math.max(0, latest.val + ((trend?.per30 || 0) * daysSinceLatest / 30)))
+   : roundUp10(historicalSale || (averageCostSoles ? averageCostSoles * 1.3 : 0));
+  const saleRange = averageCostSoles ? {
+   min: roundUp10(averageCostSoles * 1.2),
+   max: roundUp10(averageCostSoles * 1.4),
+  } : null;
+  const buyRange = suggestedSale && tcReferencia ? {
+   min: +((suggestedSale / 1.4 / tcReferencia).toFixed(2)),
+   max: +((suggestedSale / 1.2 / tcReferencia).toFixed(2)),
+  } : null;
+  const expectedMargin = suggestedSale && averageCostSoles
+   ? +((((suggestedSale - averageCostSoles) / averageCostSoles) * 100).toFixed(2))
+   : null;
+  return { ...meta, purchases, sales, trend, averagePurchaseUsd, historicalSale, suggestedSale, saleRange, buyRange, expectedMargin };
+ });
 
 
 
@@ -4464,7 +4410,7 @@ const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.g
 
 
 
- <div key={`${g.gama}-${g.proc}-${g.pantalla}-${idx}`} className="border rounded-xl p-4 space-y-4">
+ <div key={`${g.gama}-${g.proc}-${g.pantalla}-${g.estado}-${g.ram}-${g.ssd}-${idx}`} className="border rounded-xl p-4 space-y-4">
 
 
 
@@ -4515,20 +4461,12 @@ const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.g
 
 
 
- <div className="text-xs text-gray-500 mt-1">
-
-
-
- {g.tipo === 'iphone' ? (
-   <>Variantes: Almacenamiento {g.ssdDistinct?.join(', ') || '-'}</>
- ) : g.tipo === 'ipad' ? (
-   <>Variantes: RAM {g.ramDistinct?.join(', ') || '-'} Almacenamiento {g.ssdDistinct?.join(', ') || '-'}</>
- ) : (
-   <>Variantes: RAM {g.ramDistinct?.join(', ') || '-'} SSD {g.ssdDistinct?.join(', ') || '-'}</>
- )}
-
-
-
+ <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+  <span className={`rounded-full px-2.5 py-1 font-semibold ${g.estado === 'nuevo' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+   {g.estado === 'nuevo' ? 'Nuevo' : g.estado === 'usado' ? 'Usado' : (g.estado || 'Sin estado')}
+  </span>
+  {g.ram && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">RAM {g.ram}</span>}
+  {g.ssd && <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">{g.tipo === 'iphone' || g.tipo === 'ipad' ? 'Almacenamiento' : 'SSD'} {g.ssd}</span>}
  </div>
 
 
@@ -4569,84 +4507,41 @@ const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.g
 
  <div className="text-xs text-gray-600">Basado en lo que se pago (USD) y se vendio (S/) para mantener margenes del 20%-40%.</div>
 
+ <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
+  <div className="rounded-lg border border-emerald-200 bg-white/70 p-3">
+   <div className="text-xs font-semibold uppercase text-emerald-800">Compra objetivo (USD)</div>
+   <div className="mt-1 text-[11px] text-slate-500">Rango calculado desde el precio de venta estimado para conservar entre 20% y 40%.</div>
+   <div className="mt-3 space-y-2">
+    {presentationRecommendations.map((item) => (
+     <div key={`buy-${item.key}`} className="rounded-lg border border-slate-200 bg-white p-2">
+      <div className="flex items-center justify-between gap-3">
+       <strong>{item.label}</strong>
+       <strong className="whitespace-nowrap text-emerald-800">{item.buyRange ? `${fmtUSD(item.buyRange.min)} - ${fmtUSD(item.buyRange.max)}` : '-'}</strong>
+      </div>
+      <div className="mt-1 text-[11px] text-slate-500">Promedio pagado: {item.averagePurchaseUsd ? fmtUSD(item.averagePurchaseUsd) : '-'} · {item.purchases.length} compras</div>
+     </div>
+    ))}
+   </div>
+   <div className="mt-2 text-[11px] text-slate-500">TC usado: {tcReferencia ? tcReferencia.toFixed(2) : '-'}</div>
+  </div>
 
-
- <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-700">
-
-
-
- <div className="rounded border border-emerald-200 bg-white/50 p-2 space-y-1">
-
-
-
- <div className="text-xs uppercase text-gray-500">Compra objetivo (USD)</div>
-
-
-
- <div className="flex justify-between"><span>Promedio pagado:</span><strong>{fmtUSD(promedioUSD)}</strong></div>
-
-
-
- <div className="flex justify-between"><span>Rango sugerido (20%-40%):</span><strong>{compraRangoUSD}</strong></div>
-
-
-
- <div className="flex justify-between"><span>TC usado:</span><strong>{tcReferencia ? tcReferencia.toFixed(2) : '-'}</strong></div>
-
-
-
- </div>
-
-
-
- <div className="rounded border border-blue-200 bg-white/50 p-2 space-y-1">
-
-
-
- <div className="text-xs uppercase text-gray-500">Venta objetivo (S/)</div>
-
-
-
- <div className="flex justify-between"><span>Ventas historicas:</span><strong>{ventaBaseHist ? fmtSolesLocal(ventaBaseHist) : '-'}</strong></div>
-
-
-
- <div className="flex justify-between"><span>Rango sugerido (20%-40%):</span><strong>{ventaRangoTexto}</strong></div>
-
-
-
- {ventaObjetivo ? (
-
-
-
- <>
-
-
-
- <div className="flex justify-between"><span>Venta objetivo:</span><strong>{fmtSolesLocal(ventaObjetivo)}</strong></div>
-
-
-
- <div className="flex justify-between"><span>Venta objetivo (USD):</span><strong>{fmtUSD(ventaObjetivoUSD)}</strong></div>
-
-
-
- <div className="flex justify-between"><span>Margen esperado:</span><strong>{margenObjetivo != null ? `${margenObjetivo.toFixed(2)} %` : '-'}</strong></div>
-
-
-
- </>
-
-
-
- ) : null}
-
-
-
- </div>
-
-
-
+  <div className="rounded-lg border border-blue-200 bg-white/70 p-3">
+   <div className="text-xs font-semibold uppercase text-blue-800">Venta objetivo (S/)</div>
+   <div className="mt-1 text-[11px] text-slate-500">Estimación actual y rango de venta con 20%-40% sobre el costo de cada presentación.</div>
+   <div className="mt-3 space-y-2">
+    {presentationRecommendations.map((item) => (
+     <div key={`sale-${item.key}`} className="rounded-lg border border-slate-200 bg-white p-2">
+      <div className="flex items-center justify-between gap-3"><strong>{item.label}</strong><strong className="whitespace-nowrap text-blue-800">{item.suggestedSale ? fmtSolesLocal(item.suggestedSale) : '-'}</strong></div>
+      <div className="mt-1 flex flex-wrap justify-between gap-x-3 text-[11px] text-slate-600">
+       <span>Rango: {item.saleRange ? `${fmtSolesLocal(item.saleRange.min)} - ${fmtSolesLocal(item.saleRange.max)}` : '-'}</span>
+       <span>Margen esperado: {item.expectedMargin != null ? `${item.expectedMargin.toFixed(2)} %` : '-'}</span>
+       <span>Variación/30 días: {item.trend ? fmtSignedSoles(item.trend.per30) : '-'}</span>
+      </div>
+      <div className="mt-1 text-[11px] text-slate-400">{item.sales.length} ventas de referencia</div>
+     </div>
+    ))}
+   </div>
+  </div>
  </div>
 
 
@@ -4759,20 +4654,20 @@ const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.g
 
 
  {curvaModal.open && (
-  <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-   <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl border border-gray-100 p-6 relative">
+  <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-2 backdrop-blur-sm sm:p-4" role="dialog" aria-modal="true" aria-label="Curvas de progresión" onClick={(event) => { if (event.target === event.currentTarget) setCurvaModal((s) => ({ ...s, open: false })); }}>
+   <div className="relative mx-auto max-h-[calc(100dvh-1rem)] w-full max-w-5xl overflow-y-auto rounded-2xl border border-gray-100 bg-white p-3 shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:p-5">
     <button
-     className="absolute top-3 right-3 w-9 h-9 rounded-full text-xl font-bold text-gray-500 hover:bg-gray-100"
+     className="sticky top-0 z-30 ml-auto flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white text-3xl font-semibold leading-none text-slate-700 shadow-md hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
      onClick={() => setCurvaModal((s) => ({ ...s, open: false }))}
-     aria-label="Cerrar"
+     aria-label="Cerrar curvas"
     >
-     x
+     ×
     </button>
-    <div className="mb-5 rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 via-white to-emerald-50 p-4">
+    <div className="-mt-10 mb-5 rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50 via-white to-emerald-50 p-4 pr-14">
      <div className="text-xs uppercase tracking-wide text-indigo-500 font-semibold">Curvas de progresion</div>
      <div className="text-xl font-semibold text-gray-900">{curvaModal.title}</div>
      <div className="text-xs text-gray-600 mt-1">
-      Evolucion historica de costo (S/) y venta (S/). Los puntos son registros reales por fecha.
+      Compra real del equipo en dolares, sin envio, y precio de venta en soles. Los puntos son registros reales por fecha.
      </div>
      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
       <span className="text-gray-500">Estado:</span>
@@ -4788,12 +4683,25 @@ const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.g
       ))}
       <span className="text-[11px] text-gray-400">Default: mayor cantidad</span>
      </div>
+     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+      <span className="text-gray-500">Presentacion:</span>
+      {accesoriosOptions.map((opt) => (
+       <button
+        key={`accesorios-${opt.key}`}
+        type="button"
+        className={`rounded-full border px-3 py-1 ${curvaDerived.selectedAccesorios === opt.key ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+        onClick={() => setCurvaModal((s) => ({ ...s, accesoriosFiltro: opt.key }))}
+       >
+        {opt.label} ({opt.count})
+       </button>
+      ))}
+     </div>
      <div className="mt-2 text-xs text-slate-600">
       <span className="font-medium">Compra:</span>{' '}
-      {curvaDerived.spreadStats ? fmtSolesLocal(curvaDerived.spreadStats.costMedian) : '-'}
+      {curvaDerived.priceMedians?.cost ? fmtUSD(curvaDerived.priceMedians.cost) : '-'}
       {' '}|{' '}
       <span className="font-medium">Venta:</span>{' '}
-      {curvaDerived.spreadStats ? fmtSolesLocal(curvaDerived.spreadStats.saleMedian) : '-'}
+      {curvaDerived.priceMedians?.sale ? fmtSolesLocal(curvaDerived.priceMedians.sale) : '-'}
      </div>
      <div className="mt-1 text-[11px] text-slate-500">
       Compras: {curvaDerived.comprasCountRaw} (grafico {curvaDerived.costCount}) | Ventas: {curvaDerived.saleCountRaw} (grafico {curvaDerived.saleCount})
@@ -4811,28 +4719,26 @@ const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.g
        Sin datos para el estado seleccionado.
       </div>
      ) : null}
-      {renderCurvaChart(curvaDerived.costSeries, curvaDerived.saleSeries)}
-      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 mt-3">
-       <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 text-emerald-700 px-3 py-1 border border-emerald-200">
-        <span className="inline-block w-4 h-0.5 bg-emerald-500" />
-        Costo (S/)
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+       <div>
+        <div className="mb-2 text-sm font-semibold text-emerald-800">Compras en USD, sin envio</div>
+        {renderCurvaChart(curvaDerived.costSeries, [])}
        </div>
-       <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 text-indigo-700 px-3 py-1 border border-indigo-200">
-        <span className="inline-block w-4 h-0.5 bg-indigo-500" />
-        Venta (S/)
+       <div>
+        <div className="mb-2 text-sm font-semibold text-indigo-800">Ventas en soles</div>
+        {renderCurvaChart([], curvaDerived.saleSeries)}
        </div>
       </div>
       <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
        <div className="rounded-lg border border-slate-200 bg-white/70 p-3">
-        <div className="text-[11px] uppercase tracking-wide text-slate-500">Brecha tipica</div>
-        {curvaDerived.spreadStats ? (
+        <div className="text-[11px] uppercase tracking-wide text-slate-500">Precios tipicos</div>
+        {(curvaDerived.priceMedians?.cost || curvaDerived.priceMedians?.sale) ? (
          <>
           <div className="mt-1 text-sm font-semibold text-slate-800">
-           {fmtSignedSoles(curvaDerived.spreadStats.spread)}
-           {curvaDerived.spreadStats.pct != null ? ' (' + curvaDerived.spreadStats.pct + '%)' : ''}
+           Compra {curvaDerived.priceMedians?.cost ? fmtUSD(curvaDerived.priceMedians.cost) : '-'}
           </div>
           <div className="text-[11px] text-slate-500 mt-1">
-           Compra {fmtSolesLocal(curvaDerived.spreadStats.costMedian)} | Venta {fmtSolesLocal(curvaDerived.spreadStats.saleMedian)}
+           Venta {curvaDerived.priceMedians?.sale ? fmtSolesLocal(curvaDerived.priceMedians.sale) : '-'}
           </div>
          </>
         ) : (
@@ -4840,14 +4746,14 @@ const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.g
         )}
        </div>
        <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
-        <div className="text-[11px] uppercase tracking-wide text-emerald-700">Tendencia costo</div>
+        <div className="text-[11px] uppercase tracking-wide text-emerald-700">Tendencia compra USD</div>
         {curvaDerived.costTrend ? (
          <>
           <div className="mt-1 text-sm font-semibold text-emerald-900">
-           {fmtSignedSoles(curvaDerived.costTrend.change)}
+           {fmtUSD(curvaDerived.costTrend.change)}
           </div>
           <div className="text-[11px] text-emerald-700 mt-1">
-           Aprox {fmtSignedSoles(curvaDerived.costTrend.per30)} cada 30 dias
+           Aprox {fmtUSD(curvaDerived.costTrend.per30)} cada 30 dias
           </div>
          </>
         ) : (
@@ -4877,7 +4783,7 @@ const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.g
       const stats = curvaDerived.costStats;
       return (
        <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 shadow-sm">
-        <div className="font-semibold text-emerald-800 text-base">Costo</div>
+        <div className="font-semibold text-emerald-800 text-base">Compra (USD, sin envio)</div>
         {!stats || !stats.count ? (
          <div className="text-xs text-gray-600 mt-1">Sin bajas detectadas.</div>
         ) : (
@@ -4885,20 +4791,20 @@ const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.g
           <div className="text-xs text-gray-700 mt-1">
            <span className="font-semibold">Bajas:</span> {stats.count}  | 
            <span className="font-semibold"> Promedio cada</span> {stats.avgDays} dias  | 
-           <span className="font-semibold"> Caida promedio</span> {fmtSolesLocal(stats.avgDrop)}
+           <span className="font-semibold"> Caida promedio</span> {fmtUSD(stats.avgDrop)}
           </div>
           <div className="text-[11px] text-gray-500 mt-2">
            Cada linea muestra de que fecha a que fecha bajo y cuanto cayo.
           </div>
           {curvaDerived.costOutliers ? (
            <div className="text-[11px] text-emerald-700 mt-1">
-            Se omitieron {curvaDerived.costOutliers} puntos atipicos (mega ofertas) en costo.
+            Se omitieron {curvaDerived.costOutliers} puntos atipicos (mega ofertas) en compra.
            </div>
           ) : null}
           <ul className="text-xs text-gray-600 mt-2 space-y-1 max-h-32 overflow-auto pr-1">
            {stats.drops.slice(0, 8).map((d, i) => (
             <li key={`cost-drop-${i}`}>
-             {fmtDate(d.from.date)} -> {fmtDate(d.to.date)}: -{fmtSolesLocal(d.delta)} ({d.days} dias)
+             {fmtDate(d.from.date)} -> {fmtDate(d.to.date)}: -{fmtUSD(d.delta)} ({d.days} dias)
             </li>
            ))}
            {stats.drops.length > 8 && (

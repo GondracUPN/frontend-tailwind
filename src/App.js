@@ -46,7 +46,6 @@ const ESHOPEX_BG_COUNT_KEY = 'eshopex-carga-pendientes-count';
 const ESHOPEX_BG_CONSUMED_KEY = 'eshopex-carga-trigger-consumed-ts';
 const SIDEBAR_HIDDEN_KEY = 'app-sidebar-hidden';
 const PRODUCTOS_CACHE_KEY = 'productos:cache:v2';
-const PRODUCTOS_CACHE_TTL_MS = 2 * 60 * 1000;
 const CALCU_RAPIDA_DEC_USD = 90;
 const CALCU_RAPIDA_TC_DEFAULT = '3.75';
 const PAGE_KEEP_ALIVE_TTL_MS = 10 * 60 * 1000;
@@ -206,7 +205,6 @@ const readProductosCache = () => {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed?.ts) return null;
-    if (Date.now() - parsed.ts > PRODUCTOS_CACHE_TTL_MS) return null;
     return Array.isArray(parsed.productos) ? parsed.productos : [];
   } catch {
     return null;
@@ -280,23 +278,14 @@ const getFilteredEshopexPendientes = (rows, productos) => {
     .map((item) => item.row);
 };
 
-const isPendingCargaRow = (row) => {
-  const estado = String(row?.estado || '').trim().toUpperCase();
-  const guiaRaw = String(row?.guia || '').trim();
-  const guiaDigits = guiaRaw.replace(/\D+/g, '');
-  if (guiaDigits.length < 6) return false;
-  if (estado.includes('PAGADO')) return false;
-  if (estado.includes('ENTREGADO')) return false;
-  return true;
-};
-
-const pendingFromRows = (rows, productos = readProductosCache() || []) => {
-  if (Array.isArray(productos) && productos.length) return getFilteredEshopexPendientes(rows, productos);
-  return Array.isArray(rows)
-    ? rows
-      .filter(isPendingCargaRow)
-      .sort((a, b) => getEshopexReceptionSortTs(b?.fechaRecepcion) - getEshopexReceptionSortTs(a?.fechaRecepcion))
-    : [];
+const pendingFromRows = (rows, productos = readProductosCache() || [], personalRows = []) => {
+  const personalCodes = new Set(
+    (personalRows || [])
+      .map((item) => String(item?.trackingEshop || item?.guia || item?.id || '').trim())
+      .filter(Boolean),
+  );
+  return getFilteredEshopexPendientes(rows, productos)
+    .filter((row) => !personalCodes.has(String(row?.guia || '').trim()));
 };
 
 const readCachedCargaRows = () => {
@@ -497,6 +486,24 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let alive = true;
+    const cached = readProductosCache();
+    if (cached) setProductosGlobal(cached);
+    (async () => {
+      try {
+        const data = await api.get('/productos');
+        if (!alive) return;
+        const list = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+        setProductosGlobal(list);
+        writeProductosCache(list);
+      } catch {
+        /* keep cached products */
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
     const now = Date.now();
     setKeptVistas((prev) => {
       const next = { ...prev, [vista]: now };
@@ -576,12 +583,9 @@ function App() {
       const loadingRaw = localStorage.getItem(ESHOPEX_BG_LOADING_KEY) === '1';
       const loading = requested && (loadingRaw || hasPendingTrigger);
       const error = localStorage.getItem(ESHOPEX_BG_ERROR_KEY) || '';
-      const countRaw = localStorage.getItem(ESHOPEX_BG_COUNT_KEY);
-      let count = countRaw == null ? NaN : Number(countRaw);
-      if (!Number.isFinite(count)) {
-        const cachedRows = readCachedCargaRows();
-        count = pendingFromRows(cachedRows, productosGlobal).length;
-      }
+      const cachedRows = readCachedCargaRows();
+      const products = productosGlobal.length ? productosGlobal : (readProductosCache() || []);
+      const count = pendingFromRows(cachedRows, products, personalEshopexGlobal).length;
       if (!hasPendingTrigger && loadingRaw) {
         try {
           localStorage.setItem(ESHOPEX_BG_LOADING_KEY, '0');
@@ -595,7 +599,7 @@ function App() {
     const timer = window.setInterval(readUi, 1000);
     readUi();
     return () => window.clearInterval(timer);
-  }, [productosGlobal]);
+  }, [personalEshopexGlobal, productosGlobal]);
 
   const triggerEshopexBg = () => {
     const nowTs = Date.now();
@@ -660,12 +664,10 @@ function App() {
         if (!alive) return;
         const rows = Array.isArray(data) ? data : (data?.data || []);
         try {
-          const pendingCount = pendingFromRows(rows, readProductosCache() || []).length;
           localStorage.setItem(
             ESHOPEX_CARGA_CACHE_KEY,
             JSON.stringify({ ts: Date.now(), rows: Array.isArray(rows) ? rows : [] }),
           );
-          localStorage.setItem(ESHOPEX_BG_COUNT_KEY, String(pendingCount));
         } catch {
           /* ignore */
         }

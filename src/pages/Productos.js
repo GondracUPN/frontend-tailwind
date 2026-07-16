@@ -2432,7 +2432,7 @@ const confirmAction = async () => {
 
 
   return (
-    <div className="min-h-screen px-4 py-6 sm:px-6 lg:px-8 bg-macGray text-macDark">
+    <div className="productos-modals-uniformes min-h-screen px-4 py-6 sm:px-6 lg:px-8 bg-macGray text-macDark">
       {/* Header */}
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8">
         <h2 className="text-3xl font-semibold">Gesti&oacute;n de Productos</h2>
@@ -3187,8 +3187,6 @@ const confirmAction = async () => {
                               ? new Date(pkg.fechaRecepcion).toLocaleDateString('es-PE', { timeZone: 'UTC' })
                               : '-';
                             const cargaRow = eshopexCargaByGuia[esh];
-                            const statusInfo = recojoStatusMap[esh] || {};
-                            const statusNorm = normalizeEshopexStatus(statusInfo.status);
                             const estatusEsho = normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
                             const cas = String(pkg.casillero || t?.casillero || '').trim();
                             const isReady = isRecojoReady(p);
@@ -3197,6 +3195,8 @@ const confirmAction = async () => {
                               .map((producto) => buildNombreProducto(producto) || producto?.tipo || 'Producto')
                               .filter(Boolean);
                             const nombre = nombres.length > 1 ? nombres.join(' + ') : (nombres[0] || buildNombreProducto(p) || p.tipo);
+                            const isDispatched = (pkg.productos || [p]).length > 0
+                              && (pkg.productos || [p]).every((producto) => Boolean(producto?.despacho));
                             return (
                               <tr key={pkg.id} className="border-t">
                                 <td className="p-2">
@@ -3215,14 +3215,9 @@ const confirmAction = async () => {
                                   )}
                                 </td>
                                 <td className="p-2">
-                                  <div className="text-sm font-medium">
-                                    {statusInfo.loading ? 'Cargando' : (statusInfo.status ? statusNorm.label : 'No hay informacion')}
+                                  <div className={`text-sm font-semibold ${isDispatched ? 'text-emerald-700' : 'text-gray-500'}`}>
+                                    {isDispatched ? 'Despachado' : 'No hay informacion'}
                                   </div>
-                                  {(statusInfo.date || statusInfo.time) && (
-                                    <div className="text-xs text-gray-500">
-                                      {(statusInfo.date || '')} {(statusInfo.time || '')}
-                                    </div>
-                                  )}
                                 </td>
                                 <td className="p-2">
                                   {esh ? (

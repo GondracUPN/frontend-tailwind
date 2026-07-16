@@ -209,6 +209,21 @@ test('ordena los productos con fotos por código MS en ambos sentidos', async ()
   expect(screen.getAllByText(/^MS-/).map((element) => element.textContent)).toEqual(['MS-105', 'MS-42', 'MS-7']);
 });
 
+test('Sin Marketplace incluye solamente productos con sesión de fotos', async () => {
+  api.get.mockResolvedValue([
+    { ...entry, producto: { ...entry.producto, id: 42 }, ficha: { fotosTomadas: true, marketplaceSubido: false } },
+    { ...entry, producto: { ...entry.producto, id: 43 }, ficha: { fotosTomadas: false, marketplaceSubido: false } },
+    { ...entry, producto: { ...entry.producto, id: 44 }, ficha: { fotosTomadas: true, marketplaceSubido: true } },
+  ]);
+  render(<Inventario setVista={jest.fn()} />);
+
+  await screen.findByText('MS-42');
+  fireEvent.click(screen.getByRole('button', { name: 'Sin Marketplace' }));
+  expect(screen.getByText('MS-42')).toBeInTheDocument();
+  expect(screen.queryByText('MS-43')).not.toBeInTheDocument();
+  expect(screen.queryByText('MS-44')).not.toBeInTheDocument();
+});
+
 test('mantiene las tarjetas con portada en escritorio y muestra más columnas', async () => {
   const originalWidth = window.innerWidth;
   const originalHeight = window.innerHeight;

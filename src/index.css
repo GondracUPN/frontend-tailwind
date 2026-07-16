@@ -5,3 +5,50 @@
 body {
   @apply bg-macGray text-macDark font-sans;
 }
+
+.productos-modals-uniformes button[aria-label^='Cerrar'],
+.productos-modals-uniformes button[aria-label='Close modal'],
+.productos-modals-uniformes .modal-close-button {
+  display: flex !important;
+  width: 3rem !important;
+  height: 3rem !important;
+  min-width: 3rem !important;
+  min-height: 3rem !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 9999px !important;
+  background: #ffffff !important;
+  color: #334155 !important;
+  box-shadow: 0 4px 12px rgb(15 23 42 / 0.18) !important;
+  font-size: 0 !important;
+  line-height: 1 !important;
+  transition: background-color 150ms, color 150ms, transform 150ms !important;
+}
+
+.productos-modals-uniformes button[aria-label^='Cerrar']::before,
+.productos-modals-uniformes button[aria-label='Close modal']::before,
+.productos-modals-uniformes .modal-close-button::before {
+  content: '\00d7';
+  display: block;
+  transform: translateY(-1px);
+  font-size: 2rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.productos-modals-uniformes button[aria-label^='Cerrar'] > *,
+.productos-modals-uniformes button[aria-label='Close modal'] > *,
+.productos-modals-uniformes .modal-close-button > * {
+  display: none !important;
+}
+
+.productos-modals-uniformes button[aria-label^='Cerrar']:hover,
+.productos-modals-uniformes button[aria-label='Close modal']:hover,
+.productos-modals-uniformes .modal-close-button:hover {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  transform: scale(1.04);
+}

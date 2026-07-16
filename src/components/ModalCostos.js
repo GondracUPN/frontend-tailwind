@@ -1,6 +1,7 @@
 // src/components/ModalCostos.js
 import React, { useState, useEffect } from 'react';
 import api from '../api';
+import ModalCloseButton from './ModalCloseButton';
 
 export default function ModalCostos({ producto, onClose, onSaved }) {
   const [form, setForm] = useState({
@@ -49,10 +50,7 @@ export default function ModalCostos({ producto, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-md relative">
-        <button
-          className="absolute top-3 right-3 text-gray-500 hover:text-gray-800"
-          onClick={onClose}
-        >✖</button>
+        <ModalCloseButton onClick={onClose} />
         <h2 className="text-2xl font-semibold mb-4">Editar Costos</h2>
         <div className="space-y-4">
           {['valorProducto','valorDec','peso','fechaCompra'].map(field => (

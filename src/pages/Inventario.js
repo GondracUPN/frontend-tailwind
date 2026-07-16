@@ -623,7 +623,7 @@ export default function Inventario({ setVista }) {
     almacen: entries.filter((entry) => entry.ficha?.enAlmacen).length,
     sinFoto: entries.filter((entry) => !entry.ficha?.fotosTomadas).length,
     conFoto: entries.filter((entry) => Boolean(entry.ficha?.fotosTomadas)).length,
-    sinMarketplace: entries.filter((entry) => !entry.ficha?.marketplaceSubido).length,
+    sinMarketplace: entries.filter((entry) => entry.ficha?.fotosTomadas && !entry.ficha?.marketplaceSubido).length,
   }), [entries]);
 
   const inventoryValues = useMemo(() => entries.reduce((totals, entry) => {
@@ -650,7 +650,7 @@ export default function Inventario({ setVista }) {
       if (filter === 'pendientes' && ficha?.enAlmacen) return false;
       if (filter === 'sinFoto' && ficha?.fotosTomadas) return false;
       if (filter === 'conFoto' && !ficha?.fotosTomadas) return false;
-      if (filter === 'sinMarketplace' && ficha?.marketplaceSubido) return false;
+      if (filter === 'sinMarketplace' && (!ficha?.fotosTomadas || ficha?.marketplaceSubido)) return false;
       if (!needle) return true;
       const compactCodeQuery = needle.replace(/[\s_-]+/g, '');
       const codeQueryMatch = compactCodeQuery.match(/^(?:ms(?:code)?|code)?(\d+)$/i);
