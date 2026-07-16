@@ -51,13 +51,21 @@ const sellerFromUser = (user) => {
   return '';
 };
 const getVentaSeller = (venta) =>
-  normalizeSeller(venta?.producto?.vendedor ?? venta?.vendedor);
+  normalizeSeller(venta?.vendedor ?? venta?.producto?.vendedor);
+const isSellerMatch = (ventaSeller, targetSeller) => {
+  const seller = normalizeSeller(ventaSeller);
+  const target = normalizeSeller(targetSeller);
+  if (!seller || !target) return false;
+  if (seller === target) return true;
+  if (target === 'gonzalo' && /^gonzalo\s*\([^)]+\)$/.test(seller)) return true;
+  return false;
+};
 const getProductoSeller = (producto) => normalizeSeller(producto?.vendedor);
 const shareForSeller = (venta, seller) => {
   const vend = getVentaSeller(venta);
   const target = normalizeSeller(seller);
   if (!vend || !target) return 0;
-  if (vend === target) return 1;
+  if (isSellerMatch(vend, target)) return 1;
   if (vend === SPLIT_VENDOR && SELLERS.includes(target)) return SPLIT_SHARE;
   return 0;
 };
@@ -108,12 +116,10 @@ export default function AnalisisGastos({ setVista }) {
         const isAdmin = user?.role === 'admin';
         const targetId = targetUser?.id || user?.id;
         const userIdParam = isAdmin && targetId ? `?userId=${encodeURIComponent(String(targetId))}` : '';
-        const sellerParam = userSeller || sellerFromUser(user);
         const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
         const gastosUrl = isAdmin ? `${API_URL}/gastos/all${userIdParam}` : `${API_URL}/gastos`;
-        const ventasUrl = sellerParam
-          ? `${API_URL}/ventas?vendedor=${encodeURIComponent(sellerParam)}`
-          : `${API_URL}/ventas`;
+        // Se cargan todas las ventas para que el bruto coincida con Ganancias.
+        const ventasUrl = `${API_URL}/ventas`;
 
         const [resGastos, resVentas, resProductos, resConcepts] = await Promise.all([
           fetch(gastosUrl, { headers }),
@@ -149,7 +155,22 @@ export default function AnalisisGastos({ setVista }) {
     if (userSeller) setSelectedPersona(userSeller);
   }, [userSeller]);
 
-  const filtered = useMemo(() => rows.filter((r) => (r.fecha || '').startsWith(month)), [rows, month]);
+  const monthRange = useMemo(() => {
+    const [year, monthNumber] = month.split('-').map(Number);
+    if (!year || !monthNumber) return { from: '', to: '' };
+    const lastDay = new Date(year, monthNumber, 0).getDate();
+    return {
+      from: `${month}-01`,
+      to: `${month}-${String(lastDay).padStart(2, '0')}`,
+    };
+  }, [month]);
+  const filtered = useMemo(
+    () => rows.filter((r) => {
+      const date = String(r.fecha || '').slice(0, 10);
+      return date >= monthRange.from && date <= monthRange.to;
+    }),
+    [rows, monthRange],
+  );
   const gastosSolo = useMemo(
     () => filtered.filter((r) => {
       const c = normalizeConcept(r.concepto);
@@ -264,16 +285,14 @@ export default function AnalisisGastos({ setVista }) {
   );
 
   const ingresosBrutosPorPersona = useMemo(() => {
-    const totales = { gonzalo: 0, renato: 0 };
-    ventasMes.forEach((v) => {
-      const ingresoBruto = Number(v.precioVenta ?? 0) || 0;
-      SELLERS.forEach((s) => {
-        const share = shareForSeller(v, s);
-        if (!share) return;
-        totales[s] += ingresoBruto * share;
+    const totals = { gonzalo: 0, renato: 0 };
+    ventasMes.forEach((venta) => {
+      SELLERS.forEach((seller) => {
+        const share = shareForSeller(venta, seller);
+        if (share) totals[seller] += (Number(venta?.precioVenta ?? 0) || 0) * share;
       });
     });
-    return totales;
+    return totals;
   }, [ventasMes]);
 
   const gananciasNetasPorPersona = useMemo(() => {
@@ -309,6 +328,52 @@ export default function AnalisisGastos({ setVista }) {
   const comprasInventarioSeleccionado = comprasInventarioPorPersona[selectedPersona] || 0;
   const gastoGeneralSeleccionado = totalTodoGastoPen;
   const balanceMes = ingresoSeleccionado - gastoGeneralSeleccionado;
+
+  const carryoverByMonth = useMemo(() => {
+    const monthKeys = new Set([month]);
+    rows.forEach((row) => {
+      const key = String(row?.fecha || '').slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(key) && key <= month) monthKeys.add(key);
+    });
+    ventas.forEach((venta) => {
+      const key = String(venta?.fechaVenta || venta?.createdAt || '').slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(key) && key <= month) monthKeys.add(key);
+    });
+
+    let pendienteAnterior = 0;
+    const result = new Map();
+    Array.from(monthKeys).sort().forEach((key) => {
+      const ingresoBruto = ventas.reduce((sum, venta) => {
+        const ventaMonth = String(venta?.fechaVenta || venta?.createdAt || '').slice(0, 7);
+        if (ventaMonth !== key) return sum;
+        return sum + (Number(venta?.precioVenta ?? 0) || 0) * shareForSeller(venta, selectedPersona);
+      }, 0);
+      const gastoMes = rows.reduce((sum, row) => {
+        if (String(row?.fecha || '').slice(0, 7) !== key) return sum;
+        const concept = normalizeConcept(row?.concepto);
+        if (isIncomeExpenseConcept(concept, conceptCategories) || isCardPaymentExpenseConcept(concept, conceptCategories)) return sum;
+        return sum + toPen(row);
+      }, 0);
+      const resultadoMes = ingresoBruto - gastoMes;
+      const resultadoFinal = resultadoMes - pendienteAnterior;
+      const pendienteSiguiente = Math.max(0, -resultadoFinal);
+      result.set(key, {
+        ingresoBruto,
+        gastoMes,
+        resultadoMes,
+        pendienteAnterior,
+        resultadoFinal,
+        pendienteSiguiente,
+      });
+      pendienteAnterior = pendienteSiguiente;
+    });
+    return result;
+  }, [month, rows, ventas, selectedPersona, conceptCategories]);
+  const currentCarryover = carryoverByMonth.get(month) || {
+    pendienteAnterior: 0,
+    resultadoFinal: balanceMes,
+    pendienteSiguiente: Math.max(0, -balanceMes),
+  };
 
   const daysInMonth = useMemo(() => {
     const [y, m] = month.split('-').map(Number);
@@ -570,7 +635,7 @@ export default function AnalisisGastos({ setVista }) {
             <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
               <div>
                 <div className="text-sm text-gray-500">Balance ingreso - gasto</div>
-                <div className="text-xs text-gray-500">Usa el ingreso bruto de ventas del usuario</div>
+                <div className="text-xs text-gray-500">Usa el mismo bruto por vendedor mostrado en Ganancias</div>
               </div>
               {userSeller ? (
                 <span className="rounded-lg border bg-gray-50 px-3 py-1.5 text-sm capitalize text-gray-700">
@@ -588,7 +653,7 @@ export default function AnalisisGastos({ setVista }) {
                 </select>
               )}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-sm">
               <div className="p-3 bg-gray-50 rounded-lg border">
                 <div className="text-gray-500">Ingreso bruto</div>
                 <div className="text-lg font-semibold text-gray-900">S/ {ingresoSeleccionado.toFixed(2)}</div>
@@ -596,12 +661,28 @@ export default function AnalisisGastos({ setVista }) {
                 <div className="p-3 bg-gray-50 rounded-lg border">
                   <div className="text-gray-500">Gasto total</div>
                   <div className="text-lg font-semibold text-gray-900">S/ {gastoGeneralSeleccionado.toFixed(2)}</div>
-                  <div className="text-xs text-gray-500 mt-1">Movimientos del mes</div>
+                  <div className="text-xs text-gray-500 mt-1">Del {monthRange.from} al {monthRange.to}</div>
                 </div>
               <div className={`p-3 bg-gray-50 rounded-lg border ${balanceMes >= 0 ? 'border-green-200' : 'border-red-200'}`}>
-                <div className="text-gray-500">Resultado</div>
+                <div className="text-gray-500">Resultado del mes</div>
                 <div className={`text-lg font-semibold ${balanceMes >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                   {balanceMes >= 0 ? '+' : '-'}S/ {Math.abs(balanceMes).toFixed(2)}
+                </div>
+              </div>
+              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                <div className="text-amber-800">Excedente anterior</div>
+                <div className="text-lg font-semibold text-amber-900">S/ {Number(currentCarryover.pendienteAnterior || 0).toFixed(2)}</div>
+                <div className="text-xs text-amber-700 mt-1">Déficit pendiente del cierre anterior</div>
+              </div>
+              <div className={`p-3 rounded-lg border ${currentCarryover.resultadoFinal >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                <div className="text-gray-600">Resultado final</div>
+                <div className={`text-lg font-semibold ${currentCarryover.resultadoFinal >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                  {currentCarryover.resultadoFinal >= 0 ? '+' : '-'}S/ {Math.abs(Number(currentCarryover.resultadoFinal || 0)).toFixed(2)}
+                </div>
+                <div className="text-xs text-gray-600 mt-1">
+                  {currentCarryover.pendienteSiguiente > 0
+                    ? `Pasa S/ ${Number(currentCarryover.pendienteSiguiente).toFixed(2)} al próximo mes`
+                    : 'Sin saldo pendiente para el próximo mes'}
                 </div>
               </div>
             </div>
@@ -1035,9 +1116,3 @@ function PieBlock({ title, total, data, gradient }) {
     </div>
   );
 }
-
-
-
-
-
-

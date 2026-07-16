@@ -82,12 +82,24 @@ export default function ModalGastoDebito({
   defaultConcept = '',
   defaultPaymentCard = '',
   expenseConcepts = [],
+  rows = [],
 }) {
   const [concepto, setConcepto] = useState(() => toDebitConceptValue(defaultConcept));
   const customConcepts = useMemo(
     () => (Array.isArray(expenseConcepts) ? expenseConcepts : []).filter((item) => item.appliesDebit),
     [expenseConcepts],
   );
+  const monthlyOptions = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      if (row?.metodoPago !== 'debito' || normConcept(row?.concepto) !== 'gastos_recurrentes') return;
+      const detail = String(row?.notas || '').trim();
+      if (!detail) return;
+      const previous = map.get(detail);
+      if (!previous || String(row?.fecha || '') > String(previous?.fecha || '')) map.set(detail, row);
+    });
+    return Array.from(map.values()).sort((a, b) => String(a.notas).localeCompare(String(b.notas), 'es'));
+  }, [rows]);
   const [moneda, setMoneda] = useState('PEN');
   const [monto, setMonto] = useState('');
   const [fecha, setFecha] = useState(() => localDateInputValue());
@@ -102,10 +114,13 @@ export default function ModalGastoDebito({
 
   const [nota, setNota] = useState('');
   const [detalleMensual, setDetalleMensual] = useState('');
+  const [monthlySelection, setMonthlySelection] = useState('__new__');
+  const [monthlyVariable, setMonthlyVariable] = useState(false);
   const [tcPago, setTcPago] = useState(TC_FIJO);
   const [bolsaTomarDolares, setBolsaTomarDolares] = useState(false);
   const [bolsaMontoSoles, setBolsaMontoSoles] = useState('');
   const [saving, setSaving] = useState(false);
+  const [savingAction, setSavingAction] = useState('save');
   const [error, setError] = useState('');
 
   // Cargar tarjetas del usuario objetivo
@@ -166,7 +181,28 @@ export default function ModalGastoDebito({
     setConcepto(val);
   };
 
-  const submit = async (e) => {
+  const handleMonthlySelection = (value) => {
+    setMonthlySelection(value);
+    if (value === '__new__') {
+      setDetalleMensual('');
+      setMonthlyVariable(false);
+      return;
+    }
+    const selected = monthlyOptions.find((item) => String(item.id) === value);
+    if (!selected) return;
+    const detail = String(selected.notas || '');
+    setDetalleMensual(detail);
+    setMonto(String(Math.abs(Number(selected.monto || 0)) || ''));
+    setMoneda(selected.moneda === 'USD' ? 'USD' : 'PEN');
+    if (selected.tarjeta) setBanco(selected.tarjeta);
+    try {
+      const types = JSON.parse(localStorage.getItem('mensuales_types') || '{}');
+      const key = ['debito', selected.moneda, selected.tarjeta || '-', detail].join('|');
+      setMonthlyVariable(types[key] === 'variable');
+    } catch { setMonthlyVariable(false); }
+  };
+
+  const submit = async (e, action = 'save') => {
     e?.preventDefault?.();
     if (saving) return;
     setError('');
@@ -240,6 +276,7 @@ export default function ModalGastoDebito({
     const token = localStorage.getItem('token');
     if (!token) return setError('No hay sesión.');
 
+    setSavingAction(action);
     setSaving(true);
     try {
       const res = await fetch(`${API_URL}/gastos`, {
@@ -249,7 +286,23 @@ export default function ModalGastoDebito({
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      onSaved?.(data);
+      if (isMensual) {
+        try {
+          const types = JSON.parse(localStorage.getItem('mensuales_types') || '{}');
+          const key = ['debito', data.moneda, data.tarjeta || '-', data.notas || '-'].join('|');
+          localStorage.setItem('mensuales_types', JSON.stringify({ ...types, [key]: monthlyVariable ? 'variable' : 'fijo' }));
+        } catch {}
+      }
+      const keepOpen = action === 'continue';
+      onSaved?.(data, { keepOpen });
+      if (keepOpen) {
+        setMonto('');
+        setNota('');
+        setDetalleMensual('');
+        setMonthlySelection('__new__');
+        setMonthlyVariable(false);
+        setBolsaMontoSoles('');
+      }
     } catch (err) {
       console.error('[ModalGastoDebito] save error:', err);
       setError('No se pudo guardar.');
@@ -360,10 +413,25 @@ export default function ModalGastoDebito({
               )}
 
               {concepto === 'gastos_recurrentes' && (
-                <label className="text-sm">
-                  <span className="block text-gray-600 mb-1">Detalle del gasto mensual</span>
-                  <input className="w-full border rounded px-3 py-2" value={detalleMensual} onChange={(e)=>setDetalleMensual(e.target.value)} placeholder="Ej. Internet, Netflix, Membresía" />
-                </label>
+                <div className="grid gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                  <label className="text-sm">
+                    <span className="block text-gray-600 mb-1">Gasto mensual</span>
+                    <select className="w-full border rounded px-3 py-2 bg-white" value={monthlySelection} onChange={(e)=>handleMonthlySelection(e.target.value)}>
+                      <option value="__new__">Nuevo gasto mensual</option>
+                      {monthlyOptions.map((item) => <option key={item.id} value={String(item.id)}>{item.notas}</option>)}
+                    </select>
+                  </label>
+                  {monthlySelection === '__new__' && (
+                    <label className="text-sm">
+                      <span className="block text-gray-600 mb-1">Detalle del gasto mensual</span>
+                      <input className="w-full border rounded px-3 py-2 bg-white" value={detalleMensual} onChange={(e)=>setDetalleMensual(e.target.value)} placeholder="Ej. Internet, Netflix, Membresía" />
+                    </label>
+                  )}
+                  <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input type="checkbox" className="h-4 w-4 rounded" checked={monthlyVariable} onChange={(e)=>setMonthlyVariable(e.target.checked)} />
+                    Es variable <span className="font-normal text-gray-500">(sin marcar es fijo)</span>
+                  </label>
+                </div>
               )}
               {showBolsa ? (
                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3">
@@ -497,7 +565,8 @@ export default function ModalGastoDebito({
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className="px-4 py-2 rounded bg-gray-200 text-gray-800 hover:bg-gray-300" onClick={onClose}>Cancelar</button>
-            <button type="submit" disabled={saving || (concepto==='pago_tarjeta' && !cards.length)} className="px-5 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60">{saving ? 'Guardando…' : 'Guardar'}</button>
+            <button type="submit" disabled={saving || (concepto==='pago_tarjeta' && !cards.length)} className="px-5 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60">{saving && savingAction === 'save' ? 'Guardando...' : 'Guardar'}</button>
+            <button type="button" onClick={(e)=>submit(e, 'continue')} disabled={saving || (concepto==='pago_tarjeta' && !cards.length)} className="px-4 py-2 rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50 disabled:opacity-60">{saving && savingAction === 'continue' ? 'Guardando...' : 'Guardar y continuar'}</button>
           </div>
         </form>
       </div>

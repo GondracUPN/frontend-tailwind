@@ -61,6 +61,7 @@ export default function ModalGastoCredito({
   initial = null,
   defaultCard = '',
   expenseConcepts = [],
+  rows = [],
 }) {
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(true);
@@ -81,7 +82,21 @@ export default function ModalGastoCredito({
   const [nota, setNota] = useState(initial?.notas || initial?.detalleGusto || '');
 
   const [detalleMensual, setDetalleMensual] = useState('');
+  const [monthlySelection, setMonthlySelection] = useState('__new__');
+  const [monthlyVariable, setMonthlyVariable] = useState(false);
   const [tarjetaCompra, setTarjetaCompra] = useState(initial?.tarjeta || defaultCard || '');
+
+  const monthlyOptions = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      if (row?.metodoPago !== 'credito' || normConcept(row?.concepto) !== 'gastos_recurrentes') return;
+      const detail = String(row?.notas || '').trim();
+      if (!detail) return;
+      const previous = map.get(detail);
+      if (!previous || String(row?.fecha || '') > String(previous?.fecha || '')) map.set(detail, row);
+    });
+    return Array.from(map.values()).sort((a, b) => String(a.notas).localeCompare(String(b.notas), 'es'));
+  }, [rows]);
 
   const [saving, setSaving] = useState(false);
   const [savingAction, setSavingAction] = useState('');
@@ -116,6 +131,27 @@ export default function ModalGastoCredito({
 
   const handleConceptChange = (val) => {
     setConcepto(val);
+  };
+
+  const handleMonthlySelection = (value) => {
+    setMonthlySelection(value);
+    if (value === '__new__') {
+      setDetalleMensual('');
+      setMonthlyVariable(false);
+      return;
+    }
+    const selected = monthlyOptions.find((item) => String(item.id) === value);
+    if (!selected) return;
+    const detail = String(selected.notas || '');
+    setDetalleMensual(detail);
+    setMonto(String(Math.abs(Number(selected.monto || 0)) || ''));
+    setMoneda(selected.moneda === 'USD' ? 'USD' : 'PEN');
+    if (selected.tarjeta) setTarjetaCompra(selected.tarjeta);
+    try {
+      const types = JSON.parse(localStorage.getItem('mensuales_types') || '{}');
+      const key = ['credito', selected.moneda, selected.tarjeta || '-', detail].join('|');
+      setMonthlyVariable(types[key] === 'variable');
+    } catch { setMonthlyVariable(false); }
   };
 
   const isCompra = true;
@@ -189,11 +225,20 @@ export default function ModalGastoCredito({
       const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error(await res.text().catch(() => `HTTP ${res.status}`));
       const data = await res.json().catch(() => null);
+      if (needDetalleMensual && data) {
+        try {
+          const types = JSON.parse(localStorage.getItem('mensuales_types') || '{}');
+          const key = ['credito', data.moneda, data.tarjeta || '-', data.notas || '-'].join('|');
+          localStorage.setItem('mensuales_types', JSON.stringify({ ...types, [key]: monthlyVariable ? 'variable' : 'fijo' }));
+        } catch {}
+      }
       onSaved?.(data, { keepOpen });
       if (keepOpen) {
         setMonto('');
         setNota('');
         setDetalleMensual('');
+        setMonthlySelection('__new__');
+        setMonthlyVariable(false);
         setSuccess('Gasto guardado. Puedes continuar con el siguiente.');
         window.setTimeout(() => montoInputRef.current?.focus(), 0);
       } else {
@@ -241,10 +286,25 @@ export default function ModalGastoCredito({
           )}
 
           {needDetalleMensual && (
-            <label className="text-sm">
-              <span className="block text-gray-600 mb-1">Detalle del gasto mensual</span>
-              <input className="w-full border rounded px-3 py-2" value={detalleMensual} onChange={(e) => setDetalleMensual(e.target.value)} placeholder="Ej. Netflix, Internet, Membresía" />
-            </label>
+            <div className="grid gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+              <label className="text-sm">
+                <span className="block text-gray-600 mb-1">Gasto mensual</span>
+                <select className="w-full border rounded px-3 py-2 bg-white" value={monthlySelection} onChange={(e)=>handleMonthlySelection(e.target.value)}>
+                  <option value="__new__">Nuevo gasto mensual</option>
+                  {monthlyOptions.map((item) => <option key={item.id} value={String(item.id)}>{item.notas}</option>)}
+                </select>
+              </label>
+              {monthlySelection === '__new__' && (
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Detalle del gasto mensual</span>
+                  <input className="w-full border rounded px-3 py-2 bg-white" value={detalleMensual} onChange={(e) => setDetalleMensual(e.target.value)} placeholder="Ej. Netflix, Internet, Membresía" />
+                </label>
+              )}
+              <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input type="checkbox" className="h-4 w-4 rounded" checked={monthlyVariable} onChange={(e)=>setMonthlyVariable(e.target.checked)} />
+                Es variable <span className="font-normal text-gray-500">(sin marcar es fijo)</span>
+              </label>
+            </div>
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

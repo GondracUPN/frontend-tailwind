@@ -22,8 +22,10 @@ import {
   FiX,
 } from 'react-icons/fi';
 
-const Productos = lazy(() => import('./pages/Productos'));
-const Inventario = lazy(() => import('./pages/Inventario'));
+const loadProductosPage = () => import('./pages/Productos');
+const loadInventarioPage = () => import('./pages/Inventario');
+const Productos = lazy(loadProductosPage);
+const Inventario = lazy(loadInventarioPage);
 const Servicios = lazy(() => import('./pages/Servicios'));
 const Calculadora = lazy(() => import('./pages/Calculadora'));
 const Ganancias = lazy(() => import('./pages/Ganancias'));
@@ -460,6 +462,19 @@ function App() {
     } catch {
       /* ignore */
     }
+  }, []);
+
+  useEffect(() => {
+    const preloadMainPages = () => {
+      loadProductosPage();
+      loadInventarioPage();
+    };
+    if ('requestIdleCallback' in window) {
+      const idleId = window.requestIdleCallback(preloadMainPages, { timeout: 1500 });
+      return () => window.cancelIdleCallback?.(idleId);
+    }
+    const timer = window.setTimeout(preloadMainPages, 400);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -1185,6 +1200,8 @@ function App() {
         title={label}
         aria-current={active ? 'page' : undefined}
         onClick={() => navigateTo(id)}
+        onMouseEnter={id === 'productos' ? loadProductosPage : (id === 'inventario' ? loadInventarioPage : undefined)}
+        onFocus={id === 'productos' ? loadProductosPage : (id === 'inventario' ? loadInventarioPage : undefined)}
         className={`group flex h-11 w-full items-center justify-start gap-3 rounded-lg px-3 text-sm font-medium transition ${
           active
             ? 'bg-slate-900 text-white shadow-sm'

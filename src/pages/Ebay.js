@@ -52,15 +52,17 @@ const AUCTION_FAMILY_OPTIONS = [
 const IPAD_LINE_OPTIONS = [
   { value: '', label: 'Cualquiera' },
   { value: 'normal', label: 'Normal' },
+  { value: 'mini', label: 'Mini' },
   { value: 'air', label: 'Air' },
   { value: 'pro', label: 'Pro' },
 ];
-const IPAD_NUMBER_OPTIONS = ['', '10', '11'];
+const IPAD_NORMAL_GENERATION_OPTIONS = ['', '8', '9', '10', '11'];
+const IPAD_MINI_GENERATION_OPTIONS = ['', '6', '7'];
 const IPAD_SCREEN_OPTIONS = ['', '11', '12.9', '13'];
 const IPAD_AIR_SCREEN_OPTIONS = ['', '10.9', '11', '13'];
 const IPAD_PRO_SCREEN_OPTIONS = ['', '11', '12.9', '13'];
 const IPAD_PROCESSOR_OPTIONS = ['', 'A16', 'M1', 'M2', 'M3', 'M4', 'M5'];
-const IPAD_AIR_PROCESSOR_OPTIONS = ['', 'M1', 'M2', 'M3', 'M4', 'M5'];
+const IPAD_AIR_PROCESSOR_OPTIONS = ['', 'M1', 'M2', 'M3'];
 const IPAD_PRO_PROCESSOR_OPTIONS = ['', 'M1', 'M2', 'M4', 'M5'];
 const IPAD_STORAGE_OPTIONS = ['', '64GB', '128GB', '256GB', '512GB', '1TB', '2TB'];
 const IPAD_CONNECTIVITY_OPTIONS = [
@@ -111,6 +113,7 @@ const TARGET_MACBOOK_MODEL_NUMBERS = [
   'a3434', 'a3448', 'a3449',
 ];
 const TARGET_IPAD_MODEL_NUMBERS = [
+  'a2567', 'a2568', 'a2569', 'a2993', 'a2995', 'a2996',
   'a2316', 'a2324', 'a2072', 'a2325', 'a2588', 'a2589', 'a2591',
   'a2377', 'a2301', 'a2459', 'a2460', 'a2378', 'a2379', 'a2461', 'a2462',
   'a2759', 'a2435', 'a2761', 'a2762', 'a2436', 'a2764', 'a2437', 'a2766',
@@ -147,6 +150,7 @@ const TARGET_MACBOOK_ORDER_CODES = [
   'mgdn4', 'mgdp4', 'mgdq4', 'mge44', 'mge74', 'mge94',
 ];
 const TARGET_IPAD_ORDER_CODES = [
+  'mk7m3', 'mk893', 'mk8y3', 'mxn73', 'mxpp3', 'mxq13',
   'mhqt3', 'mhmu3', 'mhw63', 'mhwh3', 'mhng3', 'mhnt3', 'mhr53', 'mhrg3',
   'mnxe3', 'mp563', 'mnyd3', 'mnyp3', 'mnxq3', 'mp5y3', 'mp1y3', 'mp293',
   'mvv93', 'mvw23', 'mvwa3', 'mvx33', 'mvxt3', 'mvy23', 'mdwl4', 'me2p4',
@@ -271,7 +275,10 @@ const roundUp10 = (value) => {
 
 const compactValue = (value) => String(value || '').trim();
 
-const getIpadNumberOptions = () => IPAD_NUMBER_OPTIONS;
+const getIpadNumberOptions = (line) => {
+  if (line === 'mini') return IPAD_MINI_GENERATION_OPTIONS;
+  return IPAD_NORMAL_GENERATION_OPTIONS;
+};
 
 const getIpadScreenOptions = (line) => {
   if (line === 'air') return IPAD_AIR_SCREEN_OPTIONS;
@@ -283,6 +290,28 @@ const getIpadProcessorOptions = (line) => {
   if (line === 'air') return IPAD_AIR_PROCESSOR_OPTIONS;
   if (line === 'pro') return IPAD_PRO_PROCESSOR_OPTIONS;
   return IPAD_PROCESSOR_OPTIONS;
+};
+
+const getIpadStorageOptions = (form) => {
+  const { line, number, processor } = form;
+  if (line === 'normal') {
+    if (number === '8') return ['', '32GB', '128GB'];
+    if (['9', '10'].includes(number)) return ['', '64GB', '256GB'];
+    if (number === '11') return ['', '128GB', '256GB', '512GB'];
+  }
+  if (line === 'mini') {
+    if (number === '6') return ['', '64GB', '256GB'];
+    if (number === '7') return ['', '128GB', '256GB', '512GB'];
+  }
+  if (line === 'air') {
+    if (processor === 'M1') return ['', '64GB', '128GB', '256GB'];
+    if (['M2', 'M3'].includes(processor)) return ['', '128GB', '256GB', '512GB'];
+  }
+  if (line === 'pro') {
+    if (['M1', 'M2'].includes(processor)) return ['', '128GB', '256GB', '512GB', '1TB', '2TB'];
+    if (['M4', 'M5'].includes(processor)) return ['', '256GB', '512GB', '1TB', '2TB'];
+  }
+  return IPAD_STORAGE_OPTIONS;
 };
 
 const getMacbookScreenOptions = (line) => {
@@ -387,6 +416,13 @@ const buildProductSearchQueries = ({ productType, ipadForm, iphoneForm, macbookF
   }
   if (productType === 'ipad') {
     const queries = hasAnyProductFormValue(ipadForm) ? [buildIpadQuery(ipadForm)] : ['apple ipad'];
+    if (ipadForm.line === 'mini' && ipadForm.number === '7') {
+      const common = ['apple ipad mini A17 Pro'];
+      if (compactValue(ipadForm.storage)) common.push(ipadForm.storage);
+      if (ipadForm.connectivity === 'wifi') common.push('wifi');
+      if (ipadForm.connectivity === 'cellular') common.push('cellular');
+      queries.push(common.join(' '));
+    }
     return uniqueStrings(queries);
   }
   if (productType === 'iphone') {
@@ -648,7 +684,10 @@ const isTargetIpadTitle = (normalized) => {
     hasTargetModelNumber(normalized, TARGET_IPAD_MODEL_NUMBERS) ||
     hasTargetOrderCode(normalized, TARGET_IPAD_ORDER_CODES)
   ) return true;
-  if (!normalized.includes('ipad') || /\bipad\s+mini\b/.test(normalized)) return false;
+  if (!normalized.includes('ipad')) return false;
+  if (/\bipad\s+mini\b/.test(normalized)) {
+    return /\bipad\s+mini\s+(?:6|7)\b|\b(?:6th|sixth|7th|seventh)\b|\ba17\s*pro\b/.test(normalized);
+  }
   if (/\bipad\b.*\b(?:a16|11th|eleventh)\b|\b(?:a16|11th|eleventh)\b.*\bipad\b/.test(normalized)) return true;
   if (/\bipad\s+air\b/.test(normalized)) {
     return /\b(?:4th|fourth|5th|fifth)\b/.test(normalized) || /\bm[1-4]\b/.test(normalized);
@@ -761,11 +800,15 @@ const isLikelyAppleDeviceTitle = (title, family) => {
 const matchIpadItem = (item, form) => {
   const title = normalizeTitleText(item?.title || '');
   if (!isLikelyAppleDeviceTitle(title, 'ipad')) return false;
+  const isMini6Identifier = hasTargetModelNumber(title, ['a2567', 'a2568', 'a2569']) || hasTargetOrderCode(title, ['mk7m3', 'mk893', 'mk8y3']);
+  const isMini7Identifier = hasTargetModelNumber(title, ['a2993', 'a2995', 'a2996']) || hasTargetOrderCode(title, ['mxn73', 'mxpp3', 'mxq13']);
   if (form.line === 'normal' && /\b(air|pro|mini)\b/.test(title)) return false;
   if (form.line === 'air' && !/\bair\b/.test(title)) return false;
   if (form.line === 'pro' && !/\bpro\b/.test(title)) return false;
-  if (form.line === 'mini' && !/\bmini\b/.test(title)) return false;
-  if ((form.line === 'normal' || form.line === 'mini') && !titleHasGenerationNumber(title, form.number)) return false;
+  if (form.line === 'mini' && !/\bmini\b/.test(title) && !isMini6Identifier && !isMini7Identifier) return false;
+  if (form.line === 'normal' && !titleHasGenerationNumber(title, form.number)) return false;
+  if (form.line === 'mini' && form.number === '6' && !/\bipad\s+mini\s+6\b/.test(title) && !titleHasGenerationNumber(title, '6') && !isMini6Identifier) return false;
+  if (form.line === 'mini' && form.number === '7' && !/\bipad\s+mini\s+7\b/.test(title) && !titleHasGenerationNumber(title, '7') && !/\ba17\s*pro\b/.test(title) && !isMini7Identifier) return false;
   if ((form.line === 'air' || form.line === 'pro' || !form.line) && !titleHasProcessor(title, form.processor)) return false;
   if (compactValue(form.screen) && !titleHasScreen(title, form.screen)) return false;
   if (!titleHasStorage(title, form.storage)) return false;
@@ -796,6 +839,8 @@ const normalizeIpadFormForLine = (prev, nextLine) => {
   if (!numberOptions.includes(next.number)) next.number = '';
   if (!screenOptions.includes(next.screen)) next.screen = '';
   if (!processorOptions.includes(next.processor)) next.processor = '';
+  if (nextLine === 'mini') next.screen = '';
+  next.storage = '';
   return next;
 };
 
@@ -1322,6 +1367,7 @@ function Ebay({ setVista }) {
   const ipadNumberOptions = getIpadNumberOptions(ipadForm.line);
   const ipadScreenOptions = getIpadScreenOptions(ipadForm.line);
   const ipadProcessorOptions = getIpadProcessorOptions(ipadForm.line);
+  const ipadStorageOptions = getIpadStorageOptions(ipadForm);
   const macbookScreenOptions = getMacbookScreenOptions(macbookForm.line);
   const macbookProcessorOptions = getMacbookProcessorOptions(macbookForm.line);
 
@@ -2144,24 +2190,24 @@ function Ebay({ setVista }) {
                     options={IPAD_LINE_OPTIONS}
                   />
                 </FieldShell>
-                <FieldShell label={ipadUsesNumber ? 'Numero' : 'Procesador'}>
+                <FieldShell label={ipadUsesNumber ? 'Generación' : 'Procesador'}>
                   {ipadUsesNumber ? (
                     <SelectField
                       value={ipadForm.number}
-                      onChange={(e) => setIpadForm((prev) => ({ ...prev, number: e.target.value }))}
+                      onChange={(e) => setIpadForm((prev) => ({ ...prev, number: e.target.value, storage: '' }))}
                       options={ipadNumberOptions}
-                      placeholder="Numero"
+                      placeholder="Generación"
                     />
                   ) : (
                     <SelectField
                       value={ipadForm.processor}
-                      onChange={(e) => setIpadForm((prev) => ({ ...prev, processor: e.target.value }))}
+                      onChange={(e) => setIpadForm((prev) => ({ ...prev, processor: e.target.value, storage: '' }))}
                       options={ipadProcessorOptions}
                     />
                   )}
                 </FieldShell>
-                <FieldShell label="Pantalla"><SelectField value={ipadForm.screen} onChange={(e) => setIpadForm((prev) => ({ ...prev, screen: e.target.value }))} options={ipadScreenOptions} /></FieldShell>
-                <FieldShell label="Almacenamiento"><SelectField value={ipadForm.storage} onChange={(e) => setIpadForm((prev) => ({ ...prev, storage: e.target.value }))} options={IPAD_STORAGE_OPTIONS} /></FieldShell>
+                {ipadForm.line !== 'mini' && <FieldShell label="Pantalla"><SelectField value={ipadForm.screen} onChange={(e) => setIpadForm((prev) => ({ ...prev, screen: e.target.value }))} options={ipadScreenOptions} /></FieldShell>}
+                <FieldShell label="Almacenamiento"><SelectField value={ipadForm.storage} onChange={(e) => setIpadForm((prev) => ({ ...prev, storage: e.target.value }))} options={ipadStorageOptions} /></FieldShell>
                 <FieldShell label="Conectividad"><MappedSelectField value={ipadForm.connectivity} onChange={(e) => setIpadForm((prev) => ({ ...prev, connectivity: e.target.value }))} options={IPAD_CONNECTIVITY_OPTIONS} /></FieldShell>
                 <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={PRODUCT_CONDITION_OPTIONS} /></FieldShell>
                 <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>

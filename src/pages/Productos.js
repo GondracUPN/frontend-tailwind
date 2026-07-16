@@ -25,6 +25,7 @@ const ModalVentaMensaje = lazy(() => import('../components/ModalVentaMensaje'));
 
 const CACHE_KEY = 'productos:cache:v2';
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos para revalidar
+let productosRequest = null;
 const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
 const ESHOPEX_BG_REQUESTED_KEY = 'eshopex-carga-requested';
 const ESHOPEX_BG_OPEN_MODAL_KEY = 'eshopex-carga-open-modal';
@@ -110,7 +111,6 @@ const readCache = () => {
   if (!raw) return null;
   const parsed = JSON.parse(raw);
   if (!parsed?.ts) return null;
-  if (Date.now() - parsed.ts > CACHE_TTL_MS) return null;
   return {
     productos: Array.isArray(parsed.productos) ? parsed.productos : [],
     ventasMap: parsed.ventasMap && typeof parsed.ventasMap === 'object' ? parsed.ventasMap : {},
@@ -168,8 +168,22 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const didInitRef = useRef(false);
 
   useEffect(() => {
-    writeCache(productos, ventasMap, resumen, adelantosMap);
-  }, [productos, ventasMap, resumen, adelantosMap]);
+    const handleExternalProductUpdate = (event) => {
+      const updated = event?.detail?.producto;
+      const deletedId = Number(event?.detail?.deletedId || 0);
+      if (!updated?.id && !deletedId) return;
+      setProductos((current) => {
+        const exists = updated?.id && current.some((item) => item.id === updated.id);
+        const next = deletedId
+          ? current.filter((item) => item.id !== deletedId)
+          : (exists ? current.map((item) => (item.id === updated.id ? updated : item)) : [updated, ...current]);
+        writeCache(next, ventasRef.current, resumenRef.current, adelantosRef.current);
+        return next;
+      });
+    };
+    window.addEventListener('productos-updated', handleExternalProductUpdate);
+    return () => window.removeEventListener('productos-updated', handleExternalProductUpdate);
+  }, []);
 
   // Abre modal de venta (creacifn o lectura)
   const abrirVenta = (p) => { setProductoSeleccionado(p); setModalModo('venta'); };
@@ -1761,7 +1775,10 @@ const confirmAction = async () => {
     if (showSpinner) setCargando(true);
     if (!silent) setError(null);
     try {
-      const data = await api.get('/productos');
+      if (!productosRequest) {
+        productosRequest = api.get('/productos').finally(() => { productosRequest = null; });
+      }
+      const data = await productosRequest;
       const lista = Array.isArray(data)
         ? data
         : (Array.isArray(data?.items) ? data.items : []);
@@ -1788,7 +1805,6 @@ const confirmAction = async () => {
     (async () => {
       if (!mounted) return;
       await refreshProductos({ useCache: true, force: productos.length === 0 });
-      await fetchResumen({ refresh: false });
     })();
     return () => { mounted = false; };
   }, [fetchResumen, refreshProductos, productos.length]);
@@ -2076,6 +2092,7 @@ const confirmAction = async () => {
       writeCache(next, ventasMap, resumenRef.current, adelantosRef.current);
       return next;
     });
+    window.dispatchEvent(new CustomEvent('productos-updated', { detail: { producto: updated } }));
     if (closeModal) cerrarModal();
   };
 
@@ -2173,7 +2190,12 @@ const confirmAction = async () => {
     if (!window.confirm(',Eliminar este producto?')) return;
     try {
       await api.del(`/productos/${id}`);
-      setProductos(list => list.filter(p => p.id !== id));
+      setProductos(list => {
+        const next = list.filter(p => p.id !== id);
+        writeCache(next, ventasRef.current, resumenRef.current, adelantosRef.current);
+        return next;
+      });
+      window.dispatchEvent(new CustomEvent('productos-updated', { detail: { deletedId: id } }));
       fetchResumen({ refresh: true });
     } catch (e) {
       console.error(e);
@@ -2822,6 +2844,7 @@ const confirmAction = async () => {
                   return (
                     <tr
                       key={p.id}
+                      style={{ contentVisibility: 'auto', containIntrinsicSize: '52px' }}
                       className={`border-t hover:bg-gray-50 ${selectMode ? 'cursor-pointer' : ''} ${isSelected ? 'bg-indigo-50' : ''} ${(selectMode && disabledSel) ? 'opacity-60 cursor-not-allowed' : ''}`}
                       onClick={() => {
                         if (!selectMode) return;

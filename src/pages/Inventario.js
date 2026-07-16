@@ -6,6 +6,8 @@ import {
   FiCopy,
   FiDownload,
   FiEdit3,
+  FiEye,
+  FiEyeOff,
   FiFileText,
   FiHome,
   FiImage,
@@ -35,6 +37,12 @@ const ACCESORIOS = [
   'Keyboard Logitech',
   'Ninguno',
 ];
+
+const INVENTARIO_TIPO_CAMBIO = 3.7;
+const roundUp10 = (value) => Math.ceil(Number(value || 0) / 10) * 10;
+const roundUp50 = (value) => Math.ceil(Number(value || 0) / 50) * 50;
+const formatInventorySoles = (value) => `S/ ${Number(value || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const formatInventoryUsd = (value) => `$ ${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const EMPTY_FORM = {
   enAlmacen: false,
@@ -204,9 +212,38 @@ const Pill = ({ children, tone = 'slate' }) => {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${tones[tone]}`}>{children}</span>;
 };
 
+const INVENTARIO_CACHE_KEY = 'inventario:cache:v1';
+const INVENTARIO_CACHE_TTL_MS = 2 * 60 * 1000;
+let inventarioMemoryCache = null;
+let inventarioRequest = null;
+
+const readInventarioCache = () => {
+  if (process.env.NODE_ENV === 'test') return null;
+  if (inventarioMemoryCache) return inventarioMemoryCache;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(INVENTARIO_CACHE_KEY) || 'null');
+    if (!parsed?.ts || !Array.isArray(parsed.entries)) return null;
+    inventarioMemoryCache = parsed;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const writeInventarioCache = (entries) => {
+  const next = { entries, ts: Date.now() };
+  inventarioMemoryCache = next;
+  try {
+    localStorage.setItem(INVENTARIO_CACHE_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore cache errors */
+  }
+};
+
 export default function Inventario({ setVista }) {
-  const [entries, setEntries] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const initialCache = readInventarioCache();
+  const [entries, setEntries] = useState(() => initialCache?.entries || []);
+  const [loading, setLoading] = useState(() => !initialCache?.entries?.length);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('todos');
@@ -238,21 +275,31 @@ export default function Inventario({ setVista }) {
   const [uncheckConfirm, setUncheckConfirm] = useState(null);
   const [copied, setCopied] = useState(false);
   const [downloadingPhotos, setDownloadingPhotos] = useState(false);
+  const [showInventoryCosts, setShowInventoryCosts] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     setError('');
     try {
-      const data = await api.get('/inventario');
-      setEntries(Array.isArray(data) ? data : []);
+      if (!inventarioRequest) {
+        inventarioRequest = api.get('/inventario').finally(() => { inventarioRequest = null; });
+      }
+      const data = await inventarioRequest;
+      const next = Array.isArray(data) ? data : [];
+      setEntries(next);
+      writeInventarioCache(next);
     } catch (err) {
       setError(err?.message || 'No se pudo cargar el inventario.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const cache = readInventarioCache();
+    const fresh = cache?.ts && Date.now() - cache.ts <= INVENTARIO_CACHE_TTL_MS;
+    if (!fresh || !cache?.entries?.length) load({ silent: Boolean(cache?.entries?.length) });
+  }, [load]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -270,13 +317,36 @@ export default function Inventario({ setVista }) {
   }, []);
 
   const replaceFicha = (productoId, ficha) => {
-    setEntries((current) => current.map((entry) => (
-      entry.producto?.id === productoId ? { ...entry, ficha } : entry
-    )));
+    setEntries((current) => {
+      const next = current.map((entry) => (
+        entry.producto?.id === productoId ? { ...entry, ficha } : entry
+      ));
+      writeInventarioCache(next);
+      return next;
+    });
     setEditing((current) => (
       current?.producto?.id === productoId ? { ...current, ficha } : current
     ));
   };
+
+  useEffect(() => {
+    const handleProductUpdated = (event) => {
+      const updated = event?.detail?.producto;
+      const deletedId = Number(event?.detail?.deletedId || 0);
+      if (!updated?.id && !deletedId) return;
+      setEntries((current) => {
+        const next = deletedId
+          ? current.filter((entry) => entry.producto?.id !== deletedId)
+          : current.map((entry) => (
+            entry.producto?.id === updated.id ? { ...entry, producto: updated } : entry
+          ));
+        writeInventarioCache(next);
+        return next;
+      });
+    };
+    window.addEventListener('productos-updated', handleProductUpdated);
+    return () => window.removeEventListener('productos-updated', handleProductUpdated);
+  }, []);
 
   const quickPatch = async (entry, patch) => {
     const id = entry.producto.id;
@@ -556,6 +626,22 @@ export default function Inventario({ setVista }) {
     sinMarketplace: entries.filter((entry) => !entry.ficha?.marketplaceSubido).length,
   }), [entries]);
 
+  const inventoryValues = useMemo(() => entries.reduce((totals, entry) => {
+    const valor = entry.producto?.valor || {};
+    const fallbackCost = Number(valor.valorSoles || 0) + Number(valor.costoEnvio || 0);
+    const costSoles = Number(valor.costoTotalProrrateado ?? valor.costoTotal ?? fallbackCost) || 0;
+    totals.costSoles += costSoles;
+    totals.costUsd += costSoles / INVENTARIO_TIPO_CAMBIO;
+    totals.minimumSoles += roundUp10(costSoles * 1.2);
+    totals.maximumSoles += roundUp50(costSoles * 1.3);
+    return totals;
+  }, {
+    costSoles: 0,
+    costUsd: 0,
+    minimumSoles: 0,
+    maximumSoles: 0,
+  }), [entries]);
+
   const filtered = useMemo(() => {
     const needle = text(query).toLowerCase();
     const result = entries.filter((entry) => {
@@ -583,6 +669,11 @@ export default function Inventario({ setVista }) {
     });
 
     return result.sort((a, b) => {
+      if (sortOrder === 'codeAsc' || sortOrder === 'codeDesc') {
+        const direction = sortOrder === 'codeAsc' ? 1 : -1;
+        return ((Number(a.producto?.id) || 0) - (Number(b.producto?.id) || 0)) * direction;
+      }
+
       const aDate = Date.parse(lastPickupDate(a.producto) || '');
       const bDate = Date.parse(lastPickupDate(b.producto) || '');
       const aHasDate = Number.isFinite(aDate);
@@ -671,7 +762,7 @@ export default function Inventario({ setVista }) {
           </div>
         </header>
 
-        <section className="mb-5 grid grid-cols-2 gap-2.5 sm:mb-6 sm:gap-3 lg:grid-cols-5">
+        <section className="mb-5 grid grid-cols-2 gap-2.5 sm:mb-6 sm:gap-3 lg:grid-cols-8">
           {[
             ['Disponibles', stats.total, 'text-slate-950'],
             ['Confirmados en almacén', stats.almacen, 'text-emerald-700'],
@@ -679,11 +770,35 @@ export default function Inventario({ setVista }) {
             ['Sin foto completa', stats.sinFoto, 'text-amber-700'],
             ['Sin Marketplace', stats.sinMarketplace, 'text-blue-700'],
           ].map(([label, value, tone]) => (
-            <div key={label} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
-              <div className="text-[11px] font-medium uppercase leading-4 tracking-wide text-slate-500 sm:text-xs">{label}</div>
-              <div className={`mt-1.5 text-2xl font-bold sm:mt-2 sm:text-3xl ${tone}`}>{value}</div>
+            <div key={label} className="relative min-h-24 rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm">
+              <div className="relative z-10 text-[10px] font-semibold uppercase leading-3.5 tracking-wide text-slate-500 sm:text-[11px]">{label}</div>
+              <div className={`absolute inset-0 flex items-center justify-center whitespace-nowrap text-4xl font-bold leading-none ${tone}`}>{value}</div>
             </div>
           ))}
+          <div className="col-span-2 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4 lg:col-span-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-[11px] font-medium uppercase leading-4 tracking-wide text-slate-500 sm:text-xs">Valor</div>
+              <button
+                type="button"
+                onClick={() => setShowInventoryCosts((current) => !current)}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                aria-label={showInventoryCosts ? 'Ocultar costos de inventario' : 'Mostrar costos de inventario'}
+                title={showInventoryCosts ? 'Ocultar costos' : 'Mostrar costos'}
+              >
+                {showInventoryCosts ? <FiEye /> : <FiEyeOff />}
+              </button>
+            </div>
+            <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+              <div aria-label="Costos de inventario" className={`border-b border-slate-100 pb-3 font-semibold leading-6 text-slate-950 transition sm:border-b-0 sm:border-r sm:pb-0 sm:pr-4 ${showInventoryCosts ? '' : 'select-none blur-sm'}`}>
+                <div className="whitespace-nowrap text-base">{formatInventoryUsd(inventoryValues.costUsd)}</div>
+                <div className="whitespace-nowrap text-base">{formatInventorySoles(inventoryValues.costSoles)}</div>
+              </div>
+              <div className="space-y-1 text-xs leading-5">
+                <div className="flex justify-between gap-3 text-emerald-700"><span>Mínimo</span><strong className="whitespace-nowrap text-sm">{formatInventorySoles(inventoryValues.minimumSoles)}</strong></div>
+                <div className="flex justify-between gap-3 text-blue-700"><span>Máximo</span><strong className="whitespace-nowrap text-sm">{formatInventorySoles(inventoryValues.maximumSoles)}</strong></div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section className="mb-5 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm xl:flex-row xl:items-center">
@@ -702,6 +817,8 @@ export default function Inventario({ setVista }) {
               >
                 <option value="newest">Más nuevos primero</option>
                 <option value="oldest">Más antiguos primero</option>
+                <option value="codeAsc">Código MS: menor a mayor</option>
+                <option value="codeDesc">Código MS: mayor a menor</option>
               </select>
             </label>
             <button type="button" onClick={() => setFacuOpen(true)} className="inline-flex whitespace-nowrap items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100">
@@ -735,7 +852,7 @@ export default function Inventario({ setVista }) {
               const { producto, ficha } = entry;
               const disabled = busyId === producto.id;
               return (
-                <article key={producto.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-slate-300 hover:shadow-md">
+                <article key={producto.id} style={{ contentVisibility: 'auto', containIntrinsicSize: '420px' }} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-slate-300 hover:shadow-md">
                   <div className="relative aspect-[16/8] bg-slate-100 sm:aspect-[16/9]">
                     {ficha?.fotoUrl ? (
                       <button type="button" onClick={() => openPhotoViewer(ficha.fotoUrl, buildNombre(producto))} className="group relative h-full w-full cursor-zoom-in bg-cover bg-center transition duration-200 hover:brightness-95" style={{ backgroundImage: `url(${ficha.fotoUrl})` }} aria-label={`Ampliar foto de ${buildNombre(producto)}`}>

@@ -46,6 +46,31 @@ test('lista un producto disponible y abre su ficha de cotejo', async () => {
   await waitFor(() => expect(api.get).toHaveBeenCalledWith('/inventario'));
 });
 
+test('resume costo y precios de inventario y permite ocultar solo los costos', async () => {
+  api.get.mockResolvedValue([{
+    ...entry,
+    producto: {
+      ...entry.producto,
+      valor: { valorProducto: 90, valorSoles: 333, costoEnvio: 37, costoTotal: 370 },
+    },
+  }]);
+  render(<Inventario setVista={jest.fn()} />);
+
+  const costs = await screen.findByLabelText('Costos de inventario');
+  await waitFor(() => expect(within(costs).getByText('$ 100.00')).toBeInTheDocument());
+  expect(within(costs).getByText('S/ 370.00')).toBeInTheDocument();
+  expect(screen.getByText('S/ 450.00')).toBeInTheDocument();
+  expect(screen.getByText('S/ 500.00')).toBeInTheDocument();
+  expect(costs).toHaveClass('blur-sm');
+  expect(screen.getByRole('button', { name: 'Mostrar costos de inventario' })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Mostrar costos de inventario' }));
+  expect(costs).not.toHaveClass('blur-sm');
+  expect(screen.getByText('S/ 450.00')).toBeVisible();
+  expect(screen.getByText('S/ 500.00')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Ocultar costos de inventario' })).toBeInTheDocument();
+});
+
 test('confirma antes de quitar el cotejo de almacén', async () => {
   api.get.mockResolvedValue([{ ...entry, ficha: { enAlmacen: true } }]);
   api.patch.mockResolvedValue({ enAlmacen: false });
@@ -163,6 +188,25 @@ test('filtra por check de fotos y descarga solo portadas disponibles en ZIP', as
     URL.revokeObjectURL = originalRevokeObjectUrl;
     anchorClick.mockRestore();
   }
+});
+
+test('ordena los productos con fotos por código MS en ambos sentidos', async () => {
+  api.get.mockResolvedValue([42, 7, 105].map((id) => ({
+    ...entry,
+    producto: { ...entry.producto, id },
+    ficha: { fotoUrl: `https://example.com/${id}.jpg`, fotosTomadas: true },
+  })));
+  render(<Inventario setVista={jest.fn()} />);
+
+  await screen.findByText('MS-42');
+  fireEvent.click(screen.getByRole('button', { name: 'Con fotos' }));
+  const orderSelect = screen.getByRole('combobox', { name: 'Ordenar inventario' });
+
+  fireEvent.change(orderSelect, { target: { value: 'codeAsc' } });
+  expect(screen.getAllByText(/^MS-/).map((element) => element.textContent)).toEqual(['MS-7', 'MS-42', 'MS-105']);
+
+  fireEvent.change(orderSelect, { target: { value: 'codeDesc' } });
+  expect(screen.getAllByText(/^MS-/).map((element) => element.textContent)).toEqual(['MS-105', 'MS-42', 'MS-7']);
 });
 
 test('mantiene las tarjetas con portada en escritorio y muestra más columnas', async () => {

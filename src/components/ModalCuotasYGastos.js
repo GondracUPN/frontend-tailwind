@@ -27,6 +27,14 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
   const [editSaving, setEditSaving] = useState(false);
   const [editCards, setEditCards] = useState([]);
   const [editLoadingCards, setEditLoadingCards] = useState(false);
+  const [editVariable, setEditVariable] = useState(false);
+  const [monthlyTypes, setMonthlyTypes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('mensuales_types') || '{}'); } catch { return {}; }
+  });
+  const [payOpen, setPayOpen] = useState(false);
+  const [payDraft, setPayDraft] = useState([]);
+  const [paySaving, setPaySaving] = useState(false);
+  const [payErr, setPayErr] = useState('');
   const [hiddenKeys, setHiddenKeys] = useState(() => {
     try {
       const raw = localStorage.getItem('mensuales_hidden');
@@ -76,7 +84,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
     const list = rows.filter(r => ['gastos_recurrentes', 'gastos_mensuales'].includes(norm(r.concepto)));
     const map = new Map();
     for (const g of list) {
-      const key = [g.metodoPago, g.moneda, (g.tarjeta || g.tarjetaPago || '-'), g.notas || '-', Number(g.monto).toFixed(2)].join('|');
+      const key = [g.metodoPago, g.moneda, (g.tarjeta || g.tarjetaPago || '-'), g.notas || '-'].join('|');
       const arr = map.get(key) || [];
       arr.push(g);
       map.set(key, arr);
@@ -84,8 +92,8 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
     const groups = Array.from(map.entries()).map(([key, arr]) => {
       arr.sort((a,b)=> a.fecha.localeCompare(b.fecha));
       const last = arr[arr.length-1];
-      const [metodoPago, moneda, tarjeta, notas, monto] = key.split('|');
-      return { key, metodoPago, moneda, tarjeta, notas, monto: Number(monto), last, count: arr.length, lastTarjeta: last?.tarjeta || null, lastTarjetaPago: last?.tarjetaPago || null };
+      const [metodoPago, moneda, tarjeta, notas] = key.split('|');
+      return { key, metodoPago, moneda, tarjeta, notas, monto: Number(last?.monto || 0), last, count: arr.length, lastTarjeta: last?.tarjeta || null, lastTarjetaPago: last?.tarjetaPago || null };
     });
     return groups.filter(g => !hiddenKeys.has(g.key));
   }, [rows, hiddenKeys]);
@@ -142,20 +150,43 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
 
   const toggleSel = (k) => setSelKeys(s => ({ ...s, [k]: !s[k] }));
 
+  const setMonthlyType = (key, value) => {
+    setMonthlyTypes((prev) => {
+      const next = { ...prev, [key]: value };
+      try { localStorage.setItem('mensuales_types', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const openPayModal = (all = false) => {
+    const keys = all ? mensualesGroups.map((g) => g.key) : Object.keys(selKeys).filter(k => selKeys[k]);
+    if (!keys.length) return;
+    const today = localDateInputValue();
+    setPayDraft(keys.map((key) => {
+      const group = mensualesGroups.find((g) => g.key === key);
+      return { key, monto: String(group?.monto ?? ''), fecha: today };
+    }));
+    setPayErr('');
+    setPayOpen(true);
+  };
+
   const pagarSeleccionados = async () => {
-    const keys = Object.keys(selKeys).filter(k => selKeys[k]);
-    if (!keys.length || !token) return;
+    if (!payDraft.length || !token || paySaving) return;
+    const invalid = payDraft.find((item) => !item.fecha || !isFinite(Number(item.monto)) || Number(item.monto) <= 0);
+    if (invalid) return setPayErr('Completa una fecha y un monto válido para cada gasto.');
+    setPaySaving(true);
+    setPayErr('');
     try {
-      const today = localDateInputValue();
-      for (const k of keys) {
-        const it = mensualesGroups.find(x => x.key === k);
+      const created = [];
+      for (const draft of payDraft) {
+        const it = mensualesGroups.find(x => x.key === draft.key);
         if (!it) continue;
         const body = {
           concepto: 'Gastos mensuales',
           metodoPago: it.metodoPago,
           moneda: it.moneda,
-          monto: Number(it.monto),
-          fecha: today,
+          monto: Number(draft.monto),
+          fecha: draft.fecha,
           notas: it.notas || null,
           tarjeta: it.tarjeta && it.tarjeta !== '-' ? it.tarjeta : null,
         };
@@ -165,12 +196,17 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
           body: JSON.stringify(body)
         });
         if (!res.ok) throw new Error(await res.text());
+        created.push(await res.json());
       }
-      onChanged?.();
+      onChanged?.(created);
       setSelKeys({});
+      setPayOpen(false);
+      setPayDraft([]);
     } catch (e) {
       console.error('[ModalCuotasYGastos] pagar seleccionados:', e);
-      alert('No se pudieron registrar los pagos seleccionados.');
+      setPayErr('No se pudieron registrar los pagos.');
+    } finally {
+      setPaySaving(false);
     }
   };
 
@@ -206,6 +242,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
     setEditKey(k);
     setEditMonto(String(it.last?.monto ?? it.monto ?? ''));
     setEditTarjeta(it.last?.tarjeta || (it.tarjeta !== '-' ? it.tarjeta : ''));
+    setEditVariable((monthlyTypes[k] || 'fijo') === 'variable');
     setEditErr('');
     setEditOpen(true);
   };
@@ -222,9 +259,9 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
     if (editSaving) return;
     setEditErr('');
     const n = Number(editMonto);
-    if (!isFinite(n) || n <= 0) return setEditErr('Monto inv�lido.');
-    if (!token) return setEditErr('No hay sesi�n.');
-    if (!editGroup?.last?.id) return setEditErr('No se encontr� el gasto.');
+    if (!isFinite(n) || n <= 0) return setEditErr('Monto inválido.');
+    if (!token) return setEditErr('No hay sesión.');
+    if (!editGroup?.last?.id) return setEditErr('No se encontró el gasto.');
     setEditSaving(true);
     try {
       const body = { monto: n };
@@ -235,6 +272,8 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await res.text());
+      const nextKey = [editGroup.metodoPago, editGroup.moneda, (editIsCredito ? (editTarjeta || '-') : editGroup.tarjeta), editGroup.notas || '-'].join('|');
+      setMonthlyType(nextKey, editVariable ? 'variable' : 'fijo');
       onChanged?.();
       closeEditar();
     } catch (e) {
@@ -265,7 +304,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
   const borrarDefinitivo = async (k) => {
     if (!token) return;
     const g = mensualesGroups.find((x) => x.key === k);
-    if (!g) { alert('No se encontró el grupo.'); return; }
+    if (!g) { alert('No se encontrÃ³ el grupo.'); return; }
     const sch = findScheduleForGroup(g);
 
     if (!window.confirm('Quitar de "Gastos mensuales". No se borrarán gastos ya registrados. ¿Continuar?')) return;
@@ -307,7 +346,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
         {tab === 'cuotas' ? (
           <div className="grid gap-4">
             {cuotasList.length === 0 ? (
-              <div className="text-sm text-gray-600">AúAún no has registrado compras en cuotas.</div>
+              <div className="text-sm text-gray-600">Aún no has registrado compras en cuotas.</div>
             ) : cuotasList.map((q) => (
               <div key={q.id} className="border rounded p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -375,20 +414,58 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
                   </table>
                 </div>
 
-                <div className="flex justify-end mt-3">
-                  <button className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500" onClick={pagarSeleccionados}>Pagar seleccionados</button>
+                <div className="flex flex-wrap justify-end gap-2 mt-3">
+                  <button className="px-4 py-2 rounded-lg border border-blue-600 text-blue-700 hover:bg-blue-50" onClick={()=>openPayModal(false)}>Pagar seleccionados</button>
+                  <button className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500" onClick={()=>openPayModal(true)}>Pagar todos</button>
                 </div>
               </>
             )}
           </div>
         )}
+      {payOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={(e)=>{ if (e.target === e.currentTarget && !paySaving) setPayOpen(false); }}>
+          <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-white rounded-xl shadow-lg p-5" onClick={(e)=>e.stopPropagation()}>
+            <div className="text-lg font-semibold">Registrar pagos mensuales</div>
+            <div className="mt-1 text-sm text-gray-600">Indica el monto real de los variables y la fecha en que pagaste cada gasto.</div>
+            {payErr && <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{payErr}</div>}
+            <div className="mt-4 grid gap-3">
+              {payDraft.map((draft, index) => {
+                const group = mensualesGroups.find((g) => g.key === draft.key);
+                const isVariable = (monthlyTypes[draft.key] || 'fijo') === 'variable';
+                return (
+                  <div key={draft.key} className="rounded-lg border p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-sm font-semibold">{group?.notas || '(Sin detalle)'}</div>
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${isVariable ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'}`}>{isVariable ? 'Variable' : 'Fijo'}</span>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="text-sm">
+                        <span className="block text-gray-600 mb-1">Monto pagado ({group?.moneda || ''})</span>
+                        <input type="number" step="0.01" min="0.01" disabled={!isVariable} className="w-full border rounded px-3 py-2 disabled:bg-gray-100" value={draft.monto} onChange={(e)=>setPayDraft((prev)=>prev.map((item, i)=>i === index ? { ...item, monto: e.target.value } : item))} />
+                      </label>
+                      <label className="text-sm">
+                        <span className="block text-gray-600 mb-1">Fecha de pago</span>
+                        <input type="date" className="w-full border rounded px-3 py-2" value={draft.fecha} onChange={(e)=>setPayDraft((prev)=>prev.map((item, i)=>i === index ? { ...item, fecha: e.target.value } : item))} />
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" disabled={paySaving} className="px-4 py-2 rounded bg-gray-200 text-gray-800" onClick={()=>setPayOpen(false)}>Cancelar</button>
+              <button type="button" disabled={paySaving} className="px-5 py-2 rounded bg-blue-600 text-white disabled:opacity-60" onClick={pagarSeleccionados}>{paySaving ? 'Registrando...' : 'Registrar pagos'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {editOpen && editGroup && (
         <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={(e)=>{ if (e.target === e.currentTarget) closeEditar(); }}>
           <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-5" onClick={(e)=>e.stopPropagation()}>
             <div className="text-lg font-semibold mb-2">Editar gasto mensual</div>
             <div className="text-xs text-gray-600 mb-3">
               <div>Detalle: <b>{editGroup.notas || '(Sin detalle)'}</b></div>
-              <div>Metodo: <b className="capitalize">{editGroup.metodoPago}</b> � Moneda: <b>{editGroup.moneda}</b> � Ultimo pago: <b>{editGroup.last?.fecha || '-'}</b></div>
+              <div>Metodo: <b className="capitalize">{editGroup.metodoPago}</b> · Moneda: <b>{editGroup.moneda}</b> · Ultimo pago: <b>{editGroup.last?.fecha || '-'}</b></div>
             </div>
 
             {editErr && <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{editErr}</div>}
@@ -397,6 +474,11 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
               <label className="text-sm">
                 <span className="block text-gray-600 mb-1">Monto</span>
                 <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={editMonto} onChange={(e)=>setEditMonto(e.target.value)} required />
+              </label>
+
+              <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input type="checkbox" className="h-4 w-4 rounded" checked={editVariable} onChange={(e)=>setEditVariable(e.target.checked)} />
+                Es variable <span className="font-normal text-gray-500">(sin marcar es fijo)</span>
               </label>
 
               {editIsCredito && (

@@ -207,6 +207,9 @@ const getPaymentAllocation = (g) => {
 const isCardPayment = (g) =>
   g?.metodoPago === 'debito' && String(g?.concepto || '').trim().toLowerCase() === 'pago_tarjeta';
 
+const isCardCashback = (g) =>
+  g?.metodoPago === 'credito' && String(g?.concepto || '').trim().toLowerCase() === 'cashback';
+
 const monthIndex = (year, month) => year * 12 + month;
 const monthsBetween = (from, to) => {
   const out = [];
@@ -254,8 +257,18 @@ const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear, select
       .sort((a, b) => a.cycle.due.getTime() - b.cycle.due.getTime());
 
     const payments = rows
-      .filter((g) => isCardPayment(g) && normalizeCard(g.tarjetaPago) === normalizeCard(card))
-      .map((g) => ({ date: parseYmd(g.fecha) || makeDate(1900, 1, 1), ...getPaymentAllocation(g) }))
+      .filter((g) => (
+        (isCardPayment(g) && normalizeCard(g.tarjetaPago) === normalizeCard(card))
+        || (isCardCashback(g) && normalizeCard(g.tarjeta) === normalizeCard(card))
+      ))
+      .map((g) => {
+        const allocation = getPaymentAllocation(g);
+        return {
+          date: parseYmd(g.fecha) || makeDate(1900, 1, 1),
+          ...allocation,
+          amount: isCardCashback(g) ? Math.abs(allocation.amount) : allocation.amount,
+        };
+      })
       .filter((p) => p.amount > 0)
       .sort((a, b) => a.date.getTime() - b.date.getTime());
 
@@ -301,7 +314,7 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
   const [month, setMonth] = useState(`${now.getFullYear()}-${pad(now.getMonth() + 1)}`);
 
   const creditRows = useMemo(
-    () => rows.filter((g) => g.metodoPago === 'credito'),
+    () => rows.filter((g) => g.metodoPago === 'credito' && !isCardCashback(g)),
     [rows],
   );
 

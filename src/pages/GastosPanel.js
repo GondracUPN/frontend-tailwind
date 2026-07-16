@@ -944,11 +944,12 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         <ModalGastoDebito
           userId={targetUserId}
           expenseConcepts={expenseConcepts}
+          rows={rows}
           defaultConcept={debitConceptFilter !== 'all' ? debitConceptFilter : ''}
           defaultPaymentCard={debitConceptFilter === 'pago_tarjeta' && debitPaymentCardFilter !== 'all' ? debitPaymentCardFilter : ''}
           onClose={() => setShowDeb(false)}
-          onSaved={(row) => {
-            setShowDeb(false);
+          onSaved={(row, { keepOpen } = {}) => {
+            if (!keepOpen) setShowDeb(false);
             if (row) upsertRow(row);
             refreshTotals();
           }}
@@ -958,6 +959,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         <ModalGastoCredito
           userId={targetUserId}
           expenseConcepts={expenseConcepts}
+          rows={rows}
           defaultCard={creditCardForCreate}
           onClose={() => setShowCre(false)}
           onSaved={(row, { keepOpen } = {}) => {
@@ -1108,7 +1110,11 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           onClose={() => setShowCG(false)}
           rows={rows}
           userId={targetUserId}
-          onChanged={reloadAll}
+          onChanged={(createdRows) => {
+            if (Array.isArray(createdRows)) createdRows.forEach(upsertRow);
+            else reloadAll({ includeGastos: true, useCache: false, silent: true });
+            refreshTotals();
+          }}
         />
       )}
       {showCiclosTarjeta && (
