@@ -3212,7 +3212,7 @@ Activo
  <div>
  <h2 className="text-lg font-semibold">Ventas y margen por mes{ventasMargenYear ? ` - ${ventasMargenYear}` : ''}</h2>
  <div className="mt-0.5 text-xs text-slate-500">
- Promedio calculado sobre {ventasMargenPromedios.meses} {ventasMargenPromedios.meses === 1 ? 'mes culminado' : 'meses culminados'}{ventasMargenYear ? ' del año seleccionado' : ' de todo el historial'}. El mes actual no se incluye.
+ Promedio calculado sobre {ventasMargenPromedios.meses} {ventasMargenPromedios.meses === 1 ? 'mes culminado' : 'meses culminados'}{ventasMargenYear ? ' del año seleccionado' : ' de todo el historial'}. El mes en curso no se incluye en los promedios.
  </div>
  </div>
  <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-5 lg:min-w-[820px]">
