@@ -1457,9 +1457,21 @@ const gananciasResumen = useMemo(() => {
  return Array.isArray(data?.sales?.perMonth) ? data.sales.perMonth : [];
  }, [data?.sales?.perMonth, salesHistoryData?.sales?.perMonth]);
 
+ const ventasMargenHistoryPurchases = useMemo(() => {
+ const historyRows = salesHistoryData?.comprasPeriodo;
+ if (Array.isArray(historyRows)) return historyRows;
+ return Array.isArray(data?.comprasPeriodo) ? data.comprasPeriodo : [];
+ }, [data?.comprasPeriodo, salesHistoryData?.comprasPeriodo]);
+
  const ventasMargenRows = useMemo(() => {
  const rows = ventasMargenHistoryRows;
  const byMonth = new Map(rows.map((m) => [String(m?.month || '').slice(0, 7), m]));
+ const gastosByMonth = new Map();
+ ventasMargenHistoryPurchases.forEach((purchase) => {
+ const month = String(purchase?.fechaCompra || '').slice(0, 7);
+ if (!/^\d{4}-\d{2}$/.test(month)) return;
+ gastosByMonth.set(month, (gastosByMonth.get(month) || 0) + (Number(purchase?.costoTotal || 0) || 0));
+ });
  const today = new Date();
  const months = [];
  let start = '';
@@ -1485,6 +1497,7 @@ const gananciasResumen = useMemo(() => {
  months.push({
  month: key,
  ventas: Number(source?.ventas ?? source?.cantidad ?? source?.count ?? 0) || 0,
+ gastos: Number(gastosByMonth.get(key) || 0) || 0,
  ingresos: Number(source?.ingresos || 0) || 0,
  ganancia: Number(source?.ganancia || 0) || 0,
  });
@@ -1495,13 +1508,14 @@ const gananciasResumen = useMemo(() => {
  }
  }
  return months;
- }, [dateMode, ventasMargenHistoryRows, ventasMargenYear]);
+ }, [dateMode, ventasMargenHistoryPurchases, ventasMargenHistoryRows, ventasMargenYear]);
 
  const ventasMargenPromedios = useMemo(() => {
  const today = new Date();
  const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
  const rows = ventasMargenRows.filter((row) => String(row?.month || '') !== currentMonth);
  const ventasTotal = rows.reduce((s, m) => s + (Number(m?.ventas || 0) || 0), 0);
+ const gastoTotal = rows.reduce((s, m) => s + (Number(m?.gastos || 0) || 0), 0);
  const ingresoTotal = rows.reduce((s, m) => s + (Number(m?.ingresos || 0) || 0), 0);
  const gananciaTotal = rows.reduce((s, m) => s + (Number(m?.ganancia || 0) || 0), 0);
  const margins = rows.map((m) => {
@@ -1516,6 +1530,7 @@ const gananciasResumen = useMemo(() => {
  const marginCount = margins.length;
  return {
  ventas: rows.length ? +(ventasTotal / rows.length).toFixed(2) : 0,
+ gasto: rows.length ? +(gastoTotal / rows.length).toFixed(2) : 0,
  ingreso: rows.length ? +(ingresoTotal / rows.length).toFixed(2) : 0,
  ganancia: rows.length ? +(gananciaTotal / rows.length).toFixed(2) : 0,
  utilidad: marginCount ? +(margins.reduce((s, m) => s + m.utilidad, 0) / marginCount).toFixed(2) : 0,
@@ -1529,25 +1544,34 @@ const gananciasResumen = useMemo(() => {
  ventasMargenHistoryRows.forEach((row) => {
  const year = String(row?.month || '').slice(0, 4);
  if (!/^\d{4}$/.test(year)) return;
- const current = byYear.get(year) || { year, ventas: 0, ingresos: 0, ganancia: 0 };
+ const current = byYear.get(year) || { year, ventas: 0, gastos: 0, ingresos: 0, ganancia: 0 };
  current.ventas += Number(row?.ventas ?? row?.cantidad ?? row?.count ?? 0) || 0;
  current.ingresos += Number(row?.ingresos || 0) || 0;
  current.ganancia += Number(row?.ganancia || 0) || 0;
+ byYear.set(year, current);
+ });
+ ventasMargenHistoryPurchases.forEach((purchase) => {
+ const year = String(purchase?.fechaCompra || '').slice(0, 4);
+ if (!/^\d{4}$/.test(year)) return;
+ const current = byYear.get(year) || { year, ventas: 0, gastos: 0, ingresos: 0, ganancia: 0 };
+ current.gastos += Number(purchase?.costoTotal || 0) || 0;
  byYear.set(year, current);
  });
  return Array.from(byYear.values())
  .map((row) => ({
  ...row,
  ventas: Number(row.ventas || 0),
+ gastos: +Number(row.gastos || 0).toFixed(2),
  ingresos: +Number(row.ingresos || 0).toFixed(2),
  ganancia: +Number(row.ganancia || 0).toFixed(2),
  }))
  .sort((a, b) => String(a.year).localeCompare(String(b.year)));
- }, [ventasMargenHistoryRows]);
+ }, [ventasMargenHistoryPurchases, ventasMargenHistoryRows]);
 
  const ventasMargenYearPromedios = useMemo(() => {
  const rows = ventasMargenYearRows;
  const totalVentas = rows.reduce((sum, row) => sum + Number(row.ventas || 0), 0);
+ const totalGastos = rows.reduce((sum, row) => sum + Number(row.gastos || 0), 0);
  const totalIngresos = rows.reduce((sum, row) => sum + Number(row.ingresos || 0), 0);
  const totalGanancia = rows.reduce((sum, row) => sum + Number(row.ganancia || 0), 0);
  const margins = rows.map((row) => {
@@ -1561,6 +1585,7 @@ const gananciasResumen = useMemo(() => {
  });
  return {
  ventas: rows.length ? +(totalVentas / rows.length).toFixed(2) : 0,
+ gasto: rows.length ? +(totalGastos / rows.length).toFixed(2) : 0,
  ingreso: rows.length ? +(totalIngresos / rows.length).toFixed(2) : 0,
  ganancia: rows.length ? +(totalGanancia / rows.length).toFixed(2) : 0,
  utilidad: rows.length ? +(margins.reduce((sum, row) => sum + row.utilidad, 0) / rows.length).toFixed(2) : 0,
@@ -2621,7 +2646,7 @@ Activo
  )}
  </div>
  <div className="overflow-x-auto">
- <table className="min-w-[520px] w-full text-sm">
+ <table className="min-w-[760px] w-full text-sm">
  <thead>
  <tr className="text-left text-gray-500">
  <th className="py-1">Tipo</th>
@@ -3190,10 +3215,14 @@ Activo
  Promedio calculado sobre {ventasMargenPromedios.meses} {ventasMargenPromedios.meses === 1 ? 'mes culminado' : 'meses culminados'}{ventasMargenYear ? ' del año seleccionado' : ' de todo el historial'}. El mes actual no se incluye.
  </div>
  </div>
- <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-4 lg:min-w-[680px]">
+ <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-5 lg:min-w-[820px]">
  <div>
  <div className="font-medium text-slate-500">Ventas promedio</div>
  <div className="mt-1 text-sm font-semibold text-slate-900">{ventasMargenPromedios.ventas.toFixed(2)}</div>
+ </div>
+ <div>
+ <div className="font-medium text-slate-500">Gasto promedio</div>
+ <div className="mt-1 text-sm font-semibold text-slate-900"><Currency v={ventasMargenPromedios.gasto} /></div>
  </div>
  <div>
  <div className="font-medium text-slate-500">Ingreso promedio</div>
@@ -3233,9 +3262,13 @@ Activo
 
  <th className="py-1">Ventas</th>
 
+ <th className="py-1">Gastos</th>
+
 
 
  <th className="py-1">Ingresos</th>
+
+ <th className="py-1">% vendido sobre gasto</th>
 
 
 
@@ -3278,9 +3311,17 @@ Activo
 
  <td className="py-1">{Number(m.ventas || 0)}</td>
 
+ <td className="py-1"><Currency v={m.gastos} /></td>
+
 
 
  <td className="py-1"><Currency v={m.ingresos} /></td>
+
+ <td className="py-1">{(() => {
+ const ingresos = Number(m.ingresos || 0);
+ const gastos = Number(m.gastos || 0);
+ return <Percent v={gastos > 0 ? (ingresos / gastos) * 100 : 0} />;
+ })()}</td>
 
 
 
@@ -3315,10 +3356,14 @@ Activo
  Registro anual completo y promedio de {ventasMargenYearPromedios.years} {ventasMargenYearPromedios.years === 1 ? 'año registrado' : 'años registrados'}.
  </div>
  </div>
- <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-4 lg:min-w-[680px]">
+ <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-5 lg:min-w-[820px]">
  <div>
  <div className="font-medium text-slate-500">Ventas promedio anual</div>
  <div className="mt-1 text-sm font-semibold text-slate-900">{ventasMargenYearPromedios.ventas.toFixed(2)}</div>
+ </div>
+ <div>
+ <div className="font-medium text-slate-500">Gasto promedio anual</div>
+ <div className="mt-1 text-sm font-semibold text-slate-900"><Currency v={ventasMargenYearPromedios.gasto} /></div>
  </div>
  <div>
  <div className="font-medium text-slate-500">Ingreso promedio anual</div>
@@ -3344,12 +3389,14 @@ Activo
  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{salesHistoryError}</div>
  ) : (
  <div className="overflow-x-auto">
- <table className="min-w-[520px] w-full text-sm">
+ <table className="min-w-[760px] w-full text-sm">
  <thead>
  <tr className="text-left text-gray-500">
  <th className="py-1">Año</th>
  <th className="py-1">Ventas</th>
+ <th className="py-1">Gastos</th>
  <th className="py-1">Ingresos</th>
+ <th className="py-1">% vendido sobre gasto</th>
  <th className="py-1">Ganancia</th>
  <th className="py-1">Márgenes (Utilidad / Markup)</th>
  </tr>
@@ -3365,14 +3412,20 @@ Activo
  <tr key={row.year} className="border-t">
  <td className="py-1">{row.year}</td>
  <td className="py-1">{Number(row.ventas || 0)}</td>
+ <td className="py-1"><Currency v={row.gastos} /></td>
  <td className="py-1"><Currency v={row.ingresos} /></td>
+ <td className="py-1">{(() => {
+ const ingresos = Number(row.ingresos || 0);
+ const gastos = Number(row.gastos || 0);
+ return <Percent v={gastos > 0 ? (ingresos / gastos) * 100 : 0} />;
+ })()}</td>
  <td className="py-1"><Currency v={row.ganancia} /></td>
  <td className="py-1"><span className="flex items-center gap-2"><Percent v={utilidad} /><span className="text-gray-400">/</span><Percent v={markup} /></span></td>
  </tr>
  );
  })}
  {ventasMargenYearRows.length === 0 && (
- <tr className="border-t"><td className="py-3 text-slate-500" colSpan={5}>No hay ventas anuales registradas.</td></tr>
+ <tr className="border-t"><td className="py-3 text-slate-500" colSpan={7}>No hay ventas anuales registradas.</td></tr>
  )}
  </tbody>
  </table>
