@@ -1448,9 +1448,8 @@ const gananciasResumen = useMemo(() => {
   }, [capitalTotalAverage?.months, capitalTotalBreakdown.shippingPen]);
  const ventasMargenYear = useMemo(() => {
  if (dateMode === 'year') return String(yearKey);
- const appliedYear = String(appliedDates.from || '').slice(0, 4);
- return appliedYear || String(new Date().getFullYear());
- }, [appliedDates.from, dateMode, yearKey]);
+ return '';
+ }, [dateMode, yearKey]);
 
  const ventasMargenHistoryRows = useMemo(() => {
  const historyRows = salesHistoryData?.sales?.perMonth;
@@ -1462,12 +1461,26 @@ const gananciasResumen = useMemo(() => {
  const rows = ventasMargenHistoryRows;
  const byMonth = new Map(rows.map((m) => [String(m?.month || '').slice(0, 7), m]));
  const today = new Date();
+ const months = [];
+ let start = '';
+ let end = '';
+ if (dateMode === 'year') {
  const selectedYear = Number(ventasMargenYear);
  const currentYear = today.getFullYear();
  const lastMonth = selectedYear < currentYear ? 12 : selectedYear === currentYear ? today.getMonth() + 1 : 0;
- const months = [];
- for (let month = 1; month <= lastMonth; month += 1) {
- const key = `${selectedYear}-${String(month).padStart(2, '0')}`;
+ if (lastMonth > 0) {
+ start = `${selectedYear}-01`;
+ end = `${selectedYear}-${String(lastMonth).padStart(2, '0')}`;
+ }
+ } else {
+ const validMonths = Array.from(byMonth.keys()).filter((month) => /^\d{4}-\d{2}$/.test(month)).sort();
+ start = validMonths[0] || '';
+ end = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+ }
+ if (!start || !end) return months;
+ let [cursorYear, cursorMonth] = start.split('-').map(Number);
+ while (`${cursorYear}-${String(cursorMonth).padStart(2, '0')}` <= end) {
+ const key = `${cursorYear}-${String(cursorMonth).padStart(2, '0')}`;
  const source = byMonth.get(key) || {};
  months.push({
  month: key,
@@ -1475,12 +1488,19 @@ const gananciasResumen = useMemo(() => {
  ingresos: Number(source?.ingresos || 0) || 0,
  ganancia: Number(source?.ganancia || 0) || 0,
  });
+ cursorMonth += 1;
+ if (cursorMonth > 12) {
+ cursorMonth = 1;
+ cursorYear += 1;
+ }
  }
  return months;
- }, [ventasMargenHistoryRows, ventasMargenYear]);
+ }, [dateMode, ventasMargenHistoryRows, ventasMargenYear]);
 
  const ventasMargenPromedios = useMemo(() => {
- const rows = ventasMargenRows;
+ const today = new Date();
+ const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+ const rows = ventasMargenRows.filter((row) => String(row?.month || '') !== currentMonth);
  const ventasTotal = rows.reduce((s, m) => s + (Number(m?.ventas || 0) || 0), 0);
  const ingresoTotal = rows.reduce((s, m) => s + (Number(m?.ingresos || 0) || 0), 0);
  const gananciaTotal = rows.reduce((s, m) => s + (Number(m?.ganancia || 0) || 0), 0);
@@ -3165,9 +3185,9 @@ Activo
 
  <div className="flex flex-col gap-3 mb-3 lg:flex-row lg:items-start lg:justify-between">
  <div>
- <h2 className="text-lg font-semibold">Ventas y margen por mes - {ventasMargenYear}</h2>
+ <h2 className="text-lg font-semibold">Ventas y margen por mes{ventasMargenYear ? ` - ${ventasMargenYear}` : ''}</h2>
  <div className="mt-0.5 text-xs text-slate-500">
- Promedio calculado sobre {ventasMargenPromedios.meses} {ventasMargenPromedios.meses === 1 ? 'mes transcurrido' : 'meses transcurridos'} del año.
+ Promedio calculado sobre {ventasMargenPromedios.meses} {ventasMargenPromedios.meses === 1 ? 'mes culminado' : 'meses culminados'}{ventasMargenYear ? ' del año seleccionado' : ' de todo el historial'}. El mes actual no se incluye.
  </div>
  </div>
  <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-4 lg:min-w-[680px]">
@@ -3247,7 +3267,12 @@ Activo
 
 
 
- <td className="py-1">{m.month}</td>
+ <td className="py-1">
+ {m.month}
+ {m.month === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}` && (
+ <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">En curso</span>
+ )}
+ </td>
 
 
 
