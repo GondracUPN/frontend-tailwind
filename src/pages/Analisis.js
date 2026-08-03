@@ -601,6 +601,8 @@ const [isStale, setIsStale] = useState(false);
 
  const [yearlyData, setYearlyData] = useState(null);
  const [yearlyError, setYearlyError] = useState('');
+ const [salesHistoryData, setSalesHistoryData] = useState(null);
+ const [salesHistoryError, setSalesHistoryError] = useState('');
  const [sunatFx, setSunatFx] = useState({ buy: TC_FIJO, sell: TC_FIJO, date: null, fallback: true, reason: '', authMode: null });
  const [sunatFxError, setSunatFxError] = useState('');
  const [pedidoData, setPedidoData] = useState(null);
@@ -1091,6 +1093,19 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  }, [load]);
 
  useEffect(() => {
+ let alive = true;
+ setSalesHistoryError('');
+ getAnalyticsSummary(sellerFilter ? { vendedor: sellerFilter } : {})
+ .then((res) => {
+ if (alive) setSalesHistoryData(res);
+ })
+ .catch((e) => {
+ if (alive) setSalesHistoryError(e?.message || 'No se pudo cargar el historial de ventas.');
+ });
+ return () => { alive = false; };
+ }, [sellerFilter]);
+
+ useEffect(() => {
  if (tab !== 'ganancias') return;
  if (dateMode === 'year') return;
  loadYearly();
@@ -1431,20 +1446,28 @@ const gananciasResumen = useMemo(() => {
   if (!capitalTotalAverage?.months) return null;
   return +(capitalTotalBreakdown.shippingPen / capitalTotalAverage.months).toFixed(2);
   }, [capitalTotalAverage?.months, capitalTotalBreakdown.shippingPen]);
+ const ventasMargenYear = useMemo(() => {
+ if (dateMode === 'year') return String(yearKey);
+ const appliedYear = String(appliedDates.from || '').slice(0, 4);
+ return appliedYear || String(new Date().getFullYear());
+ }, [appliedDates.from, dateMode, yearKey]);
+
+ const ventasMargenHistoryRows = useMemo(() => {
+ const historyRows = salesHistoryData?.sales?.perMonth;
+ if (Array.isArray(historyRows)) return historyRows;
+ return Array.isArray(data?.sales?.perMonth) ? data.sales.perMonth : [];
+ }, [data?.sales?.perMonth, salesHistoryData?.sales?.perMonth]);
+
  const ventasMargenRows = useMemo(() => {
- const rows = Array.isArray(data?.sales?.perMonth) ? data.sales.perMonth : [];
+ const rows = ventasMargenHistoryRows;
  const byMonth = new Map(rows.map((m) => [String(m?.month || '').slice(0, 7), m]));
- const start = '2025-09';
- const validMonths = rows
- .map((m) => String(m?.month || '').slice(0, 7))
- .filter((month) => month && month >= start);
  const today = new Date();
- const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
- const end = validMonths.length ? validMonths.sort()[validMonths.length - 1] : currentMonth;
+ const selectedYear = Number(ventasMargenYear);
+ const currentYear = today.getFullYear();
+ const lastMonth = selectedYear < currentYear ? 12 : selectedYear === currentYear ? today.getMonth() + 1 : 0;
  const months = [];
- let [year, month] = start.split('-').map((v) => Number(v));
- while (`${year}-${String(month).padStart(2, '0')}` <= end) {
- const key = `${year}-${String(month).padStart(2, '0')}`;
+ for (let month = 1; month <= lastMonth; month += 1) {
+ const key = `${selectedYear}-${String(month).padStart(2, '0')}`;
  const source = byMonth.get(key) || {};
  months.push({
  month: key,
@@ -1452,14 +1475,9 @@ const gananciasResumen = useMemo(() => {
  ingresos: Number(source?.ingresos || 0) || 0,
  ganancia: Number(source?.ganancia || 0) || 0,
  });
- month += 1;
- if (month > 12) {
- month = 1;
- year += 1;
- }
  }
  return months;
- }, [data?.sales?.perMonth]);
+ }, [ventasMargenHistoryRows, ventasMargenYear]);
 
  const ventasMargenPromedios = useMemo(() => {
  const rows = ventasMargenRows;
@@ -1485,6 +1503,51 @@ const gananciasResumen = useMemo(() => {
  meses: rows.length,
  };
  }, [ventasMargenRows]);
+
+ const ventasMargenYearRows = useMemo(() => {
+ const byYear = new Map();
+ ventasMargenHistoryRows.forEach((row) => {
+ const year = String(row?.month || '').slice(0, 4);
+ if (!/^\d{4}$/.test(year)) return;
+ const current = byYear.get(year) || { year, ventas: 0, ingresos: 0, ganancia: 0 };
+ current.ventas += Number(row?.ventas ?? row?.cantidad ?? row?.count ?? 0) || 0;
+ current.ingresos += Number(row?.ingresos || 0) || 0;
+ current.ganancia += Number(row?.ganancia || 0) || 0;
+ byYear.set(year, current);
+ });
+ return Array.from(byYear.values())
+ .map((row) => ({
+ ...row,
+ ventas: Number(row.ventas || 0),
+ ingresos: +Number(row.ingresos || 0).toFixed(2),
+ ganancia: +Number(row.ganancia || 0).toFixed(2),
+ }))
+ .sort((a, b) => String(a.year).localeCompare(String(b.year)));
+ }, [ventasMargenHistoryRows]);
+
+ const ventasMargenYearPromedios = useMemo(() => {
+ const rows = ventasMargenYearRows;
+ const totalVentas = rows.reduce((sum, row) => sum + Number(row.ventas || 0), 0);
+ const totalIngresos = rows.reduce((sum, row) => sum + Number(row.ingresos || 0), 0);
+ const totalGanancia = rows.reduce((sum, row) => sum + Number(row.ganancia || 0), 0);
+ const margins = rows.map((row) => {
+ const ingresos = Number(row.ingresos || 0);
+ const ganancia = Number(row.ganancia || 0);
+ const costo = ingresos - ganancia;
+ return {
+ utilidad: ingresos > 0 ? (ganancia / ingresos) * 100 : 0,
+ markup: costo > 0 ? (ganancia / costo) * 100 : 0,
+ };
+ });
+ return {
+ ventas: rows.length ? +(totalVentas / rows.length).toFixed(2) : 0,
+ ingreso: rows.length ? +(totalIngresos / rows.length).toFixed(2) : 0,
+ ganancia: rows.length ? +(totalGanancia / rows.length).toFixed(2) : 0,
+ utilidad: rows.length ? +(margins.reduce((sum, row) => sum + row.utilidad, 0) / rows.length).toFixed(2) : 0,
+ markup: rows.length ? +(margins.reduce((sum, row) => sum + row.markup, 0) / rows.length).toFixed(2) : 0,
+ years: rows.length,
+ };
+ }, [ventasMargenYearRows]);
  const sunatSellTc = Number(sunatFx?.sell ?? TC_FIJO) || TC_FIJO;
  const sunatGastoPeriodo = Number((data?.summary?.sunat?.gastoPeriodo ?? data?.summary?.sunat?.gastoProductos ?? 0)) || 0;
  const sunatEnviosRecogidos = Number((data?.summary?.sunat?.enviosRecogidos ?? data?.summary?.sunat?.gastoEnvio ?? 0)) || 0;
@@ -3092,7 +3155,7 @@ Activo
 
 
 
- {isGeneral ? (
+ {(isGeneral || dateMode === 'year') ? (
 
 
 
@@ -3101,7 +3164,12 @@ Activo
 
 
  <div className="flex flex-col gap-3 mb-3 lg:flex-row lg:items-start lg:justify-between">
- <h2 className="text-lg font-semibold">Ventas y margen por mes</h2>
+ <div>
+ <h2 className="text-lg font-semibold">Ventas y margen por mes - {ventasMargenYear}</h2>
+ <div className="mt-0.5 text-xs text-slate-500">
+ Promedio calculado sobre {ventasMargenPromedios.meses} {ventasMargenPromedios.meses === 1 ? 'mes transcurrido' : 'meses transcurridos'} del año.
+ </div>
+ </div>
  <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-4 lg:min-w-[680px]">
  <div>
  <div className="font-medium text-slate-500">Ventas promedio</div>
@@ -3212,6 +3280,79 @@ Activo
 
 
  </table>
+ </div>
+
+ <div className="mt-8 border-t border-slate-200 pt-6">
+ <div className="flex flex-col gap-3 mb-3 lg:flex-row lg:items-start lg:justify-between">
+ <div>
+ <h2 className="text-lg font-semibold">Ventas y margen por año</h2>
+ <div className="mt-0.5 text-xs text-slate-500">
+ Registro anual completo y promedio de {ventasMargenYearPromedios.years} {ventasMargenYearPromedios.years === 1 ? 'año registrado' : 'años registrados'}.
+ </div>
+ </div>
+ <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-4 lg:min-w-[680px]">
+ <div>
+ <div className="font-medium text-slate-500">Ventas promedio anual</div>
+ <div className="mt-1 text-sm font-semibold text-slate-900">{ventasMargenYearPromedios.ventas.toFixed(2)}</div>
+ </div>
+ <div>
+ <div className="font-medium text-slate-500">Ingreso promedio anual</div>
+ <div className="mt-1 text-sm font-semibold text-slate-900"><Currency v={ventasMargenYearPromedios.ingreso} /></div>
+ </div>
+ <div>
+ <div className="font-medium text-slate-500">Ganancia promedio anual</div>
+ <div className="mt-1 text-sm font-semibold text-slate-900"><Currency v={ventasMargenYearPromedios.ganancia} /></div>
+ </div>
+ <div>
+ <div className="font-medium text-slate-500">Márgenes promedio anual</div>
+ <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-900">
+ <Percent v={ventasMargenYearPromedios.utilidad} />
+ <span className="text-slate-400">/</span>
+ <Percent v={ventasMargenYearPromedios.markup} />
+ </div>
+ <div className="mt-0.5 text-[11px] text-slate-500">Utilidad / Markup</div>
+ </div>
+ </div>
+ </div>
+
+ {salesHistoryError ? (
+ <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{salesHistoryError}</div>
+ ) : (
+ <div className="overflow-x-auto">
+ <table className="min-w-[520px] w-full text-sm">
+ <thead>
+ <tr className="text-left text-gray-500">
+ <th className="py-1">Año</th>
+ <th className="py-1">Ventas</th>
+ <th className="py-1">Ingresos</th>
+ <th className="py-1">Ganancia</th>
+ <th className="py-1">Márgenes (Utilidad / Markup)</th>
+ </tr>
+ </thead>
+ <tbody>
+ {ventasMargenYearRows.map((row) => {
+ const ingresos = Number(row.ingresos || 0);
+ const ganancia = Number(row.ganancia || 0);
+ const costo = ingresos - ganancia;
+ const utilidad = ingresos > 0 ? (ganancia / ingresos) * 100 : 0;
+ const markup = costo > 0 ? (ganancia / costo) * 100 : 0;
+ return (
+ <tr key={row.year} className="border-t">
+ <td className="py-1">{row.year}</td>
+ <td className="py-1">{Number(row.ventas || 0)}</td>
+ <td className="py-1"><Currency v={row.ingresos} /></td>
+ <td className="py-1"><Currency v={row.ganancia} /></td>
+ <td className="py-1"><span className="flex items-center gap-2"><Percent v={utilidad} /><span className="text-gray-400">/</span><Percent v={markup} /></span></td>
+ </tr>
+ );
+ })}
+ {ventasMargenYearRows.length === 0 && (
+ <tr className="border-t"><td className="py-3 text-slate-500" colSpan={5}>No hay ventas anuales registradas.</td></tr>
+ )}
+ </tbody>
+ </table>
+ </div>
+ )}
  </div>
 
 

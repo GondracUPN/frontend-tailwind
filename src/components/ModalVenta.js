@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api';
+import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
 
 const normalizeSeller = (value) =>
   value == null ? '' : String(value).trim().toLowerCase();
@@ -31,6 +32,21 @@ const pedidoClientFromSeller = (seller) => {
   return match?.[1] ? match[1].trim() : '';
 };
 
+const saleExpenseOwner = (seller) => {
+  const value = String(seller || '').trim().toLowerCase();
+  if (value === 'renato') return 'renato';
+  if (value === 'gonzalo' || value.startsWith('gonzalo (')) return 'gonzalo';
+  return '';
+};
+
+const saleIncomeReference = (productId) => `__SALE_INCOME__:${productId}`;
+const isSaleIncomeForProduct = (row, productId) => {
+  const notes = String(row?.notas || '').trim();
+  return String(row?.concepto || '').trim().toLowerCase() === 'ingreso'
+    && String(row?.metodoPago || '').trim().toLowerCase() === 'debito'
+    && (notes === saleIncomeReference(productId) || notes === String(productId));
+};
+
 export default function ModalVenta({
   producto,
   venta,
@@ -38,9 +54,11 @@ export default function ModalVenta({
   onSaved,
   allowVendedorOnCreate = false,
   presetVendedor = '',
+  embedded = false,
 }) {
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [incomeBank, setIncomeBank] = useState('bcp');
   const [form, setForm] = useState({
     tipoCambio: '',
     tipoCambioGonzalo: '',
@@ -136,6 +154,98 @@ export default function ModalVenta({
     return true;
   };
 
+  const resolveSaleUser = async (owner) => {
+    if (!owner) return null;
+    let currentUser = null;
+    try {
+      currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+    } catch {}
+    let users = [];
+    if (currentUser?.role === 'admin') {
+      const response = await api.get('/auth/users');
+      users = Array.isArray(response) ? response : [];
+    } else if (currentUser) {
+      users = [currentUser];
+    }
+    return users.find((candidate) => {
+      const username = String(candidate?.username || '').toLowerCase();
+      return owner === 'gonzalo'
+        ? (username.includes('gonzalo') || candidate?.role === 'admin')
+        : username.includes('renato');
+    }) || null;
+  };
+
+  const registerSaleIncome = async (savedVenta) => {
+    const resolvedSeller = savedVenta?.vendedor || form.vendedor || producto?.vendedor || presetVendedor;
+    const owner = saleExpenseOwner(resolvedSeller);
+    if (!owner) return;
+
+    const target = await resolveSaleUser(owner);
+    if (!target?.id) throw new Error(`No se encontró el usuario ${owner}.`);
+
+    await createExpenseWithDuplicateCheck({
+      concepto: 'ingreso',
+      metodoPago: 'debito',
+      moneda: 'PEN',
+      monto: Number(savedVenta?.precioVenta ?? form.precioVenta),
+      fecha: savedVenta?.fechaVenta || form.fechaVenta,
+      tarjeta: incomeBank,
+      notas: saleIncomeReference(producto.id),
+    }, { userId: target.id });
+    try {
+      localStorage.removeItem(`gastos-panel-cache:${target.id}`);
+    } catch {}
+  };
+
+  const syncSaleIncomeAfterEdit = async (updatedVenta) => {
+    const previousOwner = saleExpenseOwner(venta?.vendedor || producto?.vendedor || presetVendedor);
+    const nextOwner = saleExpenseOwner(updatedVenta?.vendedor || form.vendedor || producto?.vendedor || presetVendedor);
+    if (!previousOwner || !nextOwner) return;
+
+    const previousUser = await resolveSaleUser(previousOwner);
+    const nextUser = previousOwner === nextOwner ? previousUser : await resolveSaleUser(nextOwner);
+    if (!previousUser?.id || !nextUser?.id) {
+      throw new Error('No se encontró el propietario del ingreso asociado.');
+    }
+
+    let currentUser = null;
+    try {
+      currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+    } catch {}
+    const rowsPath = currentUser?.role === 'admin'
+      ? `/gastos/all?userId=${encodeURIComponent(String(previousUser.id))}`
+      : '/gastos';
+    const rows = await api.get(rowsPath);
+    const linkedIncome = (Array.isArray(rows) ? rows : []).find((row) => (
+      isSaleIncomeForProduct(row, producto.id)
+    ));
+    // Las ventas antiguas o registradas manualmente pueden no tener ingreso vinculado.
+    if (!linkedIncome?.id) return;
+
+    const payload = {
+      concepto: 'ingreso',
+      metodoPago: 'debito',
+      moneda: 'PEN',
+      monto: Number(updatedVenta?.precioVenta ?? form.precioVenta),
+      fecha: updatedVenta?.fechaVenta || form.fechaVenta,
+      tarjeta: linkedIncome.tarjeta || incomeBank,
+      notas: saleIncomeReference(producto.id),
+    };
+
+    if (String(previousUser.id) === String(nextUser.id)) {
+      await api.patch(`/gastos/${linkedIncome.id}`, payload);
+    } else {
+      // Crear primero evita perder el ingreso si falla el traslado de propietario.
+      await createExpenseWithDuplicateCheck(payload, { userId: nextUser.id });
+      await api.del(`/gastos/${linkedIncome.id}`);
+    }
+
+    try {
+      localStorage.removeItem(`gastos-panel-cache:${previousUser.id}`);
+      localStorage.removeItem(`gastos-panel-cache:${nextUser.id}`);
+    } catch {}
+  };
+
   const handleSaveCreate = async () => {
     if (saving || !validate()) return;
 
@@ -161,11 +271,39 @@ export default function ModalVenta({
       }
 
       const saved = await api.post('/ventas', body);
+      try {
+        await registerSaleIncome(saved);
+      } catch (incomeError) {
+        if (!(incomeError instanceof ExpenseDuplicateCancelledError)) {
+          console.error('[ModalVenta] Venta guardada sin ingreso automático:', incomeError);
+          alert('La venta se guardó, pero no se pudo registrar el ingreso en Gastos. Regístralo manualmente.');
+        }
+      }
       onSaved?.(saved);
       onClose?.();
     } catch (e) {
       console.error('[ModalVenta] Error al guardar venta:', e);
-      alert('No se pudo guardar la venta.');
+      // Si se perdio la respuesta despues de guardar, confirmar antes de pedir repetir.
+      try {
+        const ventas = await api.get(`/ventas/producto/${producto.id}`);
+        const existing = Array.isArray(ventas) ? ventas[0] : null;
+        if (existing) {
+          try {
+            await registerSaleIncome(existing);
+          } catch (incomeError) {
+            if (!(incomeError instanceof ExpenseDuplicateCancelledError)) {
+              console.error('[ModalVenta] Venta confirmada sin ingreso automático:', incomeError);
+              alert('La venta existe, pero no se pudo registrar el ingreso en Gastos. Regístralo manualmente.');
+            }
+          }
+          onSaved?.(existing);
+          onClose?.();
+          return;
+        }
+      } catch (confirmError) {
+        console.error('[ModalVenta] No se pudo confirmar la venta:', confirmError);
+      }
+      alert('No se pudo guardar la venta. Intenta nuevamente.');
     } finally {
       setSaving(false);
     }
@@ -195,6 +333,14 @@ export default function ModalVenta({
       }
 
       const updated = await api.patch(`/ventas/${venta.id}`, payload);
+      try {
+        await syncSaleIncomeAfterEdit(updated);
+      } catch (incomeError) {
+        if (!(incomeError instanceof ExpenseDuplicateCancelledError)) {
+          console.error('[ModalVenta] Venta actualizada sin sincronizar el ingreso:', incomeError);
+          alert('La venta se actualizó, pero no se pudo sincronizar el ingreso en Gastos. Revísalo manualmente.');
+        }
+      }
       onSaved?.(updated);
       onClose?.();
     } catch (e) {
@@ -305,8 +451,9 @@ export default function ModalVenta({
   const renderSingleFields = () => (
     <>
       <div>
-        <label className="block font-medium mb-1">Tipo de cambio</label>
+        <label htmlFor="venta-tipo-cambio" className="block font-medium mb-1">Tipo de cambio</label>
         <input
+          id="venta-tipo-cambio"
           type="number"
           step="0.0001"
           className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -315,8 +462,9 @@ export default function ModalVenta({
         />
       </div>
       <div>
-        <label className="block font-medium mb-1">Fecha de venta</label>
+        <label htmlFor="venta-fecha" className="block font-medium mb-1">Fecha de venta</label>
         <input
+          id="venta-fecha"
           type="date"
           className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           value={form.fechaVenta}
@@ -324,8 +472,9 @@ export default function ModalVenta({
         />
       </div>
       <div>
-        <label className="block font-medium mb-1">Precio de venta (S/)</label>
+        <label htmlFor="venta-precio" className="block font-medium mb-1">Precio de venta (S/)</label>
         <input
+          id="venta-precio"
           type="number"
           step="0.01"
           className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -333,6 +482,22 @@ export default function ModalVenta({
           onChange={(e) => onChange('precioVenta', e.target.value)}
         />
       </div>
+      {!venta && saleExpenseOwner(form.vendedor || producto?.vendedor || presetVendedor) && (
+        <div>
+          <label htmlFor="venta-banco-ingreso" className="block font-medium mb-1">Banco donde ingresó la venta</label>
+          <select
+            id="venta-banco-ingreso"
+            className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+            value={incomeBank}
+            onChange={(e) => setIncomeBank(e.target.value)}
+          >
+            <option value="bcp">BCP</option>
+            <option value="interbank">Interbank</option>
+            <option value="bbva">BBVA</option>
+          </select>
+          <div className="mt-1 text-xs text-gray-600">El ingreso automático se registrará en esta cuenta.</div>
+        </div>
+      )}
     </>
   );
 
@@ -380,16 +545,15 @@ export default function ModalVenta({
     </div>
   );
 
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white w-full sm:max-w-lg rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-y-auto">
-        <button
+  const content = (
+      <div className={`bg-white w-full p-4 sm:p-6 relative overflow-y-auto ${embedded ? 'h-full max-h-full' : 'sm:max-w-lg rounded-xl shadow-lg mx-4 max-h-[90vh]'}`}>
+        {!embedded && <button
           className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
           onClick={onClose}
           aria-label="Cerrar modal"
         >
           x
-        </button>
+        </button>}
 
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-semibold">
@@ -521,6 +685,12 @@ export default function ModalVenta({
           </div>
         )}
       </div>
+  );
+
+  if (embedded) return content;
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      {content}
     </div>
   );
 }

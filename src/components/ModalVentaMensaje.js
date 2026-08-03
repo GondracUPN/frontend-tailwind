@@ -32,11 +32,17 @@ const productOptionLabel = (product) => {
   return `${productCode(product)} - ${product.label || 'Producto'}`;
 };
 
-export default function ModalVentaMensaje({ onClose, productos = [] }) {
+export default function ModalVentaMensaje({
+  onClose,
+  productos = [],
+  initialProductoId = '',
+  initialPrecio = '',
+  embedded = false,
+}) {
   const [telefono, setTelefono] = useState('');
-  const [productoId, setProductoId] = useState('');
+  const [productoId, setProductoId] = useState(() => String(initialProductoId || ''));
   const [productoQuery, setProductoQuery] = useState('');
-  const [precio, setPrecio] = useState('');
+  const [precio, setPrecio] = useState(() => String(initialPrecio ?? ''));
   const [lugar, setLugar] = useState('almacen');
   const [copied, setCopied] = useState('');
 
@@ -89,21 +95,15 @@ export default function ModalVentaMensaje({ onClose, productos = [] }) {
     setTimeout(() => setCopied(''), 1200);
   };
 
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
-    >
-      <div className="bg-white w-full max-w-2xl rounded-xl shadow-lg p-4 sm:p-6 relative max-h-[92dvh] overflow-auto">
-        <button
+  const content = (
+      <div className={`bg-white w-full p-4 sm:p-6 relative overflow-auto ${embedded ? 'h-full max-h-full' : 'max-w-2xl rounded-xl shadow-lg max-h-[92dvh]'}`}>
+        {!embedded && <button
           className="absolute right-3 top-3 w-10 h-10 flex items-center justify-center text-2xl font-bold rounded-full border border-gray-300 bg-white hover:bg-gray-100"
           onClick={onClose}
           aria-label="Cerrar"
         >
           &times;
-        </button>
+        </button>}
 
         <h3 className="text-xl font-semibold mb-4">Venta</h3>
 
@@ -196,6 +196,17 @@ export default function ModalVentaMensaje({ onClose, productos = [] }) {
           </div>
         </div>
       </div>
+  );
+
+  if (embedded) return content;
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
+    >
+      {content}
     </div>
   );
 }

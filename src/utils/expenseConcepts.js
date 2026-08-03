@@ -49,3 +49,16 @@ export const isInvestmentExpenseConcept = (concept, categories = {}) =>
 
 export const isCardPaymentExpenseConcept = (concept, categories = {}) =>
   getExpenseConceptCategory(concept, categories) === 'card_payment';
+
+export const isTechnicalBankImportNote = (notes) => {
+  const value = String(notes || '').trim();
+  return value.startsWith('__BANK_IMPORT__:') || value.startsWith('Importado BCP');
+};
+
+export const isTechnicalExpenseNote = (notes) => {
+  const value = String(notes || '').trim();
+  return isTechnicalBankImportNote(value) || value.startsWith('__SALE_INCOME__:');
+};
+
+export const visibleExpenseNotes = (notes, fallback = '-') =>
+  isTechnicalExpenseNote(notes) ? fallback : (String(notes || '').trim() || fallback);

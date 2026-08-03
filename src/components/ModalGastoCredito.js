@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL } from '../api';
 import { localDateInputValue } from '../utils/dates';
 import CloseX from './CloseX';
+import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
 
 const TC_CREDITO = 3.7;
 
@@ -220,11 +221,16 @@ export default function ModalGastoCredito({
     setSaving(true);
     setSavingAction(keepOpen ? 'continue' : 'close');
     try {
-      const url = mode === 'edit' && initial?.id ? `${API_URL}/gastos/${initial.id}` : `${API_URL}/gastos`;
+      const url = mode === 'edit' && initial?.id ? `${API_URL}/gastos/${initial.id}` : '';
       const method = mode === 'edit' && initial?.id ? 'PATCH' : 'POST';
-      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
-      if (!res.ok) throw new Error(await res.text().catch(() => `HTTP ${res.status}`));
-      const data = await res.json().catch(() => null);
+      let data;
+      if (method === 'POST') {
+        data = await createExpenseWithDuplicateCheck(body, { userId });
+      } else {
+        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+        if (!res.ok) throw new Error(await res.text().catch(() => `HTTP ${res.status}`));
+        data = await res.json().catch(() => null);
+      }
       if (needDetalleMensual && data) {
         try {
           const types = JSON.parse(localStorage.getItem('mensuales_types') || '{}');
@@ -245,6 +251,7 @@ export default function ModalGastoCredito({
         onClose?.();
       }
     } catch (err) {
+      if (err instanceof ExpenseDuplicateCancelledError) return;
       console.error('[ModalGastoCredito] save error:', err);
       setError('No se pudo guardar.');
     } finally {

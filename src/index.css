@@ -52,3 +52,37 @@ body {
   color: #0f172a !important;
   transform: scale(1.04);
 }
+
+@keyframes inventory-sale-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(2rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.inventory-sale-panel-enter {
+  animation: inventory-sale-panel-in 240ms ease-out both;
+}
+
+@media (max-width: 639px) {
+  @keyframes inventory-sale-panel-in {
+    from {
+      opacity: 0;
+      transform: translateX(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inventory-sale-panel-enter {
+    animation: none;
+  }
+}

@@ -1,0 +1,93 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import api from '../api';
+import ModalVenta from './ModalVenta';
+
+jest.mock('../api', () => ({
+  __esModule: true,
+  default: { post: jest.fn(), get: jest.fn(), patch: jest.fn() },
+}));
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  localStorage.clear();
+});
+
+test('confirma la venta si se pierde la respuesta del guardado', async () => {
+  const saved = {
+    id: 15,
+    productoId: 7,
+    fechaVenta: '2026-07-20',
+    precioVenta: 1500,
+  };
+  api.post.mockRejectedValueOnce(new Error('network error'));
+  api.get.mockResolvedValueOnce([saved]);
+  const onSaved = jest.fn();
+  const onClose = jest.fn();
+
+  render(
+    <ModalVenta
+      producto={{ id: 7, vendedor: 'Gonzalo', valor: { valorProducto: 300 } }}
+      onSaved={onSaved}
+      onClose={onClose}
+    />,
+  );
+
+  fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.75' } });
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-07-20' } });
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1500' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+  await waitFor(() => expect(api.get).toHaveBeenCalledWith('/ventas/producto/7'));
+  expect(onSaved).toHaveBeenCalledWith(saved);
+  expect(onClose).toHaveBeenCalled();
+});
+
+test('sincroniza fecha y monto del ingreso cuando se edita la venta', async () => {
+  localStorage.setItem('user', JSON.stringify({ id: 1, username: 'gonzalo', role: 'admin' }));
+  const venta = {
+    id: 15,
+    productoId: 7,
+    vendedor: 'gonzalo',
+    tipoCambio: 3.75,
+    fechaVenta: '2026-07-20',
+    precioVenta: 1500,
+    ganancia: 300,
+    porcentajeGanancia: 25,
+  };
+  const updated = { ...venta, fechaVenta: '2026-07-21', precioVenta: 1550 };
+  api.patch
+    .mockResolvedValueOnce(updated)
+    .mockResolvedValueOnce({ id: 88, fecha: '2026-07-21', monto: 1550 });
+  api.get
+    .mockResolvedValueOnce([{ id: 1, username: 'gonzalo', role: 'admin' }])
+    .mockResolvedValueOnce([{
+      id: 88,
+      concepto: 'ingreso',
+      metodoPago: 'debito',
+      moneda: 'PEN',
+      monto: 1500,
+      fecha: '2026-07-20',
+      tarjeta: 'bcp',
+      notas: '7',
+    }]);
+
+  render(
+    <ModalVenta
+      producto={{ id: 7, vendedor: 'Gonzalo', valor: { valorProducto: 300, costoEnvio: 0 } }}
+      venta={venta}
+      onSaved={jest.fn()}
+      onClose={jest.fn()}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-07-21' } });
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1550' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/88', expect.objectContaining({
+    monto: 1550,
+    fecha: '2026-07-21',
+    notas: '__SALE_INCOME__:7',
+  })));
+});

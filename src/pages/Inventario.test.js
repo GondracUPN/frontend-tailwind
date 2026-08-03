@@ -34,7 +34,8 @@ test('lista un producto disponible y abre su ficha de cotejo', async () => {
 
   expect(await screen.findByText(/iPhone 15 Pro/)).toBeInTheDocument();
   expect(screen.getByText('MS-42')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Agregar foto' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Agregar foto' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Vender' })).not.toBeInTheDocument();
   fireEvent.change(screen.getByPlaceholderText('Buscar producto, color, serial o IMEI'), { target: { value: 'ms-code-42' } });
   expect(screen.getByText('MS-42')).toBeInTheDocument();
   expect(screen.getAllByText('Por cotejar')).toHaveLength(2);
@@ -44,6 +45,82 @@ test('lista un producto disponible y abre su ficha de cotejo', async () => {
   expect(screen.getByLabelText('Color')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Caja' })).toBeInTheDocument();
   await waitFor(() => expect(api.get).toHaveBeenCalledWith('/inventario'));
+});
+
+test('muestra Vender en la tarjeta solamente cuando el producto ya esta en almacen', async () => {
+  api.get.mockResolvedValue([{ ...entry, ficha: { enAlmacen: true } }]);
+  render(<Inventario setVista={jest.fn()} />);
+
+  expect(await screen.findByRole('button', { name: 'Vender' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Completar ficha' }));
+  expect(within(screen.getByRole('dialog', { name: 'Completar ficha de inventario' })).queryByRole('button', { name: 'Vender' })).not.toBeInTheDocument();
+});
+
+test('cambia Completar ficha por Editar ficha cuando almacen, fotos y Marketplace estan listos', async () => {
+  api.get.mockResolvedValue([{
+    ...entry,
+    ficha: { enAlmacen: true, fotosTomadas: true, marketplaceSubido: true },
+  }]);
+  render(<Inventario setVista={jest.fn()} />);
+
+  expect(await screen.findByRole('button', { name: 'Editar ficha' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Completar ficha' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Editar ficha' }));
+  expect(screen.getByRole('dialog', { name: 'Completar ficha de inventario' })).toBeInTheDocument();
+});
+
+test('desde Vender permite poner numero, lugar y precio para copiar el mensaje al cliente', async () => {
+  const writeText = jest.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  });
+  api.get.mockResolvedValue([{
+    ...entry,
+    ficha: { enAlmacen: true, primerPrecioSoles: 1250 },
+  }]);
+  render(<Inventario setVista={jest.fn()} />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Vender' }));
+  expect(screen.getByRole('dialog', { name: 'Opciones para vender' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /Poner cliente/ }));
+  expect(await screen.findByRole('heading', { name: 'Venta' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Volver a elegir' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Realizar venta/ })).toBeInTheDocument();
+  fireEvent.change(screen.getByPlaceholderText('Ej: 987654321 o +51...'), { target: { value: '987654321' } });
+  expect(screen.getByDisplayValue('MS-42 - iPhone 15 Pro')).toBeInTheDocument();
+  expect(screen.getByDisplayValue('1250')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Copiar texto' }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith([
+    'wa.me/+51987654321',
+    'Producto: MS-42 - iPhone 15 Pro',
+    'Precio acordado: S/ 1250',
+    'Lugar: Almacen',
+    '987654321',
+  ].join('\n')));
+  expect(api.patch).not.toHaveBeenCalledWith('/productos/42', expect.anything());
+});
+
+test('desde Vender reutiliza el registro completo de venta y retira el producto del inventario', async () => {
+  api.get.mockResolvedValue([{ ...entry, ficha: { enAlmacen: true } }]);
+  api.post.mockResolvedValue({ id: 9, productoId: 42, tipoCambio: 3.75, fechaVenta: '2026-07-31', precioVenta: 1500 });
+  render(<Inventario setVista={jest.fn()} />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Vender' }));
+  fireEvent.click(screen.getByRole('button', { name: /Realizar venta/ }));
+  expect(await screen.findByRole('heading', { name: 'Registrar Venta' })).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.75' } });
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-07-31' } });
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1500' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', {
+    productoId: 42,
+    fechaVenta: '2026-07-31',
+    precioVenta: 1500,
+    tipoCambio: 3.75,
+  }));
+  await waitFor(() => expect(screen.queryByText('MS-42')).not.toBeInTheDocument());
 });
 
 test('resume costo y precios de inventario y permite ocultar solo los costos', async () => {
@@ -128,6 +205,7 @@ test('filtra por check de fotos y descarga solo portadas disponibles en ZIP', as
       },
       ficha: {
         fotoUrl: `https://res.cloudinary.com/demo/image/upload/${id}.jpg`,
+        enAlmacen: true,
         fotosTomadas: true,
       },
     };
@@ -157,6 +235,7 @@ test('filtra por check de fotos y descarga solo portadas disponibles en ZIP', as
       },
       ficha: {
         fotoUrl: null,
+        enAlmacen: true,
         fotosTomadas: true,
       },
     },
@@ -194,7 +273,7 @@ test('ordena los productos con fotos por código MS en ambos sentidos', async ()
   api.get.mockResolvedValue([42, 7, 105].map((id) => ({
     ...entry,
     producto: { ...entry.producto, id },
-    ficha: { fotoUrl: `https://example.com/${id}.jpg`, fotosTomadas: true },
+    ficha: { fotoUrl: `https://example.com/${id}.jpg`, enAlmacen: true, fotosTomadas: true },
   })));
   render(<Inventario setVista={jest.fn()} />);
 
@@ -209,19 +288,42 @@ test('ordena los productos con fotos por código MS en ambos sentidos', async ()
   expect(screen.getAllByText(/^MS-/).map((element) => element.textContent)).toEqual(['MS-105', 'MS-42', 'MS-7']);
 });
 
-test('Sin Marketplace incluye solamente productos con sesión de fotos', async () => {
+test('los filtros respetan el flujo de cotejo, fotos y Marketplace', async () => {
   api.get.mockResolvedValue([
-    { ...entry, producto: { ...entry.producto, id: 42 }, ficha: { fotosTomadas: true, marketplaceSubido: false } },
-    { ...entry, producto: { ...entry.producto, id: 43 }, ficha: { fotosTomadas: false, marketplaceSubido: false } },
-    { ...entry, producto: { ...entry.producto, id: 44 }, ficha: { fotosTomadas: true, marketplaceSubido: true } },
+    { ...entry, producto: { ...entry.producto, id: 42 }, ficha: null },
+    { ...entry, producto: { ...entry.producto, id: 43 }, ficha: { enAlmacen: false, fotosTomadas: true, marketplaceSubido: false } },
+    { ...entry, producto: { ...entry.producto, id: 44 }, ficha: { enAlmacen: true, fotosTomadas: false, marketplaceSubido: false } },
+    { ...entry, producto: { ...entry.producto, id: 45 }, ficha: { enAlmacen: true, fotosTomadas: true, marketplaceSubido: false } },
+    { ...entry, producto: { ...entry.producto, id: 46 }, ficha: { enAlmacen: true, fotosTomadas: true, marketplaceSubido: true } },
   ]);
   render(<Inventario setVista={jest.fn()} />);
 
   await screen.findByText('MS-42');
-  fireEvent.click(screen.getByRole('button', { name: 'Sin Marketplace' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Por cotejar' }));
   expect(screen.getByText('MS-42')).toBeInTheDocument();
-  expect(screen.queryByText('MS-43')).not.toBeInTheDocument();
+  expect(screen.getByText('MS-43')).toBeInTheDocument();
   expect(screen.queryByText('MS-44')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'En almacén' }));
+  expect(screen.getByText('MS-44')).toBeInTheDocument();
+  expect(screen.getByText('MS-45')).toBeInTheDocument();
+  expect(screen.getByText('MS-46')).toBeInTheDocument();
+  expect(screen.queryByText('MS-43')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Sin foto' }));
+  expect(screen.getByText('MS-44')).toBeInTheDocument();
+  expect(screen.queryByText('MS-43')).not.toBeInTheDocument();
+  expect(screen.queryByText('MS-45')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Con fotos' }));
+  expect(screen.getByText('MS-45')).toBeInTheDocument();
+  expect(screen.getByText('MS-46')).toBeInTheDocument();
+  expect(screen.queryByText('MS-43')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Sin Marketplace' }));
+  expect(screen.getByText('MS-45')).toBeInTheDocument();
+  expect(screen.queryByText('MS-43')).not.toBeInTheDocument();
+  expect(screen.queryByText('MS-46')).not.toBeInTheDocument();
 });
 
 test('mantiene las tarjetas con portada en escritorio y muestra más columnas', async () => {

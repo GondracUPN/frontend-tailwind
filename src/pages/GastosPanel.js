@@ -10,7 +10,8 @@ import ModalEditarGasto from '../components/ModalEditarGasto';
 import ModalEditarEfectivo from '../components/ModalEditarEfectivo';
 import ModalAnalisisGastosMes from '../components/ModalAnalisisGastosMes';
 import ModalCiclosTarjeta from '../components/ModalCiclosTarjeta';
-import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept } from '../utils/expenseConcepts';
+import ModalImportarOperacionBancaria from '../components/ModalImportarOperacionBancaria';
+import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept, normalizeExpenseConcept, visibleExpenseNotes } from '../utils/expenseConcepts';
 import { getAnalyticsSummary } from '../services/analytics';
 
   const fmtMoney = (moneda, monto) => {
@@ -46,6 +47,13 @@ const fmtPen = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return 'S/ 0.00';
   return `S/ ${n.toFixed(2)}`;
+};
+
+const fmtSignedMoney = (moneda, monto, sign) => {
+  const n = Math.abs(Number(monto));
+  if (!Number.isFinite(n)) return '-';
+  const symbol = moneda === 'USD' ? '$' : 'S/';
+  return `${sign} ${symbol} ${n.toFixed(2)}`;
 };
 
 const parseUsdAmountsText = (value) => {
@@ -97,6 +105,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [showAnalisisMes, setShowAnalisisMes] = useState(false);
   const [showCiclosTarjeta, setShowCiclosTarjeta] = useState(false);
   const [showEfec, setShowEfec] = useState(false);
+  const [showBankImport, setShowBankImport] = useState(false);
   const [showLinePlanner, setShowLinePlanner] = useState(false);
   const [showCompraBudget, setShowCompraBudget] = useState(false);
   const [compraBudgetLoading, setCompraBudgetLoading] = useState(false);
@@ -133,6 +142,10 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const targetSellerSlug = selectedUser?.role === 'admin'
     ? 'gonzalo'
     : normalizeSellerSlug(selectedUser?.username || user?.username || '');
+  const targetOwnerName = sellerLabel(targetSellerSlug)
+    || selectedUser?.username
+    || user?.username
+    || 'este usuario';
   const cacheKey = useMemo(() => `gastos-panel-cache:${targetUserId ?? 'self'}`, [targetUserId]);
   const rememberTargetUser = () => {
     if (targetUserId == null) return;
@@ -727,6 +740,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   </button>
                 )}
                 <button onClick={openTar} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 min-h-[40px]">Ingresar linea de credito / Tarjeta</button>
+                <button onClick={() => setShowBankImport(true)} className="w-full sm:w-auto text-sm px-3 py-2 sm:py-1.5 rounded border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 min-h-[40px]">Importar operación bancaria</button>
               </div>
             </div>
 
@@ -810,7 +824,9 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                     const conceptoCell = g.concepto === 'pago_tarjeta'
                       ? `Pago Tarjeta  ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
                       : displayConcepto(g.concepto, g.metodoPago);
-                    const detalle = g.notas || '-';
+                    const detalle = visibleExpenseNotes(g.notas);
+                    const isIncome = isIncomeExpenseConcept(g.concepto, conceptCategories)
+                      && normalizeExpenseConcept(g.concepto) !== 'cashback';
                     const usdEquivalent = getDebitUsdEquivalent(g);
                     return (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
@@ -819,10 +835,10 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                         <td className="p-2 align-top">{CARD_LABEL[g.tarjeta] || g.tarjeta || '-'}</td>
                         <td className="p-2 align-top">{detalle}</td>
                         <td className="p-2 align-top">
-                          <div className="font-semibold">{fmtMoney(g.moneda, g.monto)}</div>
+                          <div className={`font-semibold ${isIncome ? 'text-emerald-700' : 'text-red-700'}`}>{fmtSignedMoney(g.moneda, g.monto, isIncome ? '+' : '-')}</div>
                           {usdEquivalent != null && (
-                            <div className="mt-0.5 text-xs font-normal text-gray-500">
-                              $ {usdEquivalent.toFixed(2)}
+                            <div className={`mt-0.5 text-xs font-normal ${isIncome ? 'text-emerald-600' : 'text-red-600'}`}>
+                              {isIncome ? '+' : '-'} $ {Math.abs(usdEquivalent).toFixed(2)}
                             </div>
                           )}
                         </td>
@@ -907,14 +923,15 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                 </thead>
                 <tbody>
                   {creditRowsFiltered.map((g) => {
-                    const detalle = g.notas || '-';
+                    const detalle = visibleExpenseNotes(g.notas);
+                    const isCashback = normalizeExpenseConcept(g.concepto) === 'cashback';
                       return (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
                       <td className="p-2 align-top">{g.fecha}</td>
                       <td className="p-2 align-top capitalize">{displayConcepto(g.concepto, g.metodoPago)}</td>
                       <td className="p-2 align-top">{CARD_LABEL[g.tarjeta] || g.tarjeta || '-'}</td>
                       <td className="p-2 align-top">{detalle}</td>
-                      <td className="p-2 align-top font-semibold">{fmtMoney(g.moneda, g.monto)}</td>
+                      <td className={`p-2 align-top font-semibold ${isCashback ? 'text-red-700' : ''}`}>{isCashback ? fmtSignedMoney(g.moneda, g.monto, '-') : fmtMoney(g.moneda, g.monto)}</td>
                       <td className="p-2 align-top">
                         <div className="flex items-center gap-2">
                           <button type="button" title="Editar" onClick={() => openEdit(g)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">
@@ -940,6 +957,19 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       </div>
 
       {/* Modales */}
+      {showBankImport && (
+        <ModalImportarOperacionBancaria
+          userId={targetUserId}
+          ownerName={targetOwnerName}
+          cards={cardsSummary}
+          rows={rows}
+          onClose={() => setShowBankImport(false)}
+          onSaved={(row) => {
+            if (row) upsertRow(row);
+            refreshTotals();
+          }}
+        />
+      )}
       {showDeb && (
         <ModalGastoDebito
           userId={targetUserId}

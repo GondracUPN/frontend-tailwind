@@ -1,10 +1,12 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FiArchive,
+  FiArrowLeft,
   FiCamera,
   FiCheck,
   FiCopy,
   FiDownload,
+  FiDollarSign,
   FiEdit3,
   FiEye,
   FiEyeOff,
@@ -16,6 +18,7 @@ import {
   FiShoppingBag,
   FiTrash2,
   FiUploadCloud,
+  FiUser,
   FiX,
   FiZoomIn,
   FiZoomOut,
@@ -24,6 +27,8 @@ import api, { API_URL } from '../api';
 import parseSnImeiIds from '../utils/snImeiOcr';
 
 const ModalFacu = lazy(() => import('../components/ModalFacu'));
+const ModalVenta = lazy(() => import('../components/ModalVenta'));
+const ModalVentaMensaje = lazy(() => import('../components/ModalVentaMensaje'));
 
 const ACCESORIOS = [
   'Caja',
@@ -276,6 +281,7 @@ export default function Inventario({ setVista }) {
   const [copied, setCopied] = useState(false);
   const [downloadingPhotos, setDownloadingPhotos] = useState(false);
   const [showInventoryCosts, setShowInventoryCosts] = useState(false);
+  const [selling, setSelling] = useState(null);
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -419,6 +425,27 @@ export default function Inventario({ setVista }) {
       setCopied(false);
       setNotice('No se pudieron copiar los datos. Revisa el permiso del portapapeles.');
     }
+  };
+
+  const openSelling = (entry) => {
+    setSelling({ entry, step: 'choice' });
+    setEditing(null);
+  };
+
+  const openClientSaleMessage = () => {
+    setSelling((current) => (current ? { ...current, step: 'client' } : current));
+  };
+
+  const handleInventoryVentaSaved = (venta) => {
+    const productoId = venta?.productoId || selling?.entry?.producto?.id;
+    if (productoId) {
+      setEntries((current) => {
+        const next = current.filter((entry) => entry.producto?.id !== productoId);
+        writeInventarioCache(next);
+        return next;
+      });
+    }
+    setSelling(null);
   };
 
   const openPhotoViewer = (url, nombre) => {
@@ -621,9 +648,9 @@ export default function Inventario({ setVista }) {
   const stats = useMemo(() => ({
     total: entries.length,
     almacen: entries.filter((entry) => entry.ficha?.enAlmacen).length,
-    sinFoto: entries.filter((entry) => !entry.ficha?.fotosTomadas).length,
-    conFoto: entries.filter((entry) => Boolean(entry.ficha?.fotosTomadas)).length,
-    sinMarketplace: entries.filter((entry) => entry.ficha?.fotosTomadas && !entry.ficha?.marketplaceSubido).length,
+    sinFoto: entries.filter((entry) => entry.ficha?.enAlmacen && !entry.ficha?.fotosTomadas).length,
+    conFoto: entries.filter((entry) => entry.ficha?.enAlmacen && Boolean(entry.ficha?.fotosTomadas)).length,
+    sinMarketplace: entries.filter((entry) => entry.ficha?.enAlmacen && entry.ficha?.fotosTomadas && !entry.ficha?.marketplaceSubido).length,
   }), [entries]);
 
   const inventoryValues = useMemo(() => entries.reduce((totals, entry) => {
@@ -648,9 +675,9 @@ export default function Inventario({ setVista }) {
       const { producto, ficha } = entry;
       if (filter === 'almacen' && !ficha?.enAlmacen) return false;
       if (filter === 'pendientes' && ficha?.enAlmacen) return false;
-      if (filter === 'sinFoto' && ficha?.fotosTomadas) return false;
-      if (filter === 'conFoto' && !ficha?.fotosTomadas) return false;
-      if (filter === 'sinMarketplace' && (!ficha?.fotosTomadas || ficha?.marketplaceSubido)) return false;
+      if (filter === 'sinFoto' && (!ficha?.enAlmacen || ficha?.fotosTomadas)) return false;
+      if (filter === 'conFoto' && (!ficha?.enAlmacen || !ficha?.fotosTomadas)) return false;
+      if (filter === 'sinMarketplace' && (!ficha?.enAlmacen || !ficha?.fotosTomadas || ficha?.marketplaceSubido)) return false;
       if (!needle) return true;
       const compactCodeQuery = needle.replace(/[\s_-]+/g, '');
       const codeQueryMatch = compactCodeQuery.match(/^(?:ms(?:code)?|code)?(\d+)$/i);
@@ -825,7 +852,7 @@ export default function Inventario({ setVista }) {
               <FiFileText /> Factura US
             </button>
             {[
-              ['todos', 'Todos'], ['almacen', 'En almacén'], ['pendientes', 'Por cotejar'],
+              ['todos', 'Todos'], ['pendientes', 'Por cotejar'], ['almacen', 'En almacén'],
               ['sinFoto', 'Sin foto'], ['conFoto', 'Con fotos'], ['sinMarketplace', 'Sin Marketplace'],
             ].map(([value, label]) => (
               <button key={value} type="button" onClick={() => setFilter(value)} className={`whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium ${filter === value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
@@ -851,6 +878,9 @@ export default function Inventario({ setVista }) {
             {filtered.map((entry) => {
               const { producto, ficha } = entry;
               const disabled = busyId === producto.id;
+              const fichaCompleta = Boolean(
+                ficha?.enAlmacen && ficha?.fotosTomadas && ficha?.marketplaceSubido,
+              );
               return (
                 <article key={producto.id} style={{ contentVisibility: 'auto', containIntrinsicSize: '420px' }} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-slate-300 hover:shadow-md">
                   <div className="relative aspect-[16/8] bg-slate-100 sm:aspect-[16/9]">
@@ -904,15 +934,15 @@ export default function Inventario({ setVista }) {
                       ))}
                     </div>
 
-                    <div className={`mt-4 grid gap-2 ${ficha?.fotoUrl ? '' : 'grid-cols-2'}`}>
-                      <span className={`text-xs text-slate-500 ${ficha?.fotoUrl ? '' : 'col-span-2'}`}>Recogido: {lastPickupDate(producto) || 'Sin fecha'}</span>
-                      {!ficha?.fotoUrl && (
-                        <button type="button" onClick={() => openEditor(entry)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                          <FiCamera /> Agregar foto
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <span className="col-span-2 text-xs text-slate-500">Recogido: {lastPickupDate(producto) || 'Sin fecha'}</span>
+                      {ficha?.enAlmacen && (
+                        <button type="button" onClick={() => openSelling(entry)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700">
+                          <FiDollarSign /> Vender
                         </button>
                       )}
-                      <button type="button" onClick={() => openEditor(entry)} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">
-                        <FiEdit3 /> Completar ficha
+                      <button type="button" onClick={() => openEditor(entry)} className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 ${!ficha?.enAlmacen ? 'col-span-2' : ''}`}>
+                        <FiEdit3 /> {fichaCompleta ? 'Editar ficha' : 'Completar ficha'}
                       </button>
                     </div>
                   </div>
@@ -1149,6 +1179,72 @@ export default function Inventario({ setVista }) {
         <Suspense fallback={null}>
           <ModalFacu onClose={() => setFacuOpen(false)} inventoryEntries={entries} inventoryMode />
         </Suspense>
+      )}
+      {selling && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-sm sm:p-4" role="dialog" aria-modal="true" aria-label="Opciones para vender" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelling(null); }}>
+          <div className={`relative flex max-h-[92dvh] w-full overflow-hidden rounded-2xl bg-white shadow-2xl transition-[max-width,border-radius] duration-300 sm:max-h-[94dvh] ${selling.step === 'choice' ? 'max-w-md' : 'sm:max-w-5xl'}`}>
+            <button type="button" onClick={() => setSelling(null)} className="absolute right-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-slate-500 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100" aria-label="Cerrar opciones de venta"><FiX /></button>
+
+            <aside className={`${selling.step === 'choice' ? 'flex sm:w-full sm:border-r-0' : 'hidden sm:flex sm:w-80 sm:border-r'} max-h-[92dvh] w-full shrink-0 flex-col overflow-y-auto border-slate-200 bg-white p-5 transition-all duration-300 sm:p-6`}>
+              <div className="pr-10">
+                <div className="text-xs font-medium text-slate-500">MS-{selling.entry.producto.id}</div>
+                <h2 className="mt-1 text-xl font-semibold text-slate-950">Vender {buildNombre(selling.entry.producto)}</h2>
+                <p className="mt-2 text-sm text-slate-600">Elige una opción. En escritorio puedes cambiarla desde este panel.</p>
+              </div>
+              <div className="mt-6 grid gap-3">
+                <button type="button" onClick={openClientSaleMessage} className={`flex min-h-16 items-center gap-3 rounded-xl border px-4 text-left transition ${selling.step === 'client' ? 'border-blue-500 bg-blue-600 text-white shadow-md' : 'border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100'}`}>
+                  <FiUser className="h-5 w-5 shrink-0" /><span><strong className="block">Poner cliente</strong><span className={`text-xs ${selling.step === 'client' ? 'text-blue-50' : ''}`}>Ingresar número, lugar y precio para copiar el mensaje.</span></span>
+                </button>
+                <button type="button" onClick={() => setSelling((current) => ({ ...current, step: 'sale' }))} className={`flex min-h-16 items-center gap-3 rounded-xl border px-4 text-left transition ${selling.step === 'sale' ? 'border-emerald-600 bg-emerald-600 text-white shadow-md' : 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'}`}>
+                  <FiDollarSign className="h-5 w-5 shrink-0" /><span><strong className="block">Realizar venta</strong><span className={`text-xs ${selling.step === 'sale' ? 'text-emerald-50' : ''}`}>Registrar fecha, tipo de cambio y precio vendido.</span></span>
+                </button>
+              </div>
+              <button type="button" onClick={() => setSelling(null)} className="mt-4 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:hidden">
+                Cancelar
+              </button>
+            </aside>
+
+            {selling.step !== 'choice' && (
+              <section key={selling.step} className="inventory-sale-panel-enter flex max-h-[92dvh] min-w-0 flex-1 flex-col bg-white sm:max-h-[94dvh]">
+                <div className="flex min-h-14 items-center justify-between gap-2 border-b border-slate-200 px-2 pr-14 sm:hidden">
+                  <button type="button" onClick={() => setSelling((current) => ({ ...current, step: 'choice' }))} className="inline-flex min-h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+                    <FiArrowLeft /> Volver a elegir
+                  </button>
+                  <button type="button" onClick={() => setSelling(null)} className="min-h-10 rounded-xl px-3 text-sm font-semibold text-red-600 hover:bg-red-50">
+                    Cerrar
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <Suspense fallback={<div className="p-8 text-sm text-slate-500">Cargando...</div>}>
+                    {selling.step === 'client' && (
+                      <ModalVentaMensaje
+                        embedded
+                        onClose={() => setSelling(null)}
+                        productos={[{
+                          id: selling.entry.producto.id,
+                          label: buildNombre(selling.entry.producto),
+                        }]}
+                        initialProductoId={selling.entry.producto.id}
+                        initialPrecio={selling.entry.ficha?.primerPrecioSoles ?? ''}
+                      />
+                    )}
+                    {selling.step === 'sale' && (
+                      <ModalVenta
+                        embedded
+                        producto={selling.entry.producto}
+                        venta={null}
+                        presetVendedor={selling.entry.producto?.vendedor || ''}
+                        allowVendedorOnCreate
+                        onClose={() => setSelling(null)}
+                        onSaved={handleInventoryVentaSaved}
+                      />
+                    )}
+                  </Suspense>
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
       )}
       {viewingPhoto && (
         <div className="fixed inset-0 z-[100] h-[100dvh] overflow-auto overscroll-contain bg-transparent backdrop-blur-[2px]" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget) closePhotoViewer(); }}>

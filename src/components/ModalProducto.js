@@ -7,6 +7,7 @@ import FormProductoWatch from './formParts/FormProductoWatch';
 import FormProductoOtro from './formParts/FormProductoOtro';
 import api from '../api';
 import { normalizeProductLookupUrl } from '../utils/productUrl';
+import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
 
 const normalizeText = (val) =>
   String(val || '')
@@ -16,6 +17,27 @@ const normalizeText = (val) =>
 
 const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian', 'Williams'];
 const OTHER_PEDIDO_SELLER = '__otro_nombre_pedido__';
+const PRODUCT_CARD_LABELS = {
+  interbank: 'Interbank',
+  bcp_amex: 'BCP Amex',
+  bcp_visa: 'BCP Visa',
+  visa_qore: 'Visa Qore',
+  bbva: 'BBVA',
+  io: 'IO',
+  saga: 'Saga',
+};
+const productSellerOwner = (seller) => {
+  const value = String(seller || '').trim().toLowerCase();
+  if (value === 'renato') return 'renato';
+  if (value === 'gonzalo' || value.startsWith('gonzalo (')) return 'gonzalo';
+  return '';
+};
+const productCardLabel = (type, owner) => {
+  if (type === 'bcp_visa') {
+    return owner === 'renato' ? 'BCP Visa (Visa Light)' : 'BCP Visa (Sapphire)';
+  }
+  return PRODUCT_CARD_LABELS[type] || type;
+};
 const titleCaseName = (value) =>
   String(value || '')
     .trim()
@@ -275,6 +297,11 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
   const [recentLoading, setRecentLoading] = useState(false);
   const [recentError, setRecentError] = useState('');
   const [recentNuevo, setRecentNuevo] = useState([]);
+  const [sellerCards, setSellerCards] = useState([]);
+  const [sellerCardsLoading, setSellerCardsLoading] = useState(false);
+  const [sellerCardsError, setSellerCardsError] = useState('');
+  const [sellerExpenseUserId, setSellerExpenseUserId] = useState(null);
+  const [paymentCard, setPaymentCard] = useState('');
 
   const [form, setForm] = useState({
     tipo: '',
@@ -370,6 +397,60 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
   useEffect(() => {
     return () => { mountedRef.current = false; };
   }, []);
+
+  useEffect(() => {
+    const owner = productSellerOwner(form.vendedor);
+    if (isEdit || loteActivo || !owner) {
+      setSellerCards([]);
+      setSellerExpenseUserId(null);
+      setPaymentCard('');
+      setSellerCardsError('');
+      return;
+    }
+
+    let alive = true;
+    (async () => {
+      setSellerCardsLoading(true);
+      setSellerCardsError('');
+      try {
+        const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+        let users = [];
+        if (currentUser?.role === 'admin') {
+          const response = await api.get('/auth/users');
+          users = Array.isArray(response) ? response : [];
+        } else if (currentUser) {
+          users = [currentUser];
+        }
+        const target = users.find((candidate) => {
+          const username = String(candidate?.username || '').toLowerCase();
+          return owner === 'gonzalo'
+            ? (username.includes('gonzalo') || candidate?.role === 'admin')
+            : username.includes('renato');
+        });
+        if (!target?.id) throw new Error(`No se encontró el usuario ${owner}.`);
+        const response = await api.get(`/cards?userId=${encodeURIComponent(String(target.id))}`);
+        const cards = Array.isArray(response) ? response : [];
+        if (!alive) return;
+        setSellerExpenseUserId(target.id);
+        setSellerCards(cards);
+        setPaymentCard((current) => (
+          cards.some((card) => String(card.tipo || card.type || '') === current)
+            ? current
+            : String(cards[0]?.tipo || cards[0]?.type || '')
+        ));
+        if (!cards.length) setSellerCardsError(`${owner === 'gonzalo' ? 'Gonzalo' : 'Renato'} no tiene tarjetas registradas.`);
+      } catch (error) {
+        if (!alive) return;
+        setSellerCards([]);
+        setSellerExpenseUserId(null);
+        setPaymentCard('');
+        setSellerCardsError(error?.message || 'No se pudieron cargar las tarjetas del vendedor.');
+      } finally {
+        if (alive) setSellerCardsLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [form.vendedor, isEdit, loteActivo]);
 
   useEffect(() => {
     if (!producto?.envioGrupoId) {
@@ -639,6 +720,17 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     if (saving) return;
+    const expenseOwner = productSellerOwner(form.vendedor);
+    const productAmountUsd = Number(form.valor?.valorProducto);
+    const shouldCreateExpense = !isEdit && !loteActivo && Boolean(expenseOwner) && productAmountUsd > 0;
+    if (shouldCreateExpense && sellerCardsLoading) {
+      alert('Espera a que terminen de cargar las tarjetas del vendedor.');
+      return;
+    }
+    if (shouldCreateExpense && (!sellerExpenseUserId || !paymentCard)) {
+      alert(`Selecciona una tarjeta de ${expenseOwner === 'gonzalo' ? 'Gonzalo' : 'Renato'} para registrar la compra.`);
+      return;
+    }
     setSaving(true);
 
     const isBatch = !isEdit && loteActivo;
@@ -718,6 +810,30 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
         else savedItems.forEach((item) => onSaved(item));
         onClose();
         return;
+      }
+
+      if (shouldCreateExpense && saved?.id) {
+        try {
+          await createExpenseWithDuplicateCheck({
+            concepto: 'inversion',
+            metodoPago: 'credito',
+            moneda: 'USD',
+            monto: productAmountUsd,
+            fecha: form.valor.fechaCompra,
+            tarjeta: paymentCard,
+            notas: String(saved.id),
+          }, { userId: sellerExpenseUserId });
+          try {
+            localStorage.removeItem(`gastos-panel-cache:${sellerExpenseUserId}`);
+          } catch {}
+        } catch (expenseError) {
+          if (expenseError instanceof ExpenseDuplicateCancelledError) {
+            // El usuario decidió que el gasto ya estaba registrado.
+          } else {
+          console.error('Producto guardado, pero no se pudo crear el gasto:', expenseError);
+          alert('El producto se guardó, pero no se pudo registrar el gasto en la tarjeta. Agrégalo manualmente desde Gastos.');
+          }
+        }
       }
 
       const extras = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
@@ -1359,6 +1475,35 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                         placeholder="Escribe el nombre"
                       />
                     </>
+                  )}
+                  {!isEdit && productSellerOwner(form.vendedor) && (
+                    <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3">
+                      <label className="block text-sm font-medium mb-1">
+                        Tarjeta para pagar el producto
+                      </label>
+                      {sellerCardsLoading ? (
+                        <div className="text-sm text-gray-600">Cargando tarjetas...</div>
+                      ) : (
+                        <select
+                          className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          value={paymentCard}
+                          onChange={(e) => setPaymentCard(e.target.value)}
+                          disabled={!sellerCards.length}
+                        >
+                          {!sellerCards.length && <option value="">Sin tarjetas disponibles</option>}
+                          {sellerCards.map((card) => {
+                            const type = String(card.tipo || card.type || '');
+                            return <option key={card.id || type} value={type}>{productCardLabel(type, productSellerOwner(form.vendedor)) || card.label || type}</option>;
+                          })}
+                        </select>
+                      )}
+                      {sellerCardsError && <div className="mt-1 text-xs text-red-700">{sellerCardsError}</div>}
+                      {!sellerCardsError && (
+                        <div className="mt-1 text-xs text-indigo-700">
+                          Al guardar se registrará ${Number(form.valor?.valorProducto || 0).toFixed(2)} como inversión de {productSellerOwner(form.vendedor) === 'gonzalo' ? 'Gonzalo' : 'Renato'}.
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>}
               </div>

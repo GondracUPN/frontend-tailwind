@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
 import CloseX from './CloseX';
+import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
 
 const CREDIT_CONCEPTS = [
   'comida',
@@ -208,18 +209,13 @@ export default function ModalGastoCreditoMasivo({ onClose, onSaved }) {
     try {
       for (const item of parsed.rows) {
         const body = { ...item.body, tarjeta };
-        const res = await fetch(`${API_URL}/gastos`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          const detail = await res.text().catch(() => `HTTP ${res.status}`);
-          failed.push(`Linea ${item.lineNumber}: ${detail}`);
-          continue;
+        try {
+          const row = await createExpenseWithDuplicateCheck(body);
+          if (row) created.push(row);
+        } catch (error) {
+          if (error instanceof ExpenseDuplicateCancelledError) continue;
+          failed.push(`Linea ${item.lineNumber}: ${error?.message || 'No se pudo guardar'}`);
         }
-        const row = await res.json().catch(() => null);
-        if (row) created.push(row);
       }
 
       if (created.length) {

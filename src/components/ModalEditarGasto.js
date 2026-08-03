@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
 import { localDateInputValue } from '../utils/dates';
+import { isTechnicalExpenseNote, visibleExpenseNotes } from '../utils/expenseConcepts';
 import CloseX from './CloseX';
 
 const BANKS_DEBITO = [
@@ -18,9 +19,9 @@ const normalizeEditConcept = (g, isCredito) => (
 
 export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
   const isCredito = gasto?.metodoPago === 'credito';
-  const [monto, setMonto] = useState(String(gasto?.monto ?? ''));
+  const [monto, setMonto] = useState(String(Math.abs(Number(gasto?.monto ?? 0)) || ''));
   const [fecha, setFecha] = useState(gasto?.fecha || localDateInputValue());
-  const [notas, setNotas] = useState(gasto?.notas || '');
+  const [notas, setNotas] = useState(visibleExpenseNotes(gasto?.notas, ''));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [concepto, setConcepto] = useState(() => normalizeEditConcept(gasto, isCredito));
@@ -94,6 +95,8 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
     setTarjeta(gasto.tarjeta || '');
     setTarjetaPago(gasto.tarjetaPago || '');
     setMoneda(gasto.moneda || 'PEN');
+    setMonto(String(Math.abs(Number(gasto.monto || 0)) || ''));
+    setNotas(visibleExpenseNotes(gasto.notas, ''));
   }, [gasto, isCredito]);
 
   useEffect(() => {
@@ -128,7 +131,10 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
     if (!token) return setErr('No hay sesión.');
     setSaving(true);
     try {
-      const body = { monto: n, fecha, notas: notas || null, moneda };
+      const notesToSave = isTechnicalExpenseNote(gasto.notas) && !notas.trim()
+        ? gasto.notas
+        : (notas || null);
+      const body = { monto: Math.abs(n), fecha, notas: notesToSave, moneda };
       if (concepto) body.concepto = concepto;
       if (isCredito) {
         if (tarjeta) body.tarjeta = tarjeta;

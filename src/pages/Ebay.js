@@ -7,6 +7,7 @@ import { TC_FIJO } from '../utils/tipoCambio';
 const PAGE_SIZE = 140;
 const PRODUCT_SEARCH_BATCH_REQUEST_LIMIT = 10;
 const PRODUCT_SEARCH_MIN_VISIBLE_RESULTS = 14;
+const AUCTION_QUERY_GROUP_BATCH_SIZE = 4;
 const PRODUCT_SEARCH_SCAN_PAGES_PER_REQUEST = 1;
 const EBAY_VIEWED_ITEMS_KEY = 'ebay:viewed-items:v1';
 const EMPTY_RESULT = {
@@ -107,6 +108,7 @@ const MACBOOK_PRO_PROCESSOR_OPTIONS = MACBOOK_PROCESSOR_OPTIONS;
 const MACBOOK_RAM_OPTIONS = ['', '8GB', '16GB', '18GB', '24GB', '32GB', '36GB', '48GB', '64GB'];
 const MACBOOK_STORAGE_OPTIONS = ['', '256GB', '512GB', '1TB', '2TB', '4TB', '8TB'];
 const TARGET_MACBOOK_MODEL_NUMBERS = [
+  'a2179', 'a2251', 'a2289', 'a2336', 'a3404',
   'a2337', 'a2338', 'a2442', 'a2485', 'a2681', 'a2779', 'a2780', 'a2918',
   'a2941', 'a2991', 'a2992', 'a3112', 'a3113', 'a3114', 'a3185', 'a3186',
   'a3240', 'a3241', 'a3401', 'a3403', 'a3426', 'a3427', 'a3428', 'a3429',
@@ -138,10 +140,14 @@ const TARGET_IPHONE_MODEL_NUMBERS = [
 ];
 const TARGET_IMAC_MODEL_NUMBERS = ['a2438', 'a2439', 'a2873', 'a2874', 'a3137', 'a3247'];
 const TARGET_MAC_MINI_MODEL_NUMBERS = ['a2348', 'a2686', 'a2816', 'a3238', 'a3239'];
+const TARGET_WATCH_SERIES_10_MODEL_NUMBERS = ['a2997', 'a2998', 'a2999', 'a3000', 'a3001', 'a3002'];
 const TARGET_WATCH_SERIES_11_MODEL_NUMBERS = ['a3331', 'a3333', 'a3450', 'a3451', 'a3335', 'a3337', 'a3452', 'a3453'];
+const TARGET_WATCH_SE2_MODEL_NUMBERS = ['a2722', 'a2723', 'a2724', 'a2725', 'a2726', 'a2727', 'a2855', 'a2856'];
 const TARGET_WATCH_SE3_MODEL_NUMBERS = ['a3324', 'a3325', 'a3391', 'a3392', 'a3326', 'a3328', 'a3327', 'a3329'];
-const TARGET_WATCH_ULTRA_MODEL_NUMBERS = ['a2622', 'a2684', 'a2859', 'a2986', 'a2987', 'a3281', 'a3282'];
+const TARGET_WATCH_ULTRA_MODEL_NUMBERS = ['a2986', 'a2987', 'a3281', 'a3282'];
 const TARGET_MACBOOK_ORDER_CODES = [
+  'mwtj2', 'mvh22', 'mxk62', 'mwp72', 'myd82',
+  'mhfa4', 'mhfd4', 'mhff4', 'mhfh4', 'mhfc4', 'mhfe4', 'mhfg4', 'mhfj4',
   'mgn63', 'mgn73', 'mly33', 'mly43', 'mqkw3', 'mrxv3', 'mrxw3', 'mryu3',
   'mc6t4', 'mc6u4', 'mc7a4', 'mdhh4', 'mdhj4', 'mdvq4', 'myda2', 'mkgr3',
   'mkgt3', 'mk1e3', 'mk1h3', 'mneh3', 'mphe3', 'mphf3', 'mphg3', 'mnw83',
@@ -219,6 +225,19 @@ const sortItemsByListedDate = (items) =>
     if (timeDifference !== 0) return timeDifference;
     return getItemKey(b).localeCompare(getItemKey(a));
   });
+
+const sortAuctionsByEndDate = (items) =>
+  [...(Array.isArray(items) ? items : [])].sort((a, b) => {
+    const timeA = Date.parse(a?.itemEndDate || '') || Number.MAX_SAFE_INTEGER;
+    const timeB = Date.parse(b?.itemEndDate || '') || Number.MAX_SAFE_INTEGER;
+    if (timeA !== timeB) return timeA - timeB;
+    return getItemKey(a).localeCompare(getItemKey(b));
+  });
+
+export const getProgressiveAuctionVisibleCount = (foundCount, complete, limit = PAGE_SIZE) => {
+  const bounded = Math.max(0, Math.min(Number(limit) || PAGE_SIZE, Number(foundCount) || 0));
+  return complete ? bounded : 0;
+};
 
 const keepItemsOlderThanVisibleTail = (visibleItems, nextItems) => {
   if (!Array.isArray(visibleItems) || visibleItems.length === 0) return nextItems;
@@ -640,6 +659,7 @@ const EXCLUDED_APPLE_PRODUCT_TITLE_PATTERNS = [
   /\b(?:charging|wireless|alarm\s+clock).{0,50}(?:station|stand|dock|base|holder|mount|cradle)\b/,
   /\b(?:station|stand|dock|base|holder|mount|cradle)\b.{0,100}\b(?:iphone|ipad|apple\s+watch|watch|airpods?)\b/,
   /\b(?:3\s*-?\s*in\s*-?\s*1|2\s*-?\s*in\s*-?\s*1|multi\s*device)\b.{0,100}\b(?:charger|charging|station|stand|dock)\b/,
+  /\b(?:logic\s+board|motherboard|display\s+assembly|screen\s+replacement|battery\s+replacement|camera\s+module|charging\s+port|flex\s+cable|parts?\s+only)\b/,
 ];
 
 const isExcludedAppleProductTitle = (title) => {
@@ -662,7 +682,7 @@ const hasAccessoryKeyword = (normalized) =>
 const hasDeviceSignals = (normalized) =>
   DEVICE_SIGNAL_PATTERNS.some((pattern) => pattern.test(normalized));
 
-const MACBOOK_ALLOWED_CHIP_PATTERN = /\bm[1-5](?:\s+(?:pro|max|ultra))?\b/;
+const MACBOOK_ALLOWED_CHIP_PATTERN = /\b(?:m[1-6](?:\s+(?:pro|max|ultra))?|a18\s*pro)\b/;
 const MACBOOK_INTEL_PATTERN = /\b(?:intel|core\s+i[3579]|i[3579][-\s]?\d{3,5})\b/;
 const MACBOOK_BAD_SCREEN_PATTERN = /\b(?:11|12)(?:\.\d+)?\s*(?:inch|in|")?\b/;
 const IPHONE_ALLOWED_PATTERN = /\biphone\s*(?:13|14|15|16|17)\b|\biphone\s*(?:16|17)\s*e\b|\b(?:16|17)e\b/;
@@ -722,23 +742,25 @@ const isTargetMacMiniTitle = (normalized) =>
     ((/\bmac\s*mini\b|\bmacmini\b/.test(normalized)) && /\bm[1-5](?:\s+pro)?\b/.test(normalized))
   );
 
-const isTargetAppleWatchTitle = (normalized) => {
+export const isTargetAppleWatchTitle = (normalized) => {
   if (EXTERNAL_BRAND_PATTERN.test(normalized)) return false;
   if (isPrimaryAccessoryTitle(normalized)) return false;
   if (hasTargetModelNumber(normalized, TARGET_WATCH_ULTRA_MODEL_NUMBERS)) return true;
+  if (hasTargetModelNumber(normalized, TARGET_WATCH_SERIES_10_MODEL_NUMBERS)) return true;
   if (hasTargetModelNumber(normalized, TARGET_WATCH_SERIES_11_MODEL_NUMBERS)) return true;
+  if (hasTargetModelNumber(normalized, TARGET_WATCH_SE2_MODEL_NUMBERS)) return true;
   if (hasTargetModelNumber(normalized, TARGET_WATCH_SE3_MODEL_NUMBERS)) return true;
   if (!/\bapple\s+watch\b|\biwatch\b/.test(normalized)) return false;
-  if (/\bultra(?:\s*[123])?\b/.test(normalized)) return true;
-  if (/\bse\s*(?:3|third|3rd)\b/.test(normalized)) return true;
-  if (/\b(?:series\s*)?11\b|\bs11\b/.test(normalized)) {
+  if (/\bultra\s*(?:2|3|4)\b/.test(normalized)) return true;
+  if (/\bse\s*(?:2|3|second|third|2nd|3rd)\b/.test(normalized)) return true;
+  if (/\b(?:series\s*)?(?:10|11|12)\b|\bs(?:10|11|12)\b/.test(normalized)) {
     const statedSize = normalized.match(/\b(\d{2})\s*mm\b/)?.[1];
     return !statedSize || statedSize === '42' || statedSize === '46';
   }
   return false;
 };
 
-const isLikelyAppleCatalogTitle = (title) => {
+export const isLikelyAppleCatalogTitle = (title) => {
   const normalized = normalizeTitleText(title);
   const compact = normalized.replace(/[\s.+-]+/g, '');
   if (/\bhome\s*pod\b/.test(normalized) || compact.includes('homepod')) return false;
@@ -1731,6 +1753,69 @@ function Ebay({ setVista }) {
     loadEbayRateLimits({ silent: false });
     setErrors((prev) => ({ ...prev, auctions: '' }));
     try {
+      if (!append) {
+        setAuctionResult({ ...EMPTY_RESULT, groups: [], buyingOptions: 'AUCTION' });
+        let queryStart = 0;
+        let totalQueryGroups = null;
+        let accumulatedItems = [];
+        let accumulatedTotal = 0;
+        let lastData = null;
+        const groupTotals = new Map();
+
+        do {
+          const data = await api.get(
+            `/utils/ebay/apple-auctions?family=${encodeURIComponent(auctionFamily)}&limit=${PAGE_SIZE}&offset=0&condition=${encodeURIComponent(auctionCondition)}&queryStart=${queryStart}&queryCount=${AUCTION_QUERY_GROUP_BATCH_SIZE}`,
+          );
+          if (!isCurrentEbayRequest('auctions', requestId)) return;
+          lastData = data;
+          accumulatedItems = sortAuctionsByEndDate(
+            mergeUniqueItems(accumulatedItems, Array.isArray(data?.items) ? data.items : []),
+          );
+          accumulatedTotal += Number(data?.total || 0);
+          (Array.isArray(data?.groups) ? data.groups : []).forEach((group) => {
+            const key = String(group?.key || '');
+            if (!key) return;
+            const current = groupTotals.get(key) || { ...group, total: 0 };
+            groupTotals.set(key, { ...current, ...group, total: Number(current.total || 0) + Number(group?.total || 0) });
+          });
+
+          totalQueryGroups = Number(data?.progressive?.totalQueryGroups || 0);
+          queryStart = Number(data?.progressive?.nextQueryStart || totalQueryGroups);
+          const complete = Boolean(data?.progressive?.complete) || queryStart >= totalQueryGroups;
+          if (complete) {
+            const finalItems = sortAuctionsByEndDate(accumulatedItems).slice(0, PAGE_SIZE);
+            setAuctionResult({
+              // Solo se publica cuando todos los grupos respondieron. Antes de
+              // ese punto ningun lote puede garantizar el orden global.
+              items: finalItems,
+              sellers: [],
+              total: accumulatedTotal,
+              query: String(data?.query || 'Apple collection'),
+              sort: String(data?.sort || 'endingSoonest'),
+              limit: PAGE_SIZE,
+              offset: 0,
+              groups: Array.from(groupTotals.values()),
+              buyingOptions: String(data?.buyingOptions || 'AUCTION'),
+              family: String(data?.family || auctionFamily),
+              hasMore: PAGE_SIZE < accumulatedTotal,
+            });
+          }
+          if (totalQueryGroups > 0) {
+            const completedQueryGroups = queryStart;
+            const knownTotalQueryGroups = totalQueryGroups;
+            setLoadingProgress((prev) => ({
+              ...prev,
+              visible: true,
+              tab: 'auctions',
+              mode: 'initial',
+              percent: Math.max(Number(prev.percent || 0), Math.min(99, (completedQueryGroups / knownTotalQueryGroups) * 100)),
+            }));
+          }
+          if (complete) break;
+        } while (lastData);
+        return;
+      }
+
       const data = await api.get(
         `/utils/ebay/apple-auctions?family=${encodeURIComponent(auctionFamily)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(auctionCondition)}`,
       );

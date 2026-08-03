@@ -200,17 +200,16 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const abrirMarcaAgua = () => { setModalModo('marca'); };
   // Cuando se guarda una venta, refrescamos sflo ese producto en el mapa
   const handleVentaSaved = (ventaGuardada) => {
-    setVentasMap(prev => {
-      const next = { ...prev, [ventaGuardada.productoId]: ventaGuardada };
-      writeCache(productos, next, resumenRef.current, adelantosRef.current);
-      return next;
-    });
-    setAdelantosMap(prev => {
-      if (!ventaGuardada?.productoId) return prev;
-      const next = { ...prev, [ventaGuardada.productoId]: null };
-      writeCache(productosRef.current, ventasRef.current, resumenRef.current, next);
-      return next;
-    });
+    if (!ventaGuardada?.productoId) return;
+    const pid = ventaGuardada.productoId;
+    const nextVentas = { ...ventasRef.current, [pid]: ventaGuardada };
+    const nextAdelantos = { ...adelantosRef.current, [pid]: null };
+    // Actualizar refs antes que los estados evita que una escritura atrasada pise la venta.
+    ventasRef.current = nextVentas;
+    adelantosRef.current = nextAdelantos;
+    setVentasMap(nextVentas);
+    setAdelantosMap(nextAdelantos);
+    writeCache(productosRef.current, nextVentas, resumenRef.current, nextAdelantos);
     fetchResumen({ refresh: true });
     cerrarModal();
   };
@@ -1145,6 +1144,36 @@ const confirmAction = async () => {
     });
   };
 
+  const buildRecojoCodigosText = (items = []) => {
+    const grupos = new Map();
+    items.forEach((pkg) => {
+      const casillero = String(pkg?.casillero || '').trim() || 'Sin casillero';
+      const codigo = String(pkg?.trackingEshop || '').trim();
+      if (!grupos.has(casillero)) grupos.set(casillero, []);
+      if (codigo && !grupos.get(casillero).includes(codigo)) grupos.get(casillero).push(codigo);
+    });
+    const lineas = ['Casilleros'];
+    Array.from(grupos.entries())
+      .sort(([a], [b]) => String(a).localeCompare(String(b)))
+      .forEach(([casillero, codigos]) => {
+        lineas.push('', casillero);
+        codigos.forEach((codigo) => lineas.push(codigo));
+      });
+    return lineas.join('\n');
+  };
+
+  const handleCopyRecojoCodigos = async () => {
+    const items = recojoPackages.filter((pkg) => recojoSelected.has(pkg.id));
+    if (!items.length) { alert('Selecciona al menos un paquete.'); return; }
+    const text = buildRecojoCodigosText(items);
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('Casilleros y códigos seleccionados copiados para Roberto.');
+    } catch {
+      alert('No se pudieron copiar los códigos. Revisa los permisos del portapapeles.');
+    }
+  };
+
   const handleRecojoWhatsapp = async () => {
     const items = recojoPackages.filter((pkg) => recojoSelected.has(pkg.id) && isRecojoReady(pkg.product));
     if (!items.length) { alert('Selecciona al menos un producto.'); return; }
@@ -1172,29 +1201,29 @@ const confirmAction = async () => {
         applyTrackingUpdate(productoId, tracking);
       });
 
-      const grupos = new Map();
-      items.forEach((pkg) => {
-        const esh = String(pkg.trackingEshop || '').trim();
-        const cas = String(pkg.casillero || '').trim() || 'Sin casillero';
-        const nombres = (pkg.productos || [])
-          .map((p) => buildNombreProducto(p) || p?.tipo || 'Producto')
-          .filter(Boolean);
-        const nombre = nombres.length > 1 ? nombres.join(' + ') : (nombres[0] || 'Producto');
-        if (!grupos.has(cas)) grupos.set(cas, []);
-        grupos.get(cas).push([nombre, esh].filter(Boolean).join(' | '));
-      });
-      const lineas = [`Paquetes recojo ${recojoDate}`];
-      Array.from(grupos.entries())
-        .sort(([a], [b]) => String(a).localeCompare(String(b)))
-        .forEach(([cas, rows]) => {
-          lineas.push('', cas);
-          rows.forEach((row) => lineas.push(row));
-        });
+       const grupos = new Map();
+       items.forEach((pkg) => {
+         const esh = String(pkg.trackingEshop || '').trim();
+         const cas = String(pkg.casillero || '').trim() || 'Sin casillero';
+         const nombres = (pkg.productos || [])
+           .map((p) => buildNombreProducto(p) || p?.tipo || 'Producto')
+           .filter(Boolean);
+         const nombre = nombres.length > 1 ? nombres.join(' + ') : (nombres[0] || 'Producto');
+         if (!grupos.has(cas)) grupos.set(cas, []);
+         grupos.get(cas).push([nombre, esh].filter(Boolean).join(' | '));
+       });
+       const lineas = [`Paquetes recojo ${recojoDate}`];
+       Array.from(grupos.entries())
+         .sort(([a], [b]) => String(a).localeCompare(String(b)))
+         .forEach(([cas, rows]) => {
+           lineas.push('', cas);
+           rows.forEach((row) => lineas.push(row));
+         });
 
-      const url = `https://wa.me/+51938597478?text=${encodeURIComponent(lineas.join('\n'))}`;
-      refreshProductos({ force: true, useCache: false, silent: true });
-      window.open(url, '_blank', 'noopener,noreferrer');
-      setRecojoOpen(false);
+       const url = `https://wa.me/+51938597478?text=${encodeURIComponent(lineas.join('\n'))}`;
+       refreshProductos({ force: true, useCache: false, silent: true });
+       window.open(url, '_blank', 'noopener,noreferrer');
+       setRecojoOpen(false);
       setRecojoSelected(new Set());
       setRecojoDate('');
       if (updated.length !== productosItems.length) {
@@ -1822,7 +1851,7 @@ const confirmAction = async () => {
       if (cacheHasAdelantos) {
         setAdelantosMap(cache.adelantosMap || {});
       }
-      if (cacheHasVentas && cacheHasAdelantos) return;
+      // El cache se muestra de inmediato, pero siempre se confirma contra el servidor.
       try {
         const ids = productos.map((p) => p.id).filter(Boolean);
         const query = ids.length ? `?ids=${ids.join(',')}` : '';
@@ -3086,6 +3115,14 @@ const confirmAction = async () => {
                 onClick={handleRecojoWhatsapp}
               >
                 Marcar recogido
+              </button>
+              <button
+                type="button"
+                className="px-3 py-2 rounded bg-sky-600 text-white hover:bg-sky-700"
+                onClick={handleCopyRecojoCodigos}
+                title="Copiar casilleros y códigos Eshopex seleccionados"
+              >
+                Roberto
               </button>
               <button
                 className="px-3 py-2 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50"

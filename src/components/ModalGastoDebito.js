@@ -4,6 +4,7 @@ import { API_URL } from '../api';
 import { convertPenToUsd, TC_FIJO } from '../utils/tipoCambio';
 import { localDateInputValue } from '../utils/dates';
 import CloseX from './CloseX';
+import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
 
 const BANKS_DEBITO = [
   { value: 'bcp', label: 'BCP' },
@@ -279,13 +280,7 @@ export default function ModalGastoDebito({
     setSavingAction(action);
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/gastos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
+      const data = await createExpenseWithDuplicateCheck(body, { userId });
       if (isMensual) {
         try {
           const types = JSON.parse(localStorage.getItem('mensuales_types') || '{}');
@@ -304,6 +299,7 @@ export default function ModalGastoDebito({
         setBolsaMontoSoles('');
       }
     } catch (err) {
+      if (err instanceof ExpenseDuplicateCancelledError) return;
       console.error('[ModalGastoDebito] save error:', err);
       setError('No se pudo guardar.');
     } finally {
