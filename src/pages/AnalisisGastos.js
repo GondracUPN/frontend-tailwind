@@ -491,7 +491,7 @@ export default function AnalisisGastos({ setVista }) {
       }
     }
 
-    let balance = 0;
+    let pendingDebt = 0;
     let requiredAccumulated = 0;
     let investedAccumulated = 0;
     let current = null;
@@ -501,24 +501,29 @@ export default function AnalisisGastos({ setVista }) {
         if (ventaMonth !== monthKey) return sum;
         return sum + (Number(venta?.precioVenta ?? 0) || 0) * shareForSeller(venta, selectedPersona);
       }, 0);
-      const calculatedMonthly = Math.max(0, grossIncome) * 0.02;
-      const monthlyTarget = Math.max(1000, calculatedMonthly);
+      const calculatedMonthly = Number((Math.max(0, grossIncome) * 0.02).toFixed(2));
+      const monthlyTarget = Number(Math.max(1000, calculatedMonthly).toFixed(2));
       const expenseActual = rows.reduce((sum, row) => {
         if (String(row?.fecha || '').slice(0, 7) !== monthKey) return sum;
         if (normalizeConcept(row?.concepto) !== 'bolsa' || row?.metodoPago !== 'debito') return sum;
         return sum + toPen(row);
       }, 0);
       const manualRecord = bolsaRecords.find((record) => record?.month === monthKey) || null;
-      const actual = manualRecord ? Number(manualRecord.amount || 0) : expenseActual;
-      const pendingBefore = balance;
-      const totalToInvest = Math.max(0, monthlyTarget + pendingBefore);
-      requiredAccumulated += monthlyTarget;
-      investedAccumulated += actual;
-      balance += monthlyTarget - actual;
-      if (monthKey === month) current = { calculatedMonthly, monthlyTarget, totalToInvest, actual, expenseActual, manualRecord, pendingBefore, balance, grossIncome };
+      const actual = Number((manualRecord ? Number(manualRecord.amount || 0) : expenseActual).toFixed(2));
+      const pendingBefore = pendingDebt;
+      const totalToInvest = Number((monthlyTarget + pendingBefore).toFixed(2));
+      requiredAccumulated = Number((requiredAccumulated + monthlyTarget).toFixed(2));
+      investedAccumulated = Number((investedAccumulated + actual).toFixed(2));
+      const difference = Number((totalToInvest - actual).toFixed(2));
+      const pendingAfter = Math.max(0, difference);
+      const currentExcess = Math.max(0, -difference);
+      // Solo el faltante pasa al mes siguiente. El excedente queda reflejado
+      // en Bolsa acumulado, pero nunca rebaja el mínimo del próximo mes.
+      pendingDebt = pendingAfter;
+      if (monthKey === month) current = { calculatedMonthly, monthlyTarget, totalToInvest, actual, expenseActual, manualRecord, pendingBefore, pendingAfter, currentExcess, grossIncome };
     });
 
-    const data = current || { calculatedMonthly: 0, monthlyTarget: 0, totalToInvest: 0, actual: 0, pendingBefore: 0, balance: 0, grossIncome: 0 };
+    const data = current || { calculatedMonthly: 0, monthlyTarget: 0, totalToInvest: 0, actual: 0, pendingBefore: 0, pendingAfter: 0, currentExcess: 0, grossIncome: 0 };
     return {
       enabled: true,
       calculatedMonthly: data.calculatedMonthly,
@@ -528,12 +533,12 @@ export default function AnalisisGastos({ setVista }) {
       expenseActual: data.expenseActual || 0,
       manualRecord: data.manualRecord || null,
       monthDifference: data.actual - data.monthlyTarget,
-      monthRemaining: Math.max(0, data.balance),
+      monthRemaining: data.pendingAfter,
       pendingBefore: data.pendingBefore,
-      pending: Math.max(0, data.balance),
-      credit: Math.max(0, -data.balance),
+      pending: data.pendingAfter,
+      credit: data.currentExcess,
       grossIncome: data.grossIncome,
-      totalToDate: data.balance,
+      totalToDate: data.pendingAfter,
       requiredAccumulated,
       investedAccumulated,
     };
@@ -817,7 +822,9 @@ export default function AnalisisGastos({ setVista }) {
                 <div>
                   <div className="text-sm text-gray-500">Inversión Bolsa</div>
                   <div className="text-2xl font-semibold mt-1 text-indigo-700">
-                    {bolsaProjection.enabled ? `S/ ${bolsaProjection.totalToInvest.toFixed(2)}` : 'No aplica'}
+                    {bolsaProjection.enabled
+                      ? `S/ ${(bolsaProjection.actualMonth > 0 ? bolsaProjection.actualMonth : bolsaProjection.totalToInvest).toFixed(2)}`
+                      : 'No aplica'}
                   </div>
                 </div>
                 {bolsaProjection.enabled && (
@@ -832,31 +839,16 @@ export default function AnalisisGastos({ setVista }) {
               </div>
               <div className="text-xs text-gray-500 mt-2">
                 {bolsaProjection.enabled
-                  ? `Corresponde este mes: S/ ${bolsaProjection.monthly.toFixed(2)} (2% calculado: S/ ${bolsaProjection.calculatedMonthly.toFixed(2)})`
+                  ? `Correspondía: S/ ${bolsaProjection.monthly.toFixed(2)}`
                   : 'El cálculo comienza en enero de 2026.'}
               </div>
               {bolsaProjection.enabled && (
-                <div className="mt-1 space-y-0.5 text-xs">
-                  <div className={bolsaProjection.pendingBefore > 0 ? 'text-amber-600' : bolsaProjection.pendingBefore < 0 ? 'text-green-600' : 'text-gray-400'}>
-                    {bolsaProjection.pendingBefore > 0
-                      ? `Faltante anterior: S/ ${bolsaProjection.pendingBefore.toFixed(2)}`
-                      : bolsaProjection.pendingBefore < 0
-                        ? `Excedente anterior: S/ ${Math.abs(bolsaProjection.pendingBefore).toFixed(2)}`
-                        : 'Sin faltante ni excedente anterior.'}
-                  </div>
-                  <div className="text-gray-500">Registrado este mes: S/ {bolsaProjection.actualMonth.toFixed(2)}</div>
-                  {bolsaProjection.expenseActual > 0 && !bolsaProjection.manualRecord && (
-                    <div className="text-xs text-sky-600">Detectado automáticamente desde Gastos.</div>
-                  )}
-                  {bolsaProjection.actualMonth > 0 && (
-                    <div className={bolsaProjection.credit > 0 ? 'text-green-600' : bolsaProjection.pending > 0 ? 'text-amber-600' : 'text-gray-500'}>
-                      {bolsaProjection.credit > 0
-                        ? `Excedente para el próximo mes: S/ ${bolsaProjection.credit.toFixed(2)}`
-                        : bolsaProjection.pending > 0
-                          ? `Faltante para el próximo mes: S/ ${bolsaProjection.pending.toFixed(2)}`
-                          : 'Monto completo registrado.'}
-                    </div>
-                  )}
+                <div className={`mt-1 text-xs font-medium ${bolsaProjection.credit > 0 ? 'text-emerald-600' : bolsaProjection.pending > 0 ? 'text-amber-600' : 'text-gray-500'}`}>
+                  {bolsaProjection.credit > 0
+                    ? `Excedente: S/ ${bolsaProjection.credit.toFixed(2)}`
+                    : bolsaProjection.pending > 0
+                      ? `Faltante: S/ ${bolsaProjection.pending.toFixed(2)}`
+                      : 'Sin saldo pendiente'}
                 </div>
               )}
             </div>
