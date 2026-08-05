@@ -869,11 +869,14 @@ export default function AnalisisGastos({ setVista }) {
               <div className="text-2xl font-semibold mt-1 text-indigo-700">
                 {bolsaProjection.enabled ? `S/ ${bolsaProjection.investedAccumulated.toFixed(2)}` : 'No aplica'}
               </div>
-              <div className="text-xs text-gray-500 mt-1">
-                {!bolsaProjection.enabled
-                  ? 'Disponible desde enero de 2026.'
-                  : 'Suma únicamente los montos que registraste en cada mes.'}
-              </div>
+              {bolsaProjection.enabled ? (
+                <div className="mt-2 flex items-center justify-between gap-3 text-xs">
+                  <div className="text-sky-700"><span className="font-medium">Hapi 70%</span> · S/ {(bolsaProjection.investedAccumulated * 0.7).toFixed(2)}</div>
+                  <div className="text-right text-violet-700"><span className="font-medium">Trii 30%</span> · S/ {(bolsaProjection.investedAccumulated * 0.3).toFixed(2)}</div>
+                </div>
+              ) : (
+                <div className="mt-1 text-xs text-gray-500">Disponible desde enero de 2026.</div>
+              )}
             </div>
           </div>
           <div className="bg-white rounded-xl border shadow-sm p-4">
