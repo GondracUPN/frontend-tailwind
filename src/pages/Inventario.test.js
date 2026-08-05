@@ -120,6 +120,7 @@ test('desde Vender reutiliza el registro completo de venta y retira el producto 
     fechaVenta: '2026-07-31',
     precioVenta: 1500,
     tipoCambio: 3.75,
+    incomeBank: 'bcp',
   }));
   await waitFor(() => expect(screen.queryByText('MS-42')).not.toBeInTheDocument());
 });

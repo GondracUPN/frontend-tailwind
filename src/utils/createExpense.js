@@ -1,4 +1,5 @@
 import { API_URL } from '../api';
+import { notifyGastosChanged } from './gastosSync';
 
 const CARD_LABELS = {
   interbank: 'Interbank',
@@ -56,6 +57,6 @@ export async function createExpenseWithDuplicateCheck(body, { userId } = {}) {
     const message = result.data?.message || result.data?.error || `HTTP ${result.response.status}`;
     throw new Error(Array.isArray(message) ? message.join(' | ') : String(message));
   }
+  notifyGastosChanged({ action: 'create', userId });
   return result.data;
 }
-

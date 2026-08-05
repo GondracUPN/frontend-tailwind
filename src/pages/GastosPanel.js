@@ -13,6 +13,7 @@ import ModalCiclosTarjeta from '../components/ModalCiclosTarjeta';
 import ModalImportarOperacionBancaria from '../components/ModalImportarOperacionBancaria';
 import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept, normalizeExpenseConcept, visibleExpenseNotes } from '../utils/expenseConcepts';
 import { getAnalyticsSummary } from '../services/analytics';
+import { notifyGastosChanged, subscribeGastosChanges } from '../utils/gastosSync';
 
   const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
@@ -93,7 +94,6 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [conceptCategories, setConceptCategories] = useState({});
   const [loading, setLoading] = useState(true);
   const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
   const [err, setErr] = useState('');
 
   // Modales
@@ -284,7 +284,6 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     if (!token) return;
     if (!silent) {
       if (!isInitialLoadDone || forceSpinner) setLoading(true);
-      else setIsUpdating(true);
       setErr('');
     }
     try {
@@ -298,7 +297,6 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         setIsInitialLoadDone(true);
         if (!silent) {
           setLoading(false);
-          setIsUpdating(false);
         }
         return;
       }
@@ -360,7 +358,6 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     } finally {
       if (!silent) {
         setLoading(false);
-        setIsUpdating(false);
       }
     }
   };
@@ -401,6 +398,14 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     }
     reloadAll({ forceSpinner: true });
     /* eslint-disable-next-line */
+  }, [token, isAdmin, targetUserId]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    return subscribeGastosChanges(() => {
+      reloadAll({ includeGastos: true, useCache: false, silent: true });
+    });
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [token, isAdmin, targetUserId]);
 
   // Efectivo calculado (PEN)
@@ -497,6 +502,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const upsertRow = (row) => {
     if (!row || !row.id) return;
     setRows((prev) => sortRows([row, ...prev.filter((r) => r.id !== row.id)]));
+    notifyGastosChanged({ action: 'upsert', userId: targetUserId, gastoId: row.id });
   };
 
   const debitRows = useMemo(
@@ -610,6 +616,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       const res = await fetch(`${API_URL}/gastos/${g.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` } });
       if (!res.ok) throw new Error(await res.text());
       setRows((prev) => prev.filter((r) => r.id !== g.id));
+      notifyGastosChanged({ action: 'delete', userId: targetUserId, gastoId: g.id });
       refreshTotals();
     } catch (e) {
       console.error('[GastosPanel] delete gasto:', e);
@@ -871,7 +878,6 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
             <div className="flex items-center gap-2">
               <h3 className="text-lg font-semibold">Credito</h3>
-              {isUpdating && <span className="text-xs text-gray-500">Actualizando...</span>}
             </div>
             <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
               <label className="text-sm text-gray-700 flex items-center gap-2 w-full sm:w-auto">
@@ -1002,9 +1008,11 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       {showCreBulk && (
         <ModalGastoCreditoMasivo
           onClose={() => setShowCreBulk(false)}
-          onSaved={() => {
+          onSaved={(createdRows) => {
             setShowCreBulk(false);
-            reloadAll({ includeGastos: true, useCache: false });
+            if (Array.isArray(createdRows)) createdRows.forEach(upsertRow);
+            notifyGastosChanged({ action: 'bulk-create', userId: targetUserId });
+            reloadAll({ includeGastos: true, useCache: false, silent: true });
           }}
         />
       )}
@@ -1012,7 +1020,11 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         <ModalTarjetas
           userId={targetUserId}
           onClose={() => setShowTar(false)}
-          onSaved={() => { setShowTar(false); reloadAll({ includeGastos: false, useCache: false }); }}
+          onSaved={() => {
+            setShowTar(false);
+            notifyGastosChanged({ action: 'cards', userId: targetUserId });
+            reloadAll({ includeGastos: false, useCache: false, silent: true });
+          }}
         />
       )}
       {showEfec && (
@@ -1020,7 +1032,11 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           userId={targetUserId}
           current={wallet}
           onClose={() => setShowEfec(false)}
-          onSaved={(w) => { setShowEfec(false); setWallet(w); }}
+          onSaved={(w) => {
+            setShowEfec(false);
+            setWallet(w);
+            notifyGastosChanged({ action: 'wallet', userId: targetUserId });
+          }}
         />
       )}
       {showLinePlanner && (
@@ -1143,6 +1159,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           onChanged={(createdRows) => {
             if (Array.isArray(createdRows)) createdRows.forEach(upsertRow);
             else reloadAll({ includeGastos: true, useCache: false, silent: true });
+            notifyGastosChanged({ action: 'cuotas', userId: targetUserId });
             refreshTotals();
           }}
         />

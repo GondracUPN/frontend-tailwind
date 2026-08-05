@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL } from '../api';
 import LoginGastos from './LoginGastos';
 import { buildExpenseConceptCategoryMap, isCardPaymentExpenseConcept, isIncomeExpenseConcept, isInvestmentExpenseConcept, isLifeExpenseConcept } from '../utils/expenseConcepts';
+import { notifyGastosChanged, subscribeGastosChanges } from '../utils/gastosSync';
 
 const TIPO_CAMBIO = 3.7;
 const SELLERS = ['gonzalo', 'renato'];
@@ -110,6 +111,7 @@ export default function AnalisisGastos({ setVista }) {
   const [conceptCategories, setConceptCategories] = useState({});
   const [ventas, setVentas] = useState([]);
   const [productos, setProductos] = useState([]);
+  const [bolsaRecords, setBolsaRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [showPie, setShowPie] = useState(false);
@@ -124,6 +126,8 @@ export default function AnalisisGastos({ setVista }) {
   const [bolsaPaymentDate, setBolsaPaymentDate] = useState('');
   const [bolsaSaving, setBolsaSaving] = useState(false);
   const [bolsaError, setBolsaError] = useState('');
+  const [gastosSyncVersion, setGastosSyncVersion] = useState(0);
+  const hasLoadedRef = useRef(false);
   const [selectedPersona, setSelectedPersona] = useState(() => sellerFromUser(readSelectedGastosUser(readSessionUser())) || 'gonzalo');
 
   const today = new Date();
@@ -135,9 +139,10 @@ export default function AnalisisGastos({ setVista }) {
       return;
     }
     const load = async () => {
+      const showInitialLoading = !hasLoadedRef.current;
       try {
         setErr('');
-        setLoading(true);
+        if (showInitialLoading) setLoading(true);
         const token = session.token;
         const user = sessionUser || readSessionUser();
         const isAdmin = user?.role === 'admin';
@@ -148,20 +153,23 @@ export default function AnalisisGastos({ setVista }) {
         // Se cargan todas las ventas para que el bruto coincida con Ganancias.
         const ventasUrl = `${API_URL}/ventas`;
 
-        const [resGastos, resVentas, resProductos, resConcepts] = await Promise.all([
+        const [resGastos, resVentas, resProductos, resConcepts, resBolsa] = await Promise.all([
           fetch(gastosUrl, { headers }),
           fetch(ventasUrl, { headers }),
           fetch(`${API_URL}/productos`, { headers }),
           fetch(`${API_URL}/catalog/expense-concepts`, { headers }).catch(() => null),
+          fetch(`${API_URL}/gastos/bolsa-registro${userIdParam}`, { headers }),
         ]);
         if (!resGastos.ok) throw new Error(`GET ${gastosUrl} -> ${await resGastos.text()}`);
         if (!resVentas.ok) throw new Error(`GET ${ventasUrl} -> ${await resVentas.text()}`);
         if (!resProductos.ok) throw new Error(`GET ${API_URL}/productos -> ${await resProductos.text()}`);
+        if (!resBolsa.ok) throw new Error(`GET bolsa-registro -> ${await resBolsa.text()}`);
 
-        const [dataGastos, dataVentas, dataProductos] = await Promise.all([resGastos.json(), resVentas.json(), resProductos.json()]);
+        const [dataGastos, dataVentas, dataProductos, dataBolsa] = await Promise.all([resGastos.json(), resVentas.json(), resProductos.json(), resBolsa.json()]);
         setRows(Array.isArray(dataGastos) ? dataGastos : []);
         setVentas(Array.isArray(dataVentas) ? dataVentas : []);
         setProductos(Array.isArray(dataProductos) ? dataProductos : []);
+        setBolsaRecords(Array.isArray(dataBolsa) ? dataBolsa : []);
         if (resConcepts?.ok) {
           const dataConcepts = await resConcepts.json();
           setConceptCategories(buildExpenseConceptCategoryMap(dataConcepts));
@@ -172,11 +180,17 @@ export default function AnalisisGastos({ setVista }) {
         console.error('[AnalisisGastos] load error', e);
         setErr('No se pudo cargar los gastos y ventas.');
       } finally {
-        setLoading(false);
+        hasLoadedRef.current = true;
+        if (showInitialLoading) setLoading(false);
       }
     };
     load();
-  }, [session.token, sessionUser, targetUser?.id, userSeller]);
+  }, [session.token, sessionUser, targetUser?.id, userSeller, gastosSyncVersion]);
+
+  useEffect(() => {
+    if (!session.token) return undefined;
+    return subscribeGastosChanges(() => setGastosSyncVersion((version) => version + 1));
+  }, [session.token]);
 
   useEffect(() => {
     if (userSeller) setSelectedPersona(userSeller);
@@ -489,17 +503,19 @@ export default function AnalisisGastos({ setVista }) {
       }, 0);
       const calculatedMonthly = Math.max(0, grossIncome) * 0.02;
       const monthlyTarget = Math.max(1000, calculatedMonthly);
-      const actual = rows.reduce((sum, row) => {
+      const expenseActual = rows.reduce((sum, row) => {
         if (String(row?.fecha || '').slice(0, 7) !== monthKey) return sum;
         if (normalizeConcept(row?.concepto) !== 'bolsa' || row?.metodoPago !== 'debito') return sum;
         return sum + toPen(row);
       }, 0);
+      const manualRecord = bolsaRecords.find((record) => record?.month === monthKey) || null;
+      const actual = manualRecord ? Number(manualRecord.amount || 0) : expenseActual;
       const pendingBefore = balance;
       const totalToInvest = Math.max(0, monthlyTarget + pendingBefore);
       requiredAccumulated += monthlyTarget;
       investedAccumulated += actual;
       balance += monthlyTarget - actual;
-      if (monthKey === month) current = { calculatedMonthly, monthlyTarget, totalToInvest, actual, pendingBefore, balance, grossIncome };
+      if (monthKey === month) current = { calculatedMonthly, monthlyTarget, totalToInvest, actual, expenseActual, manualRecord, pendingBefore, balance, grossIncome };
     });
 
     const data = current || { calculatedMonthly: 0, monthlyTarget: 0, totalToInvest: 0, actual: 0, pendingBefore: 0, balance: 0, grossIncome: 0 };
@@ -509,6 +525,8 @@ export default function AnalisisGastos({ setVista }) {
       monthly: data.monthlyTarget,
       totalToInvest: data.totalToInvest,
       actualMonth: data.actual,
+      expenseActual: data.expenseActual || 0,
+      manualRecord: data.manualRecord || null,
       monthDifference: data.actual - data.monthlyTarget,
       monthRemaining: Math.max(0, data.balance),
       pendingBefore: data.pendingBefore,
@@ -519,7 +537,7 @@ export default function AnalisisGastos({ setVista }) {
       requiredAccumulated,
       investedAccumulated,
     };
-  }, [month, rows, ventas, selectedPersona]);
+  }, [month, rows, ventas, bolsaRecords, selectedPersona]);
 
   const openBolsaModal = () => {
     if (!bolsaProjection.enabled) return;
@@ -554,51 +572,25 @@ export default function AnalisisGastos({ setVista }) {
       setBolsaSaving(true);
       setBolsaError('');
       const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` };
-      const movements = rows
-        .filter((row) => String(row?.fecha || '').startsWith(month) && normalizeConcept(row?.concepto) === 'bolsa' && row?.metodoPago === 'debito')
-        .sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
-
-      if (movements.length) {
-        const [primary, ...duplicates] = movements;
-        const response = await fetch(`${API_URL}/gastos/${primary.id}`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ monto: Number(amount.toFixed(2)), moneda: 'PEN', fecha: bolsaPaymentDate, notas: `Inversión Bolsa - ${month}` }),
-        });
-        if (!response.ok) throw new Error('No se pudo editar la inversión.');
-        const updated = await response.json();
-        for (const duplicate of duplicates) {
-          const deleteResponse = await fetch(`${API_URL}/gastos/${duplicate.id}`, { method: 'DELETE', headers });
-          if (!deleteResponse.ok) throw new Error('La inversión se editó, pero no se pudieron unificar todos los registros del mes.');
-        }
-        const deletedIds = new Set(duplicates.map((movement) => movement.id));
-        setRows((previous) => previous
-          .filter((row) => !deletedIds.has(row.id))
-          .map((row) => row.id === updated.id ? updated : row));
-      } else {
-        const isAdmin = sessionUser?.role === 'admin';
-        const targetId = targetUser?.id || sessionUser?.id;
-        const userIdParam = isAdmin && targetId ? `?userId=${encodeURIComponent(String(targetId))}` : '';
-        const response = await fetch(`${API_URL}/gastos${userIdParam}`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            concepto: 'bolsa',
-            metodoPago: 'debito',
-            moneda: 'PEN',
-            monto: Number(amount.toFixed(2)),
-            fecha: bolsaPaymentDate,
-            notas: `Inversión Bolsa - ${month}`,
-            allowDuplicate: true,
-          }),
-        });
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          throw new Error(payload?.message || 'No se pudo registrar la inversión.');
-        }
-        const saved = await response.json();
-        setRows((previous) => [saved, ...previous.filter((row) => row.id !== saved.id)]);
+      const isAdmin = sessionUser?.role === 'admin';
+      const targetId = targetUser?.id || sessionUser?.id;
+      const userIdParam = isAdmin && targetId ? `?userId=${encodeURIComponent(String(targetId))}` : '';
+      const response = await fetch(`${API_URL}/gastos/bolsa-registro${userIdParam}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          month,
+          amount: Number(amount.toFixed(2)),
+          date: bolsaPaymentDate,
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message || 'No se pudo registrar la inversión.');
       }
+      const saved = await response.json();
+      setBolsaRecords((previous) => [saved, ...previous.filter((record) => record.month !== saved.month)]);
+      notifyGastosChanged({ action: 'bolsa-upsert', userId: targetUser?.id || sessionUser?.id, month });
       setShowBolsaModal(false);
     } catch (error) {
       setBolsaError(error?.message || 'No se pudo guardar la inversión.');
@@ -608,20 +600,18 @@ export default function AnalisisGastos({ setVista }) {
   };
 
   const deleteBolsaInvestment = async () => {
-    if (bolsaSaving || bolsaProjection.actualMonth <= 0) return;
+    if (bolsaSaving || !bolsaProjection.manualRecord) return;
     try {
       setBolsaSaving(true);
       setBolsaError('');
       const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` };
-      const movements = rows.filter((row) =>
-        String(row?.fecha || '').startsWith(month)
-        && normalizeConcept(row?.concepto) === 'bolsa'
-        && row?.metodoPago === 'debito');
-      for (const movement of movements) {
-        const response = await fetch(`${API_URL}/gastos/${movement.id}`, { method: 'DELETE', headers });
-        if (!response.ok) throw new Error('No se pudo eliminar la inversión registrada.');
-        setRows((previous) => previous.filter((row) => row.id !== movement.id));
-      }
+      const isAdmin = sessionUser?.role === 'admin';
+      const targetId = targetUser?.id || sessionUser?.id;
+      const userIdParam = isAdmin && targetId ? `?userId=${encodeURIComponent(String(targetId))}` : '';
+      const response = await fetch(`${API_URL}/gastos/bolsa-registro/${encodeURIComponent(month)}${userIdParam}`, { method: 'DELETE', headers });
+      if (!response.ok) throw new Error('No se pudo eliminar el registro interno de la inversión.');
+      setBolsaRecords((previous) => previous.filter((record) => record.month !== month));
+      notifyGastosChanged({ action: 'bolsa-delete', userId: targetUser?.id || sessionUser?.id, month });
       setShowBolsaModal(false);
     } catch (error) {
       setBolsaError(error?.message || 'No se pudo eliminar la inversión registrada.');
@@ -855,6 +845,9 @@ export default function AnalisisGastos({ setVista }) {
                         : 'Sin faltante ni excedente anterior.'}
                   </div>
                   <div className="text-gray-500">Registrado este mes: S/ {bolsaProjection.actualMonth.toFixed(2)}</div>
+                  {bolsaProjection.expenseActual > 0 && !bolsaProjection.manualRecord && (
+                    <div className="text-xs text-sky-600">Detectado automáticamente desde Gastos.</div>
+                  )}
                   {bolsaProjection.actualMonth > 0 && (
                     <div className={bolsaProjection.credit > 0 ? 'text-green-600' : bolsaProjection.pending > 0 ? 'text-amber-600' : 'text-gray-500'}>
                       {bolsaProjection.credit > 0
@@ -1183,6 +1176,9 @@ export default function AnalisisGastos({ setVista }) {
             </div>
             <div className="mt-1 flex justify-between gap-3 text-indigo-700"><span>Total a invertir</span><strong>S/ {bolsaProjection.totalToInvest.toFixed(2)}</strong></div>
             <div className="mt-1 flex justify-between gap-3"><span className="text-gray-600">Ya invertido este mes</span><strong>S/ {bolsaProjection.actualMonth.toFixed(2)}</strong></div>
+            {bolsaProjection.expenseActual > 0 && !bolsaProjection.manualRecord && (
+              <div className="mt-1 text-xs text-sky-600">Este monto fue detectado desde el gasto Bolsa existente.</div>
+            )}
             <div className={`mt-1 flex justify-between gap-3 ${bolsaProjection.credit > 0 ? 'text-green-700' : 'text-amber-700'}`}>
               <span>{bolsaProjection.credit > 0 ? 'Excedente resultante' : 'Faltante resultante'}</span>
               <strong>S/ {(bolsaProjection.credit > 0 ? bolsaProjection.credit : bolsaProjection.pending).toFixed(2)}</strong>
@@ -1242,10 +1238,10 @@ export default function AnalisisGastos({ setVista }) {
           </label>
 
           {bolsaError && <div className="mt-3 text-sm text-red-600">{bolsaError}</div>}
-          <p className="mt-3 text-xs text-gray-500">Si el 2% es menor, corresponde el mínimo de S/ 1,000. Tú puedes registrar más o menos; la bolsa acumulada sólo cambia después de guardar.</p>
+          <p className="mt-3 text-xs text-gray-500">Este registro sólo controla la inversión en Análisis y nunca crea ni modifica un gasto general. Si ya existe un gasto Bolsa, se detecta automáticamente.</p>
 
           <div className="mt-5 flex justify-end gap-2">
-            {bolsaModalAction === 'edit' && (
+            {bolsaProjection.manualRecord && (
               <button type="button" onClick={deleteBolsaInvestment} disabled={bolsaSaving} className="mr-auto rounded-lg border border-red-200 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60">
                 Eliminar registro
               </button>

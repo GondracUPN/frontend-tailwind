@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
+import { notifyGastosChanged } from '../utils/gastosSync';
 
 const normalizeSeller = (value) =>
   value == null ? '' : String(value).trim().toLowerCase();
@@ -323,6 +324,7 @@ export default function ModalVenta({
           }
         }
       }
+      notifyGastosChanged({ action: 'sale-income', ventaId: saved?.id, seller: saved?.vendedor || body.vendedor });
       onSaved?.(saved);
       onClose?.();
     } catch (e) {
@@ -341,6 +343,7 @@ export default function ModalVenta({
               }
             }
           }
+          notifyGastosChanged({ action: 'sale-income', ventaId: existing?.id, seller: existing?.vendedor });
           onSaved?.(existing);
           onClose?.();
           return;
@@ -388,6 +391,7 @@ export default function ModalVenta({
           }
         }
       }
+      notifyGastosChanged({ action: 'sale-income', ventaId: updated?.id, seller: updated?.vendedor || payload.vendedor });
       onSaved?.(updated);
       onClose?.();
     } catch (e) {
