@@ -514,11 +514,13 @@ export default function AnalisisGastos({ setVista }) {
       const totalToInvest = Number((monthlyTarget + pendingBefore).toFixed(2));
       requiredAccumulated = Number((requiredAccumulated + monthlyTarget).toFixed(2));
       investedAccumulated = Number((investedAccumulated + actual).toFixed(2));
-      const difference = Number((totalToInvest - actual).toFixed(2));
-      const pendingAfter = Math.max(0, difference);
-      const currentExcess = Math.max(0, -difference);
-      // Solo el faltante pasa al mes siguiente. El excedente queda reflejado
-      // en Bolsa acumulado, pero nunca rebaja el mínimo del próximo mes.
+      const currentMonthShortfall = Number(Math.max(0, monthlyTarget - actual).toFixed(2));
+      const amountAboveMonthlyMinimum = Number(Math.max(0, actual - monthlyTarget).toFixed(2));
+      const priorDebtAfterExcess = Number(Math.max(0, pendingBefore - amountAboveMonthlyMinimum).toFixed(2));
+      const pendingAfter = Number((currentMonthShortfall + priorDebtAfterExcess).toFixed(2));
+      const currentExcess = Number(Math.max(0, amountAboveMonthlyMinimum - pendingBefore).toFixed(2));
+      // Primero se cumple el mínimo del mes. Lo que lo supera paga la deuda
+      // anterior; solo después de saldarla puede quedar un excedente real.
       pendingDebt = pendingAfter;
       if (monthKey === month) current = { calculatedMonthly, monthlyTarget, totalToInvest, actual, expenseActual, manualRecord, pendingBefore, pendingAfter, currentExcess, grossIncome };
     });
