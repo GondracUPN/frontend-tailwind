@@ -839,19 +839,29 @@ export default function AnalisisGastos({ setVista }) {
                   </button>
                 )}
               </div>
-              <div className="text-xs text-gray-500 mt-2">
-                {bolsaProjection.enabled
-                  ? `Correspondía: S/ ${bolsaProjection.monthly.toFixed(2)}`
-                  : 'El cálculo comienza en enero de 2026.'}
-              </div>
-              {bolsaProjection.enabled && (
-                <div className={`mt-1 text-xs font-medium ${bolsaProjection.credit > 0 ? 'text-emerald-600' : bolsaProjection.pending > 0 ? 'text-amber-600' : 'text-gray-500'}`}>
-                  {bolsaProjection.credit > 0
-                    ? `Excedente: S/ ${bolsaProjection.credit.toFixed(2)}`
-                    : bolsaProjection.pending > 0
-                      ? `Faltante: S/ ${bolsaProjection.pending.toFixed(2)}`
-                      : 'Sin saldo pendiente'}
-                </div>
+              {bolsaProjection.enabled && (() => {
+                const splitAmount = bolsaProjection.actualMonth > 0 ? bolsaProjection.actualMonth : bolsaProjection.totalToInvest;
+                return (
+                  <div className="mt-2 flex items-start justify-between gap-3 text-xs leading-5">
+                    <div className="min-w-0">
+                      <div className="text-gray-500">Correspondía: S/ {bolsaProjection.monthly.toFixed(2)}</div>
+                      <div className={`font-medium ${bolsaProjection.credit > 0 ? 'text-emerald-600' : bolsaProjection.pending > 0 ? 'text-amber-600' : 'text-gray-500'}`}>
+                        {bolsaProjection.credit > 0
+                          ? `Excedente: S/ ${bolsaProjection.credit.toFixed(2)}`
+                          : bolsaProjection.pending > 0
+                            ? `Faltante: S/ ${bolsaProjection.pending.toFixed(2)}`
+                            : 'Sin saldo pendiente'}
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="text-sky-700"><span className="font-medium">Hapi 70%</span> · S/ {(splitAmount * 0.7).toFixed(2)}</div>
+                      <div className="text-violet-700"><span className="font-medium">Trii 30%</span> · S/ {(splitAmount * 0.3).toFixed(2)}</div>
+                    </div>
+                  </div>
+                );
+              })()}
+              {!bolsaProjection.enabled && (
+                <div className="mt-2 text-xs text-gray-500">El cálculo comienza en enero de 2026.</div>
               )}
             </div>
             <div className="bg-white rounded-xl border border-indigo-200 shadow-sm p-4">
