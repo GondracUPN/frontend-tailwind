@@ -160,19 +160,50 @@ export default function ModalVenta({
     try {
       currentUser = JSON.parse(localStorage.getItem('user') || 'null');
     } catch {}
+    const normalizeAuthUser = (candidate) => {
+      if (!candidate) return null;
+      const id = candidate.id ?? candidate.userId ?? candidate.sub;
+      return id ? { ...candidate, id } : candidate;
+    };
+    currentUser = normalizeAuthUser(currentUser);
+
+    if (!currentUser?.id || !currentUser?.role) {
+      try {
+        currentUser = normalizeAuthUser(await api.get('/auth/me'));
+      } catch {}
+    }
+
     let users = [];
     if (currentUser?.role === 'admin') {
       const response = await api.get('/auth/users');
-      users = Array.isArray(response) ? response : [];
+      users = Array.isArray(response) ? response.map(normalizeAuthUser) : [];
     } else if (currentUser) {
       users = [currentUser];
     }
-    return users.find((candidate) => {
-      const username = String(candidate?.username || '').toLowerCase();
-      return owner === 'gonzalo'
-        ? (username.includes('gonzalo') || candidate?.role === 'admin')
-        : username.includes('renato');
-    }) || null;
+    const ownerAccount = users.find((candidate) => {
+      const username = String(candidate?.username || '').trim().toLowerCase();
+      return owner === 'gonzalo' ? username.includes('gonzalo') : username.includes('renato');
+    });
+    if (ownerAccount) return ownerAccount;
+
+    // En esta instalación la cuenta Admin representa los gastos de Gonzalo.
+    if (owner === 'gonzalo') {
+      if (currentUser?.role === 'admin' && currentUser?.id) return currentUser;
+      return users.find((candidate) => candidate?.role === 'admin') || null;
+    }
+    return null;
+  };
+
+  const getSaleIncomeRows = async (targetUserId) => {
+    let currentUser = null;
+    try {
+      currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+    } catch {}
+    const path = currentUser?.role === 'admin'
+      ? `/gastos/all?userId=${encodeURIComponent(String(targetUserId))}`
+      : '/gastos';
+    const rows = await api.get(path);
+    return Array.isArray(rows) ? rows : [];
   };
 
   const registerSaleIncome = async (savedVenta) => {
@@ -183,7 +214,7 @@ export default function ModalVenta({
     const target = await resolveSaleUser(owner);
     if (!target?.id) throw new Error(`No se encontró el usuario ${owner}.`);
 
-    await createExpenseWithDuplicateCheck({
+    const payload = {
       concepto: 'ingreso',
       metodoPago: 'debito',
       moneda: 'PEN',
@@ -191,7 +222,18 @@ export default function ModalVenta({
       fecha: savedVenta?.fechaVenta || form.fechaVenta,
       tarjeta: incomeBank,
       notas: saleIncomeReference(producto.id),
-    }, { userId: target.id });
+    };
+
+    // La venta puede reintentarse o existir desde el flujo anterior, que usaba
+    // solamente el ID del producto en notas. En ese caso actualizamos el ingreso
+    // encontrado en vez de intentar crear un duplicado y mostrar un error falso.
+    const rows = await getSaleIncomeRows(target.id);
+    const linkedIncome = rows.find((row) => isSaleIncomeForProduct(row, producto.id));
+    if (linkedIncome?.id) {
+      await api.patch(`/gastos/${linkedIncome.id}`, payload);
+    } else {
+      await createExpenseWithDuplicateCheck(payload, { userId: target.id });
+    }
     try {
       localStorage.removeItem(`gastos-panel-cache:${target.id}`);
     } catch {}
@@ -255,6 +297,7 @@ export default function ModalVenta({
         productoId: producto.id,
         fechaVenta: form.fechaVenta,
         precioVenta: Number(form.precioVenta),
+        incomeBank,
       };
 
       if (splitModeActive) {
@@ -271,12 +314,13 @@ export default function ModalVenta({
       }
 
       const saved = await api.post('/ventas', body);
-      try {
-        await registerSaleIncome(saved);
-      } catch (incomeError) {
-        if (!(incomeError instanceof ExpenseDuplicateCancelledError)) {
-          console.error('[ModalVenta] Venta guardada sin ingreso automático:', incomeError);
-          alert('La venta se guardó, pero no se pudo registrar el ingreso en Gastos. Regístralo manualmente.');
+      if (localStorage.getItem('token')) {
+        try {
+          await registerSaleIncome(saved);
+        } catch (incomeError) {
+          if (!(incomeError instanceof ExpenseDuplicateCancelledError)) {
+            console.error('[ModalVenta] Respaldo de ingreso no disponible:', incomeError);
+          }
         }
       }
       onSaved?.(saved);
@@ -288,12 +332,13 @@ export default function ModalVenta({
         const ventas = await api.get(`/ventas/producto/${producto.id}`);
         const existing = Array.isArray(ventas) ? ventas[0] : null;
         if (existing) {
-          try {
-            await registerSaleIncome(existing);
-          } catch (incomeError) {
-            if (!(incomeError instanceof ExpenseDuplicateCancelledError)) {
-              console.error('[ModalVenta] Venta confirmada sin ingreso automático:', incomeError);
-              alert('La venta existe, pero no se pudo registrar el ingreso en Gastos. Regístralo manualmente.');
+          if (localStorage.getItem('token')) {
+            try {
+              await registerSaleIncome(existing);
+            } catch (incomeError) {
+              if (!(incomeError instanceof ExpenseDuplicateCancelledError)) {
+                console.error('[ModalVenta] Respaldo de ingreso no disponible:', incomeError);
+              }
             }
           }
           onSaved?.(existing);
@@ -317,6 +362,7 @@ export default function ModalVenta({
       const payload = {
         fechaVenta: form.fechaVenta,
         precioVenta: Number(form.precioVenta),
+        incomeBank,
       };
 
       if (splitModeActive) {
@@ -333,12 +379,13 @@ export default function ModalVenta({
       }
 
       const updated = await api.patch(`/ventas/${venta.id}`, payload);
-      try {
-        await syncSaleIncomeAfterEdit(updated);
-      } catch (incomeError) {
-        if (!(incomeError instanceof ExpenseDuplicateCancelledError)) {
-          console.error('[ModalVenta] Venta actualizada sin sincronizar el ingreso:', incomeError);
-          alert('La venta se actualizó, pero no se pudo sincronizar el ingreso en Gastos. Revísalo manualmente.');
+      if (localStorage.getItem('token')) {
+        try {
+          await syncSaleIncomeAfterEdit(updated);
+        } catch (incomeError) {
+          if (!(incomeError instanceof ExpenseDuplicateCancelledError)) {
+            console.error('[ModalVenta] Respaldo de sincronización no disponible:', incomeError);
+          }
         }
       }
       onSaved?.(updated);

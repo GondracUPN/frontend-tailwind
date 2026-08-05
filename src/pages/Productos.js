@@ -331,6 +331,18 @@ export default function Productos({ setVista, setAnalisisBack }) {
       ? '-'
       : parsed.toLocaleDateString('es-PE', { timeZone: 'UTC' });
   };
+  const fmtFechaCompacta = (value) => {
+    if (!value) return '-';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime())
+      ? '-'
+      : parsed.toLocaleDateString('es-PE', {
+          day: '2-digit',
+          month: '2-digit',
+          year: '2-digit',
+          timeZone: 'UTC',
+        });
+  };
   const getFechaCompra = (p) =>
     p?.valor?.fechaCompra || p?.valor?.fecha_compra || p?.fechaCompra || null;
   const getFechaRecojo = (p) => {
@@ -360,22 +372,6 @@ export default function Productos({ setVista, setAnalisisBack }) {
       null
     );
   }, [ventasMap]);
-  const dateColumnLabel =
-    soloVendidos && !soloDisponibles && !soloAdelanto && !soloEnCamino
-      ? 'F. Venta'
-      : soloDisponibles && !soloVendidos && !soloAdelanto && !soloEnCamino
-        ? 'F. Recojo'
-        : 'F. Compra';
-  const getFechaColumna = (p) => {
-    if (soloVendidos && !soloDisponibles && !soloAdelanto && !soloEnCamino) {
-      return getFechaVenta(p);
-    }
-    if (soloDisponibles && !soloVendidos && !soloAdelanto && !soloEnCamino) {
-      return getFechaRecojo(p);
-    }
-    return getFechaCompra(p);
-  };
-
   const keyTamano = 'tama\u00f1o';
   // Helper: lee tamano desde detalle (normaliza a 'tamano' ASCII) y ajusta a enteros para macbooks
   const getTam = (d) => {
@@ -2839,7 +2835,7 @@ const confirmAction = async () => {
                   <th className="p-2">Total S/</th>
                   <th className="p-2">Calculadora</th>
                   <th className="p-2">Vendedor</th>
-                  <th className="p-2">{dateColumnLabel}</th>
+                  <th className="p-2 whitespace-nowrap" title="Compra / Recojo / Venta">C / R / V</th>
                   <th className="p-2">Tracking</th>
                   <th className="p-2">Fotos Es</th>
                   <th className="p-2">Acciones</th>
@@ -2933,8 +2929,10 @@ const confirmAction = async () => {
 
                     </td>
                     <td className="p-2">{p.vendedor || '-'}</td>
-                    <td className="p-2">
-                      {fmtFechaTabla(getFechaColumna(p))}
+                    <td className="p-2 whitespace-nowrap font-mono text-sm leading-5 text-gray-800">
+                      <div><span className="font-bold text-indigo-700">C</span> {fmtFechaCompacta(getFechaCompra(p))}</div>
+                      <div><span className="font-bold text-indigo-700">R</span> {fmtFechaCompacta(getFechaRecojo(p))}</div>
+                      <div><span className="font-bold text-indigo-700">V</span> {fmtFechaCompacta(getFechaVenta(p))}</div>
                     </td>
                     <td className="p-2">
                       {/* Pill/ botfn de estado: mfs grande, negrita y ??oclickable??? */}

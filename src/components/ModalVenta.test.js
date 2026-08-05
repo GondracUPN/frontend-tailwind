@@ -44,6 +44,7 @@ test('confirma la venta si se pierde la respuesta del guardado', async () => {
 
 test('sincroniza fecha y monto del ingreso cuando se edita la venta', async () => {
   localStorage.setItem('user', JSON.stringify({ id: 1, username: 'gonzalo', role: 'admin' }));
+  localStorage.setItem('token', 'gastos-token');
   const venta = {
     id: 15,
     productoId: 7,
@@ -90,4 +91,37 @@ test('sincroniza fecha y monto del ingreso cuando se edita la venta', async () =
     fecha: '2026-07-21',
     notas: '__SALE_INCOME__:7',
   })));
+});
+
+test('guarda la venta sin exigir una sesión de Gastos en el navegador', async () => {
+  const saved = {
+    id: 283,
+    productoId: 321,
+    vendedor: 'Gonzalo',
+    fechaVenta: '2026-07-28',
+    precioVenta: 3000,
+  };
+  api.post.mockResolvedValueOnce(saved);
+  const onSaved = jest.fn();
+
+  render(
+    <ModalVenta
+      producto={{ id: 321, vendedor: 'Gonzalo', valor: { valorProducto: 300 } }}
+      onSaved={onSaved}
+      onClose={jest.fn()}
+    />,
+  );
+
+  fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.75' } });
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-07-28' } });
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '3000' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
+  expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({
+    productoId: 321,
+    precioVenta: 3000,
+    incomeBank: 'bcp',
+  }));
+  expect(api.patch).not.toHaveBeenCalled();
 });

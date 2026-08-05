@@ -64,6 +64,7 @@ test('cambia Completar ficha por Editar ficha cuando almacen, fotos y Marketplac
   render(<Inventario setVista={jest.fn()} />);
 
   expect(await screen.findByRole('button', { name: 'Editar ficha' })).toBeInTheDocument();
+  expect(screen.getByText('Disponible')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Completar ficha' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Editar ficha' }));
   expect(screen.getByRole('dialog', { name: 'Completar ficha de inventario' })).toBeInTheDocument();
@@ -244,7 +245,7 @@ test('filtra por check de fotos y descarga solo portadas disponibles en ZIP', as
   try {
     render(<Inventario setVista={jest.fn()} />);
     expect(await screen.findByText('MS-99')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Con fotos' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disponibles' }));
 
     expect(screen.getByText('MS-42')).toBeInTheDocument();
     expect(screen.getByText('MS-53')).toBeInTheDocument();
@@ -278,7 +279,7 @@ test('ordena los productos con fotos por código MS en ambos sentidos', async ()
   render(<Inventario setVista={jest.fn()} />);
 
   await screen.findByText('MS-42');
-  fireEvent.click(screen.getByRole('button', { name: 'Con fotos' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Disponibles' }));
   const orderSelect = screen.getByRole('combobox', { name: 'Ordenar inventario' });
 
   fireEvent.change(orderSelect, { target: { value: 'codeAsc' } });
@@ -315,7 +316,7 @@ test('los filtros respetan el flujo de cotejo, fotos y Marketplace', async () =>
   expect(screen.queryByText('MS-43')).not.toBeInTheDocument();
   expect(screen.queryByText('MS-45')).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('button', { name: 'Con fotos' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Disponibles' }));
   expect(screen.getByText('MS-45')).toBeInTheDocument();
   expect(screen.getByText('MS-46')).toBeInTheDocument();
   expect(screen.queryByText('MS-43')).not.toBeInTheDocument();

@@ -791,9 +791,9 @@ export default function Inventario({ setVista }) {
 
         <section className="mb-5 grid grid-cols-2 gap-2.5 sm:mb-6 sm:gap-3 lg:grid-cols-8">
           {[
-            ['Disponibles', stats.total, 'text-slate-950'],
+            ['Total inventario', stats.total, 'text-slate-950'],
             ['Confirmados en almacén', stats.almacen, 'text-emerald-700'],
-            ['Con fotos', stats.conFoto, 'text-indigo-700'],
+            ['Disponibles', stats.conFoto, 'text-indigo-700'],
             ['Sin foto completa', stats.sinFoto, 'text-amber-700'],
             ['Sin Marketplace', stats.sinMarketplace, 'text-blue-700'],
           ].map(([label, value, tone]) => (
@@ -853,7 +853,7 @@ export default function Inventario({ setVista }) {
             </button>
             {[
               ['todos', 'Todos'], ['pendientes', 'Por cotejar'], ['almacen', 'En almacén'],
-              ['sinFoto', 'Sin foto'], ['conFoto', 'Con fotos'], ['sinMarketplace', 'Sin Marketplace'],
+              ['sinFoto', 'Sin foto'], ['conFoto', 'Disponibles'], ['sinMarketplace', 'Sin Marketplace'],
             ].map(([value, label]) => (
               <button key={value} type="button" onClick={() => setFilter(value)} className={`whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium ${filter === value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
                 {label}
@@ -900,7 +900,9 @@ export default function Inventario({ setVista }) {
                         <h2 className="text-base font-semibold leading-5 text-slate-950">{buildNombre(producto)}</h2>
                         <p className="mt-1 text-xs leading-4 text-slate-500">{buildSpecs(producto) || 'Sin especificaciones'}</p>
                       </div>
-                      <Pill tone={ficha?.enAlmacen ? 'green' : 'amber'}>{ficha?.enAlmacen ? 'En almacén' : 'Por cotejar'}</Pill>
+                      <Pill tone={ficha?.fotosTomadas ? 'green' : ficha?.enAlmacen ? 'blue' : 'amber'}>
+                        {ficha?.fotosTomadas ? 'Disponible' : ficha?.enAlmacen ? 'En almacén' : 'Por cotejar'}
+                      </Pill>
                     </div>
 
                     <div className="mt-3 flex min-h-7 flex-wrap gap-1.5">
@@ -936,14 +938,14 @@ export default function Inventario({ setVista }) {
 
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <span className="col-span-2 text-xs text-slate-500">Recogido: {lastPickupDate(producto) || 'Sin fecha'}</span>
+                      <button type="button" onClick={() => openEditor(entry)} className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 ${!ficha?.enAlmacen ? 'col-span-2' : ''}`}>
+                        <FiEdit3 /> {fichaCompleta ? 'Editar ficha' : 'Completar ficha'}
+                      </button>
                       {ficha?.enAlmacen && (
                         <button type="button" onClick={() => openSelling(entry)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700">
                           <FiDollarSign /> Vender
                         </button>
                       )}
-                      <button type="button" onClick={() => openEditor(entry)} className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 ${!ficha?.enAlmacen ? 'col-span-2' : ''}`}>
-                        <FiEdit3 /> {fichaCompleta ? 'Editar ficha' : 'Completar ficha'}
-                      </button>
                     </div>
                   </div>
                 </article>

@@ -77,6 +77,26 @@ const shareForProductoSeller = (producto, seller) => {
   if (vend === SPLIT_VENDOR && SELLERS.includes(target)) return SPLIT_SHARE;
   return 0;
 };
+const getSplitNetProfit = (venta, seller) => {
+  const valorUsd = Number(venta?.producto?.valor?.valorProducto ?? 0) || 0;
+  const envio = Number(venta?.producto?.valor?.costoEnvioProrrateado ?? venta?.producto?.valor?.costoEnvio ?? 0) || 0;
+  const baseRate = Number(venta?.tipoCambio ?? 0) || 0;
+  const sellerSlug = normalizeSeller(seller);
+  const sellerRate = sellerSlug === 'gonzalo'
+    ? Number(venta?.tipoCambioGonzalo ?? baseRate) || baseRate
+    : sellerSlug === 'renato'
+      ? Number(venta?.tipoCambioRenato ?? baseRate) || baseRate
+      : baseRate;
+  return (Number(venta?.precioVenta ?? 0) || 0) / 2 - (valorUsd / 2) * sellerRate - envio / 2;
+};
+const getNetProfitForSeller = (venta, seller) => {
+  const share = shareForSeller(venta, seller);
+  if (!share) return 0;
+  if (getVentaSeller(venta) === SPLIT_VENDOR) return getSplitNetProfit(venta, seller);
+  const precioVenta = Number(venta?.precioVenta ?? 0) || 0;
+  const costoTotal = Number(venta?.producto?.valor?.costoTotal ?? 0) || 0;
+  return (Number(venta?.ganancia ?? (precioVenta - costoTotal)) || 0) * share;
+};
 
 export default function AnalisisGastos({ setVista }) {
   const [session, setSession] = useState(() => ({
@@ -97,6 +117,13 @@ export default function AnalisisGastos({ setVista }) {
   const [showPieVida, setShowPieVida] = useState(false);
   const [vidaConceptDetail, setVidaConceptDetail] = useState(null);
   const [investmentConceptDetail, setInvestmentConceptDetail] = useState(null);
+  const [showBolsaModal, setShowBolsaModal] = useState(false);
+  const [bolsaModalAction, setBolsaModalAction] = useState('invest');
+  const [bolsaPaymentMode, setBolsaPaymentMode] = useState('todo');
+  const [bolsaPaymentAmount, setBolsaPaymentAmount] = useState('');
+  const [bolsaPaymentDate, setBolsaPaymentDate] = useState('');
+  const [bolsaSaving, setBolsaSaving] = useState(false);
+  const [bolsaError, setBolsaError] = useState('');
   const [selectedPersona, setSelectedPersona] = useState(() => sellerFromUser(readSelectedGastosUser(readSessionUser())) || 'gonzalo');
 
   const today = new Date();
@@ -298,13 +325,8 @@ export default function AnalisisGastos({ setVista }) {
   const gananciasNetasPorPersona = useMemo(() => {
     const totales = { gonzalo: 0, renato: 0 };
     ventasMes.forEach((v) => {
-      const precioVenta = Number(v.precioVenta ?? 0) || 0;
-      const costoTotal = Number(v?.producto?.valor?.costoTotal ?? 0) || 0;
-      const ganancia = Number(v.ganancia ?? (precioVenta - costoTotal)) || 0;
       SELLERS.forEach((s) => {
-        const share = shareForSeller(v, s);
-        if (!share) return;
-        totales[s] += ganancia * share;
+        totales[s] += getNetProfitForSeller(v, s);
       });
     });
     return totales;
@@ -437,6 +459,176 @@ export default function AnalisisGastos({ setVista }) {
     [rows, prevMonthKey],
   );
   const variationPct = prevTotalPen ? ((totalPen - prevTotalPen) / prevTotalPen) * 100 : 0;
+
+  const bolsaProjection = useMemo(() => {
+    const startMonth = '2026-01';
+    if (!/^\d{4}-\d{2}$/.test(month) || month < startMonth) {
+      return { enabled: false, calculatedMonthly: 0, monthly: 0, totalToInvest: 0, actualMonth: 0, pendingBefore: 0, pending: 0, credit: 0, requiredAccumulated: 0, investedAccumulated: 0 };
+    }
+
+    const months = [];
+    const [endYear, endMonth] = month.split('-').map(Number);
+    for (let year = 2026, monthNumber = 1; year < endYear || (year === endYear && monthNumber <= endMonth);) {
+      months.push(`${year}-${String(monthNumber).padStart(2, '0')}`);
+      monthNumber += 1;
+      if (monthNumber > 12) {
+        year += 1;
+        monthNumber = 1;
+      }
+    }
+
+    let balance = 0;
+    let requiredAccumulated = 0;
+    let investedAccumulated = 0;
+    let current = null;
+    months.forEach((monthKey) => {
+      const grossIncome = ventas.reduce((sum, venta) => {
+        const ventaMonth = String(venta?.fechaVenta || venta?.createdAt || '').slice(0, 7);
+        if (ventaMonth !== monthKey) return sum;
+        return sum + (Number(venta?.precioVenta ?? 0) || 0) * shareForSeller(venta, selectedPersona);
+      }, 0);
+      const calculatedMonthly = Math.max(0, grossIncome) * 0.02;
+      const monthlyTarget = Math.max(1000, calculatedMonthly);
+      const actual = rows.reduce((sum, row) => {
+        if (String(row?.fecha || '').slice(0, 7) !== monthKey) return sum;
+        if (normalizeConcept(row?.concepto) !== 'bolsa' || row?.metodoPago !== 'debito') return sum;
+        return sum + toPen(row);
+      }, 0);
+      const pendingBefore = balance;
+      const totalToInvest = Math.max(0, monthlyTarget + pendingBefore);
+      requiredAccumulated += monthlyTarget;
+      investedAccumulated += actual;
+      balance += monthlyTarget - actual;
+      if (monthKey === month) current = { calculatedMonthly, monthlyTarget, totalToInvest, actual, pendingBefore, balance, grossIncome };
+    });
+
+    const data = current || { calculatedMonthly: 0, monthlyTarget: 0, totalToInvest: 0, actual: 0, pendingBefore: 0, balance: 0, grossIncome: 0 };
+    return {
+      enabled: true,
+      calculatedMonthly: data.calculatedMonthly,
+      monthly: data.monthlyTarget,
+      totalToInvest: data.totalToInvest,
+      actualMonth: data.actual,
+      monthDifference: data.actual - data.monthlyTarget,
+      monthRemaining: Math.max(0, data.balance),
+      pendingBefore: data.pendingBefore,
+      pending: Math.max(0, data.balance),
+      credit: Math.max(0, -data.balance),
+      grossIncome: data.grossIncome,
+      totalToDate: data.balance,
+      requiredAccumulated,
+      investedAccumulated,
+    };
+  }, [month, rows, ventas, selectedPersona]);
+
+  const openBolsaModal = () => {
+    if (!bolsaProjection.enabled) return;
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const day = currentMonth === month
+      ? String(now.getDate()).padStart(2, '0')
+      : String(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()).padStart(2, '0');
+    const isEditing = bolsaProjection.actualMonth > 0;
+    setBolsaModalAction(isEditing ? 'edit' : 'invest');
+    setBolsaPaymentMode(isEditing ? 'variable' : 'todo');
+    setBolsaPaymentAmount((isEditing ? bolsaProjection.actualMonth : bolsaProjection.totalToInvest).toFixed(2));
+    setBolsaPaymentDate(`${month}-${day}`);
+    setBolsaError('');
+    setShowBolsaModal(true);
+  };
+
+  const saveBolsaInvestment = async (event) => {
+    event.preventDefault();
+    if (bolsaSaving) return;
+    const amount = bolsaPaymentMode === 'todo' ? bolsaProjection.totalToInvest : Number(bolsaPaymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setBolsaError('Ingresa un monto válido mayor a cero.');
+      return;
+    }
+    if (!bolsaPaymentDate || !bolsaPaymentDate.startsWith(month)) {
+      setBolsaError('La fecha debe pertenecer al mes seleccionado.');
+      return;
+    }
+
+    try {
+      setBolsaSaving(true);
+      setBolsaError('');
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` };
+      const movements = rows
+        .filter((row) => String(row?.fecha || '').startsWith(month) && normalizeConcept(row?.concepto) === 'bolsa' && row?.metodoPago === 'debito')
+        .sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
+
+      if (movements.length) {
+        const [primary, ...duplicates] = movements;
+        const response = await fetch(`${API_URL}/gastos/${primary.id}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ monto: Number(amount.toFixed(2)), moneda: 'PEN', fecha: bolsaPaymentDate, notas: `Inversión Bolsa - ${month}` }),
+        });
+        if (!response.ok) throw new Error('No se pudo editar la inversión.');
+        const updated = await response.json();
+        for (const duplicate of duplicates) {
+          const deleteResponse = await fetch(`${API_URL}/gastos/${duplicate.id}`, { method: 'DELETE', headers });
+          if (!deleteResponse.ok) throw new Error('La inversión se editó, pero no se pudieron unificar todos los registros del mes.');
+        }
+        const deletedIds = new Set(duplicates.map((movement) => movement.id));
+        setRows((previous) => previous
+          .filter((row) => !deletedIds.has(row.id))
+          .map((row) => row.id === updated.id ? updated : row));
+      } else {
+        const isAdmin = sessionUser?.role === 'admin';
+        const targetId = targetUser?.id || sessionUser?.id;
+        const userIdParam = isAdmin && targetId ? `?userId=${encodeURIComponent(String(targetId))}` : '';
+        const response = await fetch(`${API_URL}/gastos${userIdParam}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            concepto: 'bolsa',
+            metodoPago: 'debito',
+            moneda: 'PEN',
+            monto: Number(amount.toFixed(2)),
+            fecha: bolsaPaymentDate,
+            notas: `Inversión Bolsa - ${month}`,
+            allowDuplicate: true,
+          }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.message || 'No se pudo registrar la inversión.');
+        }
+        const saved = await response.json();
+        setRows((previous) => [saved, ...previous.filter((row) => row.id !== saved.id)]);
+      }
+      setShowBolsaModal(false);
+    } catch (error) {
+      setBolsaError(error?.message || 'No se pudo guardar la inversión.');
+    } finally {
+      setBolsaSaving(false);
+    }
+  };
+
+  const deleteBolsaInvestment = async () => {
+    if (bolsaSaving || bolsaProjection.actualMonth <= 0) return;
+    try {
+      setBolsaSaving(true);
+      setBolsaError('');
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` };
+      const movements = rows.filter((row) =>
+        String(row?.fecha || '').startsWith(month)
+        && normalizeConcept(row?.concepto) === 'bolsa'
+        && row?.metodoPago === 'debito');
+      for (const movement of movements) {
+        const response = await fetch(`${API_URL}/gastos/${movement.id}`, { method: 'DELETE', headers });
+        if (!response.ok) throw new Error('No se pudo eliminar la inversión registrada.');
+        setRows((previous) => previous.filter((row) => row.id !== movement.id));
+      }
+      setShowBolsaModal(false);
+    } catch (error) {
+      setBolsaError(error?.message || 'No se pudo eliminar la inversión registrada.');
+    } finally {
+      setBolsaSaving(false);
+    }
+  };
 
   const buildPieData = (map, total) => {
     if (!total) return [];
@@ -629,6 +821,62 @@ export default function AnalisisGastos({ setVista }) {
                 {prevTotalPen ? `${variationPct >= 0 ? '+' : ''}${variationPct.toFixed(1)}%` : 'Sin datos previos'}
               </div>
               <div className="text-xs text-gray-500 mt-1">Mes previo: S/ {prevTotalPen.toFixed(2)}</div>
+            </div>
+            <div className="bg-white rounded-xl border border-indigo-200 shadow-sm p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm text-gray-500">Inversión Bolsa</div>
+                  <div className="text-2xl font-semibold mt-1 text-indigo-700">
+                    {bolsaProjection.enabled ? `S/ ${bolsaProjection.totalToInvest.toFixed(2)}` : 'No aplica'}
+                  </div>
+                </div>
+                {bolsaProjection.enabled && (
+                  <button
+                    type="button"
+                    onClick={openBolsaModal}
+                    className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-700"
+                  >
+                    {bolsaProjection.actualMonth > 0 ? 'Editar inversión' : 'Registrar inversión'}
+                  </button>
+                )}
+              </div>
+              <div className="text-xs text-gray-500 mt-2">
+                {bolsaProjection.enabled
+                  ? `Corresponde este mes: S/ ${bolsaProjection.monthly.toFixed(2)} (2% calculado: S/ ${bolsaProjection.calculatedMonthly.toFixed(2)})`
+                  : 'El cálculo comienza en enero de 2026.'}
+              </div>
+              {bolsaProjection.enabled && (
+                <div className="mt-1 space-y-0.5 text-xs">
+                  <div className={bolsaProjection.pendingBefore > 0 ? 'text-amber-600' : bolsaProjection.pendingBefore < 0 ? 'text-green-600' : 'text-gray-400'}>
+                    {bolsaProjection.pendingBefore > 0
+                      ? `Faltante anterior: S/ ${bolsaProjection.pendingBefore.toFixed(2)}`
+                      : bolsaProjection.pendingBefore < 0
+                        ? `Excedente anterior: S/ ${Math.abs(bolsaProjection.pendingBefore).toFixed(2)}`
+                        : 'Sin faltante ni excedente anterior.'}
+                  </div>
+                  <div className="text-gray-500">Registrado este mes: S/ {bolsaProjection.actualMonth.toFixed(2)}</div>
+                  {bolsaProjection.actualMonth > 0 && (
+                    <div className={bolsaProjection.credit > 0 ? 'text-green-600' : bolsaProjection.pending > 0 ? 'text-amber-600' : 'text-gray-500'}>
+                      {bolsaProjection.credit > 0
+                        ? `Excedente para el próximo mes: S/ ${bolsaProjection.credit.toFixed(2)}`
+                        : bolsaProjection.pending > 0
+                          ? `Faltante para el próximo mes: S/ ${bolsaProjection.pending.toFixed(2)}`
+                          : 'Monto completo registrado.'}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="bg-white rounded-xl border border-indigo-200 shadow-sm p-4">
+              <div className="text-sm text-gray-500">Bolsa acumulado</div>
+              <div className="text-2xl font-semibold mt-1 text-indigo-700">
+                {bolsaProjection.enabled ? `S/ ${bolsaProjection.investedAccumulated.toFixed(2)}` : 'No aplica'}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {!bolsaProjection.enabled
+                  ? 'Disponible desde enero de 2026.'
+                  : 'Suma únicamente los montos que registraste en cada mes.'}
+              </div>
             </div>
           </div>
           <div className="bg-white rounded-xl border shadow-sm p-4">
@@ -913,6 +1161,103 @@ export default function AnalisisGastos({ setVista }) {
         )}
       </div>
     </div>
+    {showBolsaModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <form onSubmit={saveBolsaInvestment} className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-xl font-semibold text-gray-900">
+                {bolsaModalAction === 'edit' ? 'Editar inversión en Bolsa' : 'Registrar inversión en Bolsa'}
+              </h3>
+              <p className="mt-1 text-sm text-gray-600">Periodo {month}</p>
+            </div>
+            <button type="button" onClick={() => setShowBolsaModal(false)} className="text-gray-500 hover:text-gray-800">x</button>
+          </div>
+
+          <div className="mt-4 rounded-lg border bg-gray-50 p-3 text-sm">
+            <div className="flex justify-between gap-3"><span className="text-gray-600">2% calculado del mes</span><strong>S/ {bolsaProjection.calculatedMonthly.toFixed(2)}</strong></div>
+            <div className="mt-1 flex justify-between gap-3"><span className="text-gray-600">Corresponde este mes</span><strong>S/ {bolsaProjection.monthly.toFixed(2)}</strong></div>
+            <div className="mt-1 flex justify-between gap-3">
+              <span className="text-gray-600">{bolsaProjection.pendingBefore < 0 ? 'Excedente anterior' : 'Faltante anterior'}</span>
+              <strong>S/ {Math.abs(bolsaProjection.pendingBefore).toFixed(2)}</strong>
+            </div>
+            <div className="mt-1 flex justify-between gap-3 text-indigo-700"><span>Total a invertir</span><strong>S/ {bolsaProjection.totalToInvest.toFixed(2)}</strong></div>
+            <div className="mt-1 flex justify-between gap-3"><span className="text-gray-600">Ya invertido este mes</span><strong>S/ {bolsaProjection.actualMonth.toFixed(2)}</strong></div>
+            <div className={`mt-1 flex justify-between gap-3 ${bolsaProjection.credit > 0 ? 'text-green-700' : 'text-amber-700'}`}>
+              <span>{bolsaProjection.credit > 0 ? 'Excedente resultante' : 'Faltante resultante'}</span>
+              <strong>S/ {(bolsaProjection.credit > 0 ? bolsaProjection.credit : bolsaProjection.pending).toFixed(2)}</strong>
+            </div>
+            <div className="mt-1 flex justify-between gap-3"><span className="text-gray-600">Bolsa acumulada registrada</span><strong>S/ {bolsaProjection.investedAccumulated.toFixed(2)}</strong></div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setBolsaPaymentMode('todo');
+                setBolsaPaymentAmount(bolsaProjection.totalToInvest.toFixed(2));
+                setBolsaError('');
+              }}
+              className={`rounded-lg border px-3 py-2 text-sm ${bolsaPaymentMode === 'todo' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'bg-white text-gray-700'}`}
+            >
+              Todo el monto
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setBolsaPaymentMode('variable');
+                setBolsaPaymentAmount('');
+                setBolsaError('');
+              }}
+              className={`rounded-lg border px-3 py-2 text-sm ${bolsaPaymentMode === 'variable' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'bg-white text-gray-700'}`}
+            >
+              Monto variable
+            </button>
+          </div>
+
+          <label className="mt-4 block text-sm text-gray-700">
+            Monto invertido (S/)
+            <input
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={bolsaPaymentMode === 'todo' ? bolsaProjection.totalToInvest.toFixed(2) : bolsaPaymentAmount}
+              onChange={(event) => setBolsaPaymentAmount(event.target.value)}
+              disabled={bolsaPaymentMode === 'todo'}
+              className="mt-1 w-full rounded-lg border px-3 py-2 disabled:bg-gray-100"
+              placeholder="0.00"
+            />
+          </label>
+          <label className="mt-3 block text-sm text-gray-700">
+            Fecha de inversión
+            <input
+              type="date"
+              value={bolsaPaymentDate}
+              min={`${month}-01`}
+              max={monthRange.to}
+              onChange={(event) => setBolsaPaymentDate(event.target.value)}
+              className="mt-1 w-full rounded-lg border px-3 py-2"
+              required
+            />
+          </label>
+
+          {bolsaError && <div className="mt-3 text-sm text-red-600">{bolsaError}</div>}
+          <p className="mt-3 text-xs text-gray-500">Si el 2% es menor, corresponde el mínimo de S/ 1,000. Tú puedes registrar más o menos; la bolsa acumulada sólo cambia después de guardar.</p>
+
+          <div className="mt-5 flex justify-end gap-2">
+            {bolsaModalAction === 'edit' && (
+              <button type="button" onClick={deleteBolsaInvestment} disabled={bolsaSaving} className="mr-auto rounded-lg border border-red-200 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60">
+                Eliminar registro
+              </button>
+            )}
+            <button type="button" onClick={() => setShowBolsaModal(false)} className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50">Cancelar</button>
+            <button type="submit" disabled={bolsaSaving} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-60">
+              {bolsaSaving ? 'Guardando...' : bolsaModalAction === 'edit' ? 'Guardar cambios' : 'Guardar inversión'}
+            </button>
+          </div>
+        </form>
+      </div>
+    )}
     {showPie && (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
         <div className="bg-white rounded-xl shadow-xl p-5 w-full max-w-5xl relative">
