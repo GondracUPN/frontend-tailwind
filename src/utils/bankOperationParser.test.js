@@ -72,3 +72,36 @@ test('supports bank amount separators', () => {
   expect(parseBankAmount('1,234.56')).toBe(1234.56);
   expect(parseBankAmount('1.234,56')).toBe(1234.56);
 });
+
+test('reconoce el pago en dólares del servicio IO de BCP', () => {
+  const email = `Fecha y hora:\t**Domingo, 02 Agosto 2026 - 05:55 P. M.**
+Empresa:\t**IO DE BCP**
+Servicio:\t**PAGO DOLARES**
+Titular del servicio:\t**Walter Gonzalo G.**
+Código de usuario:\t**75135395**
+Cuenta de origen:\t**Cuenta de ahorros**
+**** 5091
+**WALTER GONZALO**
+Monto total:\t**$ 520.00**
+Tipo de cambio:\t**S/ 3.4120**
+Monto transferido al cambio:\t**S/ 1774.24**`;
+
+  expect(parseBankOperation(email)).toEqual({
+    ok: true,
+    operation: {
+      kind: 'card_payment',
+      amount: 520,
+      currency: 'USD',
+      chargedAmount: 1774.24,
+      chargedCurrency: 'PEN',
+      exchangeRate: 3.412,
+      date: '2026-08-02',
+      cardType: 'io',
+      productName: 'IO DE BCP',
+      cardLast4: '',
+      sourceBank: 'bcp',
+      sourceLast4: '5091',
+      operationNumber: '',
+    },
+  });
+});

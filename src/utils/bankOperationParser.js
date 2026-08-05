@@ -39,6 +39,7 @@ export function parseBankAmount(raw) {
 
 export function cardTypeFromProduct(productName) {
   const value = fold(productName);
+  if (value.includes('io de bcp') || value === 'io') return 'io';
   if (value.includes('qore')) return 'visa_qore';
   if (value.includes('sapphire')) return 'bcp_visa';
   if (value.includes('amex') || value.includes('american express')) return 'bcp_amex';
@@ -47,7 +48,7 @@ export function cardTypeFromProduct(productName) {
 }
 
 function parseSpanishDate(text) {
-  const match = text.match(/(\d{1,2})\s+de\s+([a-záéíóúñ]+)\s+de\s+(\d{4})/i);
+  const match = text.match(/(\d{1,2})(?:\s+de)?\s+([a-záéíóúñ]+)(?:\s+de)?\s+(\d{4})/i);
   if (!match) return '';
   const month = MONTHS_ES[fold(match[2])];
   if (!month) return '';
@@ -57,6 +58,40 @@ function parseSpanishDate(text) {
 export function parseBankOperation(input) {
   const text = stripMarkup(input);
   const normalized = fold(text);
+  const isIoServicePayment = normalized.includes('io de bcp') && normalized.includes('pago dolares');
+
+  if (isIoServicePayment) {
+    const amount = parseBankAmount(text.match(/Monto\s+total\s*:\s*(?:US\$|USD|\$)\s*([\d.,]+)/i)?.[1]);
+    const exchangeRate = parseBankAmount(text.match(/Tipo\s+de\s+cambio\s*:\s*S\/\s*([\d.,]+)/i)?.[1]);
+    const chargedAmount = parseBankAmount(text.match(/Monto\s+transferido\s+al\s+cambio\s*:\s*S\/\s*([\d.,]+)/i)?.[1]);
+    const date = parseSpanishDate(text);
+    const sourceLast4 = text.match(/Cuenta\s+de\s+origen\s*:\s*[^\n]*(?:\n|\s)+(?:\*{2,}|X{2,})\s*(\d{4})/i)?.[1] || '';
+    const missing = [];
+    if (!amount) missing.push('monto en dólares');
+    if (!chargedAmount) missing.push('monto cobrado en soles');
+    if (!date) missing.push('fecha');
+    if (missing.length) return { ok: false, error: `No se pudo reconocer: ${missing.join(', ')}.` };
+
+    return {
+      ok: true,
+      operation: {
+        kind: 'card_payment',
+        amount,
+        currency: 'USD',
+        chargedAmount,
+        chargedCurrency: 'PEN',
+        exchangeRate,
+        date,
+        cardType: 'io',
+        productName: 'IO DE BCP',
+        cardLast4: '',
+        sourceBank: 'bcp',
+        sourceLast4,
+        operationNumber: '',
+      },
+    };
+  }
+
   if (!normalized.includes('pago a tu tarjeta') && !normalized.includes('pago de tarjeta propia')) {
     return { ok: false, error: 'Por ahora se reconoce el correo de pago de tarjeta propia BCP.' };
   }
