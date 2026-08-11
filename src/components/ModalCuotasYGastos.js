@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import CloseX from './CloseX';
 import { API_URL } from '../api';
 import { addMonthsToDateInput, localDateInputValue } from '../utils/dates';
+import { monthlyExpenseKey, readHiddenMonthlyExpenseKeys } from '../utils/monthlyExpenses';
 
 const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
@@ -36,11 +37,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
   const [paySaving, setPaySaving] = useState(false);
   const [payErr, setPayErr] = useState('');
   const [hiddenKeys, setHiddenKeys] = useState(() => {
-    try {
-      const raw = localStorage.getItem('mensuales_hidden');
-      const arr = raw ? JSON.parse(raw) : [];
-      return new Set(Array.isArray(arr) ? arr : []);
-    } catch { return new Set(); }
+    return readHiddenMonthlyExpenseKeys();
   });
 
   useEffect(() => {
@@ -84,7 +81,7 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
     const list = rows.filter(r => ['gastos_recurrentes', 'gastos_mensuales'].includes(norm(r.concepto)));
     const map = new Map();
     for (const g of list) {
-      const key = [g.metodoPago, g.moneda, (g.tarjeta || g.tarjetaPago || '-'), g.notas || '-'].join('|');
+      const key = monthlyExpenseKey(g);
       const arr = map.get(key) || [];
       arr.push(g);
       map.set(key, arr);

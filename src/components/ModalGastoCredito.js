@@ -4,6 +4,7 @@ import { API_URL } from '../api';
 import { localDateInputValue } from '../utils/dates';
 import CloseX from './CloseX';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
+import { currentMonthlyExpenseRows } from '../utils/monthlyExpenses';
 
 const TC_CREDITO = 3.7;
 
@@ -88,15 +89,7 @@ export default function ModalGastoCredito({
   const [tarjetaCompra, setTarjetaCompra] = useState(initial?.tarjeta || defaultCard || '');
 
   const monthlyOptions = useMemo(() => {
-    const map = new Map();
-    (Array.isArray(rows) ? rows : []).forEach((row) => {
-      if (row?.metodoPago !== 'credito' || normConcept(row?.concepto) !== 'gastos_recurrentes') return;
-      const detail = String(row?.notas || '').trim();
-      if (!detail) return;
-      const previous = map.get(detail);
-      if (!previous || String(row?.fecha || '') > String(previous?.fecha || '')) map.set(detail, row);
-    });
-    return Array.from(map.values()).sort((a, b) => String(a.notas).localeCompare(String(b.notas), 'es'));
+    return currentMonthlyExpenseRows(rows, 'credito');
   }, [rows]);
 
   const [saving, setSaving] = useState(false);

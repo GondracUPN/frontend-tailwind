@@ -5,6 +5,7 @@ import { convertPenToUsd, TC_FIJO } from '../utils/tipoCambio';
 import { localDateInputValue } from '../utils/dates';
 import CloseX from './CloseX';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
+import { currentMonthlyExpenseRows } from '../utils/monthlyExpenses';
 
 const BANKS_DEBITO = [
   { value: 'bcp', label: 'BCP' },
@@ -91,15 +92,7 @@ export default function ModalGastoDebito({
     [expenseConcepts],
   );
   const monthlyOptions = useMemo(() => {
-    const map = new Map();
-    (Array.isArray(rows) ? rows : []).forEach((row) => {
-      if (row?.metodoPago !== 'debito' || normConcept(row?.concepto) !== 'gastos_recurrentes') return;
-      const detail = String(row?.notas || '').trim();
-      if (!detail) return;
-      const previous = map.get(detail);
-      if (!previous || String(row?.fecha || '') > String(previous?.fecha || '')) map.set(detail, row);
-    });
-    return Array.from(map.values()).sort((a, b) => String(a.notas).localeCompare(String(b.notas), 'es'));
+    return currentMonthlyExpenseRows(rows, 'debito');
   }, [rows]);
   const [moneda, setMoneda] = useState('PEN');
   const [monto, setMonto] = useState('');
