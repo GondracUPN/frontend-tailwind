@@ -102,6 +102,27 @@ test('desde Vender permite poner numero, lugar y precio para copiar el mensaje a
   expect(api.patch).not.toHaveBeenCalledWith('/productos/42', expect.anything());
 });
 
+test('desde Vender abre la calculadora rapida del producto en el panel lateral', async () => {
+  api.get.mockResolvedValue([{
+    ...entry,
+    producto: {
+      ...entry.producto,
+      valor: { valorProducto: 300, costoEnvio: 110, costoTotal: 1220 },
+    },
+    ficha: { enAlmacen: true },
+  }]);
+  render(<Inventario setVista={jest.fn()} />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Vender' }));
+  fireEvent.click(screen.getByRole('button', { name: /Calculadora/ }));
+
+  expect(await screen.findByRole('heading', { name: 'Calculadora rapida' })).toBeInTheDocument();
+  expect(screen.getByText(/Costo total base:/)).toHaveTextContent('S/ 1220.00');
+  expect(screen.getByRole('button', { name: 'Volver a elegir' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Poner cliente/ })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Realizar venta/ })).toBeInTheDocument();
+});
+
 test('desde Vender reutiliza el registro completo de venta y retira el producto del inventario', async () => {
   api.get.mockResolvedValue([{ ...entry, ficha: { enAlmacen: true } }]);
   api.post.mockResolvedValue({ id: 9, productoId: 42, tipoCambio: 3.75, fechaVenta: '2026-07-31', precioVenta: 1500 });

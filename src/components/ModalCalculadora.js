@@ -92,7 +92,7 @@ const buildSoldSpecs = (product) => {
   return specs;
 };
 
-export default function ModalCalculadora({ producto, onClose }) {
+export default function ModalCalculadora({ producto, onClose, embedded = false }) {
   // Valores base del producto
   const costoTotalBase = Number(producto?.valor?.costoTotal ?? 0);
   const valorUSD = Number(producto?.valor?.valorProducto ?? 0);
@@ -151,16 +151,18 @@ export default function ModalCalculadora({ producto, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className={`bg-white w-full rounded-xl shadow-lg p-6 relative mx-4 max-h-[90vh] overflow-y-auto transition-all duration-300 ${historyOpen ? 'sm:max-w-5xl' : 'sm:max-w-lg'}`}>
+    <div className={embedded ? 'w-full' : 'fixed inset-0 z-50 flex items-center justify-center bg-black/40'}>
+      <div className={`relative w-full bg-white p-4 transition-all duration-300 sm:p-6 ${embedded ? '' : `mx-4 max-h-[90vh] overflow-y-auto rounded-xl shadow-lg ${historyOpen ? 'sm:max-w-5xl' : 'sm:max-w-lg'}`}`}>
         {/* Cerrar */}
-        <button
-          className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center text-2xl font-bold text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-100"
-          onClick={onClose}
-          aria-label="Cerrar"
-        >
-          &times;
-        </button>
+        {!embedded && (
+          <button
+            className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center text-2xl font-bold text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-100"
+            onClick={onClose}
+            aria-label="Cerrar"
+          >
+            &times;
+          </button>
+        )}
 
         <div className="pr-10 sm:flex sm:items-start sm:justify-between sm:gap-4">
           <div>

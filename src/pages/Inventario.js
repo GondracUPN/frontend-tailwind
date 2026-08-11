@@ -12,6 +12,7 @@ import {
   FiEyeOff,
   FiFileText,
   FiHome,
+  FiHash,
   FiImage,
   FiRefreshCw,
   FiSearch,
@@ -27,6 +28,7 @@ import api, { API_URL } from '../api';
 import parseSnImeiIds from '../utils/snImeiOcr';
 
 const ModalFacu = lazy(() => import('../components/ModalFacu'));
+const ModalCalculadora = lazy(() => import('../components/ModalCalculadora'));
 const ModalVenta = lazy(() => import('../components/ModalVenta'));
 const ModalVentaMensaje = lazy(() => import('../components/ModalVentaMensaje'));
 
@@ -1194,6 +1196,9 @@ export default function Inventario({ setVista }) {
                 <p className="mt-2 text-sm text-slate-600">Elige una opción. En escritorio puedes cambiarla desde este panel.</p>
               </div>
               <div className="mt-6 grid gap-3">
+                <button type="button" onClick={() => setSelling((current) => ({ ...current, step: 'calculator' }))} className={`flex min-h-16 items-center gap-3 rounded-xl border px-4 text-left transition ${selling.step === 'calculator' ? 'border-indigo-600 bg-indigo-600 text-white shadow-md' : 'border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100'}`}>
+                  <FiHash className="h-5 w-5 shrink-0" /><span><strong className="block">Calculadora</strong><span className={`text-xs ${selling.step === 'calculator' ? 'text-indigo-50' : ''}`}>Revisar precio sugerido, ganancia y margen.</span></span>
+                </button>
                 <button type="button" onClick={openClientSaleMessage} className={`flex min-h-16 items-center gap-3 rounded-xl border px-4 text-left transition ${selling.step === 'client' ? 'border-blue-500 bg-blue-600 text-white shadow-md' : 'border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100'}`}>
                   <FiUser className="h-5 w-5 shrink-0" /><span><strong className="block">Poner cliente</strong><span className={`text-xs ${selling.step === 'client' ? 'text-blue-50' : ''}`}>Ingresar número, lugar y precio para copiar el mensaje.</span></span>
                 </button>
@@ -1218,6 +1223,13 @@ export default function Inventario({ setVista }) {
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   <Suspense fallback={<div className="p-8 text-sm text-slate-500">Cargando...</div>}>
+                    {selling.step === 'calculator' && (
+                      <ModalCalculadora
+                        embedded
+                        producto={selling.entry.producto}
+                        onClose={() => setSelling(null)}
+                      />
+                    )}
                     {selling.step === 'client' && (
                       <ModalVentaMensaje
                         embedded
