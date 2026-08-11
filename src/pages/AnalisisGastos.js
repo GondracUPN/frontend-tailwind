@@ -606,8 +606,10 @@ export default function AnalisisGastos({ setVista }) {
     }
   };
 
-  const deleteBolsaInvestment = async () => {
-    if (bolsaSaving || !bolsaProjection.manualRecord) return;
+  const withdrawBolsaInvestment = async () => {
+    if (bolsaSaving || bolsaModalAction !== 'edit') return;
+    const confirmed = window.confirm('¿Retirar esta inversión de Análisis? No se eliminará ni modificará ningún gasto u otro movimiento.');
+    if (!confirmed) return;
     try {
       setBolsaSaving(true);
       setBolsaError('');
@@ -615,13 +617,26 @@ export default function AnalisisGastos({ setVista }) {
       const isAdmin = sessionUser?.role === 'admin';
       const targetId = targetUser?.id || sessionUser?.id;
       const userIdParam = isAdmin && targetId ? `?userId=${encodeURIComponent(String(targetId))}` : '';
-      const response = await fetch(`${API_URL}/gastos/bolsa-registro/${encodeURIComponent(month)}${userIdParam}`, { method: 'DELETE', headers });
-      if (!response.ok) throw new Error('No se pudo eliminar el registro interno de la inversión.');
-      setBolsaRecords((previous) => previous.filter((record) => record.month !== month));
-      notifyGastosChanged({ action: 'bolsa-delete', userId: targetUser?.id || sessionUser?.id, month });
+      // Un gasto Bolsa se ignora mediante un valor interno en cero; el gasto
+      // original permanece intacto. Sin gasto vinculado, se borra sólo este registro.
+      if (bolsaProjection.expenseActual > 0) {
+        const response = await fetch(`${API_URL}/gastos/bolsa-registro${userIdParam}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ month, amount: 0, date: bolsaPaymentDate }),
+        });
+        if (!response.ok) throw new Error('No se pudo retirar la inversión de Análisis.');
+        const saved = await response.json();
+        setBolsaRecords((previous) => [saved, ...previous.filter((record) => record.month !== month)]);
+      } else {
+        const response = await fetch(`${API_URL}/gastos/bolsa-registro/${encodeURIComponent(month)}${userIdParam}`, { method: 'DELETE', headers });
+        if (!response.ok) throw new Error('No se pudo retirar el registro interno de la inversión.');
+        setBolsaRecords((previous) => previous.filter((record) => record.month !== month));
+      }
+      notifyGastosChanged({ action: 'bolsa-withdraw', userId: targetUser?.id || sessionUser?.id, month });
       setShowBolsaModal(false);
     } catch (error) {
-      setBolsaError(error?.message || 'No se pudo eliminar la inversión registrada.');
+      setBolsaError(error?.message || 'No se pudo retirar la inversión registrada.');
     } finally {
       setBolsaSaving(false);
     }
@@ -1245,12 +1260,12 @@ export default function AnalisisGastos({ setVista }) {
           </label>
 
           {bolsaError && <div className="mt-3 text-sm text-red-600">{bolsaError}</div>}
-          <p className="mt-3 text-xs text-gray-500">Este registro sólo controla la inversión en Análisis y nunca crea ni modifica un gasto general. Si ya existe un gasto Bolsa, se detecta automáticamente.</p>
+          <p className="mt-3 text-xs text-gray-500">Este registro sólo controla la inversión en Análisis y nunca crea, elimina ni modifica un gasto general. Al retirar la inversión, únicamente se quita de este cálculo.</p>
 
           <div className="mt-5 flex justify-end gap-2">
-            {bolsaProjection.manualRecord && (
-              <button type="button" onClick={deleteBolsaInvestment} disabled={bolsaSaving} className="mr-auto rounded-lg border border-red-200 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60">
-                Eliminar registro
+            {bolsaModalAction === 'edit' && (
+              <button type="button" onClick={withdrawBolsaInvestment} disabled={bolsaSaving} className="mr-auto rounded-lg border border-red-200 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-60">
+                Retirar inversión
               </button>
             )}
             <button type="button" onClick={() => setShowBolsaModal(false)} className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50">Cancelar</button>
