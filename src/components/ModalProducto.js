@@ -279,6 +279,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
   const [saving, setSaving] = useState(false);
   const [loteActivo, setLoteActivo] = useState(false);
   const [vincularTodoLote, setVincularTodoLote] = useState(false);
+  const [loteExpenseOwner, setLoteExpenseOwner] = useState('gonzalo');
   const [cantidadLote, setCantidadLote] = useState(2);
   const [distribucionLote, setDistribucionLote] = useState([
     { vendedor: '', pedidoCliente: '', cantidad: 2, cantidadFija: false },
@@ -409,8 +410,8 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
   }, []);
 
   useEffect(() => {
-    const owner = productSellerOwner(form.vendedor);
-    if (isEdit || loteActivo || !owner) {
+    const owner = loteActivo ? loteExpenseOwner : productSellerOwner(form.vendedor);
+    if (isEdit || !owner) {
       setSellerCards([]);
       setSellerExpenseUserId(null);
       setPaymentCard('');
@@ -460,7 +461,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
       }
     })();
     return () => { alive = false; };
-  }, [form.vendedor, isEdit, loteActivo]);
+  }, [form.vendedor, isEdit, loteActivo, loteExpenseOwner]);
 
   useEffect(() => {
     if (!producto?.envioGrupoId) {
@@ -744,9 +745,9 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
         return;
       }
     }
-    const expenseOwner = productSellerOwner(form.vendedor);
+    const expenseOwner = loteActivo ? loteExpenseOwner : productSellerOwner(form.vendedor);
     const productAmountUsd = Number(form.valor?.valorProducto);
-    const shouldCreateExpense = !isEdit && !loteActivo && Boolean(expenseOwner) && productAmountUsd > 0;
+    const shouldCreateExpense = !isEdit && Boolean(expenseOwner) && productAmountUsd > 0;
     if (shouldCreateExpense && sellerCardsLoading) {
       alert('Espera a que terminen de cargar las tarjetas del vendedor.');
       return;
@@ -824,16 +825,8 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
       const res = await api[method](url, requestPayload);
       const saved = res?.data ?? res;
 
-      if (isBatch) {
-        const savedItems = Array.isArray(saved) ? saved : [];
-        if (!savedItems.length) throw new Error('El lote no devolvió productos');
-        if (onSavedBatch) onSavedBatch(savedItems);
-        else savedItems.forEach((item) => onSaved(item));
-        onClose();
-        return;
-      }
-
-      if (shouldCreateExpense && saved?.id) {
+      const registerPurchaseExpense = async (savedIds) => {
+        if (!shouldCreateExpense) return;
         try {
           await createExpenseWithDuplicateCheck({
             concepto: 'inversion',
@@ -842,20 +835,34 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
             monto: productAmountUsd,
             fecha: form.valor.fechaCompra,
             tarjeta: paymentCard,
-            notas: String(saved.id),
+            notas: savedIds.map(String).join(','),
           }, { userId: sellerExpenseUserId });
           try {
             localStorage.removeItem(`gastos-panel-cache:${sellerExpenseUserId}`);
           } catch {}
         } catch (expenseError) {
-          if (expenseError instanceof ExpenseDuplicateCancelledError) {
-            // El usuario decidió que el gasto ya estaba registrado.
-          } else {
-          console.error('Producto guardado, pero no se pudo crear el gasto:', expenseError);
-          alert('El producto se guardó, pero no se pudo registrar el gasto en la tarjeta. Agrégalo manualmente desde Gastos.');
+          if (!(expenseError instanceof ExpenseDuplicateCancelledError)) {
+            console.error('Producto guardado, pero no se pudo crear el gasto:', expenseError);
+            alert('El producto se guardó, pero no se pudo registrar el gasto en la tarjeta. Agrégalo manualmente desde Gastos.');
           }
         }
+      };
+
+      if (isBatch) {
+        const savedItems = Array.isArray(saved) ? saved : [];
+        if (!savedItems.length) throw new Error('El lote no devolvió productos');
+        await registerPurchaseExpense(savedItems.map((item) => item.id).filter(Boolean));
+        const extras = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
+        if (savedItems[0]?.id && extras.length) {
+          await Promise.allSettled(extras.map((id) => api.patch(`/productos/${id}`, { vincularCon: savedItems[0].id })));
+        }
+        if (onSavedBatch) onSavedBatch(savedItems);
+        else savedItems.forEach((item) => onSaved(item));
+        onClose();
+        return;
       }
+
+      if (saved?.id) await registerPurchaseExpense([saved.id]);
 
       if (String(saved?.tipo || '').toLowerCase() === 'accesorios'
         && Number(saved?.codigoInventario || saved?.id) !== Number(saved?.id)) {
@@ -983,6 +990,32 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                         </span>
                       </span>
                     </label>
+
+                    <div className="grid gap-3 rounded-lg border border-indigo-200 bg-white p-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Quién pagó el lote</label>
+                        <select className="w-full border p-2 rounded bg-white" value={loteExpenseOwner} onChange={(e) => setLoteExpenseOwner(e.target.value)}>
+                          <option value="gonzalo">Gonzalo</option>
+                          <option value="renato">Renato</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Tarjeta del gasto total</label>
+                        {sellerCardsLoading ? (
+                          <div className="p-2 text-sm text-gray-600">Cargando tarjetas...</div>
+                        ) : (
+                          <select className="w-full border p-2 rounded bg-white" value={paymentCard} onChange={(e) => setPaymentCard(e.target.value)} disabled={!sellerCards.length}>
+                            {!sellerCards.length && <option value="">Sin tarjetas disponibles</option>}
+                            {sellerCards.map((card) => {
+                              const type = String(card.tipo || card.type || '');
+                              return <option key={card.id || type} value={type}>{productCardLabel(type, loteExpenseOwner) || card.label || type}</option>;
+                            })}
+                          </select>
+                        )}
+                        {sellerCardsError && <div className="mt-1 text-xs text-red-700">{sellerCardsError}</div>}
+                        {!sellerCardsError && <div className="mt-1 text-xs text-indigo-700">Se registrará un solo gasto por el total de ${Number(form.valor?.valorProducto || 0).toFixed(2)}.</div>}
+                      </div>
+                    </div>
 
                     <div>
                       <div className="flex items-center justify-between gap-3 mb-2">
@@ -1326,7 +1359,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                   </div>
                 ))}
 
-                {!loteActivo && <div className="border rounded-lg p-3 space-y-3 bg-gray-50/60">
+                <div className="border rounded-lg p-3 space-y-3 bg-gray-50/60">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-1">
                       <span className="font-medium text-gray-900">Vincular envio</span>
@@ -1470,7 +1503,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                       </div>
                     </div>
                   )}
-                </div>}
+                </div>
 
                 {!loteActivo && <div>
                   <label className="block font-medium mb-1">Vendedor</label>

@@ -4,7 +4,7 @@ const CONFIG = {
   macbook: { options: ['Caja', 'Cubo original', 'Cubo fake', 'Cable original', 'Cable fake', 'Case', 'Mica'], groups: [['Cubo original', 'Cubo fake'], ['Cable original', 'Cable fake']] },
   ipad: { options: ['Caja', 'Cubo original', 'Cubo fake', 'Cable original', 'Cable fake', 'Case', 'Mica', 'Magic Keyboard', 'Keyboard Logitech', 'Keyboard otros'], groups: [['Cubo original', 'Cubo fake'], ['Cable original', 'Cable fake'], ['Magic Keyboard', 'Keyboard Logitech', 'Keyboard otros']] },
   iphone: { options: ['Caja', 'Cubo original', 'Cubo fake', 'Cable original', 'Cable fake', 'Funda', 'Mica'], groups: [['Cubo original', 'Cubo fake'], ['Cable original', 'Cable fake']] },
-  watch: { options: ['Caja', 'Cable', 'Case', 'Correa'], groups: [] },
+  watch: { options: ['Caja', 'Cable', 'Cable fake', 'Case', 'Correa', 'Correa fake'], groups: [['Cable', 'Cable fake'], ['Correa', 'Correa fake']] },
   macmini: { options: ['Caja', 'Cable de poder original', 'Cable de poder generico'], groups: [['Cable de poder original', 'Cable de poder generico']] },
   airpods: { options: ['Caja'], groups: [] },
   otro: { options: ['Caja'], groups: [] },
@@ -24,7 +24,7 @@ export const getIncludedAccessoryConfig = (type, model) =>
 export const normalizeIncludedAccessories = (type, selected, model) => {
   if (type === 'accesorios') return [];
   const config = getIncludedAccessoryConfig(type, model);
-  const next = ['Caja', ...(Array.isArray(selected) ? selected : []).filter((item) => item !== 'Caja' && config.options.includes(item))];
+  const next = (Array.isArray(selected) ? selected : []).filter((item) => config.options.includes(item));
   const unique = [...new Set(next)];
   config.groups.forEach((group) => {
     const matches = unique.filter((item) => group.includes(item));
@@ -51,10 +51,10 @@ export default function IncludedAccessories({ type, model, value, onChange }) {
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {config.options.map((option) => {
           const active = selected.includes(option);
-          return <button key={option} type="button" aria-pressed={active} disabled={option === 'Caja'} onClick={() => toggle(option, !active)} className={`flex min-h-11 items-center justify-between gap-2 rounded border px-3 py-2 text-left ${active ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-gray-200 bg-white'} ${option === 'Caja' ? 'cursor-not-allowed' : 'cursor-pointer'}`}><span>{option}</span><span aria-hidden="true">{active ? '✓' : ''}</span></button>;
+          return <button key={option} type="button" aria-pressed={active} onClick={() => toggle(option, !active)} className={`flex min-h-11 cursor-pointer items-center justify-between gap-2 rounded border px-3 py-2 text-left ${active ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-gray-200 bg-white'}`}><span>{option}</span><span aria-hidden="true">{active ? '✓' : ''}</span></button>;
         })}
       </div>
-      <p className="mt-1 text-xs text-gray-500">Caja es obligatoria. Las alternativas original/fake o de teclado son excluyentes.</p>
+      <p className="mt-1 text-xs text-gray-500">Selecciona únicamente lo que incluye el producto. Las alternativas original/fake o de teclado son excluyentes.</p>
     </div>
   );
 }
