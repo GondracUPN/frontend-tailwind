@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api';
 import ModalVenta from '../components/ModalVenta';
+import { formatAppleWatchName } from '../utils/productName';
 
 /* =========================
    Helpers
@@ -28,7 +29,7 @@ const SELLER_SLUGS = ['gonzalo', 'renato'];
 const SPLIT_VENDOR = 'ambos';
 const SPLIT_SHARE = 0.5;
 
-const CACHE_KEY = 'ganancias:cache:v1';
+const CACHE_KEY = 'ganancias:cache:v2';
 const CACHE_TTL_MS = 2 * 60 * 1000;
 
 const readCache = () => {
@@ -108,13 +109,7 @@ function nombreProducto(p) {
 
   // Apple Watch: incluir Generacion, Tamano (mm) y Conexion
   if (tipoKey.includes('applewatch') || tipoKey === 'watch') {
-    const linea = d.gama ? String(d.gama).trim() : null;
-    const gen = d.generacion ? String(d.generacion).trim() : null;
-    const sizeVal = d.tamano ?? d.tamanio ?? d['tamano'];
-    const size = sizeVal ? String(sizeVal).trim() : null;
-    const conn = (d.conexion ?? d.conectividad) ? String(d.conexion ?? d.conectividad).trim() : null;
-
-    return ['Apple Watch', linea, gen, size, conn].filter(Boolean).join(' ');
+    return formatAppleWatchName(d);
   }
 
   // Otros tipos (Macbook, iPhone, etc.) -> comportamiento anterior
@@ -137,7 +132,8 @@ function lastDayOfMonth(year, month1to12) {
 }
 
 function rangoFromMesAnio(mes, anio) {
-  if (!mes || !anio) return null;
+  if (!anio) return null;
+  if (!mes) return { from: `${anio}-01-01`, to: `${anio}-12-31` };
   const mm = String(mes).padStart(2, '0');
   const from = `${anio}-${mm}-01`;
   const to = `${anio}-${mm}-${String(lastDayOfMonth(Number(anio), Number(mes))).padStart(2, '0')}`;

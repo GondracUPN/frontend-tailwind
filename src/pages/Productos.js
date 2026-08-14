@@ -3,6 +3,8 @@ import React, { Suspense, lazy, useState, useEffect, useCallback, useRef } from 
 import api from '../api';  // cliente fetch centralizado
 import ResumenCasilleros from '../components/ResumenCasilleros';
 import { FiFileText } from 'react-icons/fi';
+import { formatAppleWatchName } from '../utils/productName';
+import { accessoryCategoryForModel } from '../utils/accessoryModels';
 
 const ModalProducto = lazy(() => import('../components/ModalProducto'));
 const DetallesProductoModal = lazy(() => import('../components/DetallesProductoModal'));
@@ -23,7 +25,7 @@ const ModalAdelantoDetalle = lazy(() => import('../components/ModalAdelantoDetal
 const ModalAdelantoCompletar = lazy(() => import('../components/ModalAdelantoCompletar'));
 const ModalVentaMensaje = lazy(() => import('../components/ModalVentaMensaje'));
 
-const CACHE_KEY = 'productos:cache:v2';
+const CACHE_KEY = 'productos:cache:v3';
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos para revalidar
 let productosRequest = null;
 const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
@@ -31,6 +33,54 @@ const ESHOPEX_BG_REQUESTED_KEY = 'eshopex-carga-requested';
 const ESHOPEX_BG_OPEN_MODAL_KEY = 'eshopex-carga-open-modal';
 const ESHOPEX_BG_COUNT_KEY = 'eshopex-carga-pendientes-count';
 const INVENTARIO_RECOJO_DIAS = 7;
+const PRODUCT_TYPE_OPTIONS = ['macbook', 'macmini', 'imac', 'airpods', 'watch', 'accesorios', 'ipad', 'iphone', 'otro'];
+const PRODUCT_TYPE_LABELS = {
+  macbook: 'MacBook',
+  macmini: 'Mac mini',
+  imac: 'iMac',
+  airpods: 'AirPods',
+  watch: 'Apple Watch',
+  accesorios: 'Accesorios',
+  ipad: 'iPad',
+  iphone: 'iPhone',
+  otro: 'Otros',
+};
+const normalizeProductType = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  const compact = raw.replace(/[\s_-]+/g, '');
+  if (compact === 'applewatch' || compact === 'watch') return 'watch';
+  if (compact === 'macmini') return 'macmini';
+  if (compact === 'imac') return 'imac';
+  if (compact === 'airpod' || compact === 'airpods') return 'airpods';
+  return raw;
+};
+const mainAccessoryLabels = (values) => {
+  const found = new Set();
+  for (const value of Array.isArray(values) ? values : []) {
+    const label = String(value || '').trim().toLowerCase();
+    if (label === 'caja') found.add('Caja');
+    else if (label.includes('cubo')) found.add('Cubo');
+    else if (label.includes('cable')) found.add('Cable');
+  }
+  return ['Caja', 'Cubo', 'Cable'].filter((label) => found.has(label));
+};
+const accessoryTypeLabel = (product) => {
+  const shortCategory = (value) => {
+    const category = String(value || '').trim();
+    if (category.toLowerCase() === 'apple pencil') return 'Pencil';
+    if (category.toLowerCase() === 'magic keyboard') return 'MKeyboard';
+    return category;
+  };
+  const category = String(product?.detalle?.gama || '').trim();
+  if (category) return shortCategory(category);
+  const model = String(product?.detalle?.modelo || '').trim();
+  if (model) return shortCategory(accessoryCategoryForModel(model) || model);
+  const detail = String(product?.detalle?.descripcionOtro || '').trim();
+  return detail.split(/[-,(/]/)[0]?.trim() || 'Accesorio';
+};
+const displayProductCode = (product) => String(product?.tipo || '').toLowerCase() === 'accesorios'
+  ? (product?.codigoInventario || product?.id)
+  : product?.id;
 const EMPTY_ESH_PROGRESS = {
   status: 'idle',
   total: 0,
@@ -209,6 +259,12 @@ export default function Productos({ setVista, setAnalisisBack }) {
     adelantosRef.current = nextAdelantos;
     setVentasMap(nextVentas);
     setAdelantosMap(nextAdelantos);
+    const soldProduct = productosRef.current.find((item) => item.id === pid);
+    if (String(soldProduct?.tipo).toLowerCase() === 'accesorios') {
+      const nextProducts = productosRef.current.map((item) => item.id === pid ? { ...item, stockActual: Math.max(0, Number(item.stockActual || 0) - Number(ventaGuardada.cantidad || 1)) } : item);
+      productosRef.current = nextProducts;
+      setProductos(nextProducts);
+    }
     writeCache(productosRef.current, nextVentas, resumenRef.current, nextAdelantos);
     fetchResumen({ refresh: true });
     cerrarModal();
@@ -387,15 +443,24 @@ export default function Productos({ setVista, setAnalisisBack }) {
     return raw;
   };
 
-  // Tipos disponibles calculados desde la data
+  // Una sola lista ya cargada alimenta el filtro: no hace solicitudes adicionales.
+  // Los tipos se ordenan por unidades compradas y "Otros" siempre queda al final.
   const tiposDisponibles = React.useMemo(() => {
-    const set = new Set();
+    const counts = Object.fromEntries(PRODUCT_TYPE_OPTIONS.map((type) => [type, 0]));
     for (const p of productos || []) {
-      const t = String(p.tipo || '').toLowerCase();
-      if (t) set.add(t);
+      const normalized = normalizeProductType(p.tipo);
+      const type = PRODUCT_TYPE_OPTIONS.includes(normalized) ? normalized : 'otro';
+      const units = type === 'accesorios'
+        ? Math.max(1, Number(p.stockInicial || 1))
+        : 1;
+      counts[type] += units;
     }
-    return Array.from(set);
+    const ordered = PRODUCT_TYPE_OPTIONS
+      .filter((type) => type !== 'otro')
+      .sort((a, b) => counts[b] - counts[a] || PRODUCT_TYPE_OPTIONS.indexOf(a) - PRODUCT_TYPE_OPTIONS.indexOf(b));
+    return [...ordered, 'otro'].map((type) => ({ type, count: counts[type] }));
   }, [productos]);
+  const tiposDisponiblesKeys = React.useMemo(() => tiposDisponibles.map((item) => item.type), [tiposDisponibles]);
 
   // Opciones disponibles de procesador (macbook/ipad) o tamano (pantalla)
   const opcionesProc = React.useMemo(() => {
@@ -472,13 +537,13 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
   // Si el tipo seleccionado ya no existe, resetea a 'todos'
   React.useEffect(() => {
-    if (filtroTipo !== 'todos' && !tiposDisponibles.includes(filtroTipo)) {
+    if (filtroTipo !== 'todos' && !tiposDisponiblesKeys.includes(filtroTipo)) {
       setFiltroTipo('todos');
       setFiltroProc('todos');
       setFiltroGama('todos');
       setFiltroTam('todos');
     }
-  }, [tiposDisponibles, filtroTipo]);
+  }, [tiposDisponiblesKeys, filtroTipo]);
 
   // Reemplaza ambos startImport() / startMassPickup() por:
   const startRecojo = () => {
@@ -565,19 +630,19 @@ export default function Productos({ setVista, setAnalisisBack }) {
     if (!p) return '';
     if (p.__personal) return String(p.descripcion || p.detalle?.descripcionOtro || 'Personal').trim() || 'Personal';
     if (p.tipo === 'otro') return (p.detalle?.descripcionOtro || '').trim() || 'Otros';
+    if (String(p.tipo || '').toLowerCase() === 'accesorios') {
+      return [p.detalle?.modelo, p.detalle?.descripcionOtro].map((value) => String(value || '').trim()).filter(Boolean).join(' - ') || 'Accesorio';
+    }
     if (String(p.tipo || '').toLowerCase() === 'iphone') {
       const numero = String(p.detalle?.numero || '').trim();
       const modelo = String(p.detalle?.modelo || '').trim();
       return ['iPhone', numero, modelo].filter(Boolean).join(' ');
     }
+    if (String(p.tipo || '').toLowerCase() === 'airpods') {
+      return p.detalle?.modelo || 'AirPods';
+    }
     if (String(p.tipo || '').toLowerCase() === 'watch') {
-      return [
-        'Apple Watch',
-        p.detalle?.gama,
-        p.detalle?.generacion,
-        (p.detalle || {})['tamano'] || (p.detalle || {})[keyTamano] || (p.detalle || {})['tamanio'],
-        p.detalle?.conexion,
-      ].filter(Boolean).join(' ');
+      return formatAppleWatchName(p.detalle);
     }
     if (String(p.tipo || '').toLowerCase() === 'ipad') {
       const detalle = p.detalle || {};
@@ -649,6 +714,12 @@ const confirmAction = async () => {
       const itemsSel = productos.filter(p => selectedIds.has(p.id));
       if (itemsSel.length !== 1) { alert('Selecciona exactamente un producto.'); return; }
       const p = itemsSel[0];
+      if (String(p.tipo).toLowerCase() === 'accesorios') {
+        setProductoSeleccionado(p);
+        setModalModo('venta');
+        cancelSelect();
+        return;
+      }
       setProductoSeleccionado(p);
       abrirAdelantoSelect(p);
       cancelSelect();
@@ -672,7 +743,8 @@ const confirmAction = async () => {
         const t = getLastTracking(p);
         const venta = ventasMap[p?.id] || null;
         const adelanto = adelantosMap[p?.id] || null;
-        return String(t?.estado || '').toLowerCase() === 'recogido' && !venta && !adelanto;
+        const accessoryAvailable = String(p?.tipo).toLowerCase() === 'accesorios' && Number(p.stockActual || 0) > 0;
+        return (accessoryAvailable || String(t?.estado || '').toLowerCase() === 'recogido') && (accessoryAvailable || !venta) && !adelanto;
       })
       .map((p) => ({
         id: p.id,
@@ -1770,7 +1842,6 @@ const confirmAction = async () => {
         if (!trackingEsh) return null;
         return { href: URLS.eshopex(trackingEsh), text: 'Ver tracking Eshopex' };
       case 'recogido':
-        if (trackingEsh) return { href: URLS.eshopex(trackingEsh), text: 'Ver historial Eshopex' };
         if (trackingUsa && operador && URLS[operador]) {
           return { href: URLS[operador](trackingUsa), text: `Ver historial ${operador.toUpperCase()}` };
         }
@@ -1926,7 +1997,7 @@ const confirmAction = async () => {
         // - normal: usa/esh contienen q  O q contiene usa/esh
         // - solo-dfgitos: usaDigits/eshDigits contienen qDigits  O qDigits contiene usaDigits/eshDigits
         const match =
-          (requestedProductId != null && Number(p.id) === requestedProductId) ||
+          (requestedProductId != null && Number(displayProductCode(p)) === requestedProductId) ||
           (usa && (usa.includes(q) || q.includes(usa))) ||
           (esh && (esh.includes(q) || q.includes(esh))) ||
           (qDigits && usaDigits && (usaDigits.includes(qDigits) || qDigits.includes(usaDigits))) ||
@@ -1948,7 +2019,8 @@ const confirmAction = async () => {
         const t = p.tracking?.[0];
         const venta = ventasMap[p.id] || null;
         const adelanto = adelantosMap[p.id] || null;
-        return t?.estado === 'recogido' && !venta && !adelanto;
+        const accessoryAvailable = String(p?.tipo).toLowerCase() === 'accesorios' && Number(p.stockActual || 0) > 0;
+        return (accessoryAvailable || t?.estado === 'recogido') && (accessoryAvailable || !venta) && !adelanto;
       });
     }
     if (soloVendidos && !soloDisponibles && !soloAdelanto && !soloEnCamino) {
@@ -1961,11 +2033,9 @@ const confirmAction = async () => {
     // Filtro por tipo ("otro" = todo lo que NO es macbook ni ipad)
     if (filtroTipo !== 'todos') {
       const matchTipo = (tipo) => {
-        const t = String(tipo || '').toLowerCase().trim();
+        const t = normalizeProductType(tipo);
         if (filtroTipo === 'otro') {
-          return t !== 'macbook' && t !== 'ipad' && t !== 'iphone';
-          // Si NO quieres incluir "pantalla" dentro de "otros", usa:
-          // return t !== 'macbook' && t !== 'ipad' && t !== 'pantalla';
+          return t === 'otro' || !PRODUCT_TYPE_OPTIONS.includes(t);
         }
         return t === filtroTipo;
       };
@@ -1979,7 +2049,7 @@ const confirmAction = async () => {
       const gamaTerm = String(filtroGama || '').toLowerCase();
 
       list = list.filter((p) => {
-        const tipo = String(p.tipo || '').toLowerCase();
+        const tipo = normalizeProductType(p.tipo);
         const d = p.detalle || {};
         const gamaP = String(d.gama || p.gama || '').toLowerCase();
 
@@ -2588,11 +2658,9 @@ const confirmAction = async () => {
                   onChange={(e) => { setFiltroTipo(e.target.value); setFiltroProc('todos'); setFiltroGama('todos'); setFiltroTam('todos'); }}
                 >
                   <option value="todos">Todos</option>
-                  {tiposDisponibles.includes('macbook') && <option value="macbook">MacBook</option>}
-                  {tiposDisponibles.includes('ipad') && <option value="ipad">iPad</option>}
-                  {tiposDisponibles.includes('pantalla') && <option value="pantalla">Pantalla</option>}
-                  {tiposDisponibles.includes('iphone') && <option value="iphone">iPhone</option>}
-                  {tiposDisponibles.includes('otro') && <option value="otro">Otros</option>}
+                  {tiposDisponibles.map(({ type, count }) => (
+                    <option key={type} value={type}>{PRODUCT_TYPE_LABELS[type]} ({count})</option>
+                  ))}
                 </select>
               </label>
 
@@ -2821,14 +2889,14 @@ const confirmAction = async () => {
       {!cargando && !error && (
         displayedProductos.length > 0 ? (
           <div className="overflow-x-auto -mx-4 sm:mx-0">
-            <table className="min-w-[1150px] w-full text-left border text-xs sm:text-sm">
+            <table className="min-w-[1080px] w-full text-left border text-xs sm:text-sm">
               <thead className="bg-gray-100">
                 <tr>
                   {selectMode && <th className="p-2">Sel.</th>}
                   <th className="p-2">Code</th>
                   <th className="p-2">Tipo</th>
                   <th className="p-2">Estado</th>
-                  <th className="p-2">Accesorios</th>
+                  <th className="p-2 text-center">Accesorios</th>
                   <th className="p-2">Valor $</th>
                   <th className="p-2">Valor S/</th>
                   <th className="p-2">{'Env\u00edo S/'}</th>
@@ -2836,7 +2904,7 @@ const confirmAction = async () => {
                   <th className="p-2">Calculadora</th>
                   <th className="p-2">Vendedor</th>
                   <th className="p-2 whitespace-nowrap" title="Compra / Recojo / Venta">C / R / V</th>
-                  <th className="p-2">Tracking</th>
+                  <th className="w-56 min-w-56 p-2">Tracking</th>
                   <th className="p-2">Fotos Es</th>
                   <th className="p-2">Acciones</th>
                 </tr>
@@ -2844,19 +2912,21 @@ const confirmAction = async () => {
               <tbody>
                 {displayedProductos.map((p) => {
                   const v = p.valor || {};
+                  const mainAccessories = mainAccessoryLabels(p.accesorios);
                   const t = getLastTracking(p); // Ultimo tracking (si existe)
                   const label = labelFromEstado(t?.estado);
                   const link = buildTrackingLink(t);
                   const estado = t?.estado || '';
                   const venta = ventasMap[p.id] || null;
                   const adelanto = adelantosMap[p.id] || null;
+                  const accessoryAvailable = String(p.tipo).toLowerCase() === 'accesorios' && Number(p.stockActual || 0) > 0;
 
                   // Solo seleccionable en Recojo si estf en Eshopex
                   const canSelectRecojo = selectAction === 'recojo' ? estado === 'en_eshopex' : true;
 
                   // En adelantar, tu regla de 1 y no vendido; en recojo, bloquear si no es Eshopex
                   const disabledSel = selectAction === 'adelantar'
-                    ? (!!venta || !!adelanto || (selectedIds.size >= 1 && !selectedIds.has(p.id)))
+                    ? ((!accessoryAvailable && !!venta) || !!adelanto || (selectedIds.size >= 1 && !selectedIds.has(p.id)))
                     : !canSelectRecojo;
 
                   const isSelected = selectedIds.has(p.id);
@@ -2870,7 +2940,7 @@ const confirmAction = async () => {
                     <tr
                       key={p.id}
                       style={{ contentVisibility: 'auto', containIntrinsicSize: '52px' }}
-                      className={`border-t hover:bg-gray-50 ${selectMode ? 'cursor-pointer' : ''} ${isSelected ? 'bg-indigo-50' : ''} ${(selectMode && disabledSel) ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      className={`h-24 border-t hover:bg-gray-50 ${selectMode ? 'cursor-pointer' : ''} ${isSelected ? 'bg-indigo-50' : ''} ${(selectMode && disabledSel) ? 'opacity-60 cursor-not-allowed' : ''}`}
                       onClick={() => {
                         if (!selectMode) return;
                         if (disabledSel) return;
@@ -2900,20 +2970,39 @@ const confirmAction = async () => {
 
 
                     <td className="p-2 font-mono font-semibold text-gray-800 select-all">
-                      {p.id ?? '-'}
+                      {displayProductCode(p) ?? '-'}
                     </td>
                     <td className="p-2">
                       <button
                         onClick={(e) => { e.stopPropagation(); if (!guardando) abrirDetalle(p); }}
-                        className={`bg-gray-200 px-2 py-1 rounded hover:bg-gray-300 ${guardando ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        className={`rounded bg-gray-200 px-2 py-1 hover:bg-gray-300 ${String(p.tipo).toLowerCase() === 'accesorios' ? 'text-center' : 'text-left'} ${guardando ? 'opacity-60 cursor-not-allowed' : ''}`}
                         disabled={guardando}
                       >
-                        {guardando ? 'Guardando...' : p.tipo}
+                        {guardando ? 'Guardando...' : String(p.tipo).toLowerCase() === 'accesorios' ? (
+                          <>
+                            <span className="block">{accessoryTypeLabel(p)}</span>
+                            <span className="mt-0.5 block whitespace-nowrap text-[11px] font-semibold text-indigo-700">
+                              {Number(p.stockActual || 0)} U
+                            </span>
+                          </>
+                        ) : (normalizeProductType(p.tipo) === 'watch'
+                          ? 'Watch'
+                          : (PRODUCT_TYPE_LABELS[normalizeProductType(p.tipo)] || p.tipo))}
                       </button>
 
                     </td>
                     <td className="p-2">{p.estado}</td>
-                    <td className="p-2">{Array.isArray(p.accesorios) && p.accesorios.length ? (p.accesorios.length===3 ? "Todos" : p.accesorios.join(", ")) : "-"}</td>
+                    <td className="w-32 max-w-32 p-2 text-center align-middle">
+                      {mainAccessories.length ? (
+                        <div className="flex min-h-10 flex-wrap items-center justify-center gap-1.5 leading-4">
+                          {mainAccessories.map((accessory) => (
+                            <span key={accessory} className="inline-flex min-w-14 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700">
+                              {accessory}
+                            </span>
+                          ))}
+                        </div>
+                      ) : '-'}
+                    </td>
                     <td className="p-2">{v.valorProducto != null ? `$ ${v.valorProducto}` : '-'}</td>
                     <td className="p-2">{fmtSoles(v.valorSoles)}</td>
                     <td className="p-2">{fmtSoles(v.costoEnvio)}</td>
@@ -2934,11 +3023,11 @@ const confirmAction = async () => {
                       <div><span className="font-bold text-indigo-700">R</span> {fmtFechaCompacta(getFechaRecojo(p))}</div>
                       <div><span className="font-bold text-indigo-700">V</span> {fmtFechaCompacta(getFechaVenta(p))}</div>
                     </td>
-                    <td className="p-2">
+                    <td className="w-56 min-w-56 p-1.5 align-middle">
                       {/* Pill/ botfn de estado: mfs grande, negrita y ??oclickable??? */}
                       <button
                         onClick={(e) => { e.stopPropagation(); abrirTrack(p); }}
-                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${badgeClasses(t?.estado)}`}
+                        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${badgeClasses(t?.estado)}`}
                         title="Abrir tracking"
                       >
                         {iconFromEstado(t?.estado)}
@@ -2948,13 +3037,13 @@ const confirmAction = async () => {
 
 
                       {/* Casillero mfs visible (mfs grande + negrita) */}
-                      <div className="mt-1 text-sm font-semibold text-gray-800">
+                      <div className="mt-0.5 whitespace-nowrap text-xs font-semibold text-gray-800">
                         {t?.casillero ? `Casillero: ${t.casillero}` : 'Casillero: N/A'}
                       </div>
 
                       {/* Enlace dinfmico debajo */}
                       {link && (
-                        <div className="mt-1 text-xs">
+                        <div className="mt-0.5 whitespace-nowrap text-xs">
                           <a
                             href={link.href}
                             target="_blank"
@@ -2974,9 +3063,14 @@ const confirmAction = async () => {
                         const trackUsa = (t?.trackingUsa || '').toString().trim();
                         if (!carrier || !trackUsa) return null;
                         return (
-                          <div className="mt-1 text-xs text-gray-700 font-mono flex gap-1">
+                          <div className="mt-0.5 flex min-w-0 gap-1 font-mono text-xs text-gray-700">
                             <span className="select-none">{carrier.toLowerCase()}:</span>
-                            <span className="select-all">{trackUsa}</span>
+                            <span
+                              className="inline-block max-w-[22ch] select-all overflow-hidden text-ellipsis whitespace-nowrap"
+                              title={trackUsa}
+                            >
+                              {trackUsa}
+                            </span>
                           </div>
                         );
                       })()}
@@ -3011,13 +3105,14 @@ const confirmAction = async () => {
                         const venta = ventasMap[p.id] || null;
                         const adelanto = adelantosMap[p.id] || null;
                         const recogido = t?.estado === 'recogido';
+                        const accessoryAvailable = String(p.tipo).toLowerCase() === 'accesorios' && Number(p.stockActual || 0) > 0;
 
                         let text = 'En espera';
                         let className = 'bg-gray-300 text-gray-600 cursor-not-allowed opacity-60';
                         let disabled = true;
 
-                        if (recogido && !venta && !adelanto) {
-                          text = 'Disponible';
+                        if ((accessoryAvailable || recogido) && (accessoryAvailable || !venta) && !adelanto) {
+                          text = accessoryAvailable ? `Vender (${p.stockActual})` : 'Disponible';
                           className = 'bg-yellow-500 text-white hover:bg-yellow-600';
                           disabled = false;
                         }
@@ -3036,7 +3131,7 @@ const confirmAction = async () => {
                           <button
                             onClick={() => {
                               if (disabled) return;
-                              if (venta) {
+                              if (venta && !accessoryAvailable) {
                                 abrirVenta(p);
                                 return;
                               }
@@ -3880,7 +3975,7 @@ const confirmAction = async () => {
         {modalModo === 'venta' && (
           <ModalVenta
             producto={productoSeleccionado}
-            venta={ventasMap[productoSeleccionado?.id] || null}
+            venta={String(productoSeleccionado?.tipo).toLowerCase() === 'accesorios' ? null : (ventasMap[productoSeleccionado?.id] || null)}
             onClose={cerrarModal}
             onSaved={handleVentaSaved}
           />
@@ -4043,7 +4138,7 @@ const confirmAction = async () => {
                             onChange={() => toggleSellerAssignSelected(p.id)}
                           />
                         </td>
-                        <td className="p-2 font-medium">{p.id}</td>
+                        <td className="p-2 font-medium">{displayProductCode(p)}</td>
                         <td className="p-2">
                           <button
                             type="button"

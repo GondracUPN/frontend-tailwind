@@ -4,8 +4,12 @@ import FormProductoMacbook from './formParts/FormProductoMacbook';
 import FormProductoIpad from './formParts/FormProductoIpad';
 import FormProductoIphone from './formParts/FormProductoIphone';
 import FormProductoWatch from './formParts/FormProductoWatch';
+import FormProductoMacDesktop from './formParts/FormProductoMacDesktop';
+import { formatAppleWatchName } from '../utils/productName';
 import FormProductoOtro from './formParts/FormProductoOtro';
+import FormProductoAccessory from './formParts/FormProductoAccessory';
 import api from '../api';
+import IncludedAccessories, { normalizeIncludedAccessories } from './IncludedAccessories';
 
 const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian', 'Williams'];
 const OTHER_PEDIDO_SELLER = '__otro_nombre_pedido__';
@@ -34,6 +38,7 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
     vendedor: '',
     pedidoCliente: '',
     accesorios: [],        // ['Caja','Cubo','Cable'] o ['Todos']
+    cantidad: 1,
     detalle: {},           // dinamico segun tipo
   });
   const [linkerOpen, setLinkerOpen] = useState(false);
@@ -67,6 +72,7 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
       vendedor: effectiveSeller,
       pedidoCliente: pedidoClientFromSeller(effectiveSeller),
       accesorios: Array.isArray(producto.accesorios) ? producto.accesorios : [],
+      cantidad: producto.stockInicial || 1,
       detalle, // viene con 'id' -> se filtrar en handleSave
     });
     setIsEditing(false);
@@ -142,11 +148,16 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
 
   // ----- 4. Guardar cambios (PATCH) -----
   const handleSave = async () => {
+    if (form.tipo === 'accesorios' && !String(form.detalle?.modelo || '').trim()) {
+      alert('Selecciona el modelo del accesorio.');
+      return;
+    }
+    if (form.tipo === 'accesorios' && (!Number.isInteger(Number(form.cantidad)) || Number(form.cantidad) < 1)) {
+      alert('La cantidad comprada debe ser un número entero mayor o igual a 1.');
+      return;
+    }
     // Normaliza accesorios para backend
-    let accesorios = Array.isArray(form.accesorios) ? [...form.accesorios] : [];
-    const hasTodos = accesorios.includes('Todos');
-    const isNuevo = String(form.estado || '').toLowerCase() === 'nuevo';
-    if (hasTodos || isNuevo) accesorios = ['Caja','Cubo','Cable'];
+    const accesorios = normalizeIncludedAccessories(form.tipo, form.accesorios, form.detalle?.modelo);
 
     // Lista blanca de campos permitidos en 'detalle' (sin 'id')
     const cleanDetalle = Object.fromEntries(
@@ -156,6 +167,7 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
     const vendedorPayload =
       form.vendedor === OTHER_PEDIDO_SELLER ? null : form.vendedor?.trim() || null;
     const payload = { tipo: form.tipo, estado: form.estado, vendedor: vendedorPayload, accesorios, detalle: cleanDetalle };
+    if (form.tipo === 'accesorios') payload.cantidad = Number(form.cantidad);
     const primaryLink = Array.isArray(vincularConList) ? vincularConList[0] : null;
     const extraLinks = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
     if (primaryLink) payload.vincularCon = Number(primaryLink);
@@ -212,6 +224,20 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
     });
     return trk[0]?.casillero || '';
   };
+  const accessoryCode = Number(producto.codigoInventario || producto.id);
+  const accessoryLots = String(producto.tipo || '').toLowerCase() === 'accesorios'
+    ? (productosAll || []).filter((item) =>
+        String(item?.tipo || '').toLowerCase() === 'accesorios'
+        && Number(item.codigoInventario || item.id) === accessoryCode)
+    : [];
+  const accessoryPurchasedUnits = Math.max(1, accessoryLots.reduce(
+    (sum, item) => sum + Math.max(0, Number(item.stockInicial || 0)),
+    0,
+  ));
+  const accessoryGroupCost = accessoryLots.reduce(
+    (sum, item) => sum + Number(item.valor?.costoTotalProrrateado ?? item.valor?.costoTotal ?? 0),
+    0,
+  );
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -222,7 +248,11 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
         {!isEditing ? (
           <>
             {/* --- Vista solo lectura --- */}
-            <h2 className="text-2xl font-semibold mb-4">{producto.tipo}</h2>
+            <h2 className="text-2xl font-semibold mb-4">
+              {String(producto.tipo || '').toLowerCase() === 'watch'
+                ? formatAppleWatchName(producto.detalle)
+                : producto.tipo}
+            </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <section>
@@ -239,6 +269,17 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                       </li>
                     ))}
                 </ul>
+                {String(producto.tipo || '').toLowerCase() === 'accesorios' && (
+                  <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm">
+                    <div><strong>{producto.stockActual ?? 0}</strong> unidades disponibles</div>
+                    <div className="mt-1 text-gray-600">Compra registrada: {producto.stockInicial ?? 1} unidades</div>
+                    <div className="mt-1 text-gray-600">
+                      Costo promedio del código MS-{accessoryCode}: <strong>S/ {(
+                        accessoryGroupCost / accessoryPurchasedUnits
+                      ).toFixed(2)}</strong> por unidad
+                    </div>
+                  </div>
+                )}
               </section>
 
               <section className="md:border-l md:pl-4">
@@ -311,6 +352,10 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                     <option value="ipad">iPad</option>
                     <option value="iphone">iPhone</option>
                     <option value="watch">Apple Watch</option>
+                    <option value="macmini">Mac mini</option>
+                    <option value="imac">iMac</option>
+                    <option value="airpods">AirPods</option>
+                    <option value="accesorios">Accesorios</option>
                     <option value="otro">Otro</option>
                   </select>
                 </div>
@@ -333,6 +378,10 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                     onChange={v => handleDetalleChange('descripcionOtro', v)}
                   />
                 )}
+                {form.tipo === 'macmini' && <FormProductoMacDesktop tipo="macmini" detalle={form.detalle} onChange={handleDetalleChange} />}
+                {form.tipo === 'imac' && <FormProductoMacDesktop tipo="imac" detalle={form.detalle} onChange={handleDetalleChange} />}
+                {form.tipo === 'airpods' && <div><label className="block font-medium">Modelo de AirPods</label><select className="w-full border p-2 rounded" value={form.detalle?.modelo || ''} onChange={e => handleDetalleChange('modelo', e.target.value)}><option value="">Selecciona</option><option>AirPods Pro 1</option><option>AirPods Pro 2</option><option>AirPods Pro 3</option><option>AirPods 4</option><option>AirPods 4 ANC</option></select></div>}
+                {form.tipo === 'accesorios' && <FormProductoAccessory detalle={form.detalle} cantidad={form.cantidad} onDetalleChange={handleDetalleChange} onCantidadChange={(value) => handleMainChange('cantidad', value)} currentStock={{ initial: producto.stockInicial, current: producto.stockActual }} />}
 
                 <div className={form.tipo === 'iphone' ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}>
                   <div>
@@ -344,7 +393,9 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                     >
                       <option value="">Selecciona</option>
                       <option value="nuevo">Nuevo</option>
+                      <option value="open_box">Open Box</option>
                       <option value="usado">Usado</option>
+                      <option value="reacondicionado">Reacondicionado</option>
                       <option value="roto">Roto</option>
                     </select>
                   </div>
@@ -364,44 +415,7 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                   )}
                 </div>
 
-                <div>
-                  <label className="block font-medium mb-1">Accesorios</label>
-                  {(() => {
-                    const isNuevo = String(form.estado || '').toLowerCase() === 'nuevo';
-                    const todos = Array.isArray(form.accesorios) && form.accesorios.includes('Todos');
-                    const disabledGroup = isNuevo || todos;
-                    return (
-                      <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 ${disabledGroup ? 'opacity-60' : ''}`}>
-                        {['Caja','Cubo','Cable','Todos'].map(opt => (
-                          <label key={opt} className={`flex items-center gap-2 border rounded px-3 py-2 cursor-pointer ${isNuevo ? 'pointer-events-none' : ''}`}>
-                            <input
-                              type="checkbox"
-                              className="accent-indigo-600"
-                              checked={isNuevo ? true : (opt==='Todos' ? todos : (todos ? true : (form.accesorios||[]).includes(opt)))}
-                              disabled={opt!=='Todos' && (isNuevo || todos)}
-                              onChange={e => {
-                                const checked = e.target.checked;
-                                setForm(f => {
-                                  let next = Array.isArray(f.accesorios) ? [...f.accesorios] : [];
-                                  if (opt==='Todos') {
-                                    // toggle 'Todos' unicamente; el resto se muestra marcado visualmente
-                                    return { ...f, accesorios: checked ? Array.from(new Set([...next,'Todos'])) : next.filter(x=>x!=='Todos') };
-                                  }
-                                  if (checked) next = Array.from(new Set([...next, opt])); else next = next.filter(x=>x!==opt);
-                                  return { ...f, accesorios: next };
-                                });
-                              }}
-                            />
-                            <span>{opt}</span>
-                          </label>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                  {String(form.estado || '').toLowerCase() === 'nuevo' && (
-                    <p className="text-sm text-gray-500 mt-1">Estado "Nuevo" fuerza Todos (Caja, Cubo y Cable).</p>
-                  )}
-                </div>
+                <IncludedAccessories type={form.tipo} model={form.detalle?.modelo} value={form.accesorios} onChange={(accesorios) => setForm((current) => ({ ...current, accesorios }))} />
               </div>
 
               {/* Columna 2: Vinculacion */}

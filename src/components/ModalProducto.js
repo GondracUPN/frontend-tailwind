@@ -4,10 +4,14 @@ import FormProductoMacbook from './formParts/FormProductoMacbook';
 import FormProductoIpad from './formParts/FormProductoIpad';
 import FormProductoIphone from './formParts/FormProductoIphone';
 import FormProductoWatch from './formParts/FormProductoWatch';
+import FormProductoMacDesktop from './formParts/FormProductoMacDesktop';
 import FormProductoOtro from './formParts/FormProductoOtro';
+import FormProductoAccessory from './formParts/FormProductoAccessory';
 import api from '../api';
 import { normalizeProductLookupUrl } from '../utils/productUrl';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
+import IncludedAccessories, { normalizeIncludedAccessories } from './IncludedAccessories';
+import { formatAppleWatchName } from '../utils/productName';
 
 const normalizeText = (val) =>
   String(val || '')
@@ -309,6 +313,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
     vendedor: '',
     pedidoCliente: '',
     accesorios: [],
+    cantidad: 1,
     casillero: '',
     detalle: {
       gama: '', procesador: '', generacion: '',
@@ -359,6 +364,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
       vendedor: producto.vendedor || '',
       pedidoCliente: pedidoClientFromSeller(producto.vendedor || ''),
       accesorios: Array.isArray(producto.accesorios) ? producto.accesorios : [],
+      cantidad: producto.stockInicial || 1,
       casillero: producto.tracking?.[0]?.casillero || '',
       detalle,
       valor: {
@@ -393,6 +399,10 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
       }));
     }
   }, [form.tipo, ebayTitle]);
+
+  useEffect(() => {
+    if (form.tipo === 'accesorios' && loteActivo) setLoteActivo(false);
+  }, [form.tipo, loteActivo]);
 
   useEffect(() => {
     return () => { mountedRef.current = false; };
@@ -562,8 +572,11 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
   const describeProducto = (p) => {
     const tipo = String(p?.tipo || '').trim();
     const d = p?.detalle || {};
+    if (tipo.toLowerCase() === 'accesorios') {
+      return [d.modelo, d.descripcionOtro].filter(Boolean).join(' - ') || 'Accesorio';
+    }
     if (tipo.toLowerCase() === 'watch') {
-      return ['Apple Watch', d.gama, d.generacion, d.tamano || d.tamanio, d.conexion].filter(Boolean).join(' ');
+      return formatAppleWatchName(d);
     }
     if (tipo.toLowerCase() === 'iphone') {
       return ['iPhone', d.numero, d.modelo, d.almacenamiento].filter(Boolean).join(' ');
@@ -720,6 +733,17 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     if (saving) return;
+    if (form.tipo === 'accesorios') {
+      const cantidad = Number(form.cantidad);
+      if (!Number.isInteger(cantidad) || cantidad < 1) {
+        alert('Indica cuántas unidades estás comprando (mínimo 1).');
+        return;
+      }
+      if (!String(form.detalle?.modelo || '').trim()) {
+        alert('Selecciona el tipo de accesorio.');
+        return;
+      }
+    }
     const expenseOwner = productSellerOwner(form.vendedor);
     const productAmountUsd = Number(form.valor?.valorProducto);
     const shouldCreateExpense = !isEdit && !loteActivo && Boolean(expenseOwner) && productAmountUsd > 0;
@@ -737,12 +761,9 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
     const url = isEdit ? `/productos/${producto.id}` : (isBatch ? '/productos/lote' : '/productos');
     const method = isEdit ? 'patch' : 'post';
 
-    let accesorios = Array.isArray(form.accesorios) ? [...form.accesorios] : [];
-    const hasTodos = accesorios.includes('Todos');
-    const isNuevo = String(form.estado || '').toLowerCase() === 'nuevo';
-    if (hasTodos || isNuevo) accesorios = ['Caja', 'Cubo', 'Cable'];
+    const accesorios = normalizeIncludedAccessories(form.tipo, form.accesorios, form.detalle?.modelo);
 
-    const base = { tipo: form.tipo, estado: form.estado, accesorios };
+    const base = { tipo: form.tipo, estado: form.estado, accesorios, cantidad: Number(form.cantidad || 1) };
     const allowedDetalle = ['gama', 'procesador', 'generacion', 'numero', 'modelo', 'tamano', 'almacenamiento', 'ram', 'conexion', 'esim', 'descripcionOtro'];
     const cleanDetalle = Object.fromEntries(
       Object.entries(form.detalle || {}).filter(([k]) => allowedDetalle.includes(k))
@@ -836,6 +857,11 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
         }
       }
 
+      if (String(saved?.tipo || '').toLowerCase() === 'accesorios'
+        && Number(saved?.codigoInventario || saved?.id) !== Number(saved?.id)) {
+        alert(`La compra #${saved.id} se creó por separado y comparte el código MS-${saved.codigoInventario}.`);
+      }
+
       const extras = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
       if (saved?.id && extras.length) {
         const ops = extras.map((id) => api.patch(`/productos/${id}`, { vincularCon: saved.id }).catch(() => {}));
@@ -910,7 +936,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
 
         <form onSubmit={handleSubmit}>
           <fieldset disabled={saving} className={saving ? 'opacity-60 pointer-events-none' : ''}>
-            {!isEdit && (
+            {!isEdit && form.tipo !== 'accesorios' && (
               <div className="border border-indigo-200 rounded-lg p-4 mb-6 bg-indigo-50/50">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
@@ -1149,6 +1175,10 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                     <option value="ipad">iPad</option>
                     <option value="iphone">iPhone</option>
                     <option value="watch">Apple Watch</option>
+                    <option value="macmini">Mac mini</option>
+                    <option value="imac">iMac</option>
+                    <option value="airpods">AirPods</option>
+                    <option value="accesorios">Accesorios</option>
                     <option value="otro">Otro</option>
                   </select>
                 </div>
@@ -1183,6 +1213,28 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                     onChange={v => onChange('detalle', 'descripcionOtro', v)}
                   />
                 )}
+                {form.tipo === 'macmini' && (
+                  <FormProductoMacDesktop tipo="macmini" detalle={form.detalle} onChange={(f, v) => onChange('detalle', f, v)} />
+                )}
+                {form.tipo === 'imac' && (
+                  <FormProductoMacDesktop tipo="imac" detalle={form.detalle} onChange={(f, v) => onChange('detalle', f, v)} />
+                )}
+                {form.tipo === 'airpods' && (
+                  <div>
+                    <label className="block font-medium">Modelo de AirPods</label>
+                    <select className="w-full border p-2 rounded" value={form.detalle?.modelo || ''} onChange={e => onChange('detalle', 'modelo', e.target.value)}>
+                      <option value="">Selecciona</option><option>AirPods Pro 1</option><option>AirPods Pro 2</option><option>AirPods Pro 3</option><option>AirPods 4</option><option>AirPods 4 ANC</option>
+                    </select>
+                  </div>
+                )}
+                {form.tipo === 'accesorios' && (
+                  <FormProductoAccessory
+                    detalle={form.detalle}
+                    cantidad={form.cantidad}
+                    onDetalleChange={(field, value) => onChange('detalle', field, value)}
+                    onCantidadChange={(value) => onChange('main', 'cantidad', value)}
+                  />
+                )}
 
                 <div className={form.tipo === 'iphone' ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}>
                   <div>
@@ -1194,7 +1246,9 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                     >
                       <option value="">Selecciona</option>
                       <option value="nuevo">Nuevo</option>
+                      <option value="open_box">Open Box</option>
                       <option value="usado">Usado</option>
+                      <option value="reacondicionado">Reacondicionado</option>
                       <option value="roto">Roto</option>
                     </select>
                   </div>
@@ -1214,43 +1268,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                   )}
                 </div>
 
-                <div>
-                  <label className="block font-medium mb-1">Accesorios</label>
-                  {(() => {
-                    const isNuevo = String(form.estado || '').toLowerCase() === 'nuevo';
-                    const todos = Array.isArray(form.accesorios) && form.accesorios.includes('Todos');
-                    const disabledGroup = isNuevo || todos;
-                    return (
-                      <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 ${disabledGroup ? 'opacity-60' : ''}`}>
-                        {['Caja', 'Cubo', 'Cable', 'Todos'].map(opt => (
-                          <label key={opt} className={`flex items-center gap-2 border rounded px-3 py-2 cursor-pointer ${isNuevo ? 'pointer-events-none' : ''}`}>
-                            <input
-                              type="checkbox"
-                              className="accent-indigo-600"
-                              checked={isNuevo ? true : (opt === 'Todos' ? todos : (todos ? true : (form.accesorios || []).includes(opt)))}
-                              disabled={opt !== 'Todos' && (isNuevo || todos)}
-                              onChange={e => {
-                                const checked = e.target.checked;
-                                setForm(f => {
-                                  let next = Array.isArray(f.accesorios) ? [...f.accesorios] : [];
-                                  if (opt === 'Todos') {
-                                    return { ...f, accesorios: checked ? Array.from(new Set([...next, 'Todos'])) : next.filter(x => x !== 'Todos') };
-                                  }
-                                  if (checked) next = Array.from(new Set([...next, opt])); else next = next.filter(x => x !== opt);
-                                  return { ...f, accesorios: next };
-                                });
-                              }}
-                            />
-                            <span>{opt}</span>
-                          </label>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                  {String(form.estado || '').toLowerCase() === 'nuevo' && (
-                    <p className="text-sm text-gray-500 mt-1">Estado "Nuevo" fuerza Todos (Caja, Cubo y Cable).</p>
-                  )}
-                </div>
+                <IncludedAccessories type={form.tipo} model={form.detalle?.modelo} value={form.accesorios} onChange={(accesorios) => setForm((current) => ({ ...current, accesorios }))} />
 
                 <div>
                   <label className="block font-medium">Casillero</label>
@@ -1277,7 +1295,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                   <div key={field}>
                     <label className="block font-medium mb-1">
                       {{
-                        valorProducto: loteActivo ? 'Valor total del lote ($)' : 'Valor Producto ($)',
+                        valorProducto: form.tipo === 'accesorios' ? 'Valor total de la compra ($)' : (loteActivo ? 'Valor total del lote ($)' : 'Valor Producto ($)'),
                         valorDec: loteActivo ? 'Valor DEC compartido ($)' : 'Valor DEC ($)',
                         peso: 'Peso (kg)',
                         fechaCompra: 'Fecha de Compra'
@@ -1296,6 +1314,9 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                           Math.max(Number(cantidadLote) || 1, 1)
                         ).toFixed(2)}
                       </p>
+                    )}
+                    {form.tipo === 'accesorios' && field === 'valorProducto' && (
+                      <p className="text-xs text-gray-500 mt-1">Costo por unidad: ${((Number(form.valor[field]) || 0) / Math.max(Number(form.cantidad) || 1, 1)).toFixed(2)}</p>
                     )}
                     {loteActivo && (field === 'valorDec' || field === 'peso') && (
                       <p className="text-xs text-gray-500 mt-1">

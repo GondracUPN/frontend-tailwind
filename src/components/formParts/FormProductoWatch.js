@@ -52,6 +52,12 @@ export default function FormProductoWatch({ detalle, onChange }) {
     if (rawGeneracion && rawGeneracion !== serie) onChange('generacion', serie);
   }, [detalle?.gama, detalle?.generacion, linea, serie, onChange]);
 
+  useEffect(() => {
+    if (linea !== 'Ultra' || !serie) return;
+    if (tamano !== '49 mm') onChange('tamano', '49 mm');
+    if (conexion !== 'GPS + Cel') onChange('conexion', 'GPS + Cel');
+  }, [linea, serie, tamano, conexion, onChange]);
+
   return (
     <>
       <div>
@@ -79,8 +85,8 @@ export default function FormProductoWatch({ detalle, onChange }) {
             value={serie}
             onChange={e => {
               onChange('generacion', e.target.value);
-              onChange('tamano', '');
-              onChange('conexion', '');
+              onChange('tamano', linea === 'Ultra' && e.target.value ? '49 mm' : '');
+              onChange('conexion', linea === 'Ultra' && e.target.value ? 'GPS + Cel' : '');
             }}
           >
             <option value="">Seleccione</option>
@@ -95,6 +101,7 @@ export default function FormProductoWatch({ detalle, onChange }) {
           <select
             className="w-full border p-2 rounded"
             value={tamano || ''}
+            disabled={linea === 'Ultra'}
             onChange={e => onChange('tamano', e.target.value)}
           >
             <option value="">Seleccione</option>
@@ -109,6 +116,7 @@ export default function FormProductoWatch({ detalle, onChange }) {
           <select
             className="w-full border p-2 rounded"
             value={conexion || ''}
+            disabled={linea === 'Ultra'}
             onChange={e => onChange('conexion', e.target.value)}
           >
             <option value="">Seleccione</option>

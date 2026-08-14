@@ -236,19 +236,22 @@ function InventarioAdmin({ onIrProductos }) {
     }
   };
 
-  // Derivar lista visible: solo 'Disponible'
+  // El backend solo devuelve productos recogidos, en almacén y con la sesión de fotos terminada.
   const visibles = React.useMemo(() => {
     return (productos || []).filter((p) => getVentaStatus(p).label === 'Disponible' && !p.catalogoEnviado);
   }, [productos, getVentaStatus]);
 
   return (
     <div className="bg-white rounded-2xl p-4 shadow">
-      <h2 className="text-xl font-semibold mb-3">Inventario</h2>
+      <div className="mb-3">
+        <h2 className="text-xl font-semibold">Inventario · Listos</h2>
+        <p className="mt-1 text-sm text-gray-500">Solo productos disponibles, confirmados en almacén y con la sesión de fotos terminada.</p>
+      </div>
       <div className="flex gap-2 mb-3 flex-wrap">
         <button onClick={()=>setOpenModal(true)} className="bg-green-600 text-white px-3 py-2 rounded">Agregar producto</button>
         <button onClick={load} className="bg-gray-200 px-3 py-2 rounded">Refrescar</button>
         <button onClick={onIrProductos} className="bg-indigo-600 text-white px-3 py-2 rounded">Ver en Productos</button>
-        <button onClick={enviarDisponiblesAlCatalogo} className="bg-amber-500 text-white px-3 py-2 rounded">Enviar disponibles al catálogo</button>
+        <button disabled={!visibles.length || loading} onClick={enviarDisponiblesAlCatalogo} className="bg-amber-500 text-white px-3 py-2 rounded disabled:cursor-not-allowed disabled:opacity-50">Enviar listos al catálogo</button>
       </div>
       {loading ? <p>Cargando...</p> : error ? <p className="text-red-600">{error}</p> : (
         <table className="w-full text-sm">
@@ -274,6 +277,11 @@ function InventarioAdmin({ onIrProductos }) {
                 </td>
               </tr>
             ))}
+            {!visibles.length && (
+              <tr>
+                <td colSpan={4} className="border-t p-5 text-center text-gray-500">No hay productos listos para enviar al catálogo.</td>
+              </tr>
+            )}
           </tbody>
         </table>
       )}

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import api from '../api';
-import Inventario from './Inventario';
+import Inventario, { groupInventoryEntries } from './Inventario';
 
 jest.mock('../api', () => ({
   __esModule: true,
@@ -27,6 +27,32 @@ const entry = {
 beforeEach(() => {
   jest.clearAllMocks();
   api.get.mockResolvedValue([entry]);
+});
+
+test('fusiona en Inventario los lotes de accesorios con el mismo codigo y suma el stock', () => {
+  const grouped = groupInventoryEntries([
+    {
+      producto: { id: 421, codigoInventario: 421, tipo: 'accesorios', stockInicial: 5, stockActual: 5, detalle: { modelo: 'Apple Pencil Pro' } },
+      ficha: { enAlmacen: true },
+    },
+    {
+      producto: { id: 430, codigoInventario: 421, tipo: 'accesorios', stockInicial: 20, stockActual: 18, detalle: { modelo: 'Apple Pencil Pro' } },
+      ficha: { enAlmacen: true, fotoUrl: '/pencil.jpg', fotosTomadas: true },
+    },
+  ]);
+
+  expect(grouped).toHaveLength(1);
+  expect(grouped[0]).toMatchObject({
+    producto: {
+      id: 430,
+      codigoInventario: 421,
+      stockInicial: 25,
+      stockActual: 23,
+      __inventoryGroup: true,
+      __lotIds: [421, 430],
+    },
+    ficha: { fotoUrl: '/pencil.jpg', enAlmacen: true, fotosTomadas: true },
+  });
 });
 
 test('lista un producto disponible y abre su ficha de cotejo', async () => {

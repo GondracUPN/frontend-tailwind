@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useState, useEffect, useMemo } from 'react';
 import Home from './pages/Home';
 import api, { API_URL } from './api';
 import { normalizeProductLookupUrl } from './utils/productUrl';
+import { formatAppleWatchName } from './utils/productName';
 import {
   FiActivity,
   FiArchive,
@@ -182,13 +183,7 @@ const buildNombreProductoGlobal = (p) => {
     return ['iPhone', numero, modelo].filter(Boolean).join(' ');
   }
   if (String(p.tipo || '').toLowerCase() === 'watch') {
-    return [
-      'Apple Watch',
-      p.detalle?.gama,
-      p.detalle?.generacion,
-      (p.detalle || {})['tamano'] || (p.detalle || {})[keyTamano] || (p.detalle || {})['tamanio'],
-      p.detalle?.conexion,
-    ].filter(Boolean).join(' ');
+    return formatAppleWatchName(p.detalle);
   }
   const parts = [
     p.tipo,
@@ -1315,30 +1310,34 @@ function App() {
   return (
     <>
       <div className="min-h-screen bg-macGray">
-        {sidebarHidden && (
-          <button
-            type="button"
-            className="fixed left-3 top-3 z-50 inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
-            onClick={() => setSidebarHidden(false)}
-            aria-label="Mostrar menu"
-            title="Mostrar menu"
-          >
-            <FiMenu className="h-5 w-5" />
-          </button>
-        )}
+        <button
+          type="button"
+          className={`fixed left-3 top-3 z-50 inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition-[opacity,transform,background-color] duration-300 ease-out hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 motion-reduce:transition-none ${
+            sidebarHidden ? 'scale-100 opacity-100' : 'pointer-events-none scale-90 opacity-0'
+          }`}
+          onClick={() => setSidebarHidden(false)}
+          aria-label="Mostrar menu"
+          title="Mostrar menu"
+          tabIndex={sidebarHidden ? 0 : -1}
+        >
+          <FiMenu className="h-5 w-5" />
+        </button>
 
-        {!sidebarHidden && (
-          <button
-            type="button"
-            className="fixed inset-0 z-40 bg-slate-900/35 lg:hidden"
-            onClick={() => setSidebarHidden(true)}
-            aria-label="Cerrar menu"
-          />
-        )}
+        <button
+          type="button"
+          className={`fixed inset-0 z-40 bg-slate-900/35 backdrop-blur-[1px] transition-opacity duration-300 ease-out motion-reduce:transition-none lg:hidden ${
+            sidebarHidden ? 'pointer-events-none opacity-0' : 'opacity-100'
+          }`}
+          onClick={() => setSidebarHidden(true)}
+          aria-label="Cerrar menu"
+          tabIndex={sidebarHidden ? -1 : 0}
+        />
 
         <aside
-          className={`fixed inset-y-0 left-0 z-50 flex w-72 max-w-[calc(100vw-1rem)] flex-col border-r border-slate-200 bg-white/95 px-4 py-4 shadow-sm backdrop-blur transition-transform duration-200 lg:w-64 ${
-            sidebarHidden ? '-translate-x-full' : 'translate-x-0'
+          className={`fixed inset-y-0 left-0 z-50 flex w-72 max-w-[calc(100vw-1rem)] flex-col border-r border-slate-200 bg-white/95 px-4 py-4 shadow-sm backdrop-blur will-change-transform transition-[transform,box-shadow] motion-reduce:transition-none lg:w-64 ${
+            sidebarHidden
+              ? '-translate-x-[105%] shadow-none duration-200 ease-in'
+              : 'translate-x-0 shadow-xl duration-300 ease-out'
           }`}
         >
           <div className="mb-5 flex h-12 items-center justify-between gap-3 rounded-lg px-2">
@@ -1382,7 +1381,7 @@ function App() {
           </nav>
         </aside>
 
-        <main className={`min-h-screen transition-[padding] duration-200 ${sidebarHidden ? 'pl-0' : 'lg:pl-64'}`}>
+        <main className={`min-h-screen transition-[padding] duration-300 ease-out motion-reduce:transition-none ${sidebarHidden ? 'pl-0' : 'lg:pl-64'}`}>
           {renderVista()}
         </main>
       </div>

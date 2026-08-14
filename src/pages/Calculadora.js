@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import api, { API_URL } from "../api";
 import { normalizeProductLookupUrl } from "../utils/productUrl";
+import { formatAppleWatchName } from "../utils/productName";
 
 /* =========================
    Constantes de negocio
@@ -348,8 +349,7 @@ const buildProductoLabel = (p) => {
   }
 
   if (tipo === 'watch') {
-    const base = ['apple watch', d?.generacion, tam, d?.conexion].filter(Boolean).join(' ').trim();
-    return base || 'apple watch';
+    return formatAppleWatchName(d).toLowerCase();
   }
 
   const parts = [p?.tipo, d?.gama, d?.procesador, d?.modelo, tam].filter(Boolean);

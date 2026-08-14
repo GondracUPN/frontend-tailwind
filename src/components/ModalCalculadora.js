@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { TC_FIJO } from '../utils/tipoCambio';
 import api from '../api';
+import { formatAppleWatchName } from '../utils/productName';
 
 const fmtSoles = (v) => {
   const amount = Number(v);
@@ -30,7 +31,7 @@ const buildProductName = (product) => {
   const type = clean(product?.tipo).toLowerCase();
   if (type === 'iphone') return ['iPhone', detail.numero, detail.modelo].map(clean).filter(Boolean).join(' ');
   if (type === 'ipad') return ['iPad', detail.gama === 'Normal' ? '' : detail.gama].map(clean).filter(Boolean).join(' ');
-  if (type === 'watch') return ['Apple Watch', detail.gama, detail.generacion].map(clean).filter(Boolean).join(' ');
+  if (type === 'watch') return formatAppleWatchName(detail);
   if (type === 'otro') return clean(detail.descripcionOtro) || 'Otro producto';
   const typeLabel = type === 'macbook' ? 'MacBook' : clean(product?.tipo);
   return [typeLabel, detail.gama].map(clean).filter(Boolean).join(' ');

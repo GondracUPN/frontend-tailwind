@@ -1,5 +1,5 @@
 // src/components/ModalGastoDebito.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL } from '../api';
 import { convertPenToUsd, TC_FIJO } from '../utils/tipoCambio';
 import { localDateInputValue } from '../utils/dates';
@@ -95,6 +95,7 @@ export default function ModalGastoDebito({
     return currentMonthlyExpenseRows(rows, 'debito');
   }, [rows]);
   const [moneda, setMoneda] = useState('PEN');
+  const monedaElegidaManualmente = useRef(false);
   const [monto, setMonto] = useState('');
   const [fecha, setFecha] = useState(() => localDateInputValue());
   const [pagoObjetivo, setPagoObjetivo] = useState('PEN'); // 'PEN' | 'USD'
@@ -145,16 +146,17 @@ export default function ModalGastoDebito({
     return () => { alive = false; };
   }, [userId, defaultPaymentCard]);
 
-  // En conceptos distintos a pago_tarjeta, forzar soles
+  // Aplica la moneda inicial del concepto sin pisar una elección manual posterior.
   useEffect(() => {
-    const custom = customConcepts.find((item) => item.value === normConcept(concepto));
-    if (custom) {
-      setMoneda(custom?.metadata?.defaultCurrency === 'USD' ? 'USD' : 'PEN');
+    if (monedaElegidaManualmente.current) return;
+    if (normConcept(concepto) === 'bolsa') {
+      setMoneda('PEN');
       setPagoObjetivo('PEN');
       return;
     }
-    if (concepto === 'bolsa') {
-      setMoneda('USD');
+    const custom = customConcepts.find((item) => item.value === normConcept(concepto));
+    if (custom) {
+      setMoneda(custom?.metadata?.defaultCurrency === 'USD' ? 'USD' : 'PEN');
       setPagoObjetivo('PEN');
       return;
     }
@@ -172,7 +174,30 @@ export default function ModalGastoDebito({
   }, [onClose]);
 
   const handleConceptChange = (val) => {
+    monedaElegidaManualmente.current = false;
     setConcepto(val);
+    const normalized = normConcept(val);
+    if (normalized === 'bolsa') {
+      setMoneda('PEN');
+      setPagoObjetivo('PEN');
+      setBolsaTomarDolares(false);
+      return;
+    }
+    const custom = customConcepts.find((item) => item.value === normalized);
+    if (custom) {
+      setMoneda(custom?.metadata?.defaultCurrency === 'USD' ? 'USD' : 'PEN');
+      setPagoObjetivo('PEN');
+      return;
+    }
+    if (normalized !== 'pago_tarjeta' && !isFlexibleMoneda(normalized)) {
+      setMoneda('PEN');
+      setPagoObjetivo('PEN');
+    }
+  };
+
+  const selectMoneda = (value) => {
+    monedaElegidaManualmente.current = true;
+    setMoneda(value === 'USD' ? 'USD' : 'PEN');
   };
 
   const handleMonthlySelection = (value) => {
@@ -187,7 +212,7 @@ export default function ModalGastoDebito({
     const detail = String(selected.notas || '');
     setDetalleMensual(detail);
     setMonto(String(Math.abs(Number(selected.monto || 0)) || ''));
-    setMoneda(selected.moneda === 'USD' ? 'USD' : 'PEN');
+    selectMoneda(selected.moneda === 'USD' ? 'USD' : 'PEN');
     if (selected.tarjeta) setBanco(selected.tarjeta);
     try {
       const types = JSON.parse(localStorage.getItem('mensuales_types') || '{}');
@@ -369,7 +394,7 @@ export default function ModalGastoDebito({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
                   <label className="text-sm">
                     <span className="block text-gray-600 mb-1">Moneda del pago</span>
-                    <select className="w-full border rounded px-3 py-2" value={moneda} onChange={(e)=>setMoneda(e.target.value)}>
+                    <select className="w-full border rounded px-3 py-2" value={moneda} onChange={(e)=>selectMoneda(e.target.value)}>
                       <option value="PEN">Soles</option>
                       <option value="USD">Dólares</option>
                     </select>
@@ -449,7 +474,7 @@ export default function ModalGastoDebito({
                       type="button"
                       className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${moneda === 'PEN' ? 'bg-emerald-700 text-white shadow-sm' : 'text-emerald-800 hover:bg-emerald-100'}`}
                       onClick={() => {
-                        setMoneda('PEN');
+                        selectMoneda('PEN');
                         setBolsaTomarDolares(false);
                       }}
                     >
@@ -458,7 +483,7 @@ export default function ModalGastoDebito({
                     <button
                       type="button"
                       className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${moneda === 'USD' ? 'bg-emerald-700 text-white shadow-sm' : 'text-emerald-800 hover:bg-emerald-100'}`}
-                      onClick={() => setMoneda('USD')}
+                      onClick={() => selectMoneda('USD')}
                     >
                       Dolares
                     </button>
@@ -496,7 +521,7 @@ export default function ModalGastoDebito({
                     {conceptoAllowsCurrency && (
                       <label className="text-sm">
                         <span className="block text-gray-600 mb-1">Moneda</span>
-                        <select className="w-full border rounded px-3 py-2" value={moneda} onChange={(e)=>setMoneda(e.target.value)}>
+                        <select className="w-full border rounded px-3 py-2" value={moneda} onChange={(e)=>selectMoneda(e.target.value)}>
                           <option value="PEN">Soles (PEN)</option>
                           <option value="USD">Dolares (USD)</option>
                         </select>

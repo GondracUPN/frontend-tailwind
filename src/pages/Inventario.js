@@ -26,24 +26,13 @@ import {
 } from 'react-icons/fi';
 import api, { API_URL } from '../api';
 import parseSnImeiIds from '../utils/snImeiOcr';
+import IncludedAccessories from '../components/IncludedAccessories';
+import { formatAppleWatchName } from '../utils/productName';
 
 const ModalFacu = lazy(() => import('../components/ModalFacu'));
 const ModalCalculadora = lazy(() => import('../components/ModalCalculadora'));
 const ModalVenta = lazy(() => import('../components/ModalVenta'));
 const ModalVentaMensaje = lazy(() => import('../components/ModalVentaMensaje'));
-
-const ACCESORIOS = [
-  'Caja',
-  'Cubo',
-  'Cable',
-  'Case',
-  'Funda',
-  'Cubo fake',
-  'Cable fake',
-  'Magic Keyboard',
-  'Keyboard Logitech',
-  'Ninguno',
-];
 
 const INVENTARIO_TIPO_CAMBIO = 3.7;
 const roundUp10 = (value) => Math.ceil(Number(value || 0) / 10) * 10;
@@ -63,6 +52,7 @@ const EMPTY_FORM = {
   imei: '',
   imei2: '',
   accesorios: [],
+  cantidadStock: 1,
   observaciones: '',
   fotosTomadas: false,
   marketplaceSubido: false,
@@ -82,16 +72,28 @@ const formatSoles = (value) => {
 const buildNombre = (producto) => {
   const detalle = producto?.detalle || {};
   const tipo = text(producto?.tipo).toLowerCase();
+  if (tipo === 'accesorios') {
+    return [detalle.modelo, detalle.descripcionOtro].map(text).filter(Boolean).join(' - ') || 'Accesorio';
+  }
   if (tipo === 'otro') return text(detalle.descripcionOtro) || 'Otro producto';
   if (tipo === 'iphone') {
     return ['iPhone', detalle.numero, detalle.modelo].map(text).filter(Boolean).join(' ');
   }
   if (tipo === 'watch') {
-    return ['Apple Watch', detalle.gama, detalle.tamano].map(text).filter(Boolean).join(' ');
+    return formatAppleWatchName(detalle);
   }
   if (tipo === 'macbook') {
     return ['MacBook', detalle.gama, detalle.procesador, detalle.tamano]
       .map(text).filter(Boolean).join(' ');
+  }
+  if (tipo === 'macmini') {
+    return ['Mac mini', detalle.procesador].map(text).filter(Boolean).join(' ');
+  }
+  if (tipo === 'imac') {
+    return ['iMac', detalle.procesador, detalle.tamano].map(text).filter(Boolean).join(' ');
+  }
+  if (tipo === 'airpods') {
+    return text(detalle.modelo) || 'AirPods';
   }
   if (tipo === 'ipad') {
     return ['iPad', detalle.gama, detalle.generacion, detalle.procesador, detalle.tamano]
@@ -204,9 +206,55 @@ const toForm = (entry) => {
     imei2: ficha.imei2 || '',
     observaciones: ficha.observaciones || '',
     accesorios: ficha.accesorios?.length ? ficha.accesorios : sourceAccessories,
+    cantidadStock: entry?.producto?.stockInicial ?? 1,
     primerPrecioSoles: ficha.primerPrecioSoles ?? '',
     ultimoPrecioSoles: ficha.ultimoPrecioSoles ?? '',
   };
+};
+
+export const groupInventoryEntries = (rawEntries) => {
+  const result = [];
+  const accessoryGroups = new Map();
+  (Array.isArray(rawEntries) ? rawEntries : []).forEach((entry) => {
+    const producto = entry?.producto;
+    if (!producto?.id) return;
+    if (text(producto.tipo).toLowerCase() !== 'accesorios') {
+      result.push(entry);
+      return;
+    }
+    const key = String(Number(producto.codigoInventario || producto.id));
+    accessoryGroups.set(key, [...(accessoryGroups.get(key) || []), entry]);
+  });
+
+  accessoryGroups.forEach((group, key) => {
+    const ranked = [...group].sort((a, b) => {
+      const photoDiff = Number(Boolean(b?.ficha?.fotoUrl)) - Number(Boolean(a?.ficha?.fotoUrl));
+      if (photoDiff) return photoDiff;
+      const stockDiff = Number(b?.producto?.stockActual || 0) - Number(a?.producto?.stockActual || 0);
+      return stockDiff || Number(a?.producto?.id || 0) - Number(b?.producto?.id || 0);
+    });
+    const representative = ranked[0];
+    const fichas = group.map((item) => item?.ficha).filter(Boolean);
+    const baseFicha = representative?.ficha || fichas[0] || null;
+    result.push({
+      ...representative,
+      ficha: baseFicha ? {
+        ...baseFicha,
+        enAlmacen: fichas.some((item) => item?.enAlmacen),
+        fotosTomadas: fichas.some((item) => item?.fotosTomadas),
+        marketplaceSubido: fichas.some((item) => item?.marketplaceSubido),
+      } : null,
+      producto: {
+        ...representative.producto,
+        codigoInventario: Number(key),
+        stockInicial: group.reduce((sum, item) => sum + Math.max(0, Number(item?.producto?.stockInicial || 0)), 0),
+        stockActual: group.reduce((sum, item) => sum + Math.max(0, Number(item?.producto?.stockActual || 0)), 0),
+        __inventoryGroup: group.length > 1,
+        __lotIds: group.map((item) => item.producto.id),
+      },
+    });
+  });
+  return result;
 };
 
 const Pill = ({ children, tone = 'slate' }) => {
@@ -219,26 +267,34 @@ const Pill = ({ children, tone = 'slate' }) => {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${tones[tone]}`}>{children}</span>;
 };
 
-const INVENTARIO_CACHE_KEY = 'inventario:cache:v1';
+const INVENTARIO_CACHE_KEY = 'inventario:cache:v2';
 const INVENTARIO_CACHE_TTL_MS = 2 * 60 * 1000;
 let inventarioMemoryCache = null;
 let inventarioRequest = null;
 
 const readInventarioCache = () => {
   if (process.env.NODE_ENV === 'test') return null;
-  if (inventarioMemoryCache) return inventarioMemoryCache;
+  if (inventarioMemoryCache) {
+    inventarioMemoryCache = {
+      ...inventarioMemoryCache,
+      entries: (inventarioMemoryCache.entries || []).filter((entry) => entry?.producto?.id),
+    };
+    return inventarioMemoryCache;
+  }
   try {
     const parsed = JSON.parse(localStorage.getItem(INVENTARIO_CACHE_KEY) || 'null');
     if (!parsed?.ts || !Array.isArray(parsed.entries)) return null;
-    inventarioMemoryCache = parsed;
-    return parsed;
+    const cleanEntries = parsed.entries.filter((entry) => entry?.producto?.id);
+    inventarioMemoryCache = { ...parsed, entries: cleanEntries };
+    return inventarioMemoryCache;
   } catch {
     return null;
   }
 };
 
 const writeInventarioCache = (entries) => {
-  const next = { entries, ts: Date.now() };
+  const cleanEntries = (Array.isArray(entries) ? entries : []).filter((entry) => entry?.producto?.id);
+  const next = { entries: cleanEntries, ts: Date.now() };
   inventarioMemoryCache = next;
   try {
     localStorage.setItem(INVENTARIO_CACHE_KEY, JSON.stringify(next));
@@ -293,7 +349,7 @@ export default function Inventario({ setVista }) {
         inventarioRequest = api.get('/inventario').finally(() => { inventarioRequest = null; });
       }
       const data = await inventarioRequest;
-      const next = Array.isArray(data) ? data : [];
+      const next = (Array.isArray(data) ? data : []).filter((entry) => entry?.producto?.id);
       setEntries(next);
       writeInventarioCache(next);
     } catch (err) {
@@ -324,16 +380,16 @@ export default function Inventario({ setVista }) {
     };
   }, []);
 
-  const replaceFicha = (productoId, ficha) => {
+  const replaceFicha = (productoId, ficha, productoPatch = null) => {
     setEntries((current) => {
-      const next = current.map((entry) => (
-        entry.producto?.id === productoId ? { ...entry, ficha } : entry
+      const next = current.filter((entry) => entry?.producto?.id).map((entry) => (
+        entry?.producto?.id === productoId ? { ...entry, ficha, producto: productoPatch ? { ...entry.producto, ...productoPatch } : entry.producto } : entry
       ));
       writeInventarioCache(next);
       return next;
     });
     setEditing((current) => (
-      current?.producto?.id === productoId ? { ...current, ficha } : current
+      current?.producto?.id === productoId ? { ...current, ficha, producto: productoPatch ? { ...current.producto, ...productoPatch } : current.producto } : current
     ));
   };
 
@@ -344,9 +400,9 @@ export default function Inventario({ setVista }) {
       if (!updated?.id && !deletedId) return;
       setEntries((current) => {
         const next = deletedId
-          ? current.filter((entry) => entry.producto?.id !== deletedId)
-          : current.map((entry) => (
-            entry.producto?.id === updated.id ? { ...entry, producto: updated } : entry
+          ? current.filter((entry) => entry?.producto?.id && entry.producto.id !== deletedId)
+          : current.filter((entry) => entry?.producto?.id).map((entry) => (
+            entry?.producto?.id === updated.id ? { ...entry, producto: updated } : entry
           ));
         writeInventarioCache(next);
         return next;
@@ -357,7 +413,8 @@ export default function Inventario({ setVista }) {
   }, []);
 
   const quickPatch = async (entry, patch) => {
-    const id = entry.producto.id;
+    const id = entry?.producto?.id;
+    if (!id) return;
     setBusyId(id);
     setError('');
     try {
@@ -439,15 +496,17 @@ export default function Inventario({ setVista }) {
   };
 
   const handleInventoryVentaSaved = (venta) => {
-    const productoId = venta?.productoId || selling?.entry?.producto?.id;
-    if (productoId) {
+    const soldEntry = selling?.entry;
+    const accessorySale = text(soldEntry?.producto?.tipo).toLowerCase() === 'accesorios';
+    if (soldEntry && !accessorySale) {
       setEntries((current) => {
-        const next = current.filter((entry) => entry.producto?.id !== productoId);
+        const next = current.filter((entry) => entry.producto?.id !== soldEntry.producto.id);
         writeInventarioCache(next);
         return next;
       });
     }
     setSelling(null);
+    if (accessorySale) load({ silent: true });
   };
 
   const openPhotoViewer = (url, nombre) => {
@@ -459,21 +518,6 @@ export default function Inventario({ setVista }) {
   const closePhotoViewer = () => {
     setViewingPhoto(null);
     setViewerZoom(1);
-  };
-
-  const toggleAccessory = (accessory) => {
-    setForm((current) => {
-      if (accessory === 'Ninguno') {
-        return { ...current, accesorios: current.accesorios.includes('Ninguno') ? [] : ['Ninguno'] };
-      }
-      const withoutNone = current.accesorios.filter((item) => item !== 'Ninguno');
-      return {
-        ...current,
-        accesorios: withoutNone.includes(accessory)
-          ? withoutNone.filter((item) => item !== accessory)
-          : [...withoutNone, accessory],
-      };
-    });
   };
 
   const handlePhotoFile = (file) => {
@@ -598,6 +642,9 @@ export default function Inventario({ setVista }) {
     setNotice('');
     try {
       const payload = {
+        cantidadStock: String(editing.producto.tipo).toLowerCase() === 'accesorios' && !editing.producto.__inventoryGroup
+          ? Number(form.cantidadStock || 0)
+          : undefined,
         enAlmacen: Boolean(form.enAlmacen),
         color: text(form.color) || null,
         ciclosBateria: productoNuevo || form.ciclosBateria === '' ? null : Number(form.ciclosBateria),
@@ -647,18 +694,25 @@ export default function Inventario({ setVista }) {
     }
   };
 
+  const displayEntries = useMemo(() => groupInventoryEntries(entries), [entries]);
   const stats = useMemo(() => ({
-    total: entries.length,
-    almacen: entries.filter((entry) => entry.ficha?.enAlmacen).length,
-    sinFoto: entries.filter((entry) => entry.ficha?.enAlmacen && !entry.ficha?.fotosTomadas).length,
-    conFoto: entries.filter((entry) => entry.ficha?.enAlmacen && Boolean(entry.ficha?.fotosTomadas)).length,
-    sinMarketplace: entries.filter((entry) => entry.ficha?.enAlmacen && entry.ficha?.fotosTomadas && !entry.ficha?.marketplaceSubido).length,
-  }), [entries]);
+    total: displayEntries.length,
+    almacen: displayEntries.filter((entry) => entry?.ficha?.enAlmacen).length,
+    sinFoto: displayEntries.filter((entry) => entry?.ficha?.enAlmacen && !entry.ficha?.fotosTomadas).length,
+    conFoto: displayEntries.filter((entry) => entry?.ficha?.enAlmacen && Boolean(entry.ficha?.fotosTomadas)).length,
+    sinMarketplace: displayEntries.filter((entry) => entry?.ficha?.enAlmacen && entry.ficha?.fotosTomadas && !entry.ficha?.marketplaceSubido).length,
+  }), [displayEntries]);
 
   const inventoryValues = useMemo(() => entries.reduce((totals, entry) => {
-    const valor = entry.producto?.valor || {};
+    const valor = entry?.producto?.valor || {};
     const fallbackCost = Number(valor.valorSoles || 0) + Number(valor.costoEnvio || 0);
-    const costSoles = Number(valor.costoTotalProrrateado ?? valor.costoTotal ?? fallbackCost) || 0;
+    const totalPurchaseCost = Number(valor.costoTotalProrrateado ?? valor.costoTotal ?? fallbackCost) || 0;
+    const accessoryStock = String(entry?.producto?.tipo || '').toLowerCase() === 'accesorios';
+    const purchasedUnits = Math.max(1, Number(entry?.producto?.stockInicial || 1));
+    const remainingUnits = Math.max(0, Number(entry?.producto?.stockActual || 0));
+    const costSoles = accessoryStock
+      ? (totalPurchaseCost / purchasedUnits) * remainingUnits
+      : totalPurchaseCost;
     totals.costSoles += costSoles;
     totals.costUsd += costSoles / INVENTARIO_TIPO_CAMBIO;
     totals.minimumSoles += roundUp10(costSoles * 1.2);
@@ -673,7 +727,8 @@ export default function Inventario({ setVista }) {
 
   const filtered = useMemo(() => {
     const needle = text(query).toLowerCase();
-    const result = entries.filter((entry) => {
+    const result = displayEntries.filter((entry) => {
+      if (!entry?.producto?.id) return false;
       const { producto, ficha } = entry;
       if (filter === 'almacen' && !ficha?.enAlmacen) return false;
       if (filter === 'pendientes' && ficha?.enAlmacen) return false;
@@ -683,7 +738,10 @@ export default function Inventario({ setVista }) {
       if (!needle) return true;
       const compactCodeQuery = needle.replace(/[\s_-]+/g, '');
       const codeQueryMatch = compactCodeQuery.match(/^(?:ms(?:code)?|code)?(\d+)$/i);
-      if (codeQueryMatch && Number(producto?.id) === Number(codeQueryMatch[1])) return true;
+      const visibleCode = String(producto?.tipo || '').toLowerCase() === 'accesorios'
+        ? (producto?.codigoInventario || producto?.id)
+        : producto?.id;
+      if (codeQueryMatch && Number(visibleCode) === Number(codeQueryMatch[1])) return true;
       const haystack = [
         producto?.id,
         buildNombre(producto),
@@ -700,7 +758,10 @@ export default function Inventario({ setVista }) {
     return result.sort((a, b) => {
       if (sortOrder === 'codeAsc' || sortOrder === 'codeDesc') {
         const direction = sortOrder === 'codeAsc' ? 1 : -1;
-        return ((Number(a.producto?.id) || 0) - (Number(b.producto?.id) || 0)) * direction;
+        const codeOf = (entry) => String(entry?.producto?.tipo || '').toLowerCase() === 'accesorios'
+          ? (entry?.producto?.codigoInventario || entry?.producto?.id)
+          : entry?.producto?.id;
+        return ((Number(codeOf(a)) || 0) - (Number(codeOf(b)) || 0)) * direction;
       }
 
       const aDate = Date.parse(lastPickupDate(a.producto) || '');
@@ -713,7 +774,7 @@ export default function Inventario({ setVista }) {
       if (aHasDate && aDate !== bDate) return (aDate - bDate) * direction;
       return ((Number(a.producto?.id) || 0) - (Number(b.producto?.id) || 0)) * direction;
     });
-  }, [entries, filter, query, sortOrder]);
+  }, [displayEntries, filter, query, sortOrder]);
 
   const downloadablePhotoCoverCount = useMemo(
     () => filtered.filter((entry) => entry.ficha?.fotosTomadas).length,
@@ -767,6 +828,13 @@ export default function Inventario({ setVista }) {
   };
 
   const photoPreview = photoData || editing?.ficha?.fotoUrl || '';
+  const accessoryEditing = String(editing?.producto?.tipo || '').toLowerCase() === 'accesorios';
+  const accessoryUnitsSold = accessoryEditing
+    ? Math.max(0, Number(editing?.producto?.stockInicial || 0) - Number(editing?.producto?.stockActual || 0))
+    : 0;
+  const accessoryProjectedStock = accessoryEditing
+    ? Math.max(0, Number(form.cantidadStock || 0) - accessoryUnitsSold)
+    : 0;
 
   return (
     <div className="min-h-screen bg-slate-50 px-3 py-4 sm:px-6 sm:py-6 lg:px-8">
@@ -879,6 +947,7 @@ export default function Inventario({ setVista }) {
           <div className={`grid gap-3 sm:gap-4 ${isTablet ? (isLandscape ? 'grid-cols-4' : 'grid-cols-3') : 'grid-cols-1 sm:grid-cols-2'}`}>
             {filtered.map((entry) => {
               const { producto, ficha } = entry;
+              const accessoryStock = String(producto.tipo || '').toLowerCase() === 'accesorios';
               const disabled = busyId === producto.id;
               const fichaCompleta = Boolean(
                 ficha?.enAlmacen && ficha?.fotosTomadas && ficha?.marketplaceSubido,
@@ -894,7 +963,7 @@ export default function Inventario({ setVista }) {
                         <FiImage className="h-8 w-8" /><span className="text-xs">Sin foto de inventario</span>
                       </div>
                     )}
-                    <span className="absolute left-3 top-3 rounded-lg bg-slate-950/80 px-2.5 py-1.5 font-mono text-xs font-semibold text-white shadow-sm backdrop-blur">MS-{producto.id}</span>
+                    <span className="absolute left-3 top-3 rounded-lg bg-slate-950/80 px-2.5 py-1.5 font-mono text-xs font-semibold text-white shadow-sm backdrop-blur">MS-{String(producto.tipo || '').toLowerCase() === 'accesorios' ? (producto.codigoInventario || producto.id) : producto.id}</span>
                   </div>
                   <div className={isTablet && !isLandscape ? 'p-3' : 'p-4'}>
                     <div className="flex items-start justify-between gap-3">
@@ -925,6 +994,19 @@ export default function Inventario({ setVista }) {
                       </span>
                     </div>
 
+                    {accessoryStock ? (
+                      <div className="mt-3 grid grid-cols-[1fr_1.35fr] gap-2 border-y border-slate-100 py-2">
+                        <label className={`flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg border px-2 text-xs font-semibold transition active:scale-[0.98] ${ficha?.enAlmacen ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                          <input type="checkbox" className="sr-only" checked={Boolean(ficha?.enAlmacen)} disabled={disabled} onChange={() => requestQuickCheck(entry, 'enAlmacen', Boolean(ficha?.enAlmacen))} />
+                          <span className="text-base">{ficha?.enAlmacen ? <FiCheck /> : <FiArchive />}</span>Almacén
+                        </label>
+                        <div className="grid min-h-12 grid-cols-[1fr_auto_1fr] items-center rounded-lg border border-indigo-200 bg-indigo-50 px-2 text-center">
+                          <div className="flex min-w-0 flex-col items-center justify-center"><strong className="block text-lg leading-5 text-indigo-800">{Number(producto.stockActual || 0)}</strong><span className="text-[10px] font-semibold text-indigo-700">disponibles</span></div>
+                          <div className="h-7 w-px bg-indigo-200" />
+                          <div className="flex min-w-0 flex-col items-center justify-center"><strong className="block text-sm leading-5 text-slate-700">{Number(producto.stockInicial || 0)}</strong><span className="text-[10px] text-slate-500">compradas</span></div>
+                        </div>
+                      </div>
+                    ) : (
                     <div className={`mt-4 grid grid-cols-3 border-y border-slate-100 ${isTablet && !isLandscape ? 'gap-1 py-2' : 'gap-2 py-3'}`}>
                       {[
                         ['enAlmacen', <FiArchive />, 'Almacén', Boolean(ficha?.enAlmacen)],
@@ -937,11 +1019,12 @@ export default function Inventario({ setVista }) {
                         </label>
                       ))}
                     </div>
+                    )}
 
                     <div className="mt-4 grid grid-cols-2 gap-2">
-                      <span className="col-span-2 text-xs text-slate-500">Recogido: {lastPickupDate(producto) || 'Sin fecha'}</span>
+                      {!accessoryStock && <span className="col-span-2 text-xs text-slate-500">Recogido: {lastPickupDate(producto) || 'Sin fecha'}</span>}
                       <button type="button" onClick={() => openEditor(entry)} className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 ${!ficha?.enAlmacen ? 'col-span-2' : ''}`}>
-                        <FiEdit3 /> {fichaCompleta ? 'Editar ficha' : 'Completar ficha'}
+                        <FiEdit3 /> {accessoryStock ? 'Editar stock' : (fichaCompleta ? 'Editar ficha' : 'Completar ficha')}
                       </button>
                       {ficha?.enAlmacen && (
                         <button type="button" onClick={() => openSelling(entry)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700">
@@ -962,14 +1045,44 @@ export default function Inventario({ setVista }) {
           <form onSubmit={save} className="h-[100dvh] w-full max-w-5xl overflow-y-auto bg-white shadow-2xl sm:h-auto sm:max-h-[96vh] sm:rounded-2xl">
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-5 sm:py-4">
               <div>
-                <div className="text-xs font-medium text-slate-500">Producto #{editing.producto.id}</div>
+                <div className="text-xs font-medium text-slate-500">Producto #{String(editing.producto.tipo || '').toLowerCase() === 'accesorios' ? (editing.producto.codigoInventario || editing.producto.id) : editing.producto.id}</div>
                 <h2 className="line-clamp-2 text-base font-semibold text-slate-950 sm:text-lg">{buildNombre(editing.producto)}</h2>
               </div>
               <button type="button" disabled={saving} onClick={() => setEditing(null)} className="flex h-10 w-10 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"><FiX /></button>
             </div>
 
             <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[0.9fr_1.4fr] lg:gap-6">
-              <div className="self-start lg:sticky lg:top-20">
+              {accessoryEditing && (
+                <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 lg:col-span-2">
+                  <h3 className="text-base font-semibold text-slate-950">Stock del accesorio</h3>
+                  <p className="mt-1 text-sm text-slate-600">Este tipo usa almacén, cantidad y una sola foto principal; no requiere caja, SN, IMEI ni sesión de fotos.</p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <label className="flex min-h-14 items-center justify-between rounded-xl bg-white px-4 text-sm font-medium text-slate-700 ring-1 ring-slate-200">En almacén<input type="checkbox" checked={Boolean(form.enAlmacen)} onChange={(event) => setForm((current) => ({ ...current, enAlmacen: event.target.checked }))} className="h-7 w-7" /></label>
+                    <label className="text-sm font-medium text-slate-700">Cantidad comprada<input type="number" min={Math.max(1, accessoryUnitsSold)} step="1" value={form.cantidadStock} disabled={Boolean(editing.producto.__inventoryGroup)} onChange={(event) => setForm((current) => ({ ...current, cantidadStock: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 disabled:cursor-not-allowed disabled:bg-slate-100" /></label>
+                  </div>
+                  <div className="mt-3 text-sm font-medium text-indigo-800">Disponibles después de guardar: {accessoryProjectedStock}</div>
+                  {editing.producto.__inventoryGroup && <div className="mt-1 text-xs text-slate-600">Stock agrupado de {editing.producto.__lotIds?.length || 1} compras. La cantidad se actualiza automáticamente con nuevas compras y ventas.</div>}
+                  {accessoryUnitsSold > 0 && <div className="mt-1 text-xs text-slate-600">Ya se vendieron {accessoryUnitsSold}; la compra no puede quedar por debajo de esa cantidad.</div>}
+                  <div className="mt-4 flex flex-col gap-3 rounded-xl border border-indigo-100 bg-white p-3 sm:flex-row sm:items-center">
+                    {photoPreview ? (
+                      <button type="button" onClick={() => openPhotoViewer(photoPreview, buildNombre(editing.producto))} className="h-20 w-28 shrink-0 overflow-hidden rounded-lg bg-slate-100">
+                        <img src={photoPreview} alt="Foto principal del accesorio" className="h-full w-full object-cover" />
+                      </button>
+                    ) : (
+                      <div className="flex h-20 w-28 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-400"><FiImage className="h-6 w-6" /></div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-slate-900">Foto principal del stock</div>
+                      <p className="mt-0.5 text-xs text-slate-500">Una sola foto representa todas las unidades.</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <label className="cursor-pointer rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">{photoPreview ? 'Cambiar foto' : 'Subir foto'}<input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={choosePhoto} className="sr-only" /></label>
+                        {photoPreview && <button type="button" onClick={removePhoto} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50">Quitar foto</button>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className={`${accessoryEditing ? 'hidden' : ''} self-start lg:sticky lg:top-20`}>
                 <div
                   className={`rounded-2xl border-2 border-dashed p-4 transition ${dragActive ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-slate-50'}`}
                   onDragEnter={(event) => { event.preventDefault(); setDragActive(true); }}
@@ -1096,7 +1209,7 @@ export default function Inventario({ setVista }) {
                 </div>
               </div>
 
-              <div className="space-y-5">
+              <div className={`${accessoryEditing ? 'hidden' : ''} space-y-5`}>
                 <section>
                   <h3 className="mb-3 text-sm font-semibold text-slate-950">Identificación y condición</h3>
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -1155,12 +1268,7 @@ export default function Inventario({ setVista }) {
                 <section>
                   <h3 className="mb-1 text-sm font-semibold text-slate-950">Accesorios incluidos</h3>
                   <p className="mb-3 text-xs text-slate-500">Marca exactamente lo que acompaña a este producto.</p>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {ACCESORIOS.map((accessory) => {
-                      const active = form.accesorios.includes(accessory);
-                      return <button key={accessory} type="button" onClick={() => toggleAccessory(accessory)} className={`flex min-h-11 items-center justify-between rounded-xl border px-3 py-2 text-left text-sm font-medium ${active ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}><span>{accessory}</span>{active && <FiCheck />}</button>;
-                    })}
-                  </div>
+                  <IncludedAccessories type={editing.producto.tipo} model={editing.producto.detalle?.modelo} value={form.accesorios} onChange={(accesorios) => setForm((current) => ({ ...current, accesorios }))} />
                 </section>
 
                 <label className="block text-xs font-medium text-slate-600">Observaciones<textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} rows="4" placeholder="Golpes, rayones, pruebas realizadas, piezas faltantes u otros datos..." className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-slate-400" /></label>
@@ -1191,7 +1299,7 @@ export default function Inventario({ setVista }) {
 
             <aside className={`${selling.step === 'choice' ? 'flex sm:w-full sm:border-r-0' : 'hidden sm:flex sm:w-80 sm:border-r'} max-h-[92dvh] w-full shrink-0 flex-col overflow-y-auto border-slate-200 bg-white p-5 transition-all duration-300 sm:p-6`}>
               <div className="pr-10">
-                <div className="text-xs font-medium text-slate-500">MS-{selling.entry.producto.id}</div>
+                <div className="text-xs font-medium text-slate-500">MS-{String(selling.entry.producto.tipo || '').toLowerCase() === 'accesorios' ? (selling.entry.producto.codigoInventario || selling.entry.producto.id) : selling.entry.producto.id}</div>
                 <h2 className="mt-1 text-xl font-semibold text-slate-950">Vender {buildNombre(selling.entry.producto)}</h2>
                 <p className="mt-2 text-sm text-slate-600">Elige una opción. En escritorio puedes cambiarla desde este panel.</p>
               </div>

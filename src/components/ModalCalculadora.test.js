@@ -137,7 +137,7 @@ test('muestra solo los datos correspondientes a iPhone y Apple Watch', async () 
   expect(within(iphone).queryByText('Procesador:')).not.toBeInTheDocument();
   expect(within(iphone).queryByText('Pantalla:')).not.toBeInTheDocument();
 
-  const watch = within(history).getByText('Apple Watch Ultra 2').closest('article');
+  const watch = within(history).getByText('Apple Watch Ultra 2 49 mm GPS + Cel').closest('article');
   expect(within(watch).getByText('Serie:')).toHaveTextContent('2');
   expect(within(watch).getByText('Tamaño:')).toHaveTextContent('49 mm');
   expect(within(watch).getByText('Conexión:')).toHaveTextContent('GPS + Cel');

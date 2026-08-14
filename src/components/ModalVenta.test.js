@@ -125,3 +125,21 @@ test('guarda la venta sin exigir una sesión de Gastos en el navegador', async (
   }));
   expect(api.patch).not.toHaveBeenCalled();
 });
+
+test('para accesorios muestra cantidad, precio total y calcula el precio unitario', () => {
+  render(
+    <ModalVenta
+      producto={{ id: 399, tipo: 'accesorios', stockActual: 15, vendedor: 'Gonzalo', valor: { valorProducto: 20 } }}
+      onSaved={jest.fn()}
+      onClose={jest.fn()}
+    />,
+  );
+
+  expect(screen.queryByText('Tipo de venta')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Precio unitario:/)).not.toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Cantidad'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '150' } });
+
+  expect(screen.getByText('S/ 50.00')).toBeInTheDocument();
+});

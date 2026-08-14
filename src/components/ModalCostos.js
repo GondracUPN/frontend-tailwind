@@ -26,6 +26,11 @@ export default function ModalCostos({ producto, onClose, onSaved }) {
 
   if (!producto) return null;
 
+  const accessoryStock = String(producto.tipo || '').toLowerCase() === 'accesorios';
+  const purchasedUnits = Math.max(1, Number(producto.stockInicial || 1));
+  const averageUsd = Number(form.valorProducto || 0) / purchasedUnits;
+  const averagePen = Number(producto.valor?.costoTotalProrrateado ?? producto.valor?.costoTotal ?? 0) / purchasedUnits;
+
   const onChange = (f,v) => setForm(fm => ({ ...fm, [f]: v }));
 
   const handleSave = async () => {
@@ -52,6 +57,12 @@ export default function ModalCostos({ producto, onClose, onSaved }) {
       <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-md relative">
         <ModalCloseButton onClick={onClose} />
         <h2 className="text-2xl font-semibold mb-4">Editar Costos</h2>
+        {accessoryStock && (
+          <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
+            <div className="font-semibold">Promedio de {purchasedUnits} unidades</div>
+            <div className="mt-1">USD {averageUsd.toFixed(2)} por unidad · S/ {averagePen.toFixed(2)} por unidad</div>
+          </div>
+        )}
         <div className="space-y-4">
           {['valorProducto','valorDec','peso','fechaCompra'].map(field => (
             <div key={field}>

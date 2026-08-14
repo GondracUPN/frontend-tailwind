@@ -10,6 +10,26 @@ import { getAnalyticsSummary, getPedidoSalesSummary, getSunatExchangeRate } from
 
 import { TC_FIJO } from '../utils/tipoCambio';
 
+const PRODUCT_ANALYSIS_TYPE_LABELS = {
+ macbook: 'MacBook',
+ macmini: 'Mac mini',
+ imac: 'iMac',
+ airpods: 'AirPods',
+ watch: 'Apple Watch',
+ accesorios: 'Accesorios',
+ ipad: 'iPad',
+ iphone: 'iPhone',
+ otro: 'Otro',
+};
+
+const PRODUCT_ANALYSIS_TYPE_ORDER = Object.keys(PRODUCT_ANALYSIS_TYPE_LABELS);
+
+const productAnalysisTypeLabel = (value) => {
+ const key = String(value || '').trim().toLowerCase();
+ if (PRODUCT_ANALYSIS_TYPE_LABELS[key]) return PRODUCT_ANALYSIS_TYPE_LABELS[key];
+ return key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Sin tipo';
+};
+
 
 
 
@@ -493,7 +513,7 @@ const roundUp10 = (value) => {
 
 
 
- return `analytics:lastSummary:v5:${parts}`;
+ return `analytics:lastSummary:v7:${parts}`;
 
 
 
@@ -921,6 +941,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  );
  const buildSummaryQuery = useCallback(({ fromDate = '', toDate = '' } = {}) => {
  const q = new URLSearchParams();
+ q.set('refresh', 'true');
  if (fromDate) {
  q.set('fromVenta', fromDate);
  q.set('fromCompra', fromDate);
@@ -1599,10 +1620,12 @@ const gananciasResumen = useMemo(() => {
  const sunatDecUsd = Number((data?.summary?.sunat?.valorDecPeriodoTotal ?? data?.summary?.sunat?.valorDecTotal ?? 0)) || 0;
  const sunatDecPen = +(sunatDecUsd * sunatSellTc).toFixed(2);
  const sunatTotalGastado = +(sunatDecPen + sunatEnviosRecogidos).toFixed(2);
- const sunatTotalVendidoPeriodo = +(
-  dateMode === 'month' && appliedDates.from
-   ? Number(gananciasResumen?.mesSeleccionado?.ingresos || 0)
-   : Number(gananciasResumen?.totalIngresos || 0)
+ const sunatTotalVendidoPeriodo = +Number(
+  data?.summary?.sunat?.totalVendidoPeriodo ??
+  (dateMode === 'month' && appliedDates.from
+   ? gananciasResumen?.mesSeleccionado?.ingresos
+   : gananciasResumen?.totalIngresos) ??
+  0
  ).toFixed(2);
  const sunatGanancia = +(sunatTotalVendidoPeriodo - sunatTotalGastado).toFixed(2);
 
@@ -4317,8 +4340,15 @@ Activo
 
 
  const groups = data?.productGroups || [];
+ const discoveredTypes = Array.from(new Set(groups.map((g) => String(g?.tipo || '').trim().toLowerCase()).filter(Boolean)));
+ const typeOptions = [
+  ...PRODUCT_ANALYSIS_TYPE_ORDER,
+  ...discoveredTypes.filter((type) => !PRODUCT_ANALYSIS_TYPE_ORDER.includes(type)).sort(),
+ ];
 
- const typeGroups = productFilters.tipo ? groups.filter((g) => g.tipo === productFilters.tipo) : groups;
+ const typeGroups = productFilters.tipo
+  ? groups.filter((g) => String(g?.tipo || '').trim().toLowerCase() === productFilters.tipo)
+  : groups;
  const gamaGroups = productFilters.gama ? typeGroups.filter((g) => g.gama === productFilters.gama) : typeGroups;
  const procGroups = productFilters.proc ? gamaGroups.filter((g) => g.proc === productFilters.proc) : gamaGroups;
  const screenGroups = productFilters.pantalla ? procGroups.filter((g) => g.pantalla === productFilters.pantalla) : procGroups;
@@ -4337,7 +4367,7 @@ Activo
 
 
 
- if (productFilters.tipo && g.tipo !== productFilters.tipo) return false;
+ if (productFilters.tipo && String(g?.tipo || '').trim().toLowerCase() !== productFilters.tipo) return false;
 
 
 
@@ -4389,23 +4419,9 @@ Activo
 
 
 
- <option value="macbook">MacBook</option>
-
-
-
- <option value="iphone">iPhone</option>
-
-
-
- <option value="ipad">iPad</option>
-
-
-
- <option value="watch">Apple Watch</option>
-
-
-
- <option value="otro">Otro</option>
+ {typeOptions.map((type) => (
+  <option key={type} value={type}>{productAnalysisTypeLabel(type)}</option>
+ ))}
 
 
 

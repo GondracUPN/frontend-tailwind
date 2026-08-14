@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import api from "../api";
+import { formatAppleWatchName } from "../utils/productName";
 
 const CASILLEROS = {
   Walter: "Walter Garcia",
@@ -44,7 +45,7 @@ function buildInventoryProductName(producto) {
   const tipo = clean(producto?.tipo).toLowerCase();
   if (tipo === "otro") return clean(detalle.descripcionOtro) || "Otros";
   if (tipo === "iphone") return ["iPhone", detalle.numero, detalle.modelo].map(clean).filter(Boolean).join(" ");
-  if (tipo === "watch") return ["Apple Watch", detalle.gama, detalle.generacion, detalle.tamano || detalle.tamanio, detalle.conexion].map(clean).filter(Boolean).join(" ");
+  if (tipo === "watch") return formatAppleWatchName(detalle);
   if (tipo === "ipad") {
     const linea = detalle.gama === "Normal" ? "" : detalle.gama;
     const modelo = detalle.gama === "Normal" || detalle.gama === "Mini" ? detalle.generacion : detalle.procesador;
