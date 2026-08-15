@@ -20,3 +20,8 @@ test('Apple Watch permite cable y correa fake como alternativas excluyentes', ()
   expect(normalizeIncludedAccessories('watch', ['Cable', 'Cable fake', 'Correa', 'Correa fake']))
     .toEqual(['Cable fake', 'Correa fake']);
 });
+
+test('iMac usa caja, cargador y cable fake, teclado y mouse', () => {
+  expect(normalizeIncludedAccessories('imac', ['Caja', 'Cargador', 'Cable', 'Teclado', 'Mouse']))
+    .toEqual(['Caja', 'Cargador fake', 'Cable fake', 'Teclado', 'Mouse']);
+});
