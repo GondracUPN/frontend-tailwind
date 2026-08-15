@@ -126,7 +126,9 @@ test('guarda la venta sin exigir una sesión de Gastos en el navegador', async (
   expect(api.patch).not.toHaveBeenCalled();
 });
 
-test('para accesorios muestra cantidad, precio total y calcula el precio unitario', () => {
+test('para accesorios recibe el precio total, calcula el unitario y muestra el resumen', async () => {
+  api.get.mockResolvedValueOnce({ unidadesVendidas: 4, unidadesDisponibles: 15, ventaBruta: 240, costoVendido: 100, gananciaNeta: 140, tipoCambioPromedio: 3.72, ventas: [] });
+  api.post.mockResolvedValueOnce({ id: 90, precioVenta: 150, cantidad: 3 });
   render(
     <ModalVenta
       producto={{ id: 399, tipo: 'accesorios', stockActual: 15, vendedor: 'Gonzalo', valor: { valorProducto: 20 } }}
@@ -136,10 +138,20 @@ test('para accesorios muestra cantidad, precio total y calcula el precio unitari
   );
 
   expect(screen.queryByText('Tipo de venta')).not.toBeInTheDocument();
-  expect(screen.queryByText(/Precio unitario:/)).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Precio total de venta (S/)')).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByLabelText('Resumen de ventas del accesorio')).toHaveTextContent('S/ 140.00'));
 
   fireEvent.change(screen.getByLabelText('Cantidad'), { target: { value: '3' } });
-  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '150' } });
+  fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '150' } });
 
   expect(screen.getByText('S/ 50.00')).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.75' } });
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-08-14' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({
+    cantidad: 3,
+    precioVenta: 150,
+    tipoCambio: 3.75,
+  })));
 });

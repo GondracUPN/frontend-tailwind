@@ -251,6 +251,7 @@ export const groupInventoryEntries = (rawEntries) => {
         stockActual: group.reduce((sum, item) => sum + Math.max(0, Number(item?.producto?.stockActual || 0)), 0),
         __inventoryGroup: group.length > 1,
         __lotIds: group.map((item) => item.producto.id),
+        __lots: group.map((item) => item.producto),
       },
     });
   });

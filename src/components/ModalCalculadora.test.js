@@ -48,6 +48,33 @@ test('redondea el precio medio hacia arriba para terminar en 00 o 50', () => {
   expect(within(mediumCard).getByText('S/ 1132.55')).toBeInTheDocument();
 });
 
+test('calcula accesorios por cantidad, precio unitario y lote seleccionado', () => {
+  render(<ModalCalculadora producto={{
+    id: 40,
+    tipo: 'accesorios',
+    detalle: { descripcionOtro: 'AirTag' },
+    stockInicial: 10,
+    stockActual: 6,
+    valor: { costoTotal: 500, valorProducto: 100, costoEnvio: 20 },
+    __lots: [
+      { id: 12, tipo: 'accesorios', stockInicial: 24, stockActual: 4, valor: { costoTotal: 720, fechaCompra: '2026-01-10' }, tracking: [{ fechaRecogido: '2026-02-01' }] },
+      { id: 40, tipo: 'accesorios', stockInicial: 10, stockActual: 6, valor: { costoTotal: 500, fechaCompra: '2026-07-10' }, tracking: [{ fechaRecogido: '2026-07-20' }] },
+    ],
+  }} onClose={jest.fn()} />);
+
+  expect(screen.getByLabelText('Lote de compra')).toHaveValue('12');
+  expect(screen.getByText('Costo unitario usado:').parentElement).toHaveTextContent('S/ 30.00');
+  fireEvent.change(screen.getByLabelText('Unidades a vender'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('Precio unitario de venta (S/)'), { target: { value: '50' } });
+  expect(screen.getByText('Venta total:').parentElement).toHaveTextContent('S/ 150.00');
+  expect(screen.getByText('Ganancia estimada:').parentElement).toHaveTextContent('S/ 60.00');
+
+  fireEvent.change(screen.getByLabelText('Lote de compra'), { target: { value: '40' } });
+  expect(screen.getByText('Costo unitario usado:').parentElement).toHaveTextContent('S/ 50.00');
+  expect(screen.getByText('Venta total:').parentElement).toHaveTextContent('S/ 150.00');
+  expect(screen.getByText('Ganancia estimada:').parentElement).toHaveTextContent('S/ 0.00');
+});
+
 test('resume un iPhone sin agregar procesador, pantalla ni RAM', () => {
   render(<ModalCalculadora producto={{
     ...producto,

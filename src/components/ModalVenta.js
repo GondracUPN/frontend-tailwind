@@ -61,6 +61,8 @@ export default function ModalVenta({
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [incomeBank, setIncomeBank] = useState('bcp');
+  const [accessorySummary, setAccessorySummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const [form, setForm] = useState({
     tipoCambio: '',
     tipoCambioGonzalo: '',
@@ -86,6 +88,8 @@ export default function ModalVenta({
   );
   const isSplitCreate = !venta && sellerSlug === 'ambos';
   const splitModeActive = venta ? isSplitVenta : isSplitCreate;
+  const isAccessory = String(producto?.tipo || '').toLowerCase() === 'accesorios';
+  const accessoryCreate = !venta && isAccessory;
 
   useEffect(() => {
     const initialSeller = venta?.vendedor || presetVendedor || producto?.vendedor || '';
@@ -122,6 +126,20 @@ export default function ModalVenta({
   useEffect(() => {
     setEditMode(false);
   }, [producto?.id, venta?.id, venta]);
+
+  useEffect(() => {
+    if (!accessoryCreate || !producto?.id) {
+      setAccessorySummary(null);
+      return;
+    }
+    let active = true;
+    setSummaryLoading(true);
+    Promise.resolve(api.get(`/ventas/accesorio-resumen?productoId=${producto.id}`))
+      .then((data) => { if (active) setAccessorySummary(data || null); })
+      .catch(() => { if (active) setAccessorySummary(null); })
+      .finally(() => { if (active) setSummaryLoading(false); });
+    return () => { active = false; };
+  }, [accessoryCreate, producto?.id]);
 
   if (!producto) return null;
 
@@ -314,7 +332,7 @@ export default function ModalVenta({
         precioVenta: Number(form.precioVenta),
         incomeBank,
       };
-      if (String(producto?.tipo).toLowerCase() === 'accesorios') {
+      if (isAccessory) {
         const cantidad = Number(form.cantidad);
         body.cantidad = cantidad;
         body.modalidad = cantidad > 1 ? 'mayor' : 'unidad';
@@ -459,17 +477,24 @@ export default function ModalVenta({
     Number.isFinite(n) ? `${Number(n).toFixed(2)}%` : '--';
   const fmtTc = (n) =>
     Number.isFinite(n) && n > 0 ? Number(n).toFixed(4) : '--';
-  const accessoryCreate = !venta && String(producto?.tipo).toLowerCase() === 'accesorios';
   const accessoryQuantity = Number(form.cantidad || 0);
-  const accessoryUnitPrice = accessoryQuantity > 1 && Number(form.precioVenta) > 0
-    ? Number(form.precioVenta) / accessoryQuantity
+  const accessoryTotalPrice = Number(form.precioVenta || 0);
+  const accessoryUnitPrice = accessoryQuantity > 0 && accessoryTotalPrice > 0
+    ? accessoryTotalPrice / accessoryQuantity
     : null;
 
   const renderSplitFields = () => (
     <>
+      {accessoryCreate && (
+        <div>
+          <label htmlFor="venta-cantidad" className="block font-medium mb-1">Cantidad</label>
+          <input id="venta-cantidad" type="number" min="1" max={producto.stockActual || 0} step="1" className="w-full border p-2 rounded" value={form.cantidad} onChange={(e) => onChange('cantidad', e.target.value)} />
+        </div>
+      )}
       <div>
-        <label className="block font-medium mb-1">Precio de venta (S/)</label>
+        <label htmlFor="venta-precio-compartido" className="block font-medium mb-1">{accessoryCreate ? 'Precio total de venta (S/)' : 'Precio de venta (S/)'}</label>
         <input
+          id="venta-precio-compartido"
           type="number"
           step="0.01"
           className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -477,6 +502,9 @@ export default function ModalVenta({
           onChange={(e) => onChange('precioVenta', e.target.value)}
         />
       </div>
+      {accessoryCreate && (
+        <div className="rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">Precio por unidad: <strong>{accessoryUnitPrice == null ? 'S/ --' : `S/ ${accessoryUnitPrice.toFixed(2)}`}</strong></div>
+      )}
       <div>
         <label className="block font-medium mb-1">Fecha de venta</label>
         <input
@@ -560,9 +588,9 @@ export default function ModalVenta({
       {accessoryCreate && (
         <div className="grid grid-cols-2 gap-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
           <div><label htmlFor="venta-cantidad" className="block text-sm font-medium mb-1">Cantidad</label><input id="venta-cantidad" type="number" min="1" max={producto.stockActual || 0} step="1" className="w-full border p-2 rounded bg-white" value={form.cantidad} onChange={(e) => onChange('cantidad', e.target.value)} /></div>
-          <div><label htmlFor="venta-precio" className="block text-sm font-medium mb-1">Precio de venta (S/)</label><input id="venta-precio" type="number" step="0.01" className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value={form.precioVenta} onChange={(e) => onChange('precioVenta', e.target.value)} /></div>
-          {accessoryQuantity > 1 && <div className="col-span-2 rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-indigo-900">Precio unitario: <strong>{accessoryUnitPrice == null ? 'S/ --' : `S/ ${accessoryUnitPrice.toFixed(2)}`}</strong></div>}
-          <div className="col-span-2 text-xs text-indigo-800">Stock disponible: {producto.stockActual || 0}. El precio de venta corresponde al total de las unidades seleccionadas.</div>
+          <div><label htmlFor="venta-precio" className="block text-sm font-medium mb-1">Precio total de venta (S/)</label><input id="venta-precio" type="number" min="0" step="0.01" className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value={form.precioVenta} onChange={(e) => onChange('precioVenta', e.target.value)} /></div>
+          <div className="col-span-2 rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-indigo-900">Precio por unidad: <strong>{accessoryUnitPrice == null ? 'S/ --' : `S/ ${accessoryUnitPrice.toFixed(2)}`}</strong></div>
+          <div className="col-span-2 text-xs text-indigo-800">Stock disponible: {producto.stockActual || 0}. El sistema descontarÃ¡ primero las unidades del lote mÃ¡s antiguo.</div>
         </div>
       )}
       {!venta && saleExpenseOwner(form.vendedor || producto?.vendedor || presetVendedor) && (
@@ -628,8 +656,35 @@ export default function ModalVenta({
     </div>
   );
 
+  const summaryMoney = (value) => `S/ ${Number(value || 0).toFixed(2)}`;
+  const summaryPanel = accessoryCreate && (
+    <aside className="rounded-xl border border-slate-200 bg-slate-50 p-4" aria-label="Resumen de ventas del accesorio">
+      <h3 className="font-semibold text-slate-950">Ventas del accesorio</h3>
+      {summaryLoading ? <p className="mt-3 text-sm text-slate-500">Cargando resumen...</p> : (
+        <>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-lg bg-white p-3"><span className="block text-xs text-slate-500">Unidades vendidas</span><strong>{accessorySummary?.unidadesVendidas || 0}</strong></div>
+            <div className="rounded-lg bg-white p-3"><span className="block text-xs text-slate-500">Disponibles</span><strong>{accessorySummary?.unidadesDisponibles ?? producto.stockActual ?? 0}</strong></div>
+            <div className="rounded-lg bg-white p-3"><span className="block text-xs text-slate-500">Venta bruta</span><strong>{summaryMoney(accessorySummary?.ventaBruta)}</strong></div>
+            <div className="rounded-lg bg-white p-3"><span className="block text-xs text-slate-500">Costo vendido</span><strong>{summaryMoney(accessorySummary?.costoVendido)}</strong></div>
+            <div className="col-span-2 rounded-lg bg-emerald-50 p-3 text-emerald-800"><span className="block text-xs">Ganancia neta</span><strong className="text-lg">{summaryMoney(accessorySummary?.gananciaNeta)}</strong></div>
+          </div>
+          <p className="mt-3 text-xs text-slate-600">Tipo de cambio promedio: <strong>{accessorySummary?.tipoCambioPromedio != null ? Number(accessorySummary.tipoCambioPromedio).toFixed(4) : '--'}</strong></p>
+          <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
+            {(accessorySummary?.ventas || []).map((item) => (
+              <div key={item.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                <div className="flex justify-between gap-2"><strong>{item.fechaVenta}</strong><span>{item.cantidad} und.</span></div>
+                <div className="mt-1 flex justify-between gap-2"><span>Bruto {summaryMoney(item.ventaBruta)}</span><strong className={Number(item.gananciaNeta) >= 0 ? 'text-emerald-700' : 'text-red-600'}>Neto {summaryMoney(item.gananciaNeta)}</strong></div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </aside>
+  );
+
   const content = (
-      <div className={`bg-white w-full p-4 sm:p-6 relative overflow-y-auto ${embedded ? 'h-full max-h-full' : 'sm:max-w-lg rounded-xl shadow-lg mx-4 max-h-[90vh]'}`}>
+      <div className={`bg-white w-full p-4 sm:p-6 relative overflow-y-auto ${embedded ? 'h-full max-h-full' : `${accessoryCreate ? 'sm:max-w-5xl' : 'sm:max-w-lg'} rounded-xl shadow-lg mx-4 max-h-[90vh]`}`}>
         {!embedded && <button
           className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
           onClick={onClose}
@@ -655,10 +710,11 @@ export default function ModalVenta({
         )}
 
         {!venta && (
-          <div className="space-y-4">
-            {renderSellerField()}
-            {splitModeActive ? renderSplitFields() : renderSingleFields()}
-            <div className="text-right">
+          <div className={accessoryCreate ? 'grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]' : ''}>
+            <div className="space-y-4">
+              {renderSellerField()}
+              {splitModeActive ? renderSplitFields() : renderSingleFields()}
+              <div className="text-right">
               <button
                 className={`bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 ${saving ? 'opacity-60 cursor-not-allowed' : ''}`}
                 onClick={handleSaveCreate}
@@ -666,7 +722,9 @@ export default function ModalVenta({
               >
                 {saving ? 'Guardando…' : 'Guardar'}
               </button>
+              </div>
             </div>
+            {summaryPanel}
           </div>
         )}
 
