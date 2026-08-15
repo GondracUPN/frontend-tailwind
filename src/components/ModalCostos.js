@@ -9,6 +9,8 @@ export default function ModalCostos({ producto, onClose, onSaved }) {
     valorDec:       '',
     peso:           '',
     fechaCompra:    '',
+    costoEnvio:     '',
+    costoEnvioProrrateado: '',
     tracking:       '',
   });
 
@@ -19,7 +21,9 @@ export default function ModalCostos({ producto, onClose, onSaved }) {
       valorProducto: v.valorProducto ?? '',
       valorDec:       v.valorDec       ?? '',
       peso:           v.peso           ?? '',
-      fechaCompra:    v.fechaCompra    ?? '',
+      fechaCompra:    String(v.fechaCompra ?? '').slice(0, 10),
+      costoEnvio:     v.costoEnvio ?? '',
+      costoEnvioProrrateado: v.costoEnvioProrrateado ?? v.costoEnvio ?? '',
       tracking:       v.tracking       ?? '',
     });
   }, [producto]);
@@ -41,6 +45,8 @@ export default function ModalCostos({ producto, onClose, onSaved }) {
         valorDec:       form.valorDec,
         peso:           form.peso,
         fechaCompra:    form.fechaCompra,
+        costoEnvio:     form.costoEnvio,
+        ...(producto.envioGrupoId ? { costoEnvioProrrateado: form.costoEnvioProrrateado } : {}),
       }
     };
     const updated = await api.patch(`/productos/${producto.id}`, payload);
@@ -64,15 +70,18 @@ export default function ModalCostos({ producto, onClose, onSaved }) {
           </div>
         )}
         <div className="space-y-4">
-          {['valorProducto','valorDec','peso','fechaCompra'].map(field => (
+          {['valorProducto','valorDec','peso','fechaCompra','costoEnvio', ...(producto.envioGrupoId ? ['costoEnvioProrrateado'] : [])].map(field => (
             <div key={field}>
-              <label className="block font-medium mb-1">
+              <label htmlFor={`costos-${field}`} className="block font-medium mb-1">
                 {field === 'valorProducto' && 'Valor Producto ($)'}
                 {field === 'valorDec' && 'Valor DEC (USD)'}
                 {field === 'peso' && 'Peso (kg)'}
                 {field === 'fechaCompra' && 'Fecha de Compra'}
+                {field === 'costoEnvio' && 'Costo de envío (S/)'}
+                {field === 'costoEnvioProrrateado' && 'Costo de envío prorrateado (S/)'}
               </label>
               <input
+                id={`costos-${field}`}
                 type={field==='fechaCompra' ? 'date' : field==='tracking' ? 'text' : 'number'}
                 className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 value={form[field]}
