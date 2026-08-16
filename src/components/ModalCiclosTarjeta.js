@@ -160,14 +160,17 @@ const getCycle = (card, year, month) => {
 const summarizeRows = (rows, card, cycle) => {
   const items = rows.filter((g) => {
     const rowCard = normalizeCard(g.tarjeta);
-    return rowCard === normalizeCard(card) && inRange(parseYmd(g.fecha), cycle.start, cycle.end);
+    const isIoCashback = cardCycleKey(card) === 'io' && isCardCashback(g);
+    return rowCard === normalizeCard(card)
+      && !isIoCashback
+      && inRange(parseYmd(g.fecha), cycle.start, cycle.end);
   });
 
   const totals = items.reduce(
     (acc, g) => {
       const rawAmount = Number(g.monto || 0) || 0;
-      // Una devolucion reduce el estado de cuenta del ciclo en el que fue
-      // registrada. No se reparte como pago contra consumos de ciclos previos.
+      // Salvo en IO (filtrado arriba), una devolucion reduce el ciclo en el que
+      // fue registrada y no se reparte contra consumos de ciclos previos.
       const amount = isCardCashback(g) ? -Math.abs(rawAmount) : rawAmount;
       if (g.moneda === 'USD') acc.usd += amount;
       else acc.pen += amount;
@@ -260,13 +263,20 @@ export const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear,
       .sort((a, b) => a.cycle.due.getTime() - b.cycle.due.getTime());
 
     const payments = rows
-      .filter((g) => isCardPayment(g) && normalizeCard(g.tarjetaPago) === normalizeCard(card))
+      .filter((g) => (
+        (isCardPayment(g) && normalizeCard(g.tarjetaPago) === normalizeCard(card))
+        || (
+          cardCycleKey(card) === 'io'
+          && isCardCashback(g)
+          && normalizeCard(g.tarjeta) === normalizeCard(card)
+        )
+      ))
       .map((g) => {
         const allocation = getPaymentAllocation(g);
         return {
           date: parseYmd(g.fecha) || makeDate(1900, 1, 1),
           ...allocation,
-          amount: allocation.amount,
+          amount: isCardCashback(g) ? Math.abs(allocation.amount) : allocation.amount,
         };
       })
       .filter((p) => p.amount > 0)

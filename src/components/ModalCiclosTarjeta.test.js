@@ -54,4 +54,43 @@ describe('ModalCiclosTarjeta', () => {
     expect(previousCycle.totals.usd).toBe(100);
     expect(previousCycle.pendingUsdAmount).toBe(100);
   });
+
+  it('mantiene las devoluciones de IO como abono a la deuda pendiente', () => {
+    const rows = [
+      {
+        id: 1,
+        concepto: 'gusto',
+        metodoPago: 'credito',
+        moneda: 'USD',
+        monto: '100.00',
+        fecha: '2026-01-27',
+        tarjeta: 'io',
+      },
+      {
+        id: 2,
+        concepto: 'cashback',
+        metodoPago: 'credito',
+        moneda: 'USD',
+        monto: '-30.00',
+        fecha: '2026-03-01',
+        tarjeta: 'io',
+      },
+    ];
+
+    const cycles = buildAllocatedCycles({
+      rows,
+      creditRows: rows,
+      cardKeys: ['io'],
+      selectedYear: 2026,
+      selectedMonth: 4,
+    });
+    const previousCycle = cycles.get('io:2026-03');
+    const dateCycle = cycles.get('io:2026-04');
+
+    expect(previousCycle.totals.usd).toBe(100);
+    expect(previousCycle.paidUsdAmount).toBe(30);
+    expect(previousCycle.pendingUsdAmount).toBe(70);
+    expect(dateCycle.totals.usd).toBe(0);
+    expect(dateCycle.items).toHaveLength(0);
+  });
 });
