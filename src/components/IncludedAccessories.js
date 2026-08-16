@@ -6,7 +6,7 @@ const CONFIG = {
   iphone: { options: ['Caja', 'Cubo original', 'Cubo fake', 'Cable original', 'Cable fake', 'Funda', 'Mica'], groups: [['Cubo original', 'Cubo fake'], ['Cable original', 'Cable fake']] },
   watch: { options: ['Caja', 'Cable', 'Cable fake', 'Case', 'Correa', 'Correa fake'], groups: [['Cable', 'Cable fake'], ['Correa', 'Correa fake']] },
   macmini: { options: ['Caja', 'Cable de poder original', 'Cable de poder generico'], groups: [['Cable de poder original', 'Cable de poder generico']] },
-  imac: { options: ['Caja', 'Cargador fake', 'Cable fake', 'Teclado', 'Mouse'], groups: [] },
+  imac: { options: ['Caja', 'Cargador', 'Cargador fake', 'Cable', 'Cable fake', 'Teclado', 'Mouse'], groups: [['Cargador', 'Cargador fake'], ['Cable', 'Cable fake']] },
   airpods: { options: ['Caja'], groups: [] },
   otro: { options: ['Caja'], groups: [] },
 };
@@ -25,13 +25,7 @@ export const getIncludedAccessoryConfig = (type, model) =>
 export const normalizeIncludedAccessories = (type, selected, model) => {
   if (type === 'accesorios') return [];
   const config = getIncludedAccessoryConfig(type, model);
-  const normalizedInput = (Array.isArray(selected) ? selected : []).map((item) => {
-    if (type !== 'imac') return item;
-    const value = String(item || '').trim().toLowerCase();
-    if (value === 'cargador' || value === 'cargador original') return 'Cargador fake';
-    if (value === 'cable' || value === 'cable original') return 'Cable fake';
-    return item;
-  });
+  const normalizedInput = Array.isArray(selected) ? selected : [];
   const next = normalizedInput.filter((item) => config.options.includes(item));
   const unique = [...new Set(next)];
   config.groups.forEach((group) => {

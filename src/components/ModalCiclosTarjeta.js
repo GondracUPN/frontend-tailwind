@@ -165,7 +165,10 @@ const summarizeRows = (rows, card, cycle) => {
 
   const totals = items.reduce(
     (acc, g) => {
-      const amount = Number(g.monto || 0) || 0;
+      const rawAmount = Number(g.monto || 0) || 0;
+      // Una devolucion reduce el estado de cuenta del ciclo en el que fue
+      // registrada. No se reparte como pago contra consumos de ciclos previos.
+      const amount = isCardCashback(g) ? -Math.abs(rawAmount) : rawAmount;
       if (g.moneda === 'USD') acc.usd += amount;
       else acc.pen += amount;
       return acc;
@@ -223,7 +226,7 @@ const monthsBetween = (from, to) => {
   return out;
 };
 
-const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear, selectedMonth }) => {
+export const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear, selectedMonth }) => {
   const dates = rows.map((g) => parseYmd(g.fecha)).filter(Boolean);
   const minDate = dates.length ? new Date(Math.min(...dates.map((d) => d.getTime()))) : makeDate(selectedYear, selectedMonth, 1);
   const startMonth = addMonths(minDate.getFullYear(), minDate.getMonth() + 1, -2);
@@ -257,16 +260,13 @@ const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear, select
       .sort((a, b) => a.cycle.due.getTime() - b.cycle.due.getTime());
 
     const payments = rows
-      .filter((g) => (
-        (isCardPayment(g) && normalizeCard(g.tarjetaPago) === normalizeCard(card))
-        || (isCardCashback(g) && normalizeCard(g.tarjeta) === normalizeCard(card))
-      ))
+      .filter((g) => isCardPayment(g) && normalizeCard(g.tarjetaPago) === normalizeCard(card))
       .map((g) => {
         const allocation = getPaymentAllocation(g);
         return {
           date: parseYmd(g.fecha) || makeDate(1900, 1, 1),
           ...allocation,
-          amount: isCardCashback(g) ? Math.abs(allocation.amount) : allocation.amount,
+          amount: allocation.amount,
         };
       })
       .filter((p) => p.amount > 0)
@@ -314,7 +314,7 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
   const [month, setMonth] = useState(`${now.getFullYear()}-${pad(now.getMonth() + 1)}`);
 
   const creditRows = useMemo(
-    () => rows.filter((g) => g.metodoPago === 'credito' && !isCardCashback(g)),
+    () => rows.filter((g) => g.metodoPago === 'credito'),
     [rows],
   );
 
