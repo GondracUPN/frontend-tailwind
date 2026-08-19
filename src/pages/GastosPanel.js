@@ -57,6 +57,38 @@ const fmtSignedMoney = (moneda, monto, sign) => {
   return `${sign} ${symbol} ${n.toFixed(2)}`;
 };
 
+const formatExpenseDate = (value) => {
+  const match = String(value || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value || '-');
+};
+
+export const buildCreditExpensesText = (rows, options = {}) => {
+  const list = Array.isArray(rows) ? rows : [];
+  const conceptLabel = typeof options.conceptLabel === 'function'
+    ? options.conceptLabel
+    : (value) => String(value || '-').replace(/_/g, ' ');
+  const range = options.from || options.to
+    ? `Periodo: ${options.from ? formatExpenseDate(options.from) : 'inicio'} al ${options.to ? formatExpenseDate(options.to) : 'hoy'}`
+    : 'Periodo: todas las fechas';
+  const lines = ['Gastos de tarjeta de crédito', range, ''];
+  let totalPen = 0;
+  let totalUsd = 0;
+
+  list.forEach((row, index) => {
+    const isCashback = normalizeExpenseConcept(row?.concepto) === 'cashback';
+    const amount = Math.abs(Number(row?.monto || 0)) * (isCashback ? -1 : 1);
+    if (row?.moneda === 'USD') totalUsd += amount;
+    else totalPen += amount;
+    const card = CARD_LABEL[row?.tarjeta] || row?.tarjeta || '-';
+    const notes = visibleExpenseNotes(row?.notas) || '-';
+    lines.push(`${index + 1}. ${formatExpenseDate(row?.fecha)} | ${card} | ${conceptLabel(row?.concepto, row?.metodoPago)} | ${notes} | ${fmtSignedMoney(row?.moneda, amount, amount < 0 ? '-' : '+')}`);
+  });
+
+  if (!list.length) lines.push('Sin movimientos en este rango.');
+  lines.push('', `Total PEN: ${fmtPen(totalPen)}`, `Total USD: ${fmtUsd(totalUsd)}`, `Movimientos: ${list.length}`);
+  return lines.join('\n');
+};
+
 const parseUsdAmountsText = (value) => {
   const matches = String(value || '').match(/-?\d+(?:[.,]\d+)?/g) || [];
   return matches.reduce((sum, raw) => {
@@ -122,6 +154,11 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [debitPaymentCardFilter, setDebitPaymentCardFilter] = useState('all');
   const [creditCardFilter, setCreditCardFilter] = useState('all');
   const [creditCurrencyFilter, setCreditCurrencyFilter] = useState('all');
+  const [creditDateFrom, setCreditDateFrom] = useState('');
+  const [creditDateTo, setCreditDateTo] = useState('');
+  const [showCreditText, setShowCreditText] = useState(false);
+  const [creditTextCopied, setCreditTextCopied] = useState(false);
+  const [creditTextError, setCreditTextError] = useState('');
 
   const token = localStorage.getItem('token');
   const user = useMemo(() => {
@@ -550,9 +587,29 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       const card = g.tarjeta || g.tarjetaPago || 'N/A';
       if (creditCardFilter !== 'all' && card !== creditCardFilter) return false;
       if (creditCurrencyFilter !== 'all' && g.moneda !== creditCurrencyFilter) return false;
+      const date = String(g.fecha || '').slice(0, 10);
+      if (creditDateFrom && date < creditDateFrom) return false;
+      if (creditDateTo && date > creditDateTo) return false;
       return true;
     });
-  }, [creditRows, creditCardFilter, creditCurrencyFilter]);
+  }, [creditRows, creditCardFilter, creditCurrencyFilter, creditDateFrom, creditDateTo]);
+
+  const creditExportText = buildCreditExpensesText(creditRowsFiltered, {
+    from: creditDateFrom,
+    to: creditDateTo,
+    conceptLabel: displayConcepto,
+  });
+
+  const copyCreditExpensesText = async () => {
+    try {
+      await navigator.clipboard.writeText(creditExportText);
+      setCreditTextCopied(true);
+      setCreditTextError('');
+      window.setTimeout(() => setCreditTextCopied(false), 1600);
+    } catch {
+      setCreditTextError('No se pudo copiar automáticamente. Selecciona el texto y cópialo manualmente.');
+    }
+  };
 
   const creditCardOptions = useMemo(() => {
     const set = new Set();
@@ -905,10 +962,34 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   <option value="USD">Dolar</option>
                 </select>
               </label>
+              <label className="text-sm text-gray-700 flex items-center gap-2 w-full sm:w-auto">
+                Desde
+                <input type="date" value={creditDateFrom} onChange={(e) => setCreditDateFrom(e.target.value)} className="border rounded-lg px-3 py-2 text-sm w-full sm:w-auto" />
+              </label>
+              <label className="text-sm text-gray-700 flex items-center gap-2 w-full sm:w-auto">
+                Hasta
+                <input type="date" value={creditDateTo} onChange={(e) => setCreditDateTo(e.target.value)} className="border rounded-lg px-3 py-2 text-sm w-full sm:w-auto" />
+              </label>
+              <button type="button" onClick={() => setShowCreditText((current) => !current)} className="w-full sm:w-auto px-4 py-2 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 min-h-[44px]">
+                {showCreditText ? 'Ocultar texto' : 'Texto para copiar'}
+              </button>
               <button onClick={openCre} className="w-full sm:w-auto px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 min-h-[44px]">Agregar gasto credito</button>
               <button onClick={openCreBulk} className="w-full sm:w-auto px-4 py-2 rounded bg-sky-600 text-white hover:bg-sky-700 min-h-[44px]">Agregar gastos masivos</button>
             </div>
           </div>
+
+          {showCreditText && (
+            <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-slate-800">Gastos de crédito en texto</div>
+                <button type="button" onClick={copyCreditExpensesText} disabled={!creditRowsFiltered.length} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50">
+                  {creditTextCopied ? 'Copiado' : 'Copiar texto'}
+                </button>
+              </div>
+              <textarea readOnly value={creditExportText} rows={Math.min(16, Math.max(7, creditRowsFiltered.length + 6))} className="w-full resize-y rounded-lg border border-slate-300 bg-white p-3 font-mono text-xs text-slate-800 outline-none" aria-label="Texto de gastos de crédito" />
+              {creditTextError && <div className="mt-2 text-xs font-medium text-red-600">{creditTextError}</div>}
+            </div>
+          )}
 
           {loading ? (
             <div className="text-gray-600">Cargando...</div>

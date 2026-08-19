@@ -23,6 +23,11 @@ const SICKW_SERVICES = [
   { id: '30+8', label: 'iPhone / iPad SIM Lock', description: 'Servicios #30 + #8 simultaneos', cost: '0.075' },
 ];
 
+const IFREEICLOUD_SERVICES = [
+  { id: 'ifreeicloud-205', label: 'iFreeCheck Mini', description: 'FMI, iCloud, SIM Lock, garantia y datos del equipo', cost: '0.05' },
+  { id: 'ifreeicloud-281', label: 'iFreeCheck Ultimate', description: 'FMI, SIM Lock, carrier, EID, MDM, garantia y reporte completo', cost: '0.40' },
+];
+
 const normalizeOcrDigits = (value) =>
   String(value || '')
     .replace(/[OoQqDd]/g, '0')
@@ -218,6 +223,7 @@ export default function ModalSnImeiScanner({ onClose }) {
   const [imageUrl, setImageUrl] = useState('');
   const [urlInput, setUrlInput] = useState('');
   const [manualInput, setManualInput] = useState('');
+  const [selectedProvider, setSelectedProvider] = useState('sickw');
   const [selectedServiceId, setSelectedServiceId] = useState('30');
   const [text, setText] = useState('');
   const [selectedLookup, setSelectedLookup] = useState(null);
@@ -287,9 +293,10 @@ export default function ModalSnImeiScanner({ onClose }) {
 
   const parsed = useMemo(() => parseIds(text), [text]);
   const manualOption = useMemo(() => parseManualIdentifier(manualInput), [manualInput]);
+  const activeServices = selectedProvider === 'ifreeicloud' ? IFREEICLOUD_SERVICES : SICKW_SERVICES;
   const selectedService = useMemo(
-    () => SICKW_SERVICES.find((service) => service.id === selectedServiceId) || SICKW_SERVICES[0],
-    [selectedServiceId],
+    () => activeServices.find((service) => service.id === selectedServiceId) || activeServices[0],
+    [activeServices, selectedServiceId],
   );
   const lookupOptions = useMemo(() => {
     const options = [
@@ -424,7 +431,10 @@ export default function ModalSnImeiScanner({ onClose }) {
         setHistory((current) => [...result.historyRecords, ...current].slice(0, 150));
         setHistoryTotal((current) => current + result.historyRecords.length);
       }
-      if (result?.balance) setBalance({ sickw: result.balance });
+      if (result?.balance) {
+        const providerKey = result?.provider === 'ifreeicloud' ? 'ifreeicloud' : 'sickw';
+        setBalance((current) => ({ ...(current || {}), [providerKey]: result.balance }));
+      }
     } catch (err) {
       console.error('[ModalSnImeiScanner] SICKW error:', err);
       setCheckError(err?.message || `No se pudo consultar ${selectedService.label}.`);
@@ -479,7 +489,10 @@ export default function ModalSnImeiScanner({ onClose }) {
       label: 'Historial',
       value,
     });
-    setSelectedServiceId(item.serviceId || selectedServiceId);
+    const provider = item.provider || (String(item.serviceId || '').startsWith('ifreeicloud-') ? 'ifreeicloud' : 'sickw');
+    const providerServices = provider === 'ifreeicloud' ? IFREEICLOUD_SERVICES : SICKW_SERVICES;
+    setSelectedProvider(provider);
+    setSelectedServiceId(providerServices.some((service) => service.id === item.serviceId) ? item.serviceId : providerServices[0].id);
     setSickwResult({
       serviceId: item.serviceId || '',
       serviceName: item.serviceName || '',
@@ -562,6 +575,34 @@ export default function ModalSnImeiScanner({ onClose }) {
 
           <div className="space-y-4">
             <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <div className="mb-4 grid grid-cols-2 gap-2 rounded-xl bg-slate-200/70 p-1.5">
+                {[
+                  { id: 'sickw', label: 'SICKW' },
+                  { id: 'ifreeicloud', label: 'iFreeiCloud' },
+                ].map((provider) => {
+                  const active = selectedProvider === provider.id;
+                  return (
+                    <button
+                      key={provider.id}
+                      type="button"
+                      onClick={() => {
+                        const services = provider.id === 'ifreeicloud' ? IFREEICLOUD_SERVICES : SICKW_SERVICES;
+                        setSelectedProvider(provider.id);
+                        setSelectedServiceId(services[0].id);
+                        setSickwResult(null);
+                        setLookupStatus(null);
+                        setLookupNotice('');
+                        setCheckError('');
+                      }}
+                      disabled={loading || checking}
+                      className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${active ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200' : 'text-slate-600 hover:text-slate-900'}`}
+                    >
+                      {provider.label}
+                    </button>
+                  );
+                })}
+              </div>
+
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-gray-900">{selectedService.label}</div>
@@ -571,10 +612,12 @@ export default function ModalSnImeiScanner({ onClose }) {
               </div>
 
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
-                <div className="text-xs text-gray-600">
-                  Saldo SICKW:{' '}
-                  <span className="font-semibold text-gray-900">
-                    {balance?.sickw?.available ? balance.sickw.label : balance?.sickw?.error ? 'No disponible' : '-'}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
+                  <span>
+                    Saldo SICKW: <strong className="text-gray-900">{balance?.sickw?.available ? balance.sickw.label : balance?.sickw?.error ? 'No disponible' : '-'}</strong>
+                  </span>
+                  <span>
+                    Saldo iFree: <strong className="text-gray-900">{balance?.ifreeicloud?.available ? balance.ifreeicloud.label : balance?.ifreeicloud?.error ? 'No disponible' : '-'}</strong>
                   </span>
                 </div>
                 <button
@@ -589,7 +632,7 @@ export default function ModalSnImeiScanner({ onClose }) {
               </div>
 
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                {SICKW_SERVICES.map((service) => {
+                {activeServices.map((service) => {
                   const active = selectedServiceId === service.id;
                   return (
                     <button
@@ -712,7 +755,7 @@ export default function ModalSnImeiScanner({ onClose }) {
                   ))}
                   {!(sickwResult.fields || []).length && (
                     <div className="sm:col-span-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-700 ring-1 ring-slate-100">
-                      SICKW respondio, pero no se pudieron separar los campos.
+                      El proveedor respondio, pero no se pudieron separar los campos.
                     </div>
                   )}
                 </div>
@@ -793,7 +836,12 @@ export default function ModalSnImeiScanner({ onClose }) {
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <span className="block text-xs font-semibold text-gray-500">{formatHistoryDate(item.checkedAt)}</span>
-                          <span className="mt-1 inline-flex rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-gray-600 ring-1 ring-gray-200">{item.serviceName || 'API'}</span>
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-gray-600 ring-1 ring-gray-200">{item.serviceName || 'API'}</span>
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${item.provider === 'ifreeicloud' ? 'bg-cyan-50 text-cyan-700 ring-cyan-200' : 'bg-blue-50 text-blue-700 ring-blue-200'}`}>
+                              {item.provider === 'ifreeicloud' ? 'iFreeiCloud' : 'SICKW'}
+                            </span>
+                          </div>
                         </div>
                         <button
                           type="button"

@@ -45,6 +45,11 @@ const PRODUCT_TYPE_LABELS = {
   iphone: 'iPhone',
   otro: 'Otros',
 };
+const PRODUCT_STATE_LABELS = {
+  nuevo: 'Nuevo',
+  usado: 'Usado',
+  open_box: 'Box',
+};
 const normalizeProductType = (value) => {
   const raw = String(value || '').trim().toLowerCase();
   const compact = raw.replace(/[\s_-]+/g, '');
@@ -81,6 +86,9 @@ const accessoryTypeLabel = (product) => {
 const displayProductCode = (product) => String(product?.tipo || '').toLowerCase() === 'accesorios'
   ? (product?.codigoInventario || product?.id)
   : product?.id;
+const isPickedUpTracking = (tracking) => (
+  String(tracking?.estado || '').toLowerCase() === 'recogido' || Boolean(tracking?.fechaRecogido)
+);
 const EMPTY_ESH_PROGRESS = {
   status: 'idle',
   total: 0,
@@ -354,6 +362,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [soloVendidos, setSoloVendidos] = useState(false);
   const [soloAdelanto, setSoloAdelanto] = useState(false);
   const [soloEnCamino, setSoloEnCamino] = useState(false);
+  const [soloEnEshopex, setSoloEnEshopex] = useState(false);
   const [ventaMsgOpen, setVentaMsgOpen] = useState(false);
   const [sellerAssignOpen, setSellerAssignOpen] = useState(false);
   const [sellerAssignDrafts, setSellerAssignDrafts] = useState({});
@@ -368,6 +377,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [adelantoProducto, setAdelantoProducto] = useState(null);
   const [adelantoActivo, setAdelantoActivo] = useState(null);
   // Filtros adicionales
+  const [filtroEstado, setFiltroEstado] = useState('todos');
   const [filtroTipo, setFiltroTipo] = useState('todos'); // 'todos' | 'macbook' | 'ipad' | 'iphone' | 'pantalla' | 'otro'
   const [filtroProc, setFiltroProc] = useState('todos'); // procesador o pantalla (texto libre)
   const [filtroTam, setFiltroTam] = useState('todos');   // tamano adicional para macbook/ipad
@@ -378,6 +388,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
     setSoloAdelanto(key === 'adelanto' && checked);
     setSoloDisponibles(key === 'disponibles' && checked);
     setSoloEnCamino(key === 'enCamino' && checked);
+    setSoloEnEshopex(key === 'enEshopex' && checked);
   };
 
   const fmtFechaTabla = (value) => {
@@ -461,6 +472,18 @@ export default function Productos({ setVista, setAnalisisBack }) {
     return [...ordered, 'otro'].map((type) => ({ type, count: counts[type] }));
   }, [productos]);
   const tiposDisponiblesKeys = React.useMemo(() => tiposDisponibles.map((item) => item.type), [tiposDisponibles]);
+  const estadosDisponibles = React.useMemo(() => {
+    const values = new Map();
+    for (const p of productos || []) {
+      const estado = String(p?.estado || '').trim();
+      if (!estado) continue;
+      const key = estado.toLowerCase();
+      if (!values.has(key)) values.set(key, estado);
+    }
+    return Array.from(values.entries())
+      .sort((a, b) => a[1].localeCompare(b[1], 'es'))
+      .map(([value, label]) => ({ value, label }));
+  }, [productos]);
 
   // Opciones disponibles de procesador (macbook/ipad) o tamano (pantalla)
   const opcionesProc = React.useMemo(() => {
@@ -743,8 +766,10 @@ const confirmAction = async () => {
         const t = getLastTracking(p);
         const venta = ventasMap[p?.id] || null;
         const adelanto = adelantosMap[p?.id] || null;
-        const accessoryAvailable = String(p?.tipo).toLowerCase() === 'accesorios' && Number(p.stockActual || 0) > 0;
-        return (accessoryAvailable || String(t?.estado || '').toLowerCase() === 'recogido') && (accessoryAvailable || !venta) && !adelanto;
+        const accessoryAvailable = String(p?.tipo).toLowerCase() === 'accesorios'
+          && Number(p.stockActual || 0) > 0
+          && isPickedUpTracking(t);
+        return (accessoryAvailable || isPickedUpTracking(t)) && (accessoryAvailable || !venta) && !adelanto;
       })
       .map((p) => ({
         id: p.id,
@@ -2008,26 +2033,35 @@ const confirmAction = async () => {
     }
 
 
-    if (soloEnCamino && !soloDisponibles && !soloVendidos && !soloAdelanto) {
+    if (soloEnCamino) {
       list = list.filter((p) => {
-        const estado = String(p.tracking?.[0]?.estado || '').toLowerCase();
-        return estado === 'comprado_en_camino' || estado === 'en_eshopex';
+        const estado = String(getLastTracking(p)?.estado || '').toLowerCase();
+        return estado === 'comprado_en_camino';
       });
     }
-    if (soloDisponibles && !soloVendidos && !soloAdelanto && !soloEnCamino) {
+    if (soloEnEshopex) {
+      list = list.filter((p) => String(getLastTracking(p)?.estado || '').toLowerCase() === 'en_eshopex');
+    }
+    if (soloDisponibles) {
       list = list.filter((p) => {
-        const t = p.tracking?.[0];
+        const t = getLastTracking(p);
         const venta = ventasMap[p.id] || null;
         const adelanto = adelantosMap[p.id] || null;
-        const accessoryAvailable = String(p?.tipo).toLowerCase() === 'accesorios' && Number(p.stockActual || 0) > 0;
-        return (accessoryAvailable || t?.estado === 'recogido') && (accessoryAvailable || !venta) && !adelanto;
+        const accessoryAvailable = String(p?.tipo).toLowerCase() === 'accesorios'
+          && Number(p.stockActual || 0) > 0
+          && isPickedUpTracking(t);
+        return (accessoryAvailable || isPickedUpTracking(t)) && (accessoryAvailable || !venta) && !adelanto;
       });
     }
-    if (soloVendidos && !soloDisponibles && !soloAdelanto && !soloEnCamino) {
+    if (soloVendidos) {
       list = list.filter((p) => Boolean(ventasMap[p.id]));
     }
-    if (soloAdelanto && !soloDisponibles && !soloVendidos && !soloEnCamino) {
+    if (soloAdelanto) {
       list = list.filter((p) => Boolean(adelantosMap[p.id]));
+    }
+
+    if (filtroEstado !== 'todos') {
+      list = list.filter((p) => String(p?.estado || '').trim().toLowerCase() === filtroEstado);
     }
 
     // Filtro por tipo ("otro" = todo lo que NO es macbook ni ipad)
@@ -2099,15 +2133,15 @@ const confirmAction = async () => {
     }
 
 
-    if (soloVendidos && !soloDisponibles && !soloAdelanto && !soloEnCamino) {
+    if (soloVendidos) {
       list.sort((a, b) => saleTs(b) - saleTs(a)); // ventas mas recientes arriba
-    } else if (soloDisponibles && !soloVendidos && !soloAdelanto && !soloEnCamino) {
+    } else if (soloDisponibles) {
       list.sort((a, b) => pickupTs(b) - pickupTs(a)); // recojos mas recientes arriba
     } else {
       list.sort((a, b) => ts(b) - ts(a)); // mas nuevos arriba (fecha compra)
     }
     return list;
-  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, soloEnCamino, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery, getFechaVenta]);
+  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, soloEnCamino, soloEnEshopex, filtroEstado, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery, getFechaVenta, getLastTracking]);
 
   const paquetesSinVendedor = React.useMemo(() => {
     return (productos || []).filter((p) => !String(p?.vendedor || '').trim());
@@ -2638,6 +2672,15 @@ const confirmAction = async () => {
                   />
                   En camino
                 </label>
+                <label className="flex items-center gap-2 text-sm mt-1">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={soloEnEshopex}
+                    onChange={(e) => setMostrarFiltro('enEshopex', e.target.checked)}
+                  />
+                  En eShopex
+                </label>
               </div>
 
               <input
@@ -2649,6 +2692,22 @@ const confirmAction = async () => {
               />
 
 
+
+              <label className="text-sm inline-flex items-center gap-2 w-full sm:w-auto">
+                <span>Estado</span>
+                <select
+                  className="border rounded px-2 py-1 w-full sm:w-auto"
+                  value={filtroEstado}
+                  onChange={(e) => setFiltroEstado(e.target.value)}
+                >
+                  <option value="todos">Todos</option>
+                  {estadosDisponibles.map(({ value, label }) => (
+                    <option key={value} value={value}>
+                      {PRODUCT_STATE_LABELS[value] || label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <label className="text-sm inline-flex items-center gap-2 w-full sm:w-auto">
                 <span>Tipo</span>
@@ -2919,7 +2978,9 @@ const confirmAction = async () => {
                   const estado = t?.estado || '';
                   const venta = ventasMap[p.id] || null;
                   const adelanto = adelantosMap[p.id] || null;
-                  const accessoryAvailable = String(p.tipo).toLowerCase() === 'accesorios' && Number(p.stockActual || 0) > 0;
+                  const accessoryAvailable = String(p.tipo).toLowerCase() === 'accesorios'
+                    && Number(p.stockActual || 0) > 0
+                    && isPickedUpTracking(t);
 
                   // Solo seleccionable en Recojo si estf en Eshopex
                   const canSelectRecojo = selectAction === 'recojo' ? estado === 'en_eshopex' : true;
@@ -3101,11 +3162,13 @@ const confirmAction = async () => {
                     {/* Venta */}
                     <td className="p-2">
                       {(() => {
-                        const t = p.tracking?.[0];
+                        const t = getLastTracking(p);
                         const venta = ventasMap[p.id] || null;
                         const adelanto = adelantosMap[p.id] || null;
-                        const recogido = t?.estado === 'recogido';
-                        const accessoryAvailable = String(p.tipo).toLowerCase() === 'accesorios' && Number(p.stockActual || 0) > 0;
+                        const recogido = isPickedUpTracking(t);
+                        const accessoryAvailable = String(p.tipo).toLowerCase() === 'accesorios'
+                          && Number(p.stockActual || 0) > 0
+                          && recogido;
 
                         let text = 'En espera';
                         let className = 'bg-gray-300 text-gray-600 cursor-not-allowed opacity-60';
@@ -3175,13 +3238,17 @@ const confirmAction = async () => {
           </div>
         ) : (
           <p>
-            {(soloDisponibles && !soloVendidos && !soloAdelanto)
+            {soloDisponibles
               ? 'No hay productos disponibles para venta.'
-              : (soloVendidos && !soloDisponibles && !soloAdelanto)
+              : soloVendidos
                 ? 'No hay productos vendidos.'
-                : (soloAdelanto && !soloDisponibles && !soloVendidos)
+                : soloAdelanto
                   ? 'No hay productos con adelanto.'
-                  : 'No hay productos a\u00fan.'}
+                  : soloEnCamino
+                    ? 'No hay productos en camino.'
+                    : soloEnEshopex
+                      ? 'No hay productos en eShopex.'
+                      : 'No hay productos a\u00fan.'}
           </p>
         )
       )}

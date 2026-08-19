@@ -5,6 +5,8 @@ import { getAnalyticsSummary } from '../services/analytics';
 import { TC_FIJO } from '../utils/tipoCambio';
 
 const PAGE_SIZE = 140;
+// Safety limit per internal round. Rounds continue automatically until the
+// visible batch reaches 14 products or every query is exhausted.
 const PRODUCT_SEARCH_BATCH_REQUEST_LIMIT = 10;
 const PRODUCT_SEARCH_MIN_VISIBLE_RESULTS = 14;
 const AUCTION_QUERY_GROUP_BATCH_SIZE = 4;
@@ -108,7 +110,7 @@ const MACBOOK_PRO_PROCESSOR_OPTIONS = MACBOOK_PROCESSOR_OPTIONS;
 const MACBOOK_RAM_OPTIONS = ['', '8GB', '16GB', '18GB', '24GB', '32GB', '36GB', '48GB', '64GB'];
 const MACBOOK_STORAGE_OPTIONS = ['', '256GB', '512GB', '1TB', '2TB', '4TB', '8TB'];
 const TARGET_MACBOOK_MODEL_NUMBERS = [
-  'a2179', 'a2251', 'a2289', 'a2336', 'a3404',
+  'a2336', 'a3404',
   'a2337', 'a2338', 'a2442', 'a2485', 'a2681', 'a2779', 'a2780', 'a2918',
   'a2941', 'a2991', 'a2992', 'a3112', 'a3113', 'a3114', 'a3185', 'a3186',
   'a3240', 'a3241', 'a3401', 'a3403', 'a3426', 'a3427', 'a3428', 'a3429',
@@ -146,14 +148,49 @@ const TARGET_WATCH_SE2_MODEL_NUMBERS = ['a2722', 'a2723', 'a2724', 'a2725', 'a27
 const TARGET_WATCH_SE3_MODEL_NUMBERS = ['a3324', 'a3325', 'a3391', 'a3392', 'a3326', 'a3328', 'a3327', 'a3329'];
 const TARGET_WATCH_ULTRA_MODEL_NUMBERS = ['a2986', 'a2987', 'a3281', 'a3282'];
 const TARGET_MACBOOK_ORDER_CODES = [
-  'mwtj2', 'mvh22', 'mxk62', 'mwp72', 'myd82',
+  'myd82',
   'mhfa4', 'mhfd4', 'mhff4', 'mhfh4', 'mhfc4', 'mhfe4', 'mhfg4', 'mhfj4',
   'mgn63', 'mgn73', 'mly33', 'mly43', 'mqkw3', 'mrxv3', 'mrxw3', 'mryu3',
-  'mc6t4', 'mc6u4', 'mc7a4', 'mdhh4', 'mdhj4', 'mdvq4', 'myda2', 'mkgr3',
+  'mc6t4', 'mw123', 'mw0y3', 'mw0w3', 'mc6u4', 'mc6v4', 'mw133', 'mc6c4',
+  'mw103', 'mc6a4', 'mw0x3', 'mc654', 'mc7a4', 'mc7c4', 'mc7d4', 'mw1l3',
+  'mw1m3', 'mc6l4', 'mc6k4', 'mw1j3', 'mw1k3', 'mw1g3', 'mw1h3', 'mc6j4',
+  'mdhh4', 'mdhj4', 'mdvq4', 'myda2', 'mkgr3',
   'mkgt3', 'mk1e3', 'mk1h3', 'mneh3', 'mphe3', 'mphf3', 'mphg3', 'mnw83',
   'mnwa3', 'mtl73', 'mrx33', 'mrx43', 'mrx53', 'mrw13', 'mrw33', 'muw63',
   'mw2w3', 'mx2e3', 'mx2f3', 'mx2g3', 'mx2t3', 'mx2v3', 'mx2w3', 'mde44',
   'mgdn4', 'mgdp4', 'mgdq4', 'mge44', 'mge74', 'mge94',
+];
+// EveryMac identifiers for Apple-silicon MacBooks introduced since 2020.
+// Order numbers omit the regional suffix so LL/A and other regions match.
+const MACBOOK_IDENTIFIER_RULES = [
+  { ids: ['a2337'], orders: ['mgn63', 'mgn73'], line: 'Air', processor: 'M1', screens: ['13'] },
+  { ids: ['a2681'], orders: ['mly33', 'mly43'], line: 'Air', processor: 'M2', screens: ['13'] },
+  { ids: ['a2941'], orders: ['mqkw3'], line: 'Air', processor: 'M2', screens: ['15'] },
+  { ids: ['a3113'], orders: ['mrxv3', 'mrxw3'], line: 'Air', processor: 'M3', screens: ['13'] },
+  { ids: ['a3114'], orders: ['mryu3'], line: 'Air', processor: 'M3', screens: ['15'] },
+  { ids: ['a3240'], orders: ['mc6t4', 'mw123', 'mw0y3', 'mw0w3', 'mc6u4', 'mc6v4', 'mw133', 'mc6c4', 'mw103', 'mc6a4', 'mw0x3', 'mc654'], line: 'Air', processor: 'M4', screens: ['13'] },
+  { ids: ['a3241'], orders: ['mc7a4', 'mc7c4', 'mc7d4', 'mw1l3', 'mw1m3', 'mc6l4', 'mc6k4', 'mw1j3', 'mw1k3', 'mw1g3', 'mw1h3', 'mc6j4'], line: 'Air', processor: 'M4', screens: ['15'] },
+  { ids: ['a3448'], orders: ['mdhh4', 'mdhj4'], line: 'Air', processor: 'M5', screens: ['13'] },
+  { ids: ['a3449'], orders: ['mdvq4'], line: 'Air', processor: 'M5', screens: ['15'] },
+  { ids: ['a2338'], orders: ['myd82', 'myda2'], line: 'Pro', processor: 'M1', screens: ['13'] },
+  { ids: ['a2442'], orders: ['mkgr3', 'mkgt3'], line: 'Pro', processor: 'M1 Pro', screens: ['14'] },
+  { ids: ['a2485'], orders: ['mk1e3', 'mk1h3'], line: 'Pro', processor: 'M1 Pro', screens: ['16'] },
+  { ids: ['a2338'], orders: ['mneh3'], line: 'Pro', processor: 'M2', screens: ['13'] },
+  { ids: ['a2779'], orders: ['mphe3', 'mphf3', 'mphg3'], line: 'Pro', processor: 'M2 Pro', screens: ['14'] },
+  { ids: ['a2780'], orders: ['mnw83', 'mnwa3'], line: 'Pro', processor: 'M2 Pro', screens: ['16'] },
+  { ids: ['a2918'], orders: ['mtl73'], line: 'Pro', processor: 'M3', screens: ['14'] },
+  { ids: ['a2992'], orders: ['mrx33', 'mrx43', 'mrx53', 'muw63'], line: 'Pro', processor: 'M3 Pro', screens: ['14'] },
+  { ids: ['a2991'], orders: ['mrw13', 'mrw33'], line: 'Pro', processor: 'M3 Pro', screens: ['16'] },
+  { ids: ['a3112'], orders: ['mw2w3'], line: 'Pro', processor: 'M4', screens: ['14'] },
+  { ids: ['a3401'], orders: ['mx2e3', 'mx2f3'], line: 'Pro', processor: 'M4 Pro', screens: ['14'] },
+  { ids: ['a3185'], orders: ['mx2g3', 'mx2k3'], line: 'Pro', processor: 'M4 Max', screens: ['14'] },
+  { ids: ['a3403'], orders: ['mx2t3'], line: 'Pro', processor: 'M4 Pro', screens: ['16'] },
+  { ids: ['a3186'], orders: ['mx2v3', 'mx2w3'], line: 'Pro', processor: 'M4 Max', screens: ['16'] },
+  { ids: ['a3434'], orders: ['mde44'], line: 'Pro', processor: 'M5', screens: ['14'] },
+  { ids: ['a3426'], orders: ['mgdn4', 'mgdp4'], line: 'Pro', processor: 'M5 Pro', screens: ['14'] },
+  { ids: ['a3427'], orders: ['mgdq4'], line: 'Pro', processor: 'M5 Max', screens: ['14'] },
+  { ids: ['a3428'], orders: ['mge44', 'mge74'], line: 'Pro', processor: 'M5 Pro', screens: ['16'] },
+  { ids: ['a3429'], orders: ['mge94'], line: 'Pro', processor: 'M5 Max', screens: ['16'] },
 ];
 const TARGET_IPAD_ORDER_CODES = [
   'mk7m3', 'mk893', 'mk8y3', 'mxn73', 'mxpp3', 'mxq13',
@@ -239,7 +276,7 @@ export const getProgressiveAuctionVisibleCount = (foundCount, complete, limit = 
   return complete ? bounded : 0;
 };
 
-const keepItemsOlderThanVisibleTail = (visibleItems, nextItems) => {
+export const keepItemsOlderThanVisibleTail = (visibleItems, nextItems) => {
   if (!Array.isArray(visibleItems) || visibleItems.length === 0) return nextItems;
   const tailTime = getItemListedTime(visibleItems[visibleItems.length - 1]);
   if (!tailTime) return nextItems;
@@ -247,6 +284,15 @@ const keepItemsOlderThanVisibleTail = (visibleItems, nextItems) => {
     const itemTime = getItemListedTime(item);
     return !itemTime || itemTime <= tailTime;
   });
+};
+
+export const splitProductSearchBatch = (items, size = PRODUCT_SEARCH_MIN_VISIBLE_RESULTS) => {
+  const safeItems = Array.isArray(items) ? items : [];
+  const safeSize = Math.max(1, Number(size) || PRODUCT_SEARCH_MIN_VISIBLE_RESULTS);
+  return {
+    batchItems: safeItems.slice(0, safeSize),
+    pendingItems: safeItems.slice(safeSize),
+  };
 };
 
 const formatNumber = (value) => {
@@ -345,6 +391,22 @@ const getMacbookProcessorOptions = (line) => {
   return MACBOOK_PROCESSOR_OPTIONS;
 };
 
+const getMacbookIdentifierRules = (form, { ignoreModel = false, ignoreOrder = false } = {}) =>
+  MACBOOK_IDENTIFIER_RULES
+    .filter((rule) => (!form.line || rule.line === form.line))
+    .filter((rule) => (!form.processor || rule.processor === form.processor))
+    .filter((rule) => (!form.screen || rule.screens.includes(String(form.screen))))
+    .filter((rule) => (ignoreModel || !form.modelNumber || rule.ids.includes(String(form.modelNumber).toLowerCase())))
+    .filter((rule) => (ignoreOrder || !form.orderNumber || rule.orders.includes(String(form.orderNumber).toLowerCase())));
+
+const getMacbookModelNumberOptions = (form) => uniqueStrings(
+  getMacbookIdentifierRules(form, { ignoreModel: true }).flatMap((rule) => rule.ids),
+).map((value) => ({ value, label: value.toUpperCase() }));
+
+const getMacbookOrderNumberOptions = (form) => uniqueStrings(
+  getMacbookIdentifierRules(form, { ignoreOrder: true }).flatMap((rule) => rule.orders),
+).map((value) => ({ value, label: `${value.toUpperCase()}LL/A` }));
+
 const buildIpadQuery = (form) => {
   const parts = ['apple', 'ipad'];
   if (compactValue(form.line) && form.line !== 'normal') parts.push(form.line);
@@ -429,7 +491,7 @@ const isAppleKeywordSearch = (keyword) => {
 const hasAnyProductFormValue = (form) =>
   Object.values(form || {}).some((value) => compactValue(value));
 
-const buildProductSearchQueries = ({ productType, ipadForm, iphoneForm, macbookForm, keyword }) => {
+export const buildProductSearchQueries = ({ productType, ipadForm, iphoneForm, macbookForm, keyword }) => {
   if (productType === 'keyword') {
     return uniqueStrings([compactValue(keyword) || 'apple']);
   }
@@ -450,6 +512,14 @@ const buildProductSearchQueries = ({ productType, ipadForm, iphoneForm, macbookF
   }
   if (productType === 'macbook') {
     const queries = hasAnyProductFormValue(macbookForm) ? [buildMacbookQuery(macbookForm)] : ['apple macbook'];
+    const shouldSearchIdentifiers = Boolean(
+      macbookForm.line || macbookForm.processor || macbookForm.screen || macbookForm.modelNumber || macbookForm.orderNumber,
+    );
+    if (shouldSearchIdentifiers) {
+      const rules = getMacbookIdentifierRules(macbookForm);
+      queries.push(...rules.flatMap((rule) => rule.ids.map((id) => `apple macbook ${id}`)));
+      queries.push(...rules.flatMap((rule) => rule.orders.map((order) => `apple macbook ${order}`)));
+    }
     return uniqueStrings(queries);
   }
   if (productType === 'imac') {
@@ -660,11 +730,30 @@ const EXCLUDED_APPLE_PRODUCT_TITLE_PATTERNS = [
   /\b(?:station|stand|dock|base|holder|mount|cradle)\b.{0,100}\b(?:iphone|ipad|apple\s+watch|watch|airpods?)\b/,
   /\b(?:3\s*-?\s*in\s*-?\s*1|2\s*-?\s*in\s*-?\s*1|multi\s*device)\b.{0,100}\b(?:charger|charging|station|stand|dock)\b/,
   /\b(?:logic\s+board|motherboard|display\s+assembly|screen\s+replacement|battery\s+replacement|camera\s+module|charging\s+port|flex\s+cable|parts?\s+only)\b/,
+  /\b(?:user\s+guide|study\s+guide|instruction\s+manual|repair\s+manual|handbook|textbook|e-?book|paperback|hardcover|kindle\s+edition|for\s+adults|for\s+seniors|for\s+beginners)\b/,
+  /\bharper\s+veyland\b/,
+  /\b(?:adhesive|adhesive\s+strip|adhesive\s+tape|double\s+side(?:d)?\s+tape|sticker|tape\s+set|glue|seal\s+strip)\b/,
+  /\b(?:lcd|display|screen|keyboard|keycap|trackpad|touchpad|top\s+case|bottom\s+case|palmrest|bezel|hinge|speaker|fan|heatsink|antenna|webcam|camera|battery|connector|cable|ribbon|flex|housing|chassis)\b.{0,60}\b(?:replacement|repair|part|parts|assembly|only|for)\b/,
+  /\b(?:replacement|repair|spare|oem)\b.{0,60}\b(?:lcd|display|screen|keyboard|keycap|trackpad|touchpad|case|palmrest|bezel|hinge|speaker|fan|heatsink|antenna|webcam|camera|battery|connector|cable|ribbon|flex|housing|chassis)\b/,
+  /(?:\b(?:case|cover|shell|skin|sleeve|hardshell|hard\s+shell)\b.{0,120}\b(?:macbook|a\d{4})\b|\b(?:macbook|a\d{4})\b.{0,120}\b(?:case|cover|shell|skin|sleeve|hardshell|hard\s+shell)\b)/,
+  /\b(?:speakers?|antennas?|fans?|hinges?|keycaps?|connectors?|ribbons?)\b.{0,100}\b(?:oem|replacement|repair|parts?|assembly|left|right)\b/,
+  /\b(?:left|right)\b.{0,100}\b(?:speakers?|antennas?|fans?|hinges?|connectors?)\b/,
+  /\bmcover\b/,
 ];
 
 const isExcludedAppleProductTitle = (title) => {
   const normalized = normalizeTitleText(title);
   return EXCLUDED_APPLE_PRODUCT_TITLE_PATTERNS.some((pattern) => pattern.test(normalized));
+};
+
+const APPLE_PART_COMPONENT_PATTERN = /\b(?:trackpads?|touchpads?|keyboards?|keycaps?|type\s*c\s+ports?|usb[\s-]*c\s+ports?|thunderbolt\s+ports?|charging\s+ports?|earphone\s+jacks?|headphone\s+(?:audio\s+)?jacks?|audio\s+jacks?|dc\s+jacks?|magsafe\s+(?:jacks?|boards?)|microphone\s+flex|flex\s+cables?|ribbon\s+cables?|speakers?|antennas?|fans?|heatsinks?|hinges?|connectors?|cameras?|webcams?|daughterboards?|logic\s+boards?|motherboards?|jack\s+boards?|usb[\s-]*c\s+boards?|lcds?|displays?|screens?|display\s+assembl(?:y|ies)|screen\s+assembl(?:y|ies)|batter(?:y|ies)|palmrests?|bezels?|housings?|chassis)\b/;
+
+export const isApplePartTitle = (title) => {
+  const normalized = normalizeTitleText(title);
+  if (!APPLE_PART_COMPONENT_PATTERN.test(normalized)) return false;
+  const capacities = normalized.match(/\b\d+(?:gb|tb)\b/g) || [];
+  const explicitPartSignal = /\b(?:for\s+(?:apple\s+)?(?:macbook|ipad|iphone|imac)|oem|genuine|replacement|repair|spare|parts?|assembly|left|right)\b/.test(normalized);
+  return explicitPartSignal || capacities.length < 2;
 };
 
 const DEVICE_SIGNAL_PATTERNS = [
@@ -801,6 +890,7 @@ const isPrimaryAccessoryTitle = (title, family = '') => {
 const isLikelyAppleDeviceTitle = (title, family) => {
   const normalized = normalizeTitleText(title);
   if (EXTERNAL_BRAND_PATTERN.test(normalized)) return false;
+  if (isExcludedAppleProductTitle(normalized)) return false;
   if (isPrimaryAccessoryTitle(normalized, family)) return false;
   if (family === 'ipad') return isTargetIpadTitle(normalized);
   if (family === 'iphone') {
@@ -839,15 +929,25 @@ const matchIpadItem = (item, form) => {
   return true;
 };
 
-const matchMacbookItem = (item, form) => {
+export const matchMacbookItem = (item, form, options = {}) => {
   const title = normalizeTitleText(item?.title || '');
-  if (!isLikelyAppleDeviceTitle(title, 'macbook')) return false;
-  if (form.line === 'Air' && !/\bair\b/.test(title)) return false;
-  if (form.line === 'Pro' && !/\bpro\b/.test(title)) return false;
-  if (!titleHasProcessor(title, form.processor)) return false;
-  if (compactValue(form.screen) && !titleHasScreen(title, form.screen)) return false;
+  const identifierRule = MACBOOK_IDENTIFIER_RULES.find((rule) =>
+    rule.ids.some((id) => hasTargetModelNumber(title, [id])) ||
+    rule.orders.some((order) => hasTargetOrderCode(title, [order])),
+  );
+  const isPart = isApplePartTitle(title);
+  if (isPart) {
+    if (!options.allowParts) return false;
+    if (!title.includes('macbook') && !identifierRule) return false;
+  } else if (!isLikelyAppleDeviceTitle(title, 'macbook')) return false;
+  if (form.line === 'Air' && !(identifierRule?.line === 'Air' || /\bair\b/.test(title))) return false;
+  if (form.line === 'Pro' && !(identifierRule?.line === 'Pro' || /\bpro\b/.test(title))) return false;
+  if (form.processor && !(identifierRule?.processor === form.processor || titleHasProcessor(title, form.processor))) return false;
+  if (compactValue(form.screen) && !(identifierRule?.screens.includes(String(form.screen)) || titleHasScreen(title, form.screen))) return false;
   if (!titleHasRam(title, form.ram)) return false;
   if (!titleHasStorage(title, form.storage)) return false;
+  if (form.modelNumber && !hasTargetModelNumber(title, [form.modelNumber])) return false;
+  if (form.orderNumber && !hasTargetOrderCode(title, [form.orderNumber])) return false;
   return true;
 };
 
@@ -867,7 +967,7 @@ const normalizeIpadFormForLine = (prev, nextLine) => {
 };
 
 const normalizeMacbookFormForLine = (prev, nextLine) => {
-  const next = { ...prev, line: nextLine };
+  const next = { ...prev, line: nextLine, modelNumber: '', orderNumber: '' };
   const screenOptions = getMacbookScreenOptions(nextLine);
   const processorOptions = getMacbookProcessorOptions(nextLine);
   if (!screenOptions.includes(next.screen)) next.screen = '';
@@ -1098,9 +1198,8 @@ const getResponseNextOffset = (data, fallbackOffset) => {
 
 function SectionToggle({ activeTab, onChange }) {
   const tabs = [
-    { id: 'pawns', label: 'Buscar Por Pawns' },
     { id: 'product', label: 'Buscar Por Producto' },
-    { id: 'auctions', label: 'Subastas Apple' },
+    { id: 'pawns', label: 'Buscar Por Pawns' },
   ];
 
   return (
@@ -1243,7 +1342,7 @@ function ResultsGrid({ items, titleSource = 'store', dateField = 'origin', price
   );
 }
 
-function EbayRateLimitPanel({ data, loading, error, onRefresh }) {
+function EbayRateLimitPanel({ data, loading, error, onRefresh, compact = false }) {
   const primary = data?.summary?.primary || data?.summary?.resources?.[0] || null;
   const used = Number(primary?.count);
   const limit = Number(primary?.limit);
@@ -1259,6 +1358,33 @@ function EbayRateLimitPanel({ data, loading, error, onRefresh }) {
       ? 'border-amber-200 bg-amber-50'
       : 'border-emerald-200 bg-emerald-50';
   const barTone = exhausted ? 'bg-red-500' : boundedPercent >= 85 ? 'bg-amber-500' : 'bg-emerald-500';
+
+  if (compact) {
+    return (
+      <div className={`w-full rounded-xl border px-3 py-2 ${tone}`}>
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-700">
+              <span className="font-semibold text-slate-900">Límite eBay</span>
+              <span><strong>{formatNumber(primary?.remaining)}</strong> de {formatNumber(primary?.limit)}</span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/80">
+              <div className={`h-full rounded-full ${barTone}`} style={{ width: `${boundedPercent}%` }} />
+            </div>
+            {error && <div className="mt-1 truncate text-[10px] font-semibold text-red-700">{error}</div>}
+          </div>
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading}
+            className="shrink-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-60"
+          >
+            {loading ? '...' : 'Actualizar'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`mb-4 rounded-2xl border px-4 py-4 shadow-sm sm:mb-6 sm:rounded-[2rem] sm:px-5 ${tone}`}>
@@ -1340,7 +1466,7 @@ function EbayLoadingPanel({ progress, tab, compact = false }) {
 }
 
 function Ebay({ setVista }) {
-  const [activeTab, setActiveTab] = useState('pawns');
+  const [activeTab, setActiveTab] = useState('product');
   const [loadingTab, setLoadingTab] = useState('');
   const [appendLoadingTab, setAppendLoadingTab] = useState('');
   const [loadingProgress, setLoadingProgress] = useState({ visible: false, tab: '', mode: '', percent: 0 });
@@ -1349,6 +1475,8 @@ function Ebay({ setVista }) {
   const [pawnQuery, setPawnQuery] = useState('apple');
   const [pawnCondition, setPawnCondition] = useState('');
   const [pawnBuyingOptions, setPawnBuyingOptions] = useState('BEST_OFFER');
+  const [pawnMinPrice, setPawnMinPrice] = useState('');
+  const [pawnMaxPrice, setPawnMaxPrice] = useState('');
   const [pawnResult, setPawnResult] = useState(EMPTY_RESULT);
   const [pawnStores, setPawnStores] = useState([]);
   const [pawnStoreMode, setPawnStoreMode] = useState('');
@@ -1362,13 +1490,15 @@ function Ebay({ setVista }) {
   const [productType, setProductType] = useState('all');
   const [productCondition, setProductCondition] = useState('');
   const [productBuyingOptions, setProductBuyingOptions] = useState('BEST_OFFER');
+  const [productMinPrice, setProductMinPrice] = useState('');
+  const [productMaxPrice, setProductMaxPrice] = useState('');
   const [productPawnOnly, setProductPawnOnly] = useState(false);
   const [productMinReviewsOnly, setProductMinReviewsOnly] = useState(false);
   const [productKeyword, setProductKeyword] = useState('');
   const [productResult, setProductResult] = useState(EMPTY_RESULT);
   const [ipadForm, setIpadForm] = useState({ line: '', number: '', screen: '', processor: '', storage: '', connectivity: '' });
   const [iphoneForm, setIphoneForm] = useState({ number: '', model: '' });
-  const [macbookForm, setMacbookForm] = useState({ line: '', screen: '', processor: '', ram: '', storage: '' });
+  const [macbookForm, setMacbookForm] = useState({ line: '', screen: '', processor: '', ram: '', storage: '', modelNumber: '', orderNumber: '' });
 
   const [auctionFamily, setAuctionFamily] = useState('all');
   const [auctionCondition, setAuctionCondition] = useState('auction_normal');
@@ -1392,6 +1522,8 @@ function Ebay({ setVista }) {
   const ipadStorageOptions = getIpadStorageOptions(ipadForm);
   const macbookScreenOptions = getMacbookScreenOptions(macbookForm.line);
   const macbookProcessorOptions = getMacbookProcessorOptions(macbookForm.line);
+  const macbookModelNumberOptions = getMacbookModelNumberOptions(macbookForm);
+  const macbookOrderNumberOptions = getMacbookOrderNumberOptions(macbookForm);
 
   const beginEbayRequest = (tab) => {
     requestSeqRef.current[tab] = Number(requestSeqRef.current[tab] || 0) + 1;
@@ -1457,13 +1589,14 @@ function Ebay({ setVista }) {
     loadEbayRateLimits({ silent: false });
     setErrors((prev) => ({ ...prev, pawns: '' }));
     try {
+      const pawnPriceParams = `${pawnMinPrice !== '' ? `&minPrice=${encodeURIComponent(pawnMinPrice)}` : ''}${pawnMaxPrice !== '' ? `&maxPrice=${encodeURIComponent(pawnMaxPrice)}` : ''}`;
       let offset = initialOffset;
       let data = null;
       let receivedItems = [];
 
       if (!append) {
         data = await api.get(
-          `/utils/ebay/store-feed?q=${encodeURIComponent(trimmedQuery)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(pawnCondition)}&buyingOptions=${encodeURIComponent(pawnBuyingOptions)}`,
+          `/utils/ebay/store-feed?q=${encodeURIComponent(trimmedQuery)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(pawnCondition)}&buyingOptions=${encodeURIComponent(pawnBuyingOptions)}${pawnPriceParams}`,
         );
         receivedItems = Array.isArray(data?.items) ? data.items : [];
       } else {
@@ -1472,7 +1605,7 @@ function Ebay({ setVista }) {
 
         for (let page = 0; page < maxAppendPages; page += 1) {
           data = await api.get(
-            `/utils/ebay/store-feed?q=${encodeURIComponent(trimmedQuery)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(pawnCondition)}&buyingOptions=${encodeURIComponent(pawnBuyingOptions)}`,
+            `/utils/ebay/store-feed?q=${encodeURIComponent(trimmedQuery)}&limit=${PAGE_SIZE}&offset=${offset}&condition=${encodeURIComponent(pawnCondition)}&buyingOptions=${encodeURIComponent(pawnBuyingOptions)}${pawnPriceParams}`,
           );
           const pageItems = Array.isArray(data?.items) ? data.items : [];
           const newItems = pageItems.filter((item) => {
@@ -1531,34 +1664,48 @@ function Ebay({ setVista }) {
     try {
       const pawnOnlyParam = productPawnOnly ? '&pawnOnly=1' : '';
       const minReviewsParam = productMinReviewsOnly ? '&minSellerReviews=10000' : '';
+      const productPriceParams = `${productMinPrice !== '' ? `&minPrice=${encodeURIComponent(productMinPrice)}` : ''}${productMaxPrice !== '' ? `&maxPrice=${encodeURIComponent(productMaxPrice)}` : ''}`;
       const activeProductQueries = productQueries.length > 0 ? productQueries : [productQuery];
       const isMultiQuerySearch = activeProductQueries.length > 1;
       const buildEndpoint = (query, offset, options = {}) => {
         const cacheOffset = Number(options.cacheOffset || 0);
         const preferCache = options.preferCache ? '1' : '';
-        return `/utils/ebay/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}&cacheOffset=${cacheOffset}&preferCache=${preferCache}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}${minReviewsParam}&sort=newlyListed&scanPages=${PRODUCT_SEARCH_SCAN_PAGES_PER_REQUEST}`;
+        return `/utils/ebay/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}&cacheOffset=${cacheOffset}&preferCache=${preferCache}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}${minReviewsParam}${productPriceParams}&sort=newlyListed&scanPages=${PRODUCT_SEARCH_SCAN_PAGES_PER_REQUEST}`;
       };
       const filterProductItems = (rawItems) => {
+        const allowParts = productCondition === 'for_parts';
+        const eligibleItems = rawItems.filter((item) => {
+          const isPart = isApplePartTitle(item?.title || '');
+          if (allowParts) return isPart || String(item?.conditionId || '').trim() === '7000';
+          return !isPart;
+        });
         if (productType === 'keyword') {
-          if (!isAppleKeywordSearch(productKeyword)) return rawItems;
-          const deviceItems = rawItems.filter((item) => isLikelyAppleCatalogTitle(item?.title || ''));
+          if (!isAppleKeywordSearch(productKeyword)) return eligibleItems;
+          const deviceItems = eligibleItems.filter((item) =>
+            allowParts && isApplePartTitle(item?.title || '')
+              ? /\b(?:apple|macbook|ipad|iphone|imac|mac\s*mini|apple\s*watch|a\d{4})\b/.test(normalizeTitleText(item?.title || ''))
+              : isLikelyAppleCatalogTitle(item?.title || ''));
           return compactValue(productKeyword)
             ? deviceItems.filter((item) => textIncludesKeyword(item?.title || '', productKeyword))
             : deviceItems;
         }
         const familyFilteredItems = productType === 'all'
-          ? rawItems.filter((item) => isLikelyAppleCatalogTitle(item?.title || ''))
+          ? eligibleItems.filter((item) => allowParts && isApplePartTitle(item?.title || '')
+            ? /\b(?:apple|macbook|ipad|iphone|imac|mac\s*mini|apple\s*watch|a\d{4})\b/.test(normalizeTitleText(item?.title || ''))
+            : isLikelyAppleCatalogTitle(item?.title || ''))
           : productType === 'imac'
-            ? rawItems.filter((item) => isTargetImacTitle(normalizeTitleText(item?.title || '')))
+            ? eligibleItems.filter((item) => isTargetImacTitle(normalizeTitleText(item?.title || '')))
             : productType === 'mac-mini'
-              ? rawItems.filter((item) => isTargetMacMiniTitle(normalizeTitleText(item?.title || '')))
+              ? eligibleItems.filter((item) => isTargetMacMiniTitle(normalizeTitleText(item?.title || '')))
               : productType === 'apple-watch'
-                ? rawItems.filter((item) => isTargetAppleWatchTitle(normalizeTitleText(item?.title || '')))
-                : rawItems.filter((item) => isLikelyAppleDeviceTitle(item?.title || '', productType));
+                ? eligibleItems.filter((item) => isTargetAppleWatchTitle(normalizeTitleText(item?.title || '')))
+                : productType === 'macbook' && allowParts
+                  ? eligibleItems
+                  : eligibleItems.filter((item) => isLikelyAppleDeviceTitle(item?.title || '', productType));
         return productType === 'ipad'
           ? familyFilteredItems.filter((item) => matchIpadItem(item, ipadForm))
           : productType === 'macbook'
-            ? familyFilteredItems.filter((item) => matchMacbookItem(item, macbookForm))
+            ? familyFilteredItems.filter((item) => matchMacbookItem(item, macbookForm, { allowParts }))
             : familyFilteredItems;
       };
 
@@ -1594,21 +1741,27 @@ function Ebay({ setVista }) {
             exhausted: false,
           }));
       let nextQueryIndex = canReuseQueryStates ? Number(productResult.nextQueryIndex || 0) : 0;
-      let lastHasMore = false;
       let lastNextCacheOffset = !isMultiQuerySearch && append ? Number(productResult.cacheOffset || 0) : 0;
       let lastPreferCache = !isMultiQuerySearch && append ? Boolean(productResult.preferCache) : false;
       let lastRateLimited = false;
       let totalEstimate = append ? Number(productResult.total || 0) : 0;
       let completedBatches = 0;
       let latestResult = null;
+      const getAppendableProductItems = () => append
+        ? keepItemsOlderThanVisibleTail(productResult.items, filteredItems)
+        : filteredItems;
 
-      while (queryStates.some((state) => !state.exhausted)) {
+      while (
+        queryStates.some((state) => !state.exhausted) &&
+        getAppendableProductItems().length < PRODUCT_SEARCH_MIN_VISIBLE_RESULTS
+      ) {
         completedBatches += 1;
         let requestsInBatch = 0;
 
         while (
           requestsInBatch < PRODUCT_SEARCH_BATCH_REQUEST_LIMIT &&
-          queryStates.some((state) => !state.exhausted)
+          queryStates.some((state) => !state.exhausted) &&
+          getAppendableProductItems().length < PRODUCT_SEARCH_MIN_VISIBLE_RESULTS
         ) {
           let state = null;
           let stateIndex = -1;
@@ -1641,7 +1794,9 @@ function Ebay({ setVista }) {
             ? Number(result.nextCacheOffset)
             : state.cacheOffset;
           state.preferCache = !isMultiQuerySearch && Boolean(result?.nextPreferCache);
-          state.exhausted = Boolean(result?.rateLimited) || (!resultHasMore && !state.preferCache);
+          // A temporary eBay rate limit pauses this query; it does not exhaust
+          // it. Keep its cursor available so "Cargar mas" can retry later.
+          state.exhausted = !resultHasMore && !state.preferCache;
           lastRateLimited = lastRateLimited || Boolean(result?.rateLimited);
 
           const pageItems = sortItemsByListedDate(
@@ -1654,26 +1809,32 @@ function Ebay({ setVista }) {
             return true;
           });
           filteredItems = sortItemsByListedDate([...filteredItems, ...newItems]);
-          lastHasMore = queryStates.some((queryState) => !queryState.exhausted);
           lastNextCacheOffset = !isMultiQuerySearch && Number.isFinite(Number(result?.nextCacheOffset))
             ? Number(result.nextCacheOffset)
             : lastNextCacheOffset;
           lastPreferCache = !isMultiQuerySearch && Boolean(result?.nextPreferCache);
 
+          const currentlyAppendable = getAppendableProductItems();
+          if (currentlyAppendable.length >= PRODUCT_SEARCH_MIN_VISIBLE_RESULTS) break;
+
         }
 
+        // "Cargar mas" must remain a chronological continuation of the visible
+        // results, even when identifier queries return a newer independent page.
         const appendableItems = append
           ? keepItemsOlderThanVisibleTail(productResult.items, filteredItems)
           : filteredItems;
+        const { batchItems, pendingItems } = splitProductSearchBatch(appendableItems);
+        const searchHasMore = pendingItems.length > 0 || queryStates.some((state) => !state.exhausted);
         if (isCurrentEbayRequest('product', requestId)) {
           const visibleItems = append
-            ? mergeUniqueItems(productResult.items, appendableItems)
-            : appendableItems;
+            ? sortItemsByListedDate(mergeUniqueItems(productResult.items, batchItems))
+            : batchItems;
           const resultMetadata = latestResult || productResult;
           setProductResult({
             items: visibleItems,
             sellers: Array.isArray(resultMetadata?.sellers) ? resultMetadata.sellers : [],
-            total: Math.max(totalEstimate, visibleItems.length),
+            total: searchHasMore ? Math.max(totalEstimate, visibleItems.length) : visibleItems.length,
             query: String(resultMetadata?.query || productQuery),
             sort: String(resultMetadata?.sort || 'newlyListed'),
             limit: Number(resultMetadata?.limit || PAGE_SIZE),
@@ -1684,11 +1845,11 @@ function Ebay({ setVista }) {
             groups: Array.isArray(resultMetadata?.groups) ? resultMetadata.groups : [],
             family: String(resultMetadata?.family || productType),
             buyingOptions: String(resultMetadata?.buyingOptions || productBuyingOptions),
-            hasMore: !lastRateLimited && queryStates.some((state) => !state.exhausted),
+            hasMore: searchHasMore,
             rateLimited: lastRateLimited,
             queryStates: queryStates.map((queryState) => ({ ...queryState })),
             nextQueryIndex,
-            pendingItems: [],
+            pendingItems,
           });
         }
         if (
@@ -1704,14 +1865,16 @@ function Ebay({ setVista }) {
             ? keepItemsOlderThanVisibleTail(productResult.items, filteredItems)
             : filteredItems,
         );
+        const { batchItems, pendingItems } = splitProductSearchBatch(orderedNewItems);
+        const searchHasMore = pendingItems.length > 0 || queryStates.some((state) => !state.exhausted);
         const visibleItems = append
-          ? mergeUniqueItems(productResult.items, orderedNewItems)
-          : orderedNewItems;
+          ? sortItemsByListedDate(mergeUniqueItems(productResult.items, batchItems))
+          : batchItems;
         const resultMetadata = latestResult || productResult;
         setProductResult({
           items: visibleItems,
           sellers: Array.isArray(resultMetadata?.sellers) ? resultMetadata.sellers : [],
-          total: Math.max(totalEstimate, visibleItems.length),
+          total: searchHasMore ? Math.max(totalEstimate, visibleItems.length) : visibleItems.length,
           query: String(resultMetadata?.query || productQuery),
           sort: String(resultMetadata?.sort || 'newlyListed'),
           limit: Number(resultMetadata?.limit || PAGE_SIZE),
@@ -1722,11 +1885,11 @@ function Ebay({ setVista }) {
           groups: Array.isArray(resultMetadata?.groups) ? resultMetadata.groups : [],
           family: String(resultMetadata?.family || productType),
           buyingOptions: String(resultMetadata?.buyingOptions || productBuyingOptions),
-          hasMore: !lastRateLimited && lastHasMore,
+          hasMore: searchHasMore,
           rateLimited: lastRateLimited,
           queryStates: queryStates.map((queryState) => ({ ...queryState })),
           nextQueryIndex,
-          pendingItems: [],
+          pendingItems,
         });
       }
 
@@ -1736,7 +1899,7 @@ function Ebay({ setVista }) {
     } catch (err) {
       if (!isCurrentEbayRequest('product', requestId)) return;
       if (/429|limitando|too many requests/i.test(String(err?.message || err))) {
-        setProductResult((prev) => ({ ...prev, hasMore: false, rateLimited: true }));
+        setProductResult((prev) => ({ ...prev, hasMore: true, rateLimited: true }));
       }
       setErrors((prev) => ({ ...prev, product: String(err?.message || 'No se pudo cargar la busqueda por producto.') }));
     } finally {
@@ -1983,10 +2146,11 @@ function Ebay({ setVista }) {
   const currentAppendProgress = loadingProgress.visible && loadingProgress.mode === 'append' && loadingProgress.tab === activeTab
     ? loadingProgress
     : null;
+  const canRepeatProductSearch = activeTab === 'product' && currentResult.items.length > 0 && !currentHasMore;
   const showLoadMoreControls = (
     currentResult.items.length > 0 || currentHasMore || currentAppending || Boolean(currentAppendProgress)
   ) && (
-    currentHasMore || currentAppending || currentLoading || Boolean(currentAppendProgress)
+    currentHasMore || canRepeatProductSearch || currentAppending || currentLoading || Boolean(currentAppendProgress)
   );
   const currentItems = useMemo(
     () => currentResult.items.map((item) => ({
@@ -2052,8 +2216,12 @@ function Ebay({ setVista }) {
       nextOffset,
       pawnCondition,
       pawnBuyingOptions,
+      pawnMinPrice,
+      pawnMaxPrice,
       productCondition,
       productBuyingOptions,
+      productMinPrice,
+      productMaxPrice,
       productPawnOnly,
       productMinReviewsOnly,
       productKeyword,
@@ -2084,27 +2252,51 @@ function Ebay({ setVista }) {
               <h1 className="mt-2 text-2xl font-semibold text-slate-900 sm:text-4xl">Busqueda Apple</h1>
               <p className="mt-3 text-sm leading-6 text-slate-600">Carga {PAGE_SIZE} resultados por bloque. Tu decides cuando cargar mas.</p>
             </div>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
-              <SectionToggle activeTab={activeTab} onChange={setActiveTab} />
+            <div className="flex w-full flex-col gap-2 xl:w-auto xl:min-w-[430px]">
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                <SectionToggle activeTab={activeTab} onChange={setActiveTab} />
+                <button
+                  type="button"
+                  onClick={() => setVista('home')}
+                  className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 sm:w-auto"
+                >
+                  Volver
+                </button>
+              </div>
+              <EbayRateLimitPanel
+                compact
+                data={ebayRateLimits}
+                loading={ebayRateLoading}
+                error={ebayRateError}
+                onRefresh={() => loadEbayRateLimits({ silent: false })}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className={`mb-4 rounded-2xl border p-4 shadow-sm transition sm:mb-6 sm:rounded-[2rem] sm:p-5 ${activeTab === 'auctions' ? 'border-violet-200 bg-white' : 'border-slate-200 bg-white/80'}`}>
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-xl font-semibold text-slate-900">Buscar todos en subastas</h2>
+              <p className="mt-2 text-sm text-slate-600">Subastas Apple ordenadas por las primeras en terminar. Incluye Apple Watch Ultra por nombre o modelo Apple.</p>
+            </div>
+            <div className="grid w-full gap-2 sm:grid-cols-3 xl:w-auto">
+              <MappedSelectField value={auctionFamily} onChange={(e) => setAuctionFamily(e.target.value)} options={AUCTION_FAMILY_OPTIONS.map((item) => ({ value: item.id, label: item.label }))} />
+              <MappedSelectField value={auctionCondition} onChange={(e) => setAuctionCondition(e.target.value)} options={AUCTION_CONDITION_OPTIONS} />
               <button
                 type="button"
-                onClick={() => setVista('home')}
-                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 sm:w-auto"
+                onClick={() => { setActiveTab('auctions'); loadAppleAuctions({ append: false }); }}
+                disabled={loadingTab === 'auctions'}
+                className="w-full rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Volver
+                {loadingTab === 'auctions' ? 'Buscando...' : 'Cargar subastas'}
               </button>
             </div>
           </div>
         </div>
 
-        <EbayRateLimitPanel
-          data={ebayRateLimits}
-          loading={ebayRateLoading}
-          error={ebayRateError}
-          onRefresh={() => loadEbayRateLimits({ silent: false })}
-        />
-
-        <div className="mb-4 grid gap-4 sm:mb-6 xl:grid-cols-[1.2fr,1fr]">
+        <div className="mb-4 sm:mb-6">
+          {activeTab === 'pawns' && (
           <div className={`rounded-2xl border p-4 shadow-sm transition sm:rounded-[2rem] sm:p-5 ${activeTab === 'pawns' ? 'border-sky-200 bg-white' : 'border-slate-200 bg-white/80'}`}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
@@ -2112,7 +2304,7 @@ function Ebay({ setVista }) {
               </div>
             </div>
 
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr),minmax(0,220px),minmax(0,220px),auto]">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr),180px,180px,150px,150px,auto]">
               <FieldShell label="Palabra clave">
                 <input
                   value={pawnQuery}
@@ -2126,6 +2318,28 @@ function Ebay({ setVista }) {
               </FieldShell>
               <FieldShell label="Oferta">
                 <MappedSelectField value={pawnBuyingOptions} onChange={(e) => setPawnBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} />
+              </FieldShell>
+              <FieldShell label="Precio mínimo USD">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={pawnMinPrice}
+                  onChange={(e) => setPawnMinPrice(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-sky-500"
+                />
+              </FieldShell>
+              <FieldShell label="Precio máximo USD">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={pawnMaxPrice}
+                  onChange={(e) => setPawnMaxPrice(e.target.value)}
+                  placeholder="Sin límite"
+                  className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-sky-500"
+                />
               </FieldShell>
               <button
                 type="button"
@@ -2245,7 +2459,9 @@ function Ebay({ setVista }) {
               </div>
             )}
           </div>
+          )}
 
+          {activeTab === 'product' && (
           <div className={`rounded-2xl border p-4 shadow-sm transition sm:rounded-[2rem] sm:p-5 ${activeTab === 'product' ? 'border-amber-200 bg-white' : 'border-slate-200 bg-white/80'}`}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
@@ -2320,12 +2536,26 @@ function Ebay({ setVista }) {
             )}
 
             {productType === 'macbook' && (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-9">
                 <FieldShell label="Linea"><MappedSelectField value={macbookForm.line} onChange={(e) => setMacbookForm((prev) => normalizeMacbookFormForLine(prev, e.target.value))} options={MACBOOK_LINE_OPTIONS} /></FieldShell>
-                <FieldShell label="Pantalla"><SelectField value={macbookForm.screen} onChange={(e) => setMacbookForm((prev) => ({ ...prev, screen: e.target.value }))} options={macbookScreenOptions} /></FieldShell>
-                <FieldShell label="Procesador"><SelectField value={macbookForm.processor} onChange={(e) => setMacbookForm((prev) => ({ ...prev, processor: e.target.value }))} options={macbookProcessorOptions} /></FieldShell>
+                <FieldShell label="Pantalla"><SelectField value={macbookForm.screen} onChange={(e) => setMacbookForm((prev) => ({ ...prev, screen: e.target.value, modelNumber: '', orderNumber: '' }))} options={macbookScreenOptions} /></FieldShell>
+                <FieldShell label="Procesador"><SelectField value={macbookForm.processor} onChange={(e) => setMacbookForm((prev) => ({ ...prev, processor: e.target.value, modelNumber: '', orderNumber: '' }))} options={macbookProcessorOptions} /></FieldShell>
                 <FieldShell label="RAM"><SelectField value={macbookForm.ram} onChange={(e) => setMacbookForm((prev) => ({ ...prev, ram: e.target.value }))} options={MACBOOK_RAM_OPTIONS} /></FieldShell>
                 <FieldShell label="Almacenamiento"><SelectField value={macbookForm.storage} onChange={(e) => setMacbookForm((prev) => ({ ...prev, storage: e.target.value }))} options={MACBOOK_STORAGE_OPTIONS} /></FieldShell>
+                <FieldShell label="Model No.">
+                  <MappedSelectField
+                    value={macbookForm.modelNumber}
+                    onChange={(e) => setMacbookForm((prev) => ({ ...prev, modelNumber: e.target.value, orderNumber: '' }))}
+                    options={[{ value: '', label: 'Cualquiera' }, ...macbookModelNumberOptions]}
+                  />
+                </FieldShell>
+                <FieldShell label="Apple Order No.">
+                  <MappedSelectField
+                    value={macbookForm.orderNumber}
+                    onChange={(e) => setMacbookForm((prev) => ({ ...prev, orderNumber: e.target.value }))}
+                    options={[{ value: '', label: 'Cualquiera' }, ...macbookOrderNumberOptions]}
+                  />
+                </FieldShell>
                 <FieldShell label="Condicion"><MappedSelectField value={productCondition} onChange={(e) => setProductCondition(e.target.value)} options={PRODUCT_CONDITION_OPTIONS} /></FieldShell>
                 <FieldShell label="Oferta"><MappedSelectField value={productBuyingOptions} onChange={(e) => setProductBuyingOptions(e.target.value)} options={PAWN_OFFER_OPTIONS} /></FieldShell>
               </div>
@@ -2365,6 +2595,31 @@ function Ebay({ setVista }) {
               </div>
             )}
 
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:max-w-[420px]">
+              <FieldShell label="Precio mínimo USD">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={productMinPrice}
+                  onChange={(e) => setProductMinPrice(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-amber-500"
+                />
+              </FieldShell>
+              <FieldShell label="Precio máximo USD">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={productMaxPrice}
+                  onChange={(e) => setProductMaxPrice(e.target.value)}
+                  placeholder="Sin límite"
+                  className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-amber-500"
+                />
+              </FieldShell>
+            </div>
+
             <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
               <label className="inline-flex w-full items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 sm:w-auto">
                 <input
@@ -2394,27 +2649,7 @@ function Ebay({ setVista }) {
               </button>
             </div>
           </div>
-        </div>
-
-        <div className={`mb-4 rounded-2xl border p-4 shadow-sm transition sm:mb-6 sm:rounded-[2rem] sm:p-5 ${activeTab === 'auctions' ? 'border-violet-200 bg-white' : 'border-slate-200 bg-white/80'}`}>
-          <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="min-w-0">
-              <h2 className="text-xl font-semibold text-slate-900">Buscar todos en subastas</h2>
-              <p className="mt-2 text-sm text-slate-600">Subastas Apple ordenadas por las primeras en terminar. Incluye Apple Watch Ultra por nombre o modelo Apple.</p>
-            </div>
-            <div className="grid w-full gap-2 sm:grid-cols-3 xl:w-auto">
-              <MappedSelectField value={auctionFamily} onChange={(e) => setAuctionFamily(e.target.value)} options={AUCTION_FAMILY_OPTIONS.map((item) => ({ value: item.id, label: item.label }))} />
-              <MappedSelectField value={auctionCondition} onChange={(e) => setAuctionCondition(e.target.value)} options={AUCTION_CONDITION_OPTIONS} />
-              <button
-                type="button"
-                onClick={() => { setActiveTab('auctions'); loadAppleAuctions({ append: false }); }}
-                disabled={loadingTab === 'auctions'}
-                className="w-full rounded-2xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loadingTab === 'auctions' ? 'Buscando...' : 'Cargar subastas'}
-              </button>
-            </div>
-          </div>
+          )}
         </div>
 
         {currentError && <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{currentError}</div>}
@@ -2450,16 +2685,23 @@ function Ebay({ setVista }) {
           <div className="my-6 flex flex-col items-center justify-center">
             <button
               type="button"
-              onClick={loadMoreCurrent}
-              disabled={currentLoading || currentAppending || !currentHasMore}
+              onClick={canRepeatProductSearch ? () => loadProductSearch({ append: false }) : loadMoreCurrent}
+              disabled={currentLoading || currentAppending || (!currentHasMore && !canRepeatProductSearch)}
               className="rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {activeTab === 'product' && (currentLoading || currentAppending)
                 ? 'Cargar mas en pausa...'
                 : currentLoading || currentAppending
                   ? 'Cargando mas...'
-                  : 'Cargar mas'}
+                  : canRepeatProductSearch
+                    ? 'Volver a buscar'
+                    : 'Cargar mas'}
             </button>
+            {canRepeatProductSearch && (
+              <div className="mt-2 text-center text-xs text-slate-500">
+                No quedan más resultados con estos filtros. Puedes repetir la búsqueda para comprobar publicaciones nuevas.
+              </div>
+            )}
             <EbayLoadingPanel
               progress={currentAppendProgress}
               tab={activeTab}

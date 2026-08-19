@@ -84,6 +84,11 @@ const normalizeCard = (card) => String(card || '').trim().toLowerCase();
 const pad = (n) => String(n).padStart(2, '0');
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const makeDate = (year, month, day) => new Date(year, month - 1, day);
+const addDays = (date, days) => {
+  const out = new Date(date);
+  out.setDate(out.getDate() + days);
+  return out;
+};
 const addMonths = (year, month, delta) => {
   const d = new Date(year, month - 1 + delta, 1);
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
@@ -99,10 +104,10 @@ const parseYmd = (value) => {
   if (!m) return null;
   return makeDate(Number(m[1]), Number(m[2]), Number(m[3]));
 };
-const inRange = (date, start, end) => {
+const inRange = (date, start, end, endExclusive = false) => {
   if (!date) return false;
   const t = date.getTime();
-  return t >= start.getTime() && t <= end.getTime();
+  return t >= start.getTime() && (endExclusive ? t < end.getTime() : t <= end.getTime());
 };
 const fmtDate = (d) =>
   d.toLocaleDateString('es-PE', {
@@ -121,10 +126,16 @@ const fixedCycle = (key, year, month) => {
   const startYear = sm > month ? year - 1 : year;
   const endYear = em > month ? year - 1 : year;
   const dueYear = dm < month ? year + 1 : year;
+  const isBcp = key === 'bcp_amex' || key === 'bcp_visa';
+  const configuredStart = makeDate(startYear, sm, sd);
   return {
-    start: makeDate(startYear, sm, sd),
+    // En BCP el propio dia de cierre ya pertenece a la facturacion siguiente.
+    // Las tablas historicas guardaban el inicio un dia despues del cierre
+    // anterior; al usar cierre exclusivo recuperamos ese dia como nuevo inicio.
+    start: isBcp ? addDays(configuredStart, -1) : configuredStart,
     end: makeDate(endYear, em, ed),
     due: makeDate(dueYear, dm, dd),
+    endExclusive: isBcp,
   };
 };
 
@@ -157,29 +168,18 @@ const getCycle = (card, year, month) => {
   return fixedCycle(key, year, month) || dynamicCycle(key, year, month);
 };
 
-const summarizeRows = (rows, card, cycle) => {
-  const items = rows.filter((g) => {
-    const rowCard = normalizeCard(g.tarjeta);
-    const isIoCashback = cardCycleKey(card) === 'io' && isCardCashback(g);
-    return rowCard === normalizeCard(card)
-      && !isIoCashback
-      && inRange(parseYmd(g.fecha), cycle.start, cycle.end);
-  });
+const isDateInCycle = (date, cycle) =>
+  inRange(date, cycle.start, cycle.end, Boolean(cycle.endExclusive));
 
-  const totals = items.reduce(
-    (acc, g) => {
-      const rawAmount = Number(g.monto || 0) || 0;
-      // Salvo en IO (filtrado arriba), una devolucion reduce el ciclo en el que
-      // fue registrada y no se reparte contra consumos de ciclos previos.
-      const amount = isCardCashback(g) ? -Math.abs(rawAmount) : rawAmount;
-      if (g.moneda === 'USD') acc.usd += amount;
-      else acc.pen += amount;
-      return acc;
-    },
-    { pen: 0, usd: 0 },
-  );
-  totals.totalPen = totals.pen + totals.usd * TIPO_CAMBIO;
-  return { items, totals };
+const installmentAmounts = (amount, count) => {
+  const installments = Math.max(1, Math.floor(Number(count) || 1));
+  const totalCents = Math.round(Math.abs(Number(amount || 0)) * 100);
+  const regularCents = Math.floor(totalCents / installments);
+  return Array.from({ length: installments }, (_, index) => (
+    index === installments - 1
+      ? (totalCents - regularCents * (installments - 1)) / 100
+      : regularCents / 100
+  ));
 };
 
 const getPaymentAllocation = (g) => {
@@ -242,25 +242,64 @@ export const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear,
       .map(({ year, month }) => {
         const cycle = getCycle(card, year, month);
         if (!cycle) return null;
-        const summary = summarizeRows(creditRows, card, cycle);
         return {
           card,
           year,
           month,
           ym: `${year}-${pad(month)}`,
           cycle,
-          ...summary,
-          usedPen: summary.totals.totalPen,
+          items: [],
+          totals: { pen: 0, usd: 0, totalPen: 0 },
+          usedPen: 0,
           paidPenAmount: 0,
           paidUsdAmount: 0,
           paidPen: 0,
-          pendingPenAmount: summary.totals.pen,
-          pendingUsdAmount: summary.totals.usd,
-          pendingPen: summary.totals.totalPen,
+          pendingPenAmount: 0,
+          pendingUsdAmount: 0,
+          pendingPen: 0,
         };
       })
       .filter(Boolean)
       .sort((a, b) => a.cycle.due.getTime() - b.cycle.due.getTime());
+
+    creditRows
+      .filter((g) => normalizeCard(g.tarjeta) === normalizeCard(card))
+      .filter((g) => !(cardCycleKey(card) === 'io' && isCardCashback(g)))
+      .forEach((g) => {
+        const purchaseDate = parseYmd(g.fecha);
+        const baseCycleIndex = cycles.findIndex((cycle) => isDateInCycle(purchaseDate, cycle.cycle));
+        if (baseCycleIndex < 0) return;
+        const installmentCount = Math.max(1, Math.floor(Number(g.cuotasMeses) || 1));
+        const amounts = installmentAmounts(g.monto, installmentCount);
+        amounts.forEach((rawAmount, installmentIndex) => {
+          const target = cycles[baseCycleIndex + installmentIndex];
+          if (!target) return;
+          // Salvo en IO (filtrado arriba), una devolucion reduce solo su ciclo.
+          const amount = isCardCashback(g) ? -Math.abs(rawAmount) : rawAmount;
+          const allocatedItem = installmentCount > 1
+            ? {
+                ...g,
+                monto: amount,
+                montoOriginal: Number(g.monto || 0) || 0,
+                cuotaNumero: installmentIndex + 1,
+                cuotasMeses: installmentCount,
+              }
+            : g;
+          target.items.push(allocatedItem);
+          if (g.moneda === 'USD') target.totals.usd += amount;
+          else target.totals.pen += amount;
+        });
+      });
+
+    cycles.forEach((cycle) => {
+      cycle.totals.pen = +cycle.totals.pen.toFixed(2);
+      cycle.totals.usd = +cycle.totals.usd.toFixed(2);
+      cycle.totals.totalPen = +(cycle.totals.pen + cycle.totals.usd * TIPO_CAMBIO).toFixed(2);
+      cycle.usedPen = cycle.totals.totalPen;
+      cycle.pendingPenAmount = cycle.totals.pen;
+      cycle.pendingUsdAmount = cycle.totals.usd;
+      cycle.pendingPen = cycle.totals.totalPen;
+    });
 
     const payments = rows
       .filter((g) => (
@@ -318,6 +357,8 @@ const monthLabel = (value) => {
   const [year, month] = String(value || '').split('-').map(Number);
   return year && month ? `${MONTHS[month - 1]} ${year}` : '';
 };
+
+const cycleDisplayEnd = (cycle) => cycle?.endExclusive ? addDays(cycle.end, -1) : cycle?.end;
 
 export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
   const now = new Date();
@@ -498,7 +539,7 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
                     <tr key={row.card} className="border-t">
                       <td className="p-2 font-semibold">{CARD_LABEL[row.card] || row.card}</td>
                       <td className="p-2">
-                        {row.cycle ? `${ymd(row.cycle.start)} al ${ymd(row.cycle.end)}` : 'Sin ciclo configurado'}
+                        {row.cycle ? `${ymd(row.cycle.start)} al ${ymd(cycleDisplayEnd(row.cycle))}` : 'Sin ciclo configurado'}
                       </td>
                       <td className="p-2">{row.cycle ? fmtDate(row.cycle.due) : '-'}</td>
                       <td className="p-2 text-right">

@@ -93,4 +93,54 @@ describe('ModalCiclosTarjeta', () => {
     expect(dateCycle.totals.usd).toBe(0);
     expect(dateCycle.items).toHaveLength(0);
   });
+
+  it('envia una compra BCP hecha el dia de cierre a la facturacion siguiente', () => {
+    const rows = [{
+      id: 10,
+      concepto: 'gusto',
+      metodoPago: 'credito',
+      moneda: 'PEN',
+      monto: '120.00',
+      fecha: '2026-07-24',
+      tarjeta: 'bcp_visa',
+    }];
+
+    const cycles = buildAllocatedCycles({
+      rows,
+      creditRows: rows,
+      cardKeys: ['bcp_visa'],
+      selectedYear: 2026,
+      selectedMonth: 9,
+    });
+
+    expect(cycles.get('bcp_visa:2026-08').totals.pen).toBe(0);
+    expect(cycles.get('bcp_visa:2026-09').totals.pen).toBe(120);
+  });
+
+  it('distribuye una compra en cuotas entre las facturaciones siguientes', () => {
+    const rows = [{
+      id: 11,
+      concepto: 'deuda_cuotas',
+      cuotasMeses: 3,
+      metodoPago: 'credito',
+      moneda: 'USD',
+      monto: '300.00',
+      fecha: '2026-06-10',
+      tarjeta: 'bcp_visa',
+    }];
+
+    const cycles = buildAllocatedCycles({
+      rows,
+      creditRows: rows,
+      cardKeys: ['bcp_visa'],
+      selectedYear: 2026,
+      selectedMonth: 9,
+    });
+
+    expect(cycles.get('bcp_visa:2026-07').totals.usd).toBe(100);
+    expect(cycles.get('bcp_visa:2026-08').totals.usd).toBe(100);
+    expect(cycles.get('bcp_visa:2026-09').totals.usd).toBe(100);
+    expect(cycles.get('bcp_visa:2026-07').items[0]).toMatchObject({ cuotaNumero: 1, cuotasMeses: 3, monto: 100 });
+    expect(cycles.get('bcp_visa:2026-09').items[0]).toMatchObject({ cuotaNumero: 3, cuotasMeses: 3, monto: 100 });
+  });
 });
