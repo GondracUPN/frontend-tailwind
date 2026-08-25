@@ -100,6 +100,9 @@ const nextBusinessDay = (d) => {
   return out;
 };
 const parseYmd = (value) => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return makeDate(value.getFullYear(), value.getMonth() + 1, value.getDate());
+  }
   const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!m) return null;
   return makeDate(Number(m[1]), Number(m[2]), Number(m[3]));
@@ -233,7 +236,12 @@ export const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear,
   const dates = rows.map((g) => parseYmd(g.fecha)).filter(Boolean);
   const minDate = dates.length ? new Date(Math.min(...dates.map((d) => d.getTime()))) : makeDate(selectedYear, selectedMonth, 1);
   const startMonth = addMonths(minDate.getFullYear(), minDate.getMonth() + 1, -2);
-  const endMonth = addMonths(selectedYear, selectedMonth, 4);
+  const longestInstallmentPlan = creditRows.reduce(
+    (max, row) => Math.max(max, Math.max(1, Math.floor(Number(row.cuotasMeses) || 1))),
+    1,
+  );
+  // Conserva suficientes ciclos futuros para que ninguna cuota quede truncada.
+  const endMonth = addMonths(selectedYear, selectedMonth, Math.max(4, longestInstallmentPlan));
   const months = monthsBetween(startMonth, endMonth);
 
   const allByKey = new Map();

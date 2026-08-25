@@ -55,6 +55,25 @@ test('fusiona en Inventario los lotes de accesorios con el mismo codigo y suma e
   });
 });
 
+test('separa todos los accesorios del inventario y los muestra tengan o no foto', async () => {
+  api.get.mockResolvedValue([
+    entry,
+    { producto: { id: 501, codigoInventario: 501, tipo: 'accesorios', stockInicial: 3, stockActual: 0, detalle: { modelo: 'Cable USB-C' } }, ficha: null },
+    { producto: { id: 502, codigoInventario: 502, tipo: 'accesorios', stockInicial: 4, stockActual: 2, detalle: { modelo: 'Cubo 20W' } }, ficha: { fotoUrl: '/cubo.jpg' } },
+  ]);
+  render(<Inventario setVista={jest.fn()} />);
+
+  expect(await screen.findByText('MS-42')).toBeInTheDocument();
+  expect(screen.queryByText('MS-501')).not.toBeInTheDocument();
+  expect(screen.getByText('Total inventario').parentElement).toHaveTextContent('1');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Accesorios' }));
+  expect(screen.getByText('MS-501')).toBeInTheDocument();
+  expect(screen.getByText('MS-502')).toBeInTheDocument();
+  expect(screen.getByText('Sin foto de inventario')).toBeInTheDocument();
+  expect(screen.getAllByText('Accesorio')).toHaveLength(2);
+});
+
 test('lista un producto disponible y abre su ficha de cotejo', async () => {
   render(<Inventario setVista={jest.fn()} />);
 
@@ -150,7 +169,9 @@ test('desde Vender abre la calculadora rapida del producto en el panel lateral',
 });
 
 test('desde Vender reutiliza el registro completo de venta y retira el producto del inventario', async () => {
-  api.get.mockResolvedValue([{ ...entry, ficha: { enAlmacen: true } }]);
+  api.get
+    .mockResolvedValueOnce([{ ...entry, ficha: { enAlmacen: true } }])
+    .mockResolvedValue([]);
   api.post.mockResolvedValue({ id: 9, productoId: 42, tipoCambio: 3.75, fechaVenta: '2026-07-31', precioVenta: 1500 });
   render(<Inventario setVista={jest.fn()} />);
 

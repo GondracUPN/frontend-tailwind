@@ -6,7 +6,7 @@ import ProfitTimeSeries from '../components/analytics/ProfitTimeSeries';
 import IncomeCostProfitChart from '../components/analytics/IncomeCostProfitChart';
 import MarginByMonth from '../components/analytics/MarginByMonth';
 import ProfitComparison from '../components/analytics/ProfitComparison';
-import { getAnalyticsSummary, getPedidoSalesSummary, getSunatExchangeRate } from '../services/analytics';
+import { getAnalyticsSummary, getPedidoSalesSummary, getSunatExchangeRate, invalidateAnalyticsCache } from '../services/analytics';
 
 import { TC_FIJO } from '../utils/tipoCambio';
 
@@ -1112,6 +1112,25 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  useEffect(() => {
  load();
  }, [load]);
+
+ useEffect(() => {
+ const reloadFresh = () => {
+ invalidateAnalyticsCache();
+ load();
+ loadPedido();
+ };
+ const handleViewActivated = (event) => {
+ if (event?.detail?.view === 'analisis') reloadFresh();
+ };
+ window.addEventListener('ventas-updated', reloadFresh);
+ window.addEventListener('productos-updated', reloadFresh);
+ window.addEventListener('app-view-activated', handleViewActivated);
+ return () => {
+ window.removeEventListener('ventas-updated', reloadFresh);
+ window.removeEventListener('productos-updated', reloadFresh);
+ window.removeEventListener('app-view-activated', handleViewActivated);
+ };
+ }, [load, loadPedido]);
 
  useEffect(() => {
  let alive = true;

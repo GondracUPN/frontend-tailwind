@@ -145,3 +145,40 @@ export function parseBankOperation(input) {
     },
   };
 }
+
+const BANK_BATCH_SEPARATOR = /^\s*=+\s*OPERACI(?:O|Ó)N\s+BANCARIA(?:\s+\d+)?\s*=+\s*$/gim;
+
+function splitBankOperationTexts(input) {
+  const text = String(input || '').replace(/\r/g, '');
+  const explicitParts = text.split(BANK_BATCH_SEPARATOR).map((part) => part.trim()).filter(Boolean);
+  if (explicitParts.length > 1) return explicitParts;
+
+  const starts = [];
+  const startPatterns = [
+    /Realizaste\s+un\s+pago\s+a\s+tu\s+tarjeta/gi,
+    /Fecha\s+y\s+hora\s*:?[^\n]*(?:\n|\s)[\s\S]{0,300}?Empresa\s*:\s*(?:\*\*)?IO\s+DE\s+BCP/gi,
+  ];
+  startPatterns.forEach((pattern) => {
+    for (const match of text.matchAll(pattern)) starts.push(match.index);
+  });
+  const uniqueStarts = [...new Set(starts)].sort((a, b) => a - b);
+  if (uniqueStarts.length < 2) return text.trim() ? [text.trim()] : [];
+
+  return uniqueStarts
+    .map((start, index) => text.slice(start, uniqueStarts[index + 1] ?? text.length).trim())
+    .filter(Boolean);
+}
+
+export function parseBankOperations(input) {
+  const parts = splitBankOperationTexts(input);
+  const operations = [];
+  const errors = [];
+
+  parts.forEach((rawText, index) => {
+    const result = parseBankOperation(rawText);
+    if (result.ok) operations.push({ ...result.operation, rawText, sourceIndex: index });
+    else errors.push({ sourceIndex: index, rawText, error: result.error });
+  });
+
+  return { operations, errors, total: parts.length };
+}

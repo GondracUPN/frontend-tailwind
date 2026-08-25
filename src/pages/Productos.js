@@ -5,6 +5,7 @@ import ResumenCasilleros from '../components/ResumenCasilleros';
 import { FiFileText } from 'react-icons/fi';
 import { formatAppleWatchName } from '../utils/productName';
 import { accessoryCategoryForModel } from '../utils/accessoryModels';
+import CatalogSalesPending from '../components/CatalogSalesPending';
 
 const ModalProducto = lazy(() => import('../components/ModalProducto'));
 const DetallesProductoModal = lazy(() => import('../components/DetallesProductoModal'));
@@ -203,6 +204,20 @@ const shouldSyncVentaSeller = (value) => {
   const raw = String(value || '').trim().toLowerCase();
   return !raw || raw === 'gonzalo' || raw === 'renato' || raw === 'ambos';
 };
+export const displaySellerForProduct = (product, sale) => {
+  const productSeller = String(product?.vendedor || '').trim();
+  const saleSeller = String(sale?.vendedor || '').trim();
+  if (isPedidoSeller(saleSeller)) return saleSeller;
+  if (isPedidoSeller(productSeller)) return productSeller;
+  return productSeller || saleSeller || '-';
+};
+export const sellerDisplayParts = (value) => {
+  const label = String(value || '-').trim() || '-';
+  const match = label.match(/^([^()]+?)\s*\(([^)]+)\)$/);
+  return match
+    ? { primary: match[1].trim(), secondary: `(${match[2].trim()})` }
+    : { primary: label, secondary: '' };
+};
 
 export default function Productos({ setVista, setAnalisisBack }) {
   const cached = readCache();
@@ -241,6 +256,22 @@ export default function Productos({ setVista, setAnalisisBack }) {
     };
     window.addEventListener('productos-updated', handleExternalProductUpdate);
     return () => window.removeEventListener('productos-updated', handleExternalProductUpdate);
+  }, []);
+
+  useEffect(() => {
+    const handleSalesUpdated = (event) => {
+      const venta = event?.detail?.venta;
+      const productoId = Number(venta?.productoId || event?.detail?.productoId || 0);
+      if (!productoId || !venta) return;
+      setVentasMap((current) => {
+        const next = { ...current, [productoId]: venta };
+        ventasRef.current = next;
+        writeCache(productosRef.current, next, resumenRef.current, adelantosRef.current);
+        return next;
+      });
+    };
+    window.addEventListener('ventas-updated', handleSalesUpdated);
+    return () => window.removeEventListener('ventas-updated', handleSalesUpdated);
   }, []);
 
   // Abre modal de venta (creacifn o lectura)
@@ -1918,6 +1949,16 @@ const confirmAction = async () => {
     }
   }, [productos.length, fetchResumen]);
 
+  useEffect(() => {
+    const handleViewActivated = (event) => {
+      if (event?.detail?.view === 'productos') {
+        refreshProductos({ force: true, useCache: false, silent: true });
+      }
+    };
+    window.addEventListener('app-view-activated', handleViewActivated);
+    return () => window.removeEventListener('app-view-activated', handleViewActivated);
+  }, [refreshProductos]);
+
   // Carga inicial: intenta cache, pero si no hay data hace fetch
   useEffect(() => {
     if (didInitRef.current) return;
@@ -2228,13 +2269,16 @@ const confirmAction = async () => {
   const applyTrackingUpdate = (productoId, tracking) => {
     if (!productoId || !tracking) return;
     setProductos(list => {
+      let changedProduct = null;
       const next = list.map(p => {
         if (p.id !== productoId) return p;
         const prev = Array.isArray(p.tracking) ? p.tracking : [];
         const merged = [tracking, ...prev.filter(t => t && t.id !== tracking.id)];
-        return { ...p, tracking: merged };
+        changedProduct = { ...p, tracking: merged };
+        return changedProduct;
       });
       writeCache(next, ventasMap, resumenRef.current, adelantosRef.current);
+      if (changedProduct) window.dispatchEvent(new CustomEvent('productos-updated', { detail: { producto: changedProduct } }));
       return next;
     });
   };
@@ -2569,6 +2613,8 @@ const confirmAction = async () => {
           &larr; Volver
         </button>
       </header>
+
+      <CatalogSalesPending />
 
       {/* Resumen de conteos */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
@@ -3078,7 +3124,17 @@ const confirmAction = async () => {
                       </button>
 
                     </td>
-                    <td className="p-2">{p.vendedor || '-'}</td>
+                    <td className="p-2">
+                      {(() => {
+                        const seller = sellerDisplayParts(displaySellerForProduct(p, venta));
+                        return (
+                          <div className="min-w-20 leading-tight">
+                            <span className="block whitespace-nowrap">{seller.primary}</span>
+                            {seller.secondary && <span className="mt-0.5 block whitespace-nowrap text-[11px] text-gray-500">{seller.secondary}</span>}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td className="p-2 whitespace-nowrap font-mono text-sm leading-5 text-gray-800">
                       <div><span className="font-bold text-indigo-700">C</span> {fmtFechaCompacta(getFechaCompra(p))}</div>
                       <div><span className="font-bold text-indigo-700">R</span> {fmtFechaCompacta(getFechaRecojo(p))}</div>
@@ -4041,7 +4097,7 @@ const confirmAction = async () => {
         )}
         {modalModo === 'venta' && (
           <ModalVenta
-            producto={productoSeleccionado}
+            producto={(productos || []).find((p) => p.id === productoSeleccionado?.id) || productoSeleccionado}
             venta={String(productoSeleccionado?.tipo).toLowerCase() === 'accesorios' ? null : (ventasMap[productoSeleccionado?.id] || null)}
             onClose={cerrarModal}
             onSaved={handleVentaSaved}

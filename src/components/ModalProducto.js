@@ -762,7 +762,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
     const url = isEdit ? `/productos/${producto.id}` : (isBatch ? '/productos/lote' : '/productos');
     const method = isEdit ? 'patch' : 'post';
 
-    const accesorios = normalizeIncludedAccessories(form.tipo, form.accesorios, form.detalle?.modelo);
+    const accesorios = normalizeIncludedAccessories(form.tipo, form.accesorios, form.detalle?.modelo, form.estado);
 
     const base = { tipo: form.tipo, estado: form.estado, accesorios, cantidad: Number(form.cantidad || 1) };
     const allowedDetalle = ['gama', 'procesador', 'generacion', 'numero', 'modelo', 'tamano', 'almacenamiento', 'ram', 'conexion', 'esim', 'descripcionOtro'];
@@ -770,8 +770,10 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
       Object.entries(form.detalle || {}).filter(([k]) => allowedDetalle.includes(k))
     );
 
-    const vendedorPayload =
-      form.vendedor === OTHER_PEDIDO_SELLER ? null : form.vendedor?.trim() || null;
+    const pedidoNombre = String(form.pedidoCliente || '').trim();
+    const vendedorPayload = pedidoNombre
+      ? pedidoSeller(pedidoNombre)
+      : (form.vendedor === OTHER_PEDIDO_SELLER ? null : form.vendedor?.trim() || null);
     const payload = { ...base, vendedor: vendedorPayload, detalle: cleanDetalle, valor: form.valor };
     const primaryLink = Array.isArray(vincularConList) ? vincularConList[0] : null;
     if (primaryLink) payload.vincularCon = Number(primaryLink);
@@ -781,10 +783,9 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
     if (isBatch) {
       const cantidad = Number(cantidadLote);
       const rows = distribucionLote.map((row) => ({
-        vendedor:
-          row.vendedor === OTHER_PEDIDO_SELLER
-            ? null
-            : String(row.vendedor || '').trim() || null,
+        vendedor: String(row.pedidoCliente || '').trim()
+          ? pedidoSeller(row.pedidoCliente)
+          : (row.vendedor === OTHER_PEDIDO_SELLER ? null : String(row.vendedor || '').trim() || null),
         cantidad: Number(row.cantidad),
       }));
       const totalDistribuido = rows.reduce((sum, row) => sum + row.cantidad, 0);
@@ -1256,7 +1257,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                   <div>
                     <label className="block font-medium">Modelo de AirPods</label>
                     <select className="w-full border p-2 rounded" value={form.detalle?.modelo || ''} onChange={e => onChange('detalle', 'modelo', e.target.value)}>
-                      <option value="">Selecciona</option><option>AirPods Pro 1</option><option>AirPods Pro 2</option><option>AirPods Pro 3</option><option>AirPods 4</option><option>AirPods 4 ANC</option>
+                      <option value="">Selecciona</option><option>AirPods Pro 1</option><option>AirPods Pro 2</option><option>AirPods Pro 3</option><option>AirPods 4</option><option>AirPods 4 ANC</option><option>AirPods Max 1</option><option>AirPods Max 2</option>
                     </select>
                   </div>
                 )}
@@ -1301,7 +1302,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                   )}
                 </div>
 
-                <IncludedAccessories type={form.tipo} model={form.detalle?.modelo} value={form.accesorios} onChange={(accesorios) => setForm((current) => ({ ...current, accesorios }))} />
+                <IncludedAccessories type={form.tipo} model={form.detalle?.modelo} state={form.estado} value={form.accesorios} onChange={(accesorios) => setForm((current) => ({ ...current, accesorios }))} />
 
                 <div>
                   <label className="block font-medium">Casillero</label>

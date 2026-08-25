@@ -143,4 +143,31 @@ describe('ModalCiclosTarjeta', () => {
     expect(cycles.get('bcp_visa:2026-07').items[0]).toMatchObject({ cuotaNumero: 1, cuotasMeses: 3, monto: 100 });
     expect(cycles.get('bcp_visa:2026-09').items[0]).toMatchObject({ cuotaNumero: 3, cuotasMeses: 3, monto: 100 });
   });
+
+  it('carga en agosto solo la primera cuota de una compra BCP del 6 de julio', () => {
+    const rows = [{
+      id: 1183,
+      concepto: 'deuda_cuotas',
+      cuotasMeses: 6,
+      metodoPago: 'credito',
+      moneda: 'PEN',
+      monto: '1530.00',
+      fecha: '2026-07-06T05:00:00.000Z',
+      tarjeta: 'bcp_visa',
+    }];
+
+    const cycles = buildAllocatedCycles({
+      rows,
+      creditRows: rows,
+      cardKeys: ['bcp_visa'],
+      selectedYear: 2026,
+      selectedMonth: 8,
+    });
+
+    const august = cycles.get('bcp_visa:2026-08');
+    expect(august.totals.pen).toBe(255);
+    expect(august.items).toHaveLength(1);
+    expect(august.items[0]).toMatchObject({ cuotaNumero: 1, cuotasMeses: 6, monto: 255 });
+    expect(cycles.get('bcp_visa:2027-01').totals.pen).toBe(255);
+  });
 });

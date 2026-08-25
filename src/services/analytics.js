@@ -9,6 +9,10 @@ const buildParams = (params = {}) =>
 const responseCache = new Map();
 const inflight = new Map();
 
+export const invalidateAnalyticsCache = () => {
+  responseCache.clear();
+};
+
 const readCache = (key, ttlMs) => {
   const hit = responseCache.get(key);
   if (!hit) return null;

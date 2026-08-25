@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import api from '../api';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
 import { notifyGastosChanged } from '../utils/gastosSync';
+import { notifySalesChanged } from '../utils/salesSync';
 
 const normalizeSeller = (value) =>
   value == null ? '' : String(value).trim().toLowerCase();
@@ -31,6 +32,14 @@ const pedidoSeller = (client) => {
 const pedidoClientFromSeller = (seller) => {
   const match = String(seller || '').trim().match(/^gonzalo\s*\(([^)]+)\)$/i);
   return match?.[1] ? match[1].trim() : '';
+};
+
+const resolvedSaleSeller = (saleSeller, productSeller, presetSeller) => {
+  const sale = String(saleSeller || '').trim();
+  const product = String(productSeller || presetSeller || '').trim();
+  const productIsPedido = /^gonzalo\s*\([^)]+\)$/i.test(product);
+  const genericSale = !sale || /^(gonzalo|renato|ambos)$/i.test(sale);
+  return productIsPedido && genericSale ? product : (sale || product);
 };
 
 const saleExpenseOwner = (seller) => {
@@ -75,10 +84,9 @@ export default function ModalVenta({
     modalidad: 'unidad',
   });
 
-  const sellerSlug = normalizeSeller(
-    form.vendedor || venta?.vendedor || producto?.vendedor || presetVendedor || '',
-  );
-  const sellerLabel = formatSeller(form.vendedor || venta?.vendedor || producto?.vendedor || presetVendedor) || 'Sin vendedor asignado';
+  const effectiveSeller = form.vendedor || resolvedSaleSeller(venta?.vendedor, producto?.vendedor, presetVendedor);
+  const sellerSlug = normalizeSeller(effectiveSeller);
+  const sellerLabel = formatSeller(effectiveSeller) || 'Sin vendedor asignado';
   const isReadOnly = Boolean(venta) && !editMode;
   const isSplitVenta = Boolean(
     venta &&
@@ -92,7 +100,7 @@ export default function ModalVenta({
   const accessoryCreate = !venta && isAccessory;
 
   useEffect(() => {
-    const initialSeller = venta?.vendedor || presetVendedor || producto?.vendedor || '';
+    const initialSeller = resolvedSaleSeller(venta?.vendedor, producto?.vendedor, presetVendedor);
     if (venta) {
       setForm({
         tipoCambio: venta.tipoCambio != null ? String(venta.tipoCambio) : '',
@@ -227,6 +235,17 @@ export default function ModalVenta({
     return null;
   };
 
+  const syncProductSeller = async (seller) => {
+    const value = String(seller || '').trim();
+    if (!value || value === String(producto?.vendedor || '').trim()) return;
+    try {
+      const updatedProduct = await api.patch(`/productos/${producto.id}`, { vendedor: value });
+      window.dispatchEvent(new CustomEvent('productos-updated', { detail: { producto: updatedProduct } }));
+    } catch (sellerError) {
+      console.error('[ModalVenta] La venta se guardó, pero no se pudo sincronizar el vendedor del producto:', sellerError);
+    }
+  };
+
   const getSaleIncomeRows = async (targetUserId) => {
     let currentUser = null;
     try {
@@ -325,6 +344,7 @@ export default function ModalVenta({
     if (saving || !validate()) return;
 
     setSaving(true);
+    let requestedSeller = '';
     try {
       const body = {
         productoId: producto.id,
@@ -348,10 +368,15 @@ export default function ModalVenta({
         body.vendedor = 'ambos';
       } else {
         body.tipoCambio = Number(form.tipoCambio);
-        if (form.vendedor?.trim()) body.vendedor = form.vendedor.trim();
+        const seller = String(form.pedidoCliente || '').trim() ? pedidoSeller(form.pedidoCliente) : form.vendedor?.trim();
+        if (seller) {
+          body.vendedor = seller;
+          requestedSeller = seller;
+        }
       }
 
       const saved = await api.post('/ventas', body);
+      await syncProductSeller(saved?.vendedor || body.vendedor);
       if (localStorage.getItem('token')) {
         try {
           await registerSaleIncome(saved);
@@ -362,6 +387,7 @@ export default function ModalVenta({
         }
       }
       notifyGastosChanged({ action: 'sale-income', ventaId: saved?.id, seller: saved?.vendedor || body.vendedor });
+      notifySalesChanged({ action: 'create', venta: saved, productoId: producto.id });
       onSaved?.(saved);
       onClose?.();
     } catch (e) {
@@ -371,6 +397,7 @@ export default function ModalVenta({
         const ventas = await api.get(`/ventas/producto/${producto.id}`);
         const existing = Array.isArray(ventas) ? ventas[0] : null;
         if (existing) {
+          await syncProductSeller(existing?.vendedor || requestedSeller);
           if (localStorage.getItem('token')) {
             try {
               await registerSaleIncome(existing);
@@ -381,6 +408,7 @@ export default function ModalVenta({
             }
           }
           notifyGastosChanged({ action: 'sale-income', ventaId: existing?.id, seller: existing?.vendedor });
+          notifySalesChanged({ action: 'create-confirmed', venta: existing, productoId: producto.id });
           onSaved?.(existing);
           onClose?.();
           return;
@@ -415,10 +443,11 @@ export default function ModalVenta({
         payload.vendedor = 'ambos';
       } else {
         payload.tipoCambio = Number(form.tipoCambio);
-        payload.vendedor = form.vendedor?.trim() || null;
+        payload.vendedor = String(form.pedidoCliente || '').trim() ? pedidoSeller(form.pedidoCliente) : (form.vendedor?.trim() || null);
       }
 
       const updated = await api.patch(`/ventas/${venta.id}`, payload);
+      await syncProductSeller(updated?.vendedor || payload.vendedor);
       if (localStorage.getItem('token')) {
         try {
           await syncSaleIncomeAfterEdit(updated);
@@ -429,6 +458,7 @@ export default function ModalVenta({
         }
       }
       notifyGastosChanged({ action: 'sale-income', ventaId: updated?.id, seller: updated?.vendedor || payload.vendedor });
+      notifySalesChanged({ action: 'update', venta: updated, productoId: producto.id });
       onSaved?.(updated);
       onClose?.();
     } catch (e) {
@@ -628,8 +658,9 @@ export default function ModalVenta({
   const renderSellerField = () => (
     <div className="rounded-lg border p-3 bg-gray-50 space-y-3">
       <div>
-        <label className="block font-medium mb-1">Vendedor</label>
+        <label htmlFor="venta-vendedor" className="block font-medium mb-1">Vendedor</label>
         <select
+          id="venta-vendedor"
           className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           value={sellerSelectValue}
           onChange={(e) => onSellerChange(e.target.value)}
@@ -643,8 +674,9 @@ export default function ModalVenta({
         </select>
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1">Otro cliente a pedido</label>
+        <label htmlFor="venta-cliente-pedido" className="block text-sm font-medium mb-1">Otro cliente a pedido</label>
         <input
+          id="venta-cliente-pedido"
           type="text"
           className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           value={form.pedidoCliente}
@@ -665,16 +697,14 @@ export default function ModalVenta({
           <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-lg bg-white p-3"><span className="block text-xs text-slate-500">Unidades vendidas</span><strong>{accessorySummary?.unidadesVendidas || 0}</strong></div>
             <div className="rounded-lg bg-white p-3"><span className="block text-xs text-slate-500">Disponibles</span><strong>{accessorySummary?.unidadesDisponibles ?? producto.stockActual ?? 0}</strong></div>
-            <div className="rounded-lg bg-white p-3"><span className="block text-xs text-slate-500">Venta bruta</span><strong>{summaryMoney(accessorySummary?.ventaBruta)}</strong></div>
-            <div className="rounded-lg bg-white p-3"><span className="block text-xs text-slate-500">Costo vendido</span><strong>{summaryMoney(accessorySummary?.costoVendido)}</strong></div>
-            <div className="col-span-2 rounded-lg bg-emerald-50 p-3 text-emerald-800"><span className="block text-xs">Ganancia neta</span><strong className="text-lg">{summaryMoney(accessorySummary?.gananciaNeta)}</strong></div>
+            <div className="col-span-2 rounded-lg bg-emerald-50 p-3 text-emerald-800"><span className="block text-xs">Ingreso por ventas</span><strong className="text-lg">{summaryMoney(accessorySummary?.ventaBruta)}</strong></div>
           </div>
           <p className="mt-3 text-xs text-slate-600">Tipo de cambio promedio: <strong>{accessorySummary?.tipoCambioPromedio != null ? Number(accessorySummary.tipoCambioPromedio).toFixed(4) : '--'}</strong></p>
           <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
             {(accessorySummary?.ventas || []).map((item) => (
               <div key={item.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
                 <div className="flex justify-between gap-2"><strong>{item.fechaVenta}</strong><span>{item.cantidad} und.</span></div>
-                <div className="mt-1 flex justify-between gap-2"><span>Bruto {summaryMoney(item.ventaBruta)}</span><strong className={Number(item.gananciaNeta) >= 0 ? 'text-emerald-700' : 'text-red-600'}>Neto {summaryMoney(item.gananciaNeta)}</strong></div>
+                <div className="mt-1 flex justify-end gap-2"><strong className="text-emerald-700">Ingreso {summaryMoney(item.ventaBruta)}</strong></div>
               </div>
             ))}
           </div>

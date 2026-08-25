@@ -481,6 +481,24 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const handleProductUpdated = (event) => {
+      const updated = event?.detail?.producto;
+      const deletedId = Number(event?.detail?.deletedId || 0);
+      if (!updated?.id && !deletedId) return;
+      setProductosGlobal((current) => {
+        const exists = updated?.id && current.some((item) => item.id === updated.id);
+        const next = deletedId
+          ? current.filter((item) => item.id !== deletedId)
+          : (exists ? current.map((item) => item.id === updated.id ? updated : item) : [updated, ...current]);
+        writeProductosCache(next);
+        return next;
+      });
+    };
+    window.addEventListener('productos-updated', handleProductUpdated);
+    return () => window.removeEventListener('productos-updated', handleProductUpdated);
+  }, []);
+
+  useEffect(() => {
     let alive = true;
     const cached = readProductosCache();
     if (cached) setProductosGlobal(cached);
@@ -509,6 +527,10 @@ function App() {
       });
       return next;
     });
+  }, [vista]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('app-view-activated', { detail: { view: vista } }));
   }, [vista]);
 
   useEffect(() => {

@@ -14,16 +14,35 @@ const CONFIG = {
 const airpodsConfig = (model = '') => {
   const value = String(model).toLowerCase();
   if (value.includes('max')) return { options: ['Caja', 'Cable'], groups: [] };
-  if (value.includes('pro 2')) return { options: ['Caja', 'Cable', 'Case', 'Eartips'], groups: [] };
-  if (value.includes('pro 3') || value.includes('airpods 4') || value === '4' || value.includes('4 anc')) return { options: ['Caja', 'Eartips'], groups: [] };
+  if (value.includes('pro')) return { options: ['Caja', 'Eartips'], groups: [] };
   return CONFIG.airpods;
 };
 
 export const getIncludedAccessoryConfig = (type, model) =>
   type === 'airpods' ? airpodsConfig(model) : (CONFIG[type] || CONFIG.otro);
 
-export const normalizeIncludedAccessories = (type, selected, model) => {
+export const defaultSealedAccessories = (type, model) => {
+  const value = String(model || '').toLowerCase();
+  const defaults = {
+    macbook: ['Caja', 'Cubo original', 'Cable original'],
+    ipad: ['Caja', 'Cubo original', 'Cable original'],
+    iphone: ['Caja', 'Cable original'],
+    watch: ['Caja', 'Correa', 'Cable'],
+    macmini: ['Caja', 'Cable de poder original'],
+    imac: ['Caja', 'Cargador', 'Cable', 'Teclado', 'Mouse'],
+    otro: ['Caja'],
+  };
+  if (type === 'airpods') {
+    if (value.includes('max')) return ['Caja', 'Cable'];
+    if (value.includes('pro')) return ['Caja', 'Eartips'];
+    return ['Caja'];
+  }
+  return defaults[type] || [];
+};
+
+export const normalizeIncludedAccessories = (type, selected, model, state) => {
   if (type === 'accesorios') return [];
+  if (String(state || '').toLowerCase() === 'nuevo') return defaultSealedAccessories(type, model);
   const config = getIncludedAccessoryConfig(type, model);
   const normalizedInput = Array.isArray(selected) ? selected : [];
   const next = normalizedInput.filter((item) => config.options.includes(item));
@@ -35,10 +54,21 @@ export const normalizeIncludedAccessories = (type, selected, model) => {
   return unique;
 };
 
-export default function IncludedAccessories({ type, model, value, onChange }) {
+export default function IncludedAccessories({ type, model, state, value, onChange }) {
   if (!type || type === 'accesorios') return null;
+  const sealed = String(state || '').toLowerCase() === 'nuevo';
   const config = getIncludedAccessoryConfig(type, model);
-  const selected = normalizeIncludedAccessories(type, value, model);
+  const selected = normalizeIncludedAccessories(type, value, model, state);
+  if (sealed) {
+    return (
+      <div>
+        <label className="block font-medium mb-1">Accesorios incluidos</label>
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Producto nuevo/sellado: se incluyen automáticamente <strong>{selected.join(', ') || 'los accesorios de fábrica'}</strong>.
+        </div>
+      </div>
+    );
+  }
   const toggle = (option, checked) => {
     let next = checked ? [...selected, option] : selected.filter((item) => item !== option);
     if (checked) {

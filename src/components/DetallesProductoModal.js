@@ -157,15 +157,17 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
       return;
     }
     // Normaliza accesorios para backend
-    const accesorios = normalizeIncludedAccessories(form.tipo, form.accesorios, form.detalle?.modelo);
+    const accesorios = normalizeIncludedAccessories(form.tipo, form.accesorios, form.detalle?.modelo, form.estado);
 
     // Lista blanca de campos permitidos en 'detalle' (sin 'id')
     const cleanDetalle = Object.fromEntries(
       Object.entries(form.detalle || {}).filter(([k]) => k !== 'id')
     );
     // payload completo con todos los campos editables (sin 'detalle.id')
-    const vendedorPayload =
-      form.vendedor === OTHER_PEDIDO_SELLER ? null : form.vendedor?.trim() || null;
+    const pedidoNombre = String(form.pedidoCliente || '').trim();
+    const vendedorPayload = pedidoNombre
+      ? pedidoSeller(pedidoNombre)
+      : (form.vendedor === OTHER_PEDIDO_SELLER ? null : form.vendedor?.trim() || null);
     const payload = { tipo: form.tipo, estado: form.estado, vendedor: vendedorPayload, accesorios, detalle: cleanDetalle };
     if (form.tipo === 'accesorios') payload.cantidad = Number(form.cantidad);
     const primaryLink = Array.isArray(vincularConList) ? vincularConList[0] : null;
@@ -380,7 +382,7 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                 )}
                 {form.tipo === 'macmini' && <FormProductoMacDesktop tipo="macmini" detalle={form.detalle} onChange={handleDetalleChange} />}
                 {form.tipo === 'imac' && <FormProductoMacDesktop tipo="imac" detalle={form.detalle} onChange={handleDetalleChange} />}
-                {form.tipo === 'airpods' && <div><label className="block font-medium">Modelo de AirPods</label><select className="w-full border p-2 rounded" value={form.detalle?.modelo || ''} onChange={e => handleDetalleChange('modelo', e.target.value)}><option value="">Selecciona</option><option>AirPods Pro 1</option><option>AirPods Pro 2</option><option>AirPods Pro 3</option><option>AirPods 4</option><option>AirPods 4 ANC</option></select></div>}
+                {form.tipo === 'airpods' && <div><label className="block font-medium">Modelo de AirPods</label><select className="w-full border p-2 rounded" value={form.detalle?.modelo || ''} onChange={e => handleDetalleChange('modelo', e.target.value)}><option value="">Selecciona</option><option>AirPods Pro 1</option><option>AirPods Pro 2</option><option>AirPods Pro 3</option><option>AirPods 4</option><option>AirPods 4 ANC</option><option>AirPods Max 1</option><option>AirPods Max 2</option></select></div>}
                 {form.tipo === 'accesorios' && <FormProductoAccessory detalle={form.detalle} cantidad={form.cantidad} onDetalleChange={handleDetalleChange} onCantidadChange={(value) => handleMainChange('cantidad', value)} currentStock={{ initial: producto.stockInicial, current: producto.stockActual }} />}
 
                 <div className={form.tipo === 'iphone' ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}>
@@ -415,7 +417,7 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                   )}
                 </div>
 
-                <IncludedAccessories type={form.tipo} model={form.detalle?.modelo} value={form.accesorios} onChange={(accesorios) => setForm((current) => ({ ...current, accesorios }))} />
+                <IncludedAccessories type={form.tipo} model={form.detalle?.modelo} state={form.estado} value={form.accesorios} onChange={(accesorios) => setForm((current) => ({ ...current, accesorios }))} />
               </div>
 
               {/* Columna 2: Vinculacion */}

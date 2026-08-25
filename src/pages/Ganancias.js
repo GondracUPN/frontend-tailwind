@@ -1,5 +1,5 @@
 // src/pages/Ganancias.js
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../api';
 import ModalVenta from '../components/ModalVenta';
 import { formatAppleWatchName } from '../utils/productName';
@@ -66,6 +66,10 @@ const shareForSeller = (venta, seller) => {
 };
 
 const getValorUsd = (venta) => Number(venta?.producto?.valor?.valorProducto ?? 0);
+const isAccessorySale = (venta) => String(venta?.producto?.tipo || '').trim().toLowerCase() === 'accesorios';
+const normalizeAccessorySale = (venta) => (
+  isAccessorySale(venta) ? { ...venta, ganancia: 0, porcentajeGanancia: 0 } : venta
+);
 const getEnvioSoles = (venta) =>
   Number(
     venta?.producto?.valor?.costoEnvioProrrateado ??
@@ -81,6 +85,9 @@ const getTipoCambioSplit = (venta, seller) => {
 };
 
 const splitMetrics = (venta, seller) => {
+  if (isAccessorySale(venta)) {
+    return { ingreso: Number(venta?.precioVenta ?? 0) / 2, costo: 0, ganancia: 0, pct: 0 };
+  }
   const valorUsd = getValorUsd(venta);
   const envio = getEnvioSoles(venta);
   const tc = getTipoCambioSplit(venta, seller);
@@ -205,11 +212,11 @@ export default function Ganancias({ setVista }) {
   const [sellerSunat, setSellerSunat] = useState(null);   // 'Gonzalo' | 'Renato' | null
 
   // Carga TODAS las ventas
-  const fetchVentas = async ({ silent = false } = {}) => {
+  const fetchVentas = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     try {
       const data = await api.get('/ventas'); // idealmente con producto + valor
-      const list = Array.isArray(data) ? data : [];
+      const list = (Array.isArray(data) ? data : []).map(normalizeAccessorySale);
       list.sort(
         (a, b) =>
           new Date(b.fechaVenta || b.createdAt || 0) -
@@ -223,18 +230,31 @@ export default function Ganancias({ setVista }) {
     } finally {
       if (!silent) setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     const cached = readCache();
     if (cached && cached.length) {
-      setVentas(cached);
+      setVentas(cached.map(normalizeAccessorySale));
       setLoading(false);
       fetchVentas({ silent: true });
     } else {
       fetchVentas();
     }
-  }, []);
+  }, [fetchVentas]);
+
+  useEffect(() => {
+    const handleSalesUpdated = () => fetchVentas({ silent: true });
+    const handleViewActivated = (event) => {
+      if (event?.detail?.view === 'ganancias') fetchVentas({ silent: true });
+    };
+    window.addEventListener('ventas-updated', handleSalesUpdated);
+    window.addEventListener('app-view-activated', handleViewActivated);
+    return () => {
+      window.removeEventListener('ventas-updated', handleSalesUpdated);
+      window.removeEventListener('app-view-activated', handleViewActivated);
+    };
+  }, [fetchVentas]);
 
   // Global
   const rangoGlobal = useMemo(
@@ -706,8 +726,9 @@ function ModalSunat({ seller, onClose, ventas }) {
       const envioSoles = envioSolesBase * share;
       const ventaSoles = ventaSolesBase * share;
       const decSoles = valorDecUSD * tipoCambio;
-      const costoBase = decSoles + envioSoles;
-      const gananciaNeta = ventaSoles - costoBase;
+      const accessorySale = isAccessorySale(v);
+      const costoBase = accessorySale ? 0 : decSoles + envioSoles;
+      const gananciaNeta = accessorySale ? 0 : ventaSoles - costoBase;
 
       return {
         id: v.id,

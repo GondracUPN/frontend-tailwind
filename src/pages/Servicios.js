@@ -27,6 +27,20 @@ function UsuariosAdmin() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const handleViewActivated = (event) => {
+      if (event?.detail?.view === 'servicios') load();
+    };
+    const handleDataUpdated = () => load();
+    window.addEventListener('app-view-activated', handleViewActivated);
+    window.addEventListener('productos-updated', handleDataUpdated);
+    window.addEventListener('ventas-updated', handleDataUpdated);
+    return () => {
+      window.removeEventListener('app-view-activated', handleViewActivated);
+      window.removeEventListener('productos-updated', handleDataUpdated);
+      window.removeEventListener('ventas-updated', handleDataUpdated);
+    };
+  }, [load]);
 
   const createUser = async (e) => {
     e.preventDefault();

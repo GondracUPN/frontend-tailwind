@@ -26,7 +26,7 @@ import {
 } from 'react-icons/fi';
 import api, { API_URL } from '../api';
 import parseSnImeiIds from '../utils/snImeiOcr';
-import IncludedAccessories from '../components/IncludedAccessories';
+import IncludedAccessories, { normalizeIncludedAccessories } from '../components/IncludedAccessories';
 import { formatAppleWatchName } from '../utils/productName';
 
 const ModalFacu = lazy(() => import('../components/ModalFacu'));
@@ -367,6 +367,19 @@ export default function Inventario({ setVista }) {
   }, [load]);
 
   useEffect(() => {
+    const handleViewActivated = (event) => {
+      if (event?.detail?.view === 'inventario') load({ silent: true });
+    };
+    const handleSaleUpdated = () => load({ silent: true });
+    window.addEventListener('app-view-activated', handleViewActivated);
+    window.addEventListener('ventas-updated', handleSaleUpdated);
+    return () => {
+      window.removeEventListener('app-view-activated', handleViewActivated);
+      window.removeEventListener('ventas-updated', handleSaleUpdated);
+    };
+  }, [load]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const updateView = () => {
       setIsLandscape(window.innerWidth > window.innerHeight);
@@ -659,7 +672,7 @@ export default function Inventario({ setVista }) {
         serial: text(form.serial) || null,
         imei: text(form.imei) || null,
         imei2: text(form.imei2) || null,
-        accesorios: form.accesorios,
+        accesorios: normalizeIncludedAccessories(editing.producto.tipo, form.accesorios, editing.producto.detalle?.modelo, editing.producto.estado),
         observaciones: text(form.observaciones) || null,
         fotosTomadas: Boolean(form.fotosTomadas),
         marketplaceSubido: Boolean(form.marketplaceSubido),
@@ -696,24 +709,24 @@ export default function Inventario({ setVista }) {
   };
 
   const displayEntries = useMemo(() => groupInventoryEntries(entries), [entries]);
+  const inventoryEntries = useMemo(
+    () => displayEntries.filter((entry) => String(entry?.producto?.tipo || '').toLowerCase() !== 'accesorios'),
+    [displayEntries],
+  );
   const stats = useMemo(() => ({
-    total: displayEntries.length,
-    almacen: displayEntries.filter((entry) => entry?.ficha?.enAlmacen).length,
-    sinFoto: displayEntries.filter((entry) => entry?.ficha?.enAlmacen && !entry.ficha?.fotosTomadas).length,
-    conFoto: displayEntries.filter((entry) => entry?.ficha?.enAlmacen && Boolean(entry.ficha?.fotosTomadas)).length,
-    sinMarketplace: displayEntries.filter((entry) => entry?.ficha?.enAlmacen && entry.ficha?.fotosTomadas && !entry.ficha?.marketplaceSubido).length,
-  }), [displayEntries]);
+    total: inventoryEntries.length,
+    almacen: inventoryEntries.filter((entry) => entry?.ficha?.enAlmacen).length,
+    sinFoto: inventoryEntries.filter((entry) => entry?.ficha?.enAlmacen && !entry.ficha?.fotosTomadas).length,
+    conFoto: inventoryEntries.filter((entry) => entry?.ficha?.enAlmacen && Boolean(entry.ficha?.fotosTomadas)).length,
+    sinMarketplace: inventoryEntries.filter((entry) => entry?.ficha?.enAlmacen && entry.ficha?.fotosTomadas && !entry.ficha?.marketplaceSubido).length,
+  }), [inventoryEntries]);
 
   const inventoryValues = useMemo(() => entries.reduce((totals, entry) => {
     const valor = entry?.producto?.valor || {};
+    if (String(entry?.producto?.tipo || '').toLowerCase() === 'accesorios') return totals;
     const fallbackCost = Number(valor.valorSoles || 0) + Number(valor.costoEnvio || 0);
     const totalPurchaseCost = Number(valor.costoTotalProrrateado ?? valor.costoTotal ?? fallbackCost) || 0;
-    const accessoryStock = String(entry?.producto?.tipo || '').toLowerCase() === 'accesorios';
-    const purchasedUnits = Math.max(1, Number(entry?.producto?.stockInicial || 1));
-    const remainingUnits = Math.max(0, Number(entry?.producto?.stockActual || 0));
-    const costSoles = accessoryStock
-      ? (totalPurchaseCost / purchasedUnits) * remainingUnits
-      : totalPurchaseCost;
+    const costSoles = totalPurchaseCost;
     totals.costSoles += costSoles;
     totals.costUsd += costSoles / INVENTARIO_TIPO_CAMBIO;
     totals.minimumSoles += roundUp10(costSoles * 1.2);
@@ -731,6 +744,10 @@ export default function Inventario({ setVista }) {
     const result = displayEntries.filter((entry) => {
       if (!entry?.producto?.id) return false;
       const { producto, ficha } = entry;
+      const accessoryStock = String(producto?.tipo || '').toLowerCase() === 'accesorios';
+      if (filter === 'accesorios') {
+        if (!accessoryStock) return false;
+      } else if (accessoryStock) return false;
       if (filter === 'almacen' && !ficha?.enAlmacen) return false;
       if (filter === 'pendientes' && ficha?.enAlmacen) return false;
       if (filter === 'sinFoto' && (!ficha?.enAlmacen || ficha?.fotosTomadas)) return false;
@@ -925,6 +942,7 @@ export default function Inventario({ setVista }) {
             {[
               ['todos', 'Todos'], ['pendientes', 'Por cotejar'], ['almacen', 'En almacén'],
               ['sinFoto', 'Sin foto'], ['conFoto', 'Disponibles'], ['sinMarketplace', 'Sin Marketplace'],
+              ['accesorios', 'Accesorios'],
             ].map(([value, label]) => (
               <button key={value} type="button" onClick={() => setFilter(value)} className={`whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium ${filter === value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
                 {label}
@@ -972,8 +990,8 @@ export default function Inventario({ setVista }) {
                         <h2 className="text-base font-semibold leading-5 text-slate-950">{buildNombre(producto)}</h2>
                         <p className="mt-1 text-xs leading-4 text-slate-500">{buildSpecs(producto) || 'Sin especificaciones'}</p>
                       </div>
-                      <Pill tone={ficha?.fotosTomadas ? 'green' : ficha?.enAlmacen ? 'blue' : 'amber'}>
-                        {ficha?.fotosTomadas ? 'Disponible' : ficha?.enAlmacen ? 'En almacén' : 'Por cotejar'}
+                      <Pill tone={accessoryStock ? 'blue' : ficha?.fotosTomadas ? 'green' : ficha?.enAlmacen ? 'blue' : 'amber'}>
+                        {accessoryStock ? 'Accesorio' : ficha?.fotosTomadas ? 'Disponible' : ficha?.enAlmacen ? 'En almacén' : 'Por cotejar'}
                       </Pill>
                     </div>
 
@@ -1024,10 +1042,10 @@ export default function Inventario({ setVista }) {
 
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       {!accessoryStock && <span className="col-span-2 text-xs text-slate-500">Recogido: {lastPickupDate(producto) || 'Sin fecha'}</span>}
-                      <button type="button" onClick={() => openEditor(entry)} className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 ${!ficha?.enAlmacen ? 'col-span-2' : ''}`}>
+                      <button type="button" onClick={() => openEditor(entry)} className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 ${!(accessoryStock ? Number(producto.stockActual || 0) > 0 : ficha?.enAlmacen) ? 'col-span-2' : ''}`}>
                         <FiEdit3 /> {accessoryStock ? 'Editar stock' : (fichaCompleta ? 'Editar ficha' : 'Completar ficha')}
                       </button>
-                      {ficha?.enAlmacen && (
+                      {(accessoryStock ? Number(producto.stockActual || 0) > 0 : ficha?.enAlmacen) && (
                         <button type="button" onClick={() => openSelling(entry)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700">
                           <FiDollarSign /> Vender
                         </button>
@@ -1269,7 +1287,7 @@ export default function Inventario({ setVista }) {
                 <section>
                   <h3 className="mb-1 text-sm font-semibold text-slate-950">Accesorios incluidos</h3>
                   <p className="mb-3 text-xs text-slate-500">Marca exactamente lo que acompaña a este producto.</p>
-                  <IncludedAccessories type={editing.producto.tipo} model={editing.producto.detalle?.modelo} value={form.accesorios} onChange={(accesorios) => setForm((current) => ({ ...current, accesorios }))} />
+                  <IncludedAccessories type={editing.producto.tipo} model={editing.producto.detalle?.modelo} state={editing.producto.estado} value={form.accesorios} onChange={(accesorios) => setForm((current) => ({ ...current, accesorios }))} />
                 </section>
 
                 <label className="block text-xs font-medium text-slate-600">Observaciones<textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} rows="4" placeholder="Golpes, rayones, pruebas realizadas, piezas faltantes u otros datos..." className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-slate-400" /></label>
