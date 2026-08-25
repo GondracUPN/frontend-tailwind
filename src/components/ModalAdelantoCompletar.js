@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import api from '../api';
+import { notifyGastosChanged } from '../utils/gastosSync';
+import { notifySalesChanged } from '../utils/salesSync';
 
 export default function ModalAdelantoCompletar({ adelanto, producto, onClose, onSaved }) {
   const [fechaVenta, setFechaVenta] = useState('');
@@ -25,6 +27,13 @@ export default function ModalAdelantoCompletar({ adelanto, producto, onClose, on
         tipoCambio: Number(tipoCambio),
       });
       try { localStorage.removeItem('ganancias:cache:v1'); } catch {}
+      notifySalesChanged({
+        action: 'create',
+        venta: { ...saved, producto: saved?.producto || producto },
+        producto,
+        productoId: producto.id,
+      });
+      notifyGastosChanged({ action: 'sale-income', ventaId: saved?.id, seller: saved?.vendedor || producto?.vendedor });
       onSaved?.(saved);
     } catch (e) {
       console.error('[ModalAdelantoCompletar] Error al completar venta:', e);

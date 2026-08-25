@@ -387,7 +387,12 @@ export default function ModalVenta({
         }
       }
       notifyGastosChanged({ action: 'sale-income', ventaId: saved?.id, seller: saved?.vendedor || body.vendedor });
-      notifySalesChanged({ action: 'create', venta: saved, productoId: producto.id });
+      notifySalesChanged({
+        action: 'create',
+        venta: { ...saved, producto: saved?.producto || producto },
+        producto,
+        productoId: producto.id,
+      });
       onSaved?.(saved);
       onClose?.();
     } catch (e) {
@@ -408,7 +413,12 @@ export default function ModalVenta({
             }
           }
           notifyGastosChanged({ action: 'sale-income', ventaId: existing?.id, seller: existing?.vendedor });
-          notifySalesChanged({ action: 'create-confirmed', venta: existing, productoId: producto.id });
+          notifySalesChanged({
+            action: 'create-confirmed',
+            venta: { ...existing, producto: existing?.producto || producto },
+            producto,
+            productoId: producto.id,
+          });
           onSaved?.(existing);
           onClose?.();
           return;
@@ -458,7 +468,12 @@ export default function ModalVenta({
         }
       }
       notifyGastosChanged({ action: 'sale-income', ventaId: updated?.id, seller: updated?.vendedor || payload.vendedor });
-      notifySalesChanged({ action: 'update', venta: updated, productoId: producto.id });
+      notifySalesChanged({
+        action: 'update',
+        venta: { ...updated, producto: updated?.producto || producto },
+        producto,
+        productoId: producto.id,
+      });
       onSaved?.(updated);
       onClose?.();
     } catch (e) {

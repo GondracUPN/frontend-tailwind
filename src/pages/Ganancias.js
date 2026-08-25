@@ -244,7 +244,28 @@ export default function Ganancias({ setVista }) {
   }, [fetchVentas]);
 
   useEffect(() => {
-    const handleSalesUpdated = () => fetchVentas({ silent: true });
+    const handleSalesUpdated = (event) => {
+      const action = String(event?.detail?.action || '');
+      const incoming = event?.detail?.venta;
+      if (incoming?.id) {
+        const normalized = normalizeAccessorySale({
+          ...incoming,
+          producto: incoming.producto || event?.detail?.producto,
+        });
+        setVentas((current) => {
+          const withoutPrevious = current.filter((venta) => Number(venta.id) !== Number(normalized.id));
+          const next = action === 'delete' ? withoutPrevious : [normalized, ...withoutPrevious];
+          next.sort(
+            (a, b) =>
+              new Date(b.fechaVenta || b.createdAt || 0) -
+              new Date(a.fechaVenta || a.createdAt || 0)
+          );
+          writeCache(next);
+          return next;
+        });
+      }
+      fetchVentas({ silent: true });
+    };
     const handleViewActivated = (event) => {
       if (event?.detail?.view === 'ganancias') fetchVentas({ silent: true });
     };
