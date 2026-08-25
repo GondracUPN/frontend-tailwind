@@ -87,6 +87,39 @@ const accessoryTypeLabel = (product) => {
 const displayProductCode = (product) => String(product?.tipo || '').toLowerCase() === 'accesorios'
   ? (product?.codigoInventario || product?.id)
   : product?.id;
+export const filterProductsByCodeOrTracking = (products, query) => {
+  const list = Array.isArray(products) ? products : [];
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return list;
+
+  const compactQuery = q.replace(/[\s_-]+/g, '');
+  const codeMatch = compactQuery.match(/^(?:ms(?:code)?|code)?(\d+)$/i);
+  const requestedCode = codeMatch ? Number(codeMatch[1]) : null;
+  const explicitCodeQuery = /^(?:ms(?:code)?|code)/i.test(compactQuery);
+  const exactCodeExists = requestedCode != null
+    && list.some((product) => Number(displayProductCode(product)) === requestedCode);
+
+  // Un código existente tiene prioridad absoluta. Así "293" o "MS 293"
+  // no coinciden también con números contenidos en los tracking.
+  if (requestedCode != null && (explicitCodeQuery || exactCodeExists)) {
+    return list.filter((product) => Number(displayProductCode(product)) === requestedCode);
+  }
+
+  const qDigits = q.replace(/\D+/g, '');
+  return list.filter((product) => {
+    const tracking = product.tracking?.[0] || {};
+    const usa = String(tracking.trackingUsa || '').trim().toLowerCase();
+    const eshopex = String(tracking.trackingEshop || '').trim().toLowerCase();
+    const usaDigits = usa.replace(/\D+/g, '');
+    const eshopexDigits = eshopex.replace(/\D+/g, '');
+    return Boolean(
+      (usa && (usa.includes(q) || q.includes(usa)))
+      || (eshopex && (eshopex.includes(q) || q.includes(eshopex)))
+      || (qDigits && usaDigits && (usaDigits.includes(qDigits) || qDigits.includes(usaDigits)))
+      || (qDigits && eshopexDigits && (eshopexDigits.includes(qDigits) || qDigits.includes(eshopexDigits)))
+    );
+  });
+};
 const isPickedUpTracking = (tracking) => (
   String(tracking?.estado || '').toLowerCase() === 'recogido' || Boolean(tracking?.fechaRecogido)
 );
@@ -2043,35 +2076,7 @@ const confirmAction = async () => {
 
     let list = Array.isArray(productos) ? [...productos] : [];
     // --- Filtro por tracking (USA / Eshopex) ---
-    const q = String(trackingQuery || '').trim().toLowerCase();
-    if (q) {
-      // versifn solo-dfgitos para casos donde pegas un cfdigo largo que contiene el real
-      const qDigits = q.replace(/\D+/g, '');
-      const compactCodeQuery = q.replace(/[\s_-]+/g, '');
-      const codeQueryMatch = compactCodeQuery.match(/^(?:ms(?:code)?|code)?(\d+)$/i);
-      const requestedProductId = codeQueryMatch ? Number(codeQueryMatch[1]) : null;
-
-      list = list.filter((p) => {
-        const t = p.tracking?.[0] || {};
-        const usa = String(t.trackingUsa || '').trim().toLowerCase();
-        const esh = String(t.trackingEshop || '').trim().toLowerCase();
-
-        const usaDigits = usa.replace(/\D+/g, '');
-        const eshDigits = esh.replace(/\D+/g, '');
-
-        // Coincidencias en ambos sentidos:
-        // - normal: usa/esh contienen q  O q contiene usa/esh
-        // - solo-dfgitos: usaDigits/eshDigits contienen qDigits  O qDigits contiene usaDigits/eshDigits
-        const match =
-          (requestedProductId != null && Number(displayProductCode(p)) === requestedProductId) ||
-          (usa && (usa.includes(q) || q.includes(usa))) ||
-          (esh && (esh.includes(q) || q.includes(esh))) ||
-          (qDigits && usaDigits && (usaDigits.includes(qDigits) || qDigits.includes(usaDigits))) ||
-          (qDigits && eshDigits && (eshDigits.includes(qDigits) || qDigits.includes(eshDigits)));
-
-        return Boolean(match);
-      });
-    }
+    list = filterProductsByCodeOrTracking(list, trackingQuery);
 
 
     if (soloEnCamino) {
