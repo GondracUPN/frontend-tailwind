@@ -29,7 +29,7 @@ export default function CatalogSalesPending() {
 
   useEffect(() => {
     refresh();
-    const timer = window.setInterval(refresh, 30000);
+    const timer = window.setInterval(refresh, 5000);
     return () => window.clearInterval(timer);
   }, [refresh]);
 
@@ -64,7 +64,7 @@ export default function CatalogSalesPending() {
           <h3 className="text-lg font-semibold text-amber-950">Ventas recibidas del catálogo</h3>
           <p className="text-sm text-amber-800">Nada se registra ni se anula en Servicios hasta que lo confirmes aquí.</p>
         </div>
-        <button type="button" onClick={refresh} className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900">
+        <button type="button" onClick={refresh} className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 transition active:translate-y-px active:scale-[0.98] active:bg-amber-100">
           Actualizar
         </button>
       </div>
@@ -101,7 +101,7 @@ export default function CatalogSalesPending() {
                         type="button"
                         disabled={busyId === event.id}
                         onClick={() => act(event, 'confirm')}
-                        className={`rounded-lg px-3 py-1.5 font-medium text-white disabled:opacity-50 ${event.eventType === 'sale.cancelled' ? 'bg-red-600' : 'bg-emerald-600'}`}
+                        className={`rounded-lg px-3 py-1.5 font-medium text-white shadow-sm transition active:translate-y-px active:scale-[0.97] disabled:cursor-wait disabled:opacity-50 ${event.eventType === 'sale.cancelled' ? 'bg-red-600 active:bg-red-800' : 'bg-emerald-600 active:bg-emerald-800'}`}
                       >
                         {busyId === event.id ? 'Procesando...' : event.eventType === 'sale.cancelled' ? 'Confirmar anulación' : 'Confirmar venta'}
                       </button>
@@ -110,7 +110,7 @@ export default function CatalogSalesPending() {
                           type="button"
                           disabled={busyId === event.id}
                           onClick={() => act(event, 'reject')}
-                          className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 disabled:opacity-50"
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 shadow-sm transition active:translate-y-px active:scale-[0.97] active:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
                         >
                           Rechazar
                         </button>
