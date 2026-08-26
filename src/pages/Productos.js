@@ -123,6 +123,20 @@ export const filterProductsByCodeOrTracking = (products, query) => {
 const isPickedUpTracking = (tracking) => (
   String(tracking?.estado || '').toLowerCase() === 'recogido' || Boolean(tracking?.fechaRecogido)
 );
+export const getRecojoPackageShippingCost = (pkg) => {
+  const products = Array.isArray(pkg?.productos) && pkg.productos.length
+    ? pkg.productos
+    : (pkg?.product ? [pkg.product] : []);
+  const seen = new Set();
+  return Number(products.reduce((sum, product, index) => {
+    const key = String(product?.id ?? `index-${index}`);
+    if (seen.has(key)) return sum;
+    seen.add(key);
+    const value = product?.valor || {};
+    const shipping = Number(value?.costoEnvioProrrateado ?? value?.costoEnvio ?? 0);
+    return sum + (Number.isFinite(shipping) ? shipping : 0);
+  }, 0).toFixed(2));
+};
 const EMPTY_ESH_PROGRESS = {
   status: 'idle',
   total: 0,
@@ -1012,6 +1026,21 @@ const confirmAction = async () => {
     const status = row?.estado || getLastTracking(p)?.estatusEsho || '';
     return isEnSucursal(status) || isPagado(status) || isEntregado(status);
   };
+
+  const recojoSucursalSummary = React.useMemo(() => {
+    let packages = 0;
+    let totalShipping = 0;
+    for (const pkg of recojoPackages || []) {
+      const tracking = pkg.tracking || {};
+      const code = String(pkg.trackingEshop || tracking?.trackingEshop || '').trim();
+      const cargaRow = eshopexCargaByGuia[code];
+      const status = normalizeCargaStatus(cargaRow?.estado || tracking?.estatusEsho || '');
+      if (!isEnSucursal(status)) continue;
+      packages += 1;
+      totalShipping += getRecojoPackageShippingCost(pkg);
+    }
+    return { packages, totalShipping: Number(totalShipping.toFixed(2)) };
+  }, [recojoPackages, eshopexCargaByGuia]);
 
   const ESHOPEX_CARGA_CACHE_KEY = 'eshopex-carga-cache';
   const ESHOPEX_CARGA_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -3386,8 +3415,16 @@ const confirmAction = async () => {
                 </div>
               </div>
 
-              <div className="text-sm text-gray-500">
-                Paquetes en Eshopex: {recojoPackages.length}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                <div className="text-sm text-gray-700">
+                  Total a pagar en sucursal:{' '}
+                  <span className="font-bold text-emerald-700">{fmtSoles(recojoSucursalSummary.totalShipping)}</span>
+                </div>
+                <div className="text-sm text-gray-500">
+                  Paquetes en Eshopex: <span className="font-semibold text-gray-800">{recojoPackages.length}</span>
+                  <span className="mx-2 text-gray-300">|</span>
+                  En sucursal: <span className="font-semibold text-emerald-700">{recojoSucursalSummary.packages}</span>
+                </div>
               </div>
 
             </div>
@@ -3407,7 +3444,14 @@ const confirmAction = async () => {
                     <div className="flex items-center justify-between gap-3 bg-gray-100 border-b border-gray-200 px-3 py-2">
                       <div className="font-semibold text-gray-800">{group.label}</div>
                       <div className="flex items-center gap-2">
-                        <div className="text-sm text-gray-500">{group.packages.length} paquete{group.packages.length === 1 ? '' : 's'}</div>
+                        <div className="text-sm text-gray-500">
+                          {group.packages.length} paquete{group.packages.length === 1 ? '' : 's'}
+                          {' · '}{group.packages.filter((pkg) => {
+                            const tracking = pkg.tracking || {};
+                            const code = String(pkg.trackingEshop || tracking?.trackingEshop || '').trim();
+                            return isEnSucursal(eshopexCargaByGuia[code]?.estado || tracking?.estatusEsho || '');
+                          }).length} en sucursal
+                        </div>
                         <button
                           type="button"
                           onClick={(e) => {
@@ -3424,7 +3468,7 @@ const confirmAction = async () => {
                       </div>
                     </div>
                     <div className="overflow-x-auto">
-                      <table className="min-w-[900px] w-full text-sm">
+                      <table className="min-w-[1020px] w-full text-sm">
                         <thead className="bg-gray-50">
                           <tr>
                             <th className="p-2 text-left">Sel.</th>
@@ -3432,6 +3476,7 @@ const confirmAction = async () => {
                             <th className="p-2 text-left">Estatus</th>
                             <th className="p-2 text-left">Tracking Eshopex</th>
                             <th className="p-2 text-left">EstatusEsho</th>
+                            <th className="p-2 text-left">Precio envío</th>
                             <th className="p-2 text-left">Fecha recepcion</th>
                             <th className="p-2 text-left">Casillero</th>
                           </tr>
@@ -3497,6 +3542,10 @@ const confirmAction = async () => {
                                   <div className="text-sm font-medium">
                                     {estatusEsho || 'No hay informacion'}
                                   </div>
+                                </td>
+                                <td className="p-2">
+                                  <div className="text-sm font-semibold text-gray-800">{fmtSoles(getRecojoPackageShippingCost(pkg))}</div>
+                                  <div className="text-xs text-gray-500">Calculado</div>
                                 </td>
                                 <td className="p-2">
                                   <div className="text-sm">{fecha}</div>

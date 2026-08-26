@@ -1,4 +1,4 @@
-import { filterProductsByCodeOrTracking } from './Productos';
+import { filterProductsByCodeOrTracking, getRecojoPackageShippingCost } from './Productos';
 
 const products = [
   { id: 293, tipo: 'macbook', tracking: [{ trackingUsa: '1Z999999' }] },
@@ -20,4 +20,17 @@ test('usa el código visible de los accesorios', () => {
 
 test('mantiene la búsqueda parcial por tracking cuando no existe ese código', () => {
   expect(filterProductsByCodeOrTracking(products, '999999').map((product) => product.id)).toEqual([293]);
+});
+
+test('suma el envío prorrateado una sola vez por producto del paquete', () => {
+  const product = { id: 1, valor: { costoEnvio: 100, costoEnvioProrrateado: 35.25 } };
+  const pkg = {
+    productos: [
+      product,
+      product,
+      { id: 2, valor: { costoEnvio: 80, costoEnvioProrrateado: 24.75 } },
+    ],
+  };
+
+  expect(getRecojoPackageShippingCost(pkg)).toBe(60);
 });
