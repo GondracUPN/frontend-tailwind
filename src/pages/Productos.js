@@ -403,6 +403,10 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [recojoOpen, setRecojoOpen] = useState(false);
   const [recojoSelected, setRecojoSelected] = useState(new Set());
   const [recojoDate, setRecojoDate] = useState('');
+  const [recojoCostEdit, setRecojoCostEdit] = useState(null);
+  const [recojoCostValue, setRecojoCostValue] = useState('');
+  const [recojoCostSaving, setRecojoCostSaving] = useState(false);
+  const [recojoCostError, setRecojoCostError] = useState('');
   const [inventarioOpen, setInventarioOpen] = useState(false);
   const [inventarioSelected, setInventarioSelected] = useState(new Set());
   const [inventarioSaving, setInventarioSaving] = useState(false);
@@ -2285,6 +2289,72 @@ const confirmAction = async () => {
     if (closeModal) cerrarModal();
   };
 
+  const openRecojoCostEdit = (pkg) => {
+    setRecojoCostEdit(pkg || null);
+    setRecojoCostValue(String(getRecojoPackageShippingCost(pkg).toFixed(2)));
+    setRecojoCostError('');
+  };
+
+  const closeRecojoCostEdit = () => {
+    if (recojoCostSaving) return;
+    setRecojoCostEdit(null);
+    setRecojoCostValue('');
+    setRecojoCostError('');
+  };
+
+  const saveRecojoCost = async (event) => {
+    event?.preventDefault?.();
+    if (!recojoCostEdit || recojoCostSaving) return;
+    const nextTotal = Number(recojoCostValue);
+    if (!Number.isFinite(nextTotal) || nextTotal < 0) {
+      setRecojoCostError('Ingresa un costo válido.');
+      return;
+    }
+    const unique = new Map();
+    const source = Array.isArray(recojoCostEdit.productos) && recojoCostEdit.productos.length
+      ? recojoCostEdit.productos
+      : (recojoCostEdit.product ? [recojoCostEdit.product] : []);
+    source.forEach((product) => {
+      if (product?.id != null && product?.valor) unique.set(String(product.id), product);
+    });
+    const packageProducts = Array.from(unique.values());
+    if (!packageProducts.length) {
+      setRecojoCostError('Este paquete no tiene un producto editable.');
+      return;
+    }
+
+    setRecojoCostSaving(true);
+    setRecojoCostError('');
+    try {
+      const currentCosts = packageProducts.map((product) => {
+        const value = product.valor || {};
+        const cost = Number(value.costoEnvioProrrateado ?? value.costoEnvio ?? 0);
+        return Number.isFinite(cost) && cost > 0 ? cost : 0;
+      });
+      const currentTotal = currentCosts.reduce((sum, cost) => sum + cost, 0);
+      let assigned = 0;
+      const updates = await Promise.all(packageProducts.map(async (product, index) => {
+        const isLast = index === packageProducts.length - 1;
+        const weight = currentTotal > 0 ? currentCosts[index] / currentTotal : 1 / packageProducts.length;
+        const allocation = isLast
+          ? Number((nextTotal - assigned).toFixed(2))
+          : Number((nextTotal * weight).toFixed(2));
+        assigned += allocation;
+        const field = product.envioGrupoId ? 'costoEnvioProrrateado' : 'costoEnvio';
+        return api.patch(`/productos/${product.id}`, { valor: { [field]: allocation } });
+      }));
+      updates.forEach((updated) => applyProductoUpdate(updated, { isNuevo: false, closeModal: false }));
+      setRecojoCostEdit(null);
+      setRecojoCostValue('');
+      await refreshProductos({ force: true, useCache: false, silent: true });
+    } catch (error) {
+      console.error('[Recojo Eshopex] costo de envío:', error);
+      setRecojoCostError('No se pudo actualizar el costo.');
+    } finally {
+      setRecojoCostSaving(false);
+    }
+  };
+
   const applyTrackingUpdate = (productoId, tracking) => {
     if (!productoId || !tracking) return;
     setProductos(list => {
@@ -3525,7 +3595,14 @@ const confirmAction = async () => {
                                 </td>
                                 <td className="p-2">
                                   <div className="text-sm font-semibold text-gray-800">{fmtSoles(getRecojoPackageShippingCost(pkg))}</div>
-                                  <div className="text-xs text-gray-500">Calculado</div>
+                                  <button
+                                    type="button"
+                                    className="text-xs font-medium text-indigo-600 underline decoration-dotted underline-offset-2 hover:text-indigo-800"
+                                    onClick={() => openRecojoCostEdit(pkg)}
+                                    title="Cambiar rápidamente el costo de envío"
+                                  >
+                                    Calculado · Cambiar
+                                  </button>
                                 </td>
                                 <td className="p-2">
                                   <div className="text-sm">{fecha}</div>
@@ -3549,6 +3626,47 @@ const confirmAction = async () => {
             )}
             </div>
           </div>
+        </div>
+      )}
+      {recojoCostEdit && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={(event) => { if (event.target === event.currentTarget) closeRecojoCostEdit(); }}>
+          <form className="relative w-full max-w-sm rounded-xl bg-white p-5 shadow-xl" onSubmit={saveRecojoCost}>
+            <button
+              type="button"
+              className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border border-gray-300 text-xl font-bold hover:bg-gray-100"
+              onClick={closeRecojoCostEdit}
+              aria-label="Cerrar"
+            >
+              ×
+            </button>
+            <h3 className="pr-10 text-lg font-semibold text-gray-900">Cambiar costo de envío</h3>
+            <div className="mt-1 text-sm text-gray-500">
+              Tracking: {recojoCostEdit.trackingEshop || recojoCostEdit.tracking?.trackingEshop || '-'}
+            </div>
+            <label className="mt-4 block text-sm font-medium text-gray-700" htmlFor="recojo-costo-envio">
+              Costo de envío del paquete (S/)
+            </label>
+            <input
+              id="recojo-costo-envio"
+              type="number"
+              min="0"
+              step="0.01"
+              autoFocus
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-lg outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              value={recojoCostValue}
+              onChange={(event) => setRecojoCostValue(event.target.value)}
+              disabled={recojoCostSaving}
+            />
+            {recojoCostError && <div className="mt-2 text-sm text-red-600">{recojoCostError}</div>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50" onClick={closeRecojoCostEdit} disabled={recojoCostSaving}>
+                Cancelar
+              </button>
+              <button type="submit" className="rounded-lg bg-indigo-600 px-4 py-2 font-semibold text-white hover:bg-indigo-700 disabled:opacity-60" disabled={recojoCostSaving}>
+                {recojoCostSaving ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
       {inventarioOpen && (
