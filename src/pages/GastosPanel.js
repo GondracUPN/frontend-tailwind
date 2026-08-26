@@ -14,6 +14,7 @@ import ModalImportarOperacionBancaria from '../components/ModalImportarOperacion
 import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept, normalizeExpenseConcept, visibleExpenseNotes } from '../utils/expenseConcepts';
 import { getAnalyticsSummary } from '../services/analytics';
 import { notifyGastosChanged, subscribeGastosChanges } from '../utils/gastosSync';
+import { hideMonthlyExpense } from '../utils/monthlyExpenses';
 
   const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
@@ -672,9 +673,12 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       const t = localStorage.getItem('token');
       const res = await fetch(`${API_URL}/gastos/${g.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` } });
       if (!res.ok) throw new Error(await res.text());
+      hideMonthlyExpense(g);
       setRows((prev) => prev.filter((r) => r.id !== g.id));
       notifyGastosChanged({ action: 'delete', userId: targetUserId, gastoId: g.id });
-      refreshTotals();
+      // Recargar también los gastos: refreshTotals conservaba `rows` en caché y
+      // podía reponer el registro recién borrado al volver a abrir el panel.
+      await reloadAll({ includeGastos: true, useCache: false, silent: true });
     } catch (e) {
       console.error('[GastosPanel] delete gasto:', e);
       alert('No se pudo eliminar.');

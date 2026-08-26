@@ -4,7 +4,7 @@ import { API_URL } from '../api';
 import { localDateInputValue } from '../utils/dates';
 import CloseX from './CloseX';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
-import { currentMonthlyExpenseRows } from '../utils/monthlyExpenses';
+import { currentMonthlyExpenseRows, restoreMonthlyExpense } from '../utils/monthlyExpenses';
 
 const TC_CREDITO = 3.7;
 
@@ -225,6 +225,7 @@ export default function ModalGastoCredito({
         data = await res.json().catch(() => null);
       }
       if (needDetalleMensual && data) {
+        restoreMonthlyExpense(data);
         try {
           const types = JSON.parse(localStorage.getItem('mensuales_types') || '{}');
           const key = ['credito', data.moneda, data.tarjeta || '-', data.notas || '-'].join('|');

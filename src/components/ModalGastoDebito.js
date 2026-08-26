@@ -5,7 +5,7 @@ import { convertPenToUsd, TC_FIJO } from '../utils/tipoCambio';
 import { localDateInputValue } from '../utils/dates';
 import CloseX from './CloseX';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
-import { currentMonthlyExpenseRows } from '../utils/monthlyExpenses';
+import { currentMonthlyExpenseRows, restoreMonthlyExpense } from '../utils/monthlyExpenses';
 
 const BANKS_DEBITO = [
   { value: 'bcp', label: 'BCP' },
@@ -300,6 +300,7 @@ export default function ModalGastoDebito({
     try {
       const data = await createExpenseWithDuplicateCheck(body, { userId });
       if (isMensual) {
+        restoreMonthlyExpense(data);
         try {
           const types = JSON.parse(localStorage.getItem('mensuales_types') || '{}');
           const key = ['debito', data.moneda, data.tarjeta || '-', data.notas || '-'].join('|');

@@ -22,6 +22,29 @@ export const readHiddenMonthlyExpenseKeys = (storage) => {
   }
 };
 
+const writeHiddenMonthlyExpenseKeys = (keys, storage) => {
+  try {
+    (storage || browserStorage())?.setItem('mensuales_hidden', JSON.stringify(Array.from(keys)));
+  } catch {
+    // Las preferencias del selector no deben impedir guardar o borrar un gasto.
+  }
+  return keys;
+};
+
+export const hideMonthlyExpense = (row, storage) => {
+  if (!isMonthlyExpense(row)) return readHiddenMonthlyExpenseKeys(storage);
+  const keys = readHiddenMonthlyExpenseKeys(storage);
+  keys.add(monthlyExpenseKey(row));
+  return writeHiddenMonthlyExpenseKeys(keys, storage);
+};
+
+export const restoreMonthlyExpense = (row, storage) => {
+  if (!isMonthlyExpense(row)) return readHiddenMonthlyExpenseKeys(storage);
+  const keys = readHiddenMonthlyExpenseKeys(storage);
+  keys.delete(monthlyExpenseKey(row));
+  return writeHiddenMonthlyExpenseKeys(keys, storage);
+};
+
 export const currentMonthlyExpenseRows = (rows, paymentMethod, storage) => {
   const hiddenKeys = readHiddenMonthlyExpenseKeys(storage);
   const byDetail = new Map();
