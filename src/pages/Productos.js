@@ -3601,7 +3601,7 @@ const confirmAction = async () => {
                                     onClick={() => openRecojoCostEdit(pkg)}
                                     title="Cambiar rápidamente el costo de envío"
                                   >
-                                    Calculado · Cambiar
+                                    Calculado
                                   </button>
                                 </td>
                                 <td className="p-2">
