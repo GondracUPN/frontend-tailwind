@@ -2334,6 +2334,7 @@ const confirmAction = async () => {
       const currentTotal = currentCosts.reduce((sum, cost) => sum + cost, 0);
       let assigned = 0;
       const updates = await Promise.all(packageProducts.map(async (product, index) => {
+        const currentValue = product.valor || {};
         const isLast = index === packageProducts.length - 1;
         const weight = currentTotal > 0 ? currentCosts[index] / currentTotal : 1 / packageProducts.length;
         const allocation = isLast
@@ -2341,7 +2342,15 @@ const confirmAction = async () => {
           : Number((nextTotal * weight).toFixed(2));
         assigned += allocation;
         const field = product.envioGrupoId ? 'costoEnvioProrrateado' : 'costoEnvio';
-        return api.patch(`/productos/${product.id}`, { valor: { [field]: allocation } });
+        return api.patch(`/productos/${product.id}`, {
+          valor: {
+            valorProducto: Number(currentValue.valorProducto),
+            valorDec: Number(currentValue.valorDec),
+            peso: Number(currentValue.peso),
+            fechaCompra: String(currentValue.fechaCompra || '').slice(0, 10),
+            [field]: allocation,
+          },
+        });
       }));
       updates.forEach((updated) => applyProductoUpdate(updated, { isNuevo: false, closeModal: false }));
       setRecojoCostEdit(null);
