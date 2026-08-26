@@ -1027,21 +1027,6 @@ const confirmAction = async () => {
     return isEnSucursal(status) || isPagado(status) || isEntregado(status);
   };
 
-  const recojoSucursalSummary = React.useMemo(() => {
-    let packages = 0;
-    let totalShipping = 0;
-    for (const pkg of recojoPackages || []) {
-      const tracking = pkg.tracking || {};
-      const code = String(pkg.trackingEshop || tracking?.trackingEshop || '').trim();
-      const cargaRow = eshopexCargaByGuia[code];
-      const status = normalizeCargaStatus(cargaRow?.estado || tracking?.estatusEsho || '');
-      if (!isEnSucursal(status)) continue;
-      packages += 1;
-      totalShipping += getRecojoPackageShippingCost(pkg);
-    }
-    return { packages, totalShipping: Number(totalShipping.toFixed(2)) };
-  }, [recojoPackages, eshopexCargaByGuia]);
-
   const ESHOPEX_CARGA_CACHE_KEY = 'eshopex-carga-cache';
   const ESHOPEX_CARGA_CACHE_TTL_MS = 5 * 60 * 1000;
   const readEshopexCargaCache = useCallback(() => {
@@ -3415,16 +3400,8 @@ const confirmAction = async () => {
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                <div className="text-sm text-gray-700">
-                  Total a pagar en sucursal:{' '}
-                  <span className="font-bold text-emerald-700">{fmtSoles(recojoSucursalSummary.totalShipping)}</span>
-                </div>
-                <div className="text-sm text-gray-500">
-                  Paquetes en Eshopex: <span className="font-semibold text-gray-800">{recojoPackages.length}</span>
-                  <span className="mx-2 text-gray-300">|</span>
-                  En sucursal: <span className="font-semibold text-emerald-700">{recojoSucursalSummary.packages}</span>
-                </div>
+              <div className="text-sm text-gray-500">
+                Paquetes en Eshopex: {recojoPackages.length}
               </div>
 
             </div>
@@ -3439,18 +3416,21 @@ const confirmAction = async () => {
                   const pagoKey = `cas-${group.key}-${accountKey}`;
                   const pagoLoading = eshopexPagoLoading.has(pagoKey);
                   const canPay = Number(casInfo?.payable || 0) > 0 && accountKey;
+                  const groupSucursalTotal = group.packages.reduce((sum, pkg) => {
+                    const tracking = pkg.tracking || {};
+                    const code = String(pkg.trackingEshop || tracking?.trackingEshop || '').trim();
+                    const status = eshopexCargaByGuia[code]?.estado || tracking?.estatusEsho || '';
+                    return isEnSucursal(status) ? sum + getRecojoPackageShippingCost(pkg) : sum;
+                  }, 0);
                   return (
                   <div key={group.key} className="rounded-xl border border-gray-200 shadow-sm overflow-hidden bg-white">
                     <div className="flex items-center justify-between gap-3 bg-gray-100 border-b border-gray-200 px-3 py-2">
                       <div className="font-semibold text-gray-800">{group.label}</div>
                       <div className="flex items-center gap-2">
-                        <div className="text-sm text-gray-500">
-                          {group.packages.length} paquete{group.packages.length === 1 ? '' : 's'}
-                          {' · '}{group.packages.filter((pkg) => {
-                            const tracking = pkg.tracking || {};
-                            const code = String(pkg.trackingEshop || tracking?.trackingEshop || '').trim();
-                            return isEnSucursal(eshopexCargaByGuia[code]?.estado || tracking?.estatusEsho || '');
-                          }).length} en sucursal
+                        <div className="text-sm text-gray-500 flex flex-wrap items-center justify-end gap-x-2">
+                          <span>{group.packages.length} paquete{group.packages.length === 1 ? '' : 's'}</span>
+                          <span className="text-gray-300">|</span>
+                          <span>A pagar: <strong className="text-emerald-700">{fmtSoles(groupSucursalTotal)}</strong></span>
                         </div>
                         <button
                           type="button"
