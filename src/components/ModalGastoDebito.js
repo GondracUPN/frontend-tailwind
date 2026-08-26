@@ -91,9 +91,10 @@ export default function ModalGastoDebito({
     () => (Array.isArray(expenseConcepts) ? expenseConcepts : []).filter((item) => item.appliesDebit),
     [expenseConcepts],
   );
+  const [monthlySchedules, setMonthlySchedules] = useState([]);
   const monthlyOptions = useMemo(() => {
-    return currentMonthlyExpenseRows(rows, 'debito');
-  }, [rows]);
+    return currentMonthlyExpenseRows(rows, 'debito', undefined, monthlySchedules);
+  }, [rows, monthlySchedules]);
   const [moneda, setMoneda] = useState('PEN');
   const monedaElegidaManualmente = useRef(false);
   const [monto, setMonto] = useState('');
@@ -145,6 +146,21 @@ export default function ModalGastoDebito({
     })();
     return () => { alive = false; };
   }, [userId, defaultPaymentCard]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/schedules`, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
+        const data = await res.json();
+        if (alive) setMonthlySchedules(Array.isArray(data) ? data : []);
+      } catch {
+        if (alive) setMonthlySchedules([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId]);
 
   // Aplica la moneda inicial del concepto sin pisar una elección manual posterior.
   useEffect(() => {

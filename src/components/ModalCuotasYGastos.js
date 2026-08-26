@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import CloseX from './CloseX';
 import { API_URL } from '../api';
 import { addMonthsToDateInput, localDateInputValue } from '../utils/dates';
-import { monthlyExpenseKey, readHiddenMonthlyExpenseKeys } from '../utils/monthlyExpenses';
+import { hasActiveMonthlySchedule, monthlyExpenseKey, readHiddenMonthlyExpenseKeys } from '../utils/monthlyExpenses';
 
 const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
@@ -92,8 +92,8 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
       const [metodoPago, moneda, tarjeta, notas] = key.split('|');
       return { key, metodoPago, moneda, tarjeta, notas, monto: Number(last?.monto || 0), last, count: arr.length, lastTarjeta: last?.tarjeta || null, lastTarjetaPago: last?.tarjetaPago || null };
     });
-    return groups.filter(g => !hiddenKeys.has(g.key));
-  }, [rows, hiddenKeys]);
+    return groups.filter(g => !hiddenKeys.has(g.key) && hasActiveMonthlySchedule(g.last, schedules));
+  }, [rows, hiddenKeys, schedules]);
 
   const editGroup = useMemo(
     () => (editKey ? mensualesGroups.find((g) => g.key === editKey) : null),
@@ -126,13 +126,14 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
     const montoStr = Number(g.monto).toFixed(2);
     const isCredito = g.metodoPago === 'credito';
     return schedules.find((s) => (
-      s?.tipo === 'recurrente'
+      s?.active !== false
+      && s?.tipo === 'recurrente'
       && norm(s?.concepto) === 'gastos_recurrentes'
       && s?.metodoPago === g.metodoPago
       && String(s?.moneda) === g.moneda
       && Number(Number(s?.monto || 0).toFixed(2)) === Number(montoStr)
       && (isCredito ? (String(s?.tarjeta || '') === (g.tarjeta === '-' ? '' : g.tarjeta))
-                    : (String(s?.tarjetaPago || '') === (g.tarjeta === '-' ? (g.lastTarjetaPago || '') : g.tarjeta)))
+                    : true)
     ));
   };
 

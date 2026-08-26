@@ -45,12 +45,34 @@ export const restoreMonthlyExpense = (row, storage) => {
   return writeHiddenMonthlyExpenseKeys(keys, storage);
 };
 
-export const currentMonthlyExpenseRows = (rows, paymentMethod, storage) => {
+export const hasActiveMonthlySchedule = (row, schedules) => {
+  const amount = Number(row?.monto || 0).toFixed(2);
+  const paymentMethod = String(row?.metodoPago || '');
+  const currency = String(row?.moneda || '');
+  const card = String(row?.tarjeta || '');
+
+  return (Array.isArray(schedules) ? schedules : []).some((schedule) => {
+    if (schedule?.active === false) return false;
+    if (normalize(schedule?.tipo) !== 'recurrente') return false;
+    if (!['gastos_recurrentes', 'gastos_mensuales'].includes(normalize(schedule?.concepto))) return false;
+    if (String(schedule?.metodoPago || '') !== paymentMethod) return false;
+    if (String(schedule?.moneda || '') !== currency) return false;
+    if (Number(schedule?.monto || 0).toFixed(2) !== amount) return false;
+    // Si el último movimiento que originó la programación fue borrado, no se
+    // debe retroceder a otro pago histórico de meses anteriores.
+    if (schedule?.lastDate && String(schedule.lastDate) !== String(row?.fecha || '')) return false;
+    // Las programaciones de débito antiguas no guardaban el banco de origen.
+    return paymentMethod !== 'credito' || String(schedule?.tarjeta || '') === card;
+  });
+};
+
+export const currentMonthlyExpenseRows = (rows, paymentMethod, storage, schedules) => {
   const hiddenKeys = readHiddenMonthlyExpenseKeys(storage);
   const byDetail = new Map();
 
   (Array.isArray(rows) ? rows : []).forEach((row) => {
     if (row?.metodoPago !== paymentMethod || !isMonthlyExpense(row)) return;
+    if (Array.isArray(schedules) && !hasActiveMonthlySchedule(row, schedules)) return;
     if (hiddenKeys.has(monthlyExpenseKey(row))) return;
     const detail = String(row?.notas || '').trim();
     if (!detail) return;

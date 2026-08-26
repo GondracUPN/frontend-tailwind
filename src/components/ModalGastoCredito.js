@@ -66,6 +66,7 @@ export default function ModalGastoCredito({
   rows = [],
 }) {
   const [cards, setCards] = useState([]);
+  const [monthlySchedules, setMonthlySchedules] = useState([]);
   const [loadingCards, setLoadingCards] = useState(true);
   const customConcepts = useMemo(
     () => (Array.isArray(expenseConcepts) ? expenseConcepts : []).filter((item) => item.appliesCredit),
@@ -89,8 +90,8 @@ export default function ModalGastoCredito({
   const [tarjetaCompra, setTarjetaCompra] = useState(initial?.tarjeta || defaultCard || '');
 
   const monthlyOptions = useMemo(() => {
-    return currentMonthlyExpenseRows(rows, 'credito');
-  }, [rows]);
+    return currentMonthlyExpenseRows(rows, 'credito', undefined, monthlySchedules);
+  }, [rows, monthlySchedules]);
 
   const [saving, setSaving] = useState(false);
   const [savingAction, setSavingAction] = useState('');
@@ -122,6 +123,21 @@ export default function ModalGastoCredito({
     })();
     return () => { alive = false; };
   }, [userId, initial, defaultCard]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/schedules`, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
+        const data = await res.json();
+        if (alive) setMonthlySchedules(Array.isArray(data) ? data : []);
+      } catch {
+        if (alive) setMonthlySchedules([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId]);
 
   const handleConceptChange = (val) => {
     setConcepto(val);
