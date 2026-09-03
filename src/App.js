@@ -250,9 +250,11 @@ const getFilteredEshopexPendientes = (rows, productos) => {
       const estado = String(row?.estado || '').trim().toUpperCase();
       const guiaRaw = String(row?.guia || '').trim();
       const guiaDigits = guiaRaw.replace(/\D+/g, '');
+      const isIngresoMiami = /EN\s+MIAMI|SIN\s+FACTURA|PROCESANDO\s+FACTURA|PROCESADO\s+FACTURA/.test(estado);
       if (guiaDigits.length < 6) return false;
       if (productosByEshopex[guiaRaw]) return false;
       if (guiaDigits && trackingUsaEnEshopex.has(guiaDigits)) return false;
+      if (isIngresoMiami) return true;
       if (estado.includes('PAGADO')) return false;
       return estado !== 'ENTREGADO';
     })
