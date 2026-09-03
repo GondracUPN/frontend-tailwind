@@ -137,6 +137,19 @@ export const getRecojoPackageShippingCost = (pkg) => {
     return sum + (Number.isFinite(shipping) ? shipping : 0);
   }, 0).toFixed(2));
 };
+export const isEshopexAtBranch = (status) => (
+  /EN\s*SUCURSAL/i.test(String(status || ''))
+);
+export const canPayEshopexPickup = ({ status, account }) => (
+  Boolean(String(account || '').trim()) && isEshopexAtBranch(status)
+);
+const getEshopexGuideKeys = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return [];
+  const normalized = raw.toLowerCase().replace(/\s+/g, '');
+  const digits = raw.replace(/\D+/g, '');
+  return Array.from(new Set([raw, normalized, digits.length >= 6 ? digits : ''].filter(Boolean)));
+};
 const EMPTY_ESH_PROGRESS = {
   status: 'idle',
   total: 0,
@@ -1014,19 +1027,25 @@ const confirmAction = async () => {
     const map = {};
     for (const row of eshopexCargaRows || []) {
       const guia = String(row?.guia || '').trim();
-      if (guia) map[guia] = row;
+      getEshopexGuideKeys(guia).forEach((key) => { map[key] = row; });
     }
     return map;
   }, [eshopexCargaRows]);
+  const getEshopexCargaRow = useCallback((guia) => {
+    for (const key of getEshopexGuideKeys(guia)) {
+      if (eshopexCargaByGuia[key]) return eshopexCargaByGuia[key];
+    }
+    return null;
+  }, [eshopexCargaByGuia]);
   const normalizeCargaStatus = (status) => String(status || '').trim();
-  const isEnSucursal = (status) => /EN\s*SUCURSAL/i.test(String(status || ''));
+  const isEnSucursal = isEshopexAtBranch;
   const isEntregado = (status) => /ENTREGADO/i.test(String(status || ''));
   const isPagado = (status) => /PAGADO/i.test(String(status || ''));
   const isRecojoReady = (p) => {
     if (p?.__personal && p?.despacho) return true;
     const code = getEshopexCode(p);
     if (!code) return false;
-    const row = eshopexCargaByGuia[code];
+    const row = getEshopexCargaRow(code);
     const status = row?.estado || getLastTracking(p)?.estatusEsho || '';
     return isEnSucursal(status) || isPagado(status) || isEntregado(status);
   };
@@ -1603,7 +1622,7 @@ const confirmAction = async () => {
     for (const pkg of recojoPackages || []) {
       const t = pkg.tracking || {};
       const esh = String(pkg.trackingEshop || '').trim();
-      const cargaRow = eshopexCargaByGuia[esh];
+      const cargaRow = getEshopexCargaRow(esh);
       const estatusEsho = normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
       const casRaw = String(pkg.casillero || t?.casillero || '').trim();
       const casKey = casRaw.toLowerCase();
@@ -1626,17 +1645,19 @@ const confirmAction = async () => {
       if (!map[key].accountKey && accountKey) {
         map[key].accountKey = accountKey;
       }
-      if (isEnSucursal(estatusEsho) || isEntregado(estatusEsho)) {
+      if (isEshopexAtBranch(estatusEsho) || /ENTREGADO/i.test(estatusEsho)) {
         map[key].ready += 1;
       }
-      if (cargaRow && accountKey && isEnSucursal(estatusEsho)) {
+      // El estado guardado del tracking tambien es valido para pagar. La carga
+      // externa puede llegar incompleta, pero la cuenta se puede resolver por casillero.
+      if (canPayEshopexPickup({ status: estatusEsho, account: accountKey })) {
         map[key].payable += 1;
       }
     }
     return Object.values(map)
       .filter((item) => item.ready > 0)
       .sort((a, b) => b.ready - a.ready || a.casLabel.localeCompare(b.casLabel));
-  }, [recojoPackages, eshopexCargaByGuia, accountByCasillero, casilleroByAccount]);
+  }, [recojoPackages, getEshopexCargaRow, accountByCasillero, casilleroByAccount]);
 
   const handleEshopexVincular = async (row, producto) => {
     const code = String(row?.guia || '').trim();
@@ -3498,7 +3519,7 @@ const confirmAction = async () => {
                   const groupSucursalTotal = group.packages.reduce((sum, pkg) => {
                     const tracking = pkg.tracking || {};
                     const code = String(pkg.trackingEshop || tracking?.trackingEshop || '').trim();
-                    const status = eshopexCargaByGuia[code]?.estado || tracking?.estatusEsho || '';
+                    const status = getEshopexCargaRow(code)?.estado || tracking?.estatusEsho || '';
                     return isEnSucursal(status) ? sum + getRecojoPackageShippingCost(pkg) : sum;
                   }, 0);
                   return (
@@ -3548,7 +3569,7 @@ const confirmAction = async () => {
                             const fecha = pkg.fechaRecepcion
                               ? new Date(pkg.fechaRecepcion).toLocaleDateString('es-PE', { timeZone: 'UTC' })
                               : '-';
-                            const cargaRow = eshopexCargaByGuia[esh];
+                            const cargaRow = getEshopexCargaRow(esh);
                             const estatusEsho = normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
                             const cas = String(pkg.casillero || t?.casillero || '').trim();
                             const isReady = isRecojoReady(p);
@@ -3880,7 +3901,7 @@ const confirmAction = async () => {
                     {personalEshopex.map((item) => {
                       const id = String(item?.id || item?.trackingEshop || item?.guia || '');
                       const trackingEshop = String(item?.trackingEshop || item?.guia || '').trim();
-                      const cargaRow = eshopexCargaByGuia[trackingEshop];
+                      const cargaRow = getEshopexCargaRow(trackingEshop);
                       const statusInfo = recojoStatusMap[trackingEshop] || {};
                       const statusNorm = normalizeEshopexStatus(statusInfo.status);
                       const estatusEsho = statusInfo.loading

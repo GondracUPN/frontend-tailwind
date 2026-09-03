@@ -1,4 +1,9 @@
-import { filterProductsByCodeOrTracking, getRecojoPackageShippingCost } from './Productos';
+import {
+  canPayEshopexPickup,
+  filterProductsByCodeOrTracking,
+  getRecojoPackageShippingCost,
+  isEshopexAtBranch,
+} from './Productos';
 
 const products = [
   { id: 293, tipo: 'macbook', tracking: [{ trackingUsa: '1Z999999' }] },
@@ -33,4 +38,20 @@ test('suma el envío prorrateado una sola vez por producto del paquete', () => {
   };
 
   expect(getRecojoPackageShippingCost(pkg)).toBe(60);
+});
+
+test.each(['EN SUCURSAL', 'En   Sucursal - listo para recoger'])(
+  'reconoce %s como disponible en sucursal',
+  (status) => expect(isEshopexAtBranch(status)).toBe(true),
+);
+
+test('permite pagar con el estado guardado aunque la carga temporal no tenga el paquete', () => {
+  expect(canPayEshopexPickup({
+    status: 'EN SUCURSAL',
+    account: 'casillero@example.com',
+  })).toBe(true);
+});
+
+test('no permite pagar sin una cuenta asociada al casillero', () => {
+  expect(canPayEshopexPickup({ status: 'EN SUCURSAL', account: '' })).toBe(false);
 });
