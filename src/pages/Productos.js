@@ -1094,7 +1094,10 @@ const confirmAction = async () => {
     setEshopexCargaError(null);
     (async () => {
       try {
-        const data = await api.get('/tracking/eshopex-carga');
+        const endpoint = eshopexCargaRefreshKey > 0
+          ? '/tracking/eshopex-carga?refresh=1'
+          : '/tracking/eshopex-carga';
+        const data = await api.get(endpoint);
         if (!alive) return;
         const rows = Array.isArray(data) ? data : (data?.data || []);
         setEshopexCargaRows(rows);

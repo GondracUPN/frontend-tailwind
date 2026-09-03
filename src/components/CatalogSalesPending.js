@@ -114,6 +114,7 @@ export default function CatalogSalesPending() {
           <table className="min-w-full text-sm">
             <thead className="bg-amber-100/70 text-left text-amber-950">
               <tr>
+                <th className="p-3">Precio de costo</th>
                 <th className="p-3">Operación</th>
                 <th className="p-3">SKU</th>
                 <th className="p-3">Monto</th>
@@ -126,6 +127,9 @@ export default function CatalogSalesPending() {
             <tbody>
               {items.map((event) => (
                 <tr key={event.id} className="border-t border-amber-100">
+                  <td className="p-3 font-semibold text-slate-900">
+                    {event.costUsd == null ? '-' : `$ ${Number(event.costUsd).toFixed(2)}`}
+                  </td>
                   <td className="p-3 font-medium">{eventLabel(event)}</td>
                   <td className="p-3">{event.sku}</td>
                   <td className="p-3">S/ {Number(event.amount).toFixed(2)}</td>

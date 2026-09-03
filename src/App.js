@@ -577,18 +577,29 @@ function App() {
 
   // Al iniciar la app, no auto-disparar busquedas pendientes de sesiones anteriores.
   useEffect(() => {
+    let hasCachedResult = false;
     try {
-      localStorage.removeItem(ESHOPEX_BG_REQUESTED_KEY);
+      const cached = localStorage.getItem(ESHOPEX_CARGA_CACHE_KEY);
+      const parsed = cached ? JSON.parse(cached) : null;
+      hasCachedResult = !!parsed?.ts && Array.isArray(parsed?.rows);
+      if (hasCachedResult) localStorage.setItem(ESHOPEX_BG_REQUESTED_KEY, '1');
+      else localStorage.removeItem(ESHOPEX_BG_REQUESTED_KEY);
       localStorage.removeItem(ESHOPEX_BG_TRIGGER_KEY);
       localStorage.removeItem(ESHOPEX_BG_LOADING_KEY);
       localStorage.removeItem(ESHOPEX_BG_ERROR_KEY);
-      localStorage.removeItem(ESHOPEX_BG_COUNT_KEY);
       localStorage.removeItem(ESHOPEX_BG_CONSUMED_KEY);
       localStorage.removeItem(ESHOPEX_BG_OPEN_MODAL_KEY);
     } catch {
       /* ignore */
     }
-    setEshopexUi({ requested: false, loading: false, error: '', count: 0 });
+    const cachedRows = hasCachedResult ? readCachedCargaRows() : [];
+    const cachedProducts = readProductosCache() || [];
+    setEshopexUi({
+      requested: hasCachedResult,
+      loading: false,
+      error: '',
+      count: pendingFromRows(cachedRows, cachedProducts).length,
+    });
   }, []);
 
   useEffect(() => {
@@ -677,7 +688,7 @@ function App() {
       }
 
       try {
-        const data = await api.get('/tracking/eshopex-carga');
+        const data = await api.get('/tracking/eshopex-carga?refresh=1');
         if (!alive) return;
         const rows = Array.isArray(data) ? data : (data?.data || []);
         try {
