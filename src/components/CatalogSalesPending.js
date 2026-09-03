@@ -14,11 +14,22 @@ export default function CatalogSalesPending() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState('');
+  const [exchangeRates, setExchangeRates] = useState({});
 
   const refresh = useCallback(async () => {
     try {
       const rows = await api.get('/integrations/catalog-sales/pending');
       setItems(Array.isArray(rows) ? rows : []);
+      setExchangeRates((current) => {
+        const next = { ...current };
+        for (const event of Array.isArray(rows) ? rows : []) {
+          if (next[event.id] === undefined) {
+            const received = Number(event.exchangeRate);
+            next[event.id] = Number.isFinite(received) && received > 0 ? String(received) : '';
+          }
+        }
+        return next;
+      });
       setError('');
     } catch (err) {
       setError('No se pudieron consultar las ventas enviadas por el catálogo.');
@@ -35,21 +46,47 @@ export default function CatalogSalesPending() {
 
   const act = async (event, action) => {
     const isCancellation = event.eventType === 'sale.cancelled';
+    const exchangeRate = Number(exchangeRates[event.id]);
+    if (action === 'confirm' && !isCancellation && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
+      alert('Ingresa un tipo de cambio válido.');
+      return;
+    }
     const message = action === 'confirm'
       ? isCancellation
         ? `¿Confirmar la anulación de la venta ${event.sku}? Esto eliminará la venta de Servicios y restaurará su stock.`
-        : `¿Confirmar la venta ${event.sku} por S/ ${Number(event.amount).toFixed(2)}?`
+        : `¿Confirmar la venta ${event.sku} por S/ ${Number(event.amount).toFixed(2)} con tipo de cambio ${exchangeRate.toFixed(4)}?`
       : `¿Rechazar esta ${isCancellation ? 'anulación' : 'venta'}?`;
     if (!window.confirm(message)) return;
     setBusyId(event.id);
     try {
-      await api.post(`/integrations/catalog-sales/${event.id}/${action}`, {});
+      await api.post(
+        `/integrations/catalog-sales/${event.id}/${action}`,
+        action === 'confirm' && !isCancellation ? { exchangeRate } : {},
+      );
       await refresh();
       notifySalesChanged({ source: 'catalog-sync', action, sku: event.sku });
       window.dispatchEvent(new Event('productos-updated'));
     } catch (err) {
       alert(err?.message || 'No se pudo completar la operación.');
       await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const saveExchangeRate = async (event) => {
+    const exchangeRate = Number(exchangeRates[event.id]);
+    if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+      alert('Ingresa un tipo de cambio válido.');
+      return;
+    }
+    setBusyId(event.id);
+    try {
+      await api.post(`/integrations/catalog-sales/${event.id}/exchange-rate`, { exchangeRate });
+      await refresh();
+      alert('Tipo de cambio guardado. Ya puedes confirmar la venta.');
+    } catch (err) {
+      alert(err?.message || 'No se pudo guardar el tipo de cambio.');
     } finally {
       setBusyId(null);
     }
@@ -92,7 +129,23 @@ export default function CatalogSalesPending() {
                   <td className="p-3 font-medium">{eventLabel(event)}</td>
                   <td className="p-3">{event.sku}</td>
                   <td className="p-3">S/ {Number(event.amount).toFixed(2)}</td>
-                  <td className="p-3">{Number(event.exchangeRate).toFixed(4)}</td>
+                  <td className="p-3">
+                    {event.eventType === 'sale.created' ? (
+                      <input
+                        aria-label={`Tipo de cambio para ${event.sku}`}
+                        type="number"
+                        min="0.0001"
+                        step="0.0001"
+                        value={exchangeRates[event.id] ?? ''}
+                        onChange={(changeEvent) => setExchangeRates((current) => ({
+                          ...current,
+                          [event.id]: changeEvent.target.value,
+                        }))}
+                        className="w-28 rounded-lg border border-amber-300 bg-white px-2 py-1.5 text-slate-900"
+                        placeholder="Ej: 3.75"
+                      />
+                    ) : '-'}
+                  </td>
                   <td className="p-3">{new Date(event.soldAt).toLocaleDateString('es-PE')}</td>
                   <td className="p-3" title={event.error || ''}>{statusLabel(event.status)}</td>
                   <td className="p-3">
@@ -106,14 +159,24 @@ export default function CatalogSalesPending() {
                         {busyId === event.id ? 'Procesando...' : event.eventType === 'sale.cancelled' ? 'Confirmar anulación' : 'Confirmar venta'}
                       </button>
                       {event.eventType !== 'sale.cancelled' && (
-                        <button
-                          type="button"
-                          disabled={busyId === event.id}
-                          onClick={() => act(event, 'reject')}
-                          className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 shadow-sm transition active:translate-y-px active:scale-[0.97] active:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
-                        >
-                          Rechazar
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            disabled={busyId === event.id}
+                            onClick={() => act(event, 'reject')}
+                            className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 shadow-sm transition active:translate-y-px active:scale-[0.97] active:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
+                          >
+                            Rechazar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyId === event.id || !(Number(exchangeRates[event.id]) > 0)}
+                            onClick={() => saveExchangeRate(event)}
+                            className="rounded-lg border border-blue-500 px-3 py-1.5 font-medium text-blue-700 shadow-sm transition active:translate-y-px active:scale-[0.97] active:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Poner tipo de cambio
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
