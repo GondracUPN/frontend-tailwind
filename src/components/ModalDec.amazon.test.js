@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import api from '../api';
-import ModalDec, { allocateDecByReference, buildAmazonTemplateHTML } from './ModalDec';
+import ModalDec, {
+  allocateDecByReference,
+  buildAmazonTemplateHTML,
+  normalizeManualEbayOrderNumber,
+} from './ModalDec';
 
 jest.mock('../api', () => ({
   __esModule: true,
@@ -24,6 +28,28 @@ test('reparte el DEC por precio normal y cantidad', () => {
     expect.objectContaining({ name: 'Producto extra', qty: 1, price: 20 }),
   ]);
   expect(items.reduce((sum, item) => sum + item.price * item.qty, 0)).toBe(100);
+});
+
+test('completa y formatea un order number corto de eBay', () => {
+  const randomDigits = [0.4, 0.8];
+  const result = normalizeManualEbayOrderNumber('1311134141', () => randomDigits.shift());
+
+  expect(result).toBe('13-11134-14148');
+});
+
+test('al salir del campo corrige el order number manual, pero no el de Amazon', async () => {
+  render(<ModalDec productos={[]} onClose={jest.fn()} />);
+
+  const orderNumber = screen.getByPlaceholderText('16-13587-70764');
+  fireEvent.change(orderNumber, { target: { value: '1311134141' } });
+  fireEvent.blur(orderNumber);
+  expect(orderNumber.value).toMatch(/^13-11134-141\d{2}$/);
+
+  fireEvent.change(screen.getAllByLabelText('Tienda')[0], { target: { value: 'amazon' } });
+  const amazonOrderNumber = screen.getByPlaceholderText('112-6574313-0325818');
+  fireEvent.change(amazonOrderNumber, { target: { value: '12345' } });
+  fireEvent.blur(amazonOrderNumber);
+  expect(amazonOrderNumber).toHaveValue('12345');
 });
 
 test('Amazon muestra una imagen por producto distinto y badge para cantidades mayores a uno', () => {

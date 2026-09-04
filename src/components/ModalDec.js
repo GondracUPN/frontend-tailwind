@@ -76,6 +76,16 @@ const PROBLEMS = {
 const pickOne = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const EBAY_LOGO = "https://ir.ebaystatic.com/rs/v/fxxj3ttftm5ltcqnto1o4baovyl.png";
 
+export function normalizeManualEbayOrderNumber(value, random = Math.random) {
+  let digits = String(value || "").replace(/\D/g, "").slice(0, 12);
+  if (!digits) return "";
+  while (digits.length < 12) {
+    const randomDigit = Math.min(9, Math.max(0, Math.floor(Number(random()) * 10) || 0));
+    digits += String(randomDigit);
+  }
+  return `${digits.slice(0, 2)}-${digits.slice(2, 7)}-${digits.slice(7, 12)}`;
+}
+
 /* ---------- Helpers ---------- */
 function fmtUSD(n) {
   const num = Number(n) || 0;
@@ -1349,6 +1359,10 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [linkedImages, setLinkedImages] = useState({});
   const manualLineIdRef = useRef(1);
   const [manualLinkedLines, setManualLinkedLines] = useState([]);
+  const normalizeOrderNumberIfNeeded = () => {
+    if (store !== "ebay" || productoSel) return;
+    setOrderNumber((current) => normalizeManualEbayOrderNumber(current));
+  };
   const addManualLinkedLine = () => {
     const nextId = manualLineIdRef.current++;
     setManualLinkedLines((prev) => ([
@@ -2420,7 +2434,13 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             </label>
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">Order number</span>
-              <input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} className="input" placeholder={store === "ebay" ? "16-13587-70764" : "112-6574313-0325818"} />
+              <input
+                value={orderNumber}
+                onChange={(e) => setOrderNumber(e.target.value)}
+                onBlur={normalizeOrderNumberIfNeeded}
+                className="input"
+                placeholder={store === "ebay" ? "16-13587-70764" : "112-6574313-0325818"}
+              />
             </label>
           </div>
 
