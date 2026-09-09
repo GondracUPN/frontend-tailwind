@@ -2016,14 +2016,6 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     ]
   );
 
-  // Cerrar con ESC
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose?.(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const handleOverlayClick = (e) => { if (e.target === e.currentTarget) onClose?.(); };
   const openPrintDialog = () => {
     const win = window.open("", "_blank", "width=1400,height=1000");
     if (!win) {
@@ -2324,7 +2316,6 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   return (
     <div
       className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4"
-      onClick={handleOverlayClick}
       aria-modal="true"
       role="dialog"
     >
@@ -2334,7 +2325,15 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       >
         <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b">
           <h2 className="text-base font-semibold">{store === "ebay" ? "Generar HTML - Printer friendly (solo textos)" : "DEC printable preview"}</h2>
-          <button onClick={onClose} className="text-gray-700 hover:text-black text-sm" aria-label="Close modal">&lt; Back</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-2xl leading-none text-gray-600 hover:bg-gray-100 hover:text-black"
+            aria-label="Cerrar modal"
+            title="Cerrar"
+          >
+            &times;
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto">

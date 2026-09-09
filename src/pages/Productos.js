@@ -429,20 +429,10 @@ export default function Productos({ setVista, setAnalisisBack }) {
     recojoStatusRef.current = recojoStatusMap;
   }, [recojoStatusMap]);
   const [eshopexCargaOpen, setEshopexCargaOpen] = useState(false);
-  const [eshopexCargaRequested, setEshopexCargaRequested] = useState(() => {
-    try {
-      const requested = localStorage.getItem(ESHOPEX_BG_REQUESTED_KEY) === '1';
-      const hasCache = !!localStorage.getItem('eshopex-carga-cache');
-      return requested || hasCache;
-    } catch {
-      return false;
-    }
-  });
   const [eshopexCargaRows, setEshopexCargaRows] = useState([]);
   const [eshopexCargaLoading, setEshopexCargaLoading] = useState(false);
   const [eshopexCargaError, setEshopexCargaError] = useState(null);
   const [eshopexCargaProgress, setEshopexCargaProgress] = useState(() => ({ ...EMPTY_ESH_PROGRESS }));
-  const [eshopexCargaRefreshKey, setEshopexCargaRefreshKey] = useState(0);
   const [eshopexPagoLoading, setEshopexPagoLoading] = useState(() => new Set());
   const [eshopexVincularLoading, setEshopexVincularLoading] = useState(() => new Set());
   const [casilleroDespachoLoading, setCasilleroDespachoLoading] = useState(() => new Set());
@@ -453,6 +443,8 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [personalRecojoDate, setPersonalRecojoDate] = useState('');
   const [personalSelected, setPersonalSelected] = useState(new Set());
   const [personalRecogidoLoading, setPersonalRecogidoLoading] = useState(() => new Set());
+  const [personalFechaEdit, setPersonalFechaEdit] = useState(null);
+  const [personalFechaSaving, setPersonalFechaSaving] = useState(false);
   const [soloDisponibles, setSoloDisponibles] = useState(false);
   const [soloVendidos, setSoloVendidos] = useState(false);
   const [soloAdelanto, setSoloAdelanto] = useState(false);
@@ -670,7 +662,6 @@ export default function Productos({ setVista, setAnalisisBack }) {
     setRecojoDate('');
   };
   const triggerEshopexCarga = () => {
-    setEshopexCargaRequested(true);
     setEshopexCargaLoading(true);
     setEshopexCargaError(null);
     setEshopexCargaProgress((prev) => ({
@@ -679,7 +670,6 @@ export default function Productos({ setVista, setAnalisisBack }) {
       message: 'Iniciando busqueda...',
       error: null,
     }));
-    setEshopexCargaRefreshKey((v) => v + 1);
     try {
       localStorage.setItem(ESHOPEX_BG_REQUESTED_KEY, '1');
       localStorage.setItem(ESHOPEX_BG_TRIGGER_KEY, String(Date.now()));
@@ -965,7 +955,7 @@ const confirmAction = async () => {
     const map = {};
     for (const p of productos || []) {
       const code = getEshopexCode(p);
-      if (code) map[code] = p;
+      getEshopexGuideKeys(code).forEach((key) => { map[key] = p; });
     }
     return map;
   }, [productos, getEshopexCode]);
@@ -973,7 +963,7 @@ const confirmAction = async () => {
     const map = {};
     for (const item of personalEshopex || []) {
       const code = String(item?.trackingEshop || item?.guia || '').trim();
-      if (code) map[code] = item;
+      getEshopexGuideKeys(code).forEach((key) => { map[key] = item; });
     }
     return map;
   }, [personalEshopex]);
@@ -1016,13 +1006,6 @@ const confirmAction = async () => {
       return {};
     }
   }, []);
-  const writeEshopexCache = useCallback((next) => {
-    try {
-      localStorage.setItem('eshopex-status-cache', JSON.stringify(next));
-    } catch {
-      /* ignore */
-    }
-  }, []);
   const eshopexCargaByGuia = React.useMemo(() => {
     const map = {};
     for (const row of eshopexCargaRows || []) {
@@ -1051,75 +1034,47 @@ const confirmAction = async () => {
   };
 
   const ESHOPEX_CARGA_CACHE_KEY = 'eshopex-carga-cache';
-  const ESHOPEX_CARGA_CACHE_TTL_MS = 5 * 60 * 1000;
   const readEshopexCargaCache = useCallback(() => {
     try {
       const raw = localStorage.getItem(ESHOPEX_CARGA_CACHE_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       if (!parsed?.ts || !Array.isArray(parsed.rows)) return null;
-      if (Date.now() - parsed.ts > ESHOPEX_CARGA_CACHE_TTL_MS) return null;
       return parsed.rows;
     } catch {
       return null;
     }
-  }, [ESHOPEX_CARGA_CACHE_KEY, ESHOPEX_CARGA_CACHE_TTL_MS]);
-  const writeEshopexCargaCache = useCallback((rows) => {
-    try {
-      localStorage.setItem(
-        ESHOPEX_CARGA_CACHE_KEY,
-        JSON.stringify({ ts: Date.now(), rows }),
-      );
-    } catch {
-      /* ignore */
-    }
   }, [ESHOPEX_CARGA_CACHE_KEY]);
-
-  // Reutiliza eshopex-carga para estatus/pagos y evita consultas externas.
-
+  // Esta vista solo consume el resultado persistido. La unica consulta externa
+  // se inicia desde el boton Buscar/Actualizar y la ejecuta el worker global.
   useEffect(() => {
-    if (!eshopexCargaRequested && !recojoOpen) return;
-    const forceFresh = recojoOpen || eshopexCargaRefreshKey > 0;
-    const cachedRows = readEshopexCargaCache();
-    if (cachedRows && cachedRows.length) {
-      setEshopexCargaRows(cachedRows);
-      setEshopexCargaLoading(false);
-      setEshopexCargaError(null);
-    }
-    if (cachedRows && cachedRows.length && !forceFresh) {
-      return () => {};
-    }
     let alive = true;
-    setEshopexCargaLoading(true);
-    setEshopexCargaError(null);
-    (async () => {
+    let lastRaw = '';
+    const syncPersistedResult = () => {
       try {
-        const endpoint = eshopexCargaRefreshKey > 0
-          ? '/tracking/eshopex-carga?refresh=1'
-          : '/tracking/eshopex-carga';
-        const data = await api.get(endpoint);
-        if (!alive) return;
-        const rows = Array.isArray(data) ? data : (data?.data || []);
-        setEshopexCargaRows(rows);
-        writeEshopexCargaCache(rows);
-      } catch (e) {
-        if (!alive) return;
-        setEshopexCargaError(cachedRows?.length
-          ? 'No se pudo actualizar la informacion de Eshopex. Se muestran datos guardados.'
-          : 'No se pudo cargar la informacion de Eshopex.');
-      } finally {
-        if (!alive) return;
-        try {
-          const progressData = await api.get('/tracking/eshopex-carga-progress');
-          if (alive) setEshopexCargaProgress(normalizeEshopexProgress(progressData));
-        } catch {
-          /* ignore */
+        const raw = localStorage.getItem(ESHOPEX_CARGA_CACHE_KEY) || '';
+        if (raw !== lastRaw) {
+          lastRaw = raw;
+          const rows = readEshopexCargaCache();
+          if (alive && rows) setEshopexCargaRows(rows);
         }
-        if (alive) setEshopexCargaLoading(false);
+        const loading = localStorage.getItem('eshopex-carga-bg-loading') === '1';
+        const error = localStorage.getItem('eshopex-carga-bg-error') || null;
+        if (alive) {
+          setEshopexCargaLoading(loading);
+          setEshopexCargaError(error);
+        }
+      } catch {
+        /* conserva el ultimo resultado visible */
       }
-    })();
-    return () => { alive = false; };
-  }, [eshopexCargaRequested, recojoOpen, eshopexCargaRefreshKey, readEshopexCargaCache, writeEshopexCargaCache]);
+    };
+    syncPersistedResult();
+    const timer = window.setInterval(syncPersistedResult, 750);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [readEshopexCargaCache]);
 
   useEffect(() => {
     if (!eshopexCargaLoading) return () => {};
@@ -1176,7 +1131,7 @@ const confirmAction = async () => {
   }, [casilleroByAccount]);
 
   useEffect(() => {
-    if (!recojoOpen) return;
+    if (!recojoOpen && !personalOpen) return;
     const cached = readEshopexCache();
     if (cached && typeof cached === 'object') {
       setRecojoStatusMap((prev) => {
@@ -1185,95 +1140,7 @@ const confirmAction = async () => {
         return merged;
       });
     }
-    const codes = recojoPackages
-      .map((pkg) => String(pkg.trackingEshop || '').trim())
-      .filter(Boolean);
-    if (!codes.length) return;
-    const currentMap = recojoStatusRef.current || {};
-    const missing = codes.filter((c) => {
-      const entry = currentMap[c];
-      return !entry || entry.loading;
-    });
-    if (!missing.length) return;
-    let alive = true;
-    (async () => {
-      setRecojoStatusMap((prev) => {
-        const next = { ...prev };
-        missing.forEach((code) => { next[code] = { loading: true }; });
-        recojoStatusRef.current = next;
-        return next;
-      });
-      const entries = await Promise.all(
-        missing.map(async (code) => {
-          try {
-            const data = await api.get(`/tracking/eshopex-status/${encodeURIComponent(code)}`);
-            return [code, { ...data, loading: false }];
-          } catch {
-            return [code, { status: null, date: null, time: null, loading: false }];
-          }
-        }),
-      );
-      if (!alive) return;
-      setRecojoStatusMap((prev) => {
-        const next = { ...prev };
-        entries.forEach(([code, data]) => { next[code] = data; });
-        writeEshopexCache(next);
-        recojoStatusRef.current = next;
-        return next;
-      });
-    })();
-    return () => { alive = false; };
-  }, [recojoOpen, recojoPackages, readEshopexCache, writeEshopexCache]);
-
-  useEffect(() => {
-    if (!personalOpen) return;
-    const cached = readEshopexCache();
-    if (cached && typeof cached === 'object') {
-      setRecojoStatusMap((prev) => {
-        const merged = { ...cached, ...prev };
-        recojoStatusRef.current = merged;
-        return merged;
-      });
-    }
-    const codes = (personalEshopex || [])
-      .map((item) => String(item?.trackingEshop || item?.guia || '').trim())
-      .filter(Boolean);
-    if (!codes.length) return;
-    const currentMap = recojoStatusRef.current || {};
-    const missing = codes.filter((code) => {
-      const entry = currentMap[code];
-      return !entry || entry.loading;
-    });
-    if (!missing.length) return;
-    let alive = true;
-    (async () => {
-      setRecojoStatusMap((prev) => {
-        const next = { ...prev };
-        missing.forEach((code) => { next[code] = { loading: true }; });
-        recojoStatusRef.current = next;
-        return next;
-      });
-      const entries = await Promise.all(
-        missing.map(async (code) => {
-          try {
-            const data = await api.get(`/tracking/eshopex-status/${encodeURIComponent(code)}`);
-            return [code, { ...data, loading: false }];
-          } catch {
-            return [code, { status: null, date: null, time: null, loading: false }];
-          }
-        }),
-      );
-      if (!alive) return;
-      setRecojoStatusMap((prev) => {
-        const next = { ...prev };
-        entries.forEach(([code, data]) => { next[code] = data; });
-        writeEshopexCache(next);
-        recojoStatusRef.current = next;
-        return next;
-      });
-    })();
-    return () => { alive = false; };
-  }, [personalOpen, personalEshopex, readEshopexCache, writeEshopexCache]);
+  }, [recojoOpen, personalOpen, readEshopexCache]);
 
   const eshopexPendientes = React.useMemo(() => {
     const filtered = (eshopexCargaRows || []).filter((row) => {
@@ -1282,8 +1149,8 @@ const confirmAction = async () => {
       const guiaDigits = guiaRaw.replace(/\D+/g, '');
       const isIngresoMiami = /EN\s+MIAMI|SIN\s+FACTURA|PROCESANDO\s+FACTURA|PROCESADO\s+FACTURA/.test(estado);
       if (guiaDigits.length < 6) return false;
-      if (productosByEshopex[guiaRaw]) return false;
-      if (personalByEshopex[guiaRaw]) return false;
+      if (getEshopexGuideKeys(guiaRaw).some((key) => productosByEshopex[key])) return false;
+      if (getEshopexGuideKeys(guiaRaw).some((key) => personalByEshopex[key])) return false;
       if (guiaDigits && trackingUsaEnEshopex.has(guiaDigits)) return false;
       if (isIngresoMiami) return true;
       if (estado.includes('PAGADO')) return false;
@@ -1324,7 +1191,6 @@ const confirmAction = async () => {
         if (signal <= eshopexOpenSignalSeenRef.current) return;
         eshopexOpenSignalSeenRef.current = signal;
         setEshopexCargaOpen(true);
-        setEshopexCargaRequested(true);
         localStorage.removeItem(ESHOPEX_BG_OPEN_MODAL_KEY);
       } catch {
         /* ignore */
@@ -1755,6 +1621,33 @@ const confirmAction = async () => {
     )));
     window.dispatchEvent(new Event('personal-eshopex-updated'));
     return saved;
+  };
+
+  const startPersonalFechaEdit = (item) => {
+    const current = String(item?.fechaRecepcion || '').slice(0, 10);
+    setPersonalFechaEdit({
+      id: String(item?.id || ''),
+      value: current,
+    });
+  };
+
+  const savePersonalFechaEdit = async () => {
+    const id = String(personalFechaEdit?.id || '');
+    const fechaRecepcion = String(personalFechaEdit?.value || '').slice(0, 10);
+    if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(fechaRecepcion)) {
+      alert('Elige una fecha de recepcion valida.');
+      return;
+    }
+    setPersonalFechaSaving(true);
+    try {
+      await updatePersonalEshopex(id, { fechaRecepcion, fechaRecepcionRaw: null });
+      setPersonalFechaEdit(null);
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo cambiar la fecha de recepcion.');
+    } finally {
+      setPersonalFechaSaving(false);
+    }
   };
 
   const handlePersonalDespacho = async (personalId, despacho = true) => {
@@ -3909,9 +3802,9 @@ const confirmAction = async () => {
                       const cargaRow = getEshopexCargaRow(trackingEshop);
                       const statusInfo = recojoStatusMap[trackingEshop] || {};
                       const statusNorm = normalizeEshopexStatus(statusInfo.status);
-                      const estatusEsho = statusInfo.loading
+                      const estatusEsho = statusInfo.loading && !cargaRow?.estado
                         ? 'Cargando'
-                        : normalizeCargaStatus(statusInfo.status || cargaRow?.estado || item?.estatusEsho || '');
+                        : normalizeCargaStatus(cargaRow?.estado || item?.estatusEsho || statusInfo.status || '');
                       const fechaRecepcionCarga = cargaRow?.fechaRecepcion || '';
                       const accountKey = String(item?.account || '').trim().toLowerCase();
                       const pagoKey = `${item?.trackingEshop || id}-${accountKey}`;
@@ -3933,7 +3826,40 @@ const confirmAction = async () => {
                           <td className="p-2">{trackingEshop || '-'}</td>
                           <td className="p-2">{item?.casillero || '-'}</td>
                           <td className="p-2">{estatusEsho || statusNorm.label || '-'}</td>
-                          <td className="p-2">{fechaRecepcionCarga || item?.fechaRecepcion || item?.fechaRecepcionRaw || '-'}</td>
+                          <td className="p-2">
+                            {personalFechaEdit?.id === id ? (
+                              <div className="flex min-w-[170px] flex-col gap-1">
+                                <input
+                                  type="date"
+                                  className="rounded border px-2 py-1"
+                                  value={personalFechaEdit.value}
+                                  onChange={(e) => setPersonalFechaEdit((prev) => ({ ...prev, value: e.target.value }))}
+                                  disabled={personalFechaSaving}
+                                  autoFocus
+                                />
+                                <div className="flex gap-1">
+                                  <button
+                                    type="button"
+                                    className="rounded bg-emerald-600 px-2 py-1 text-xs text-white hover:bg-emerald-700 disabled:opacity-60"
+                                    onClick={savePersonalFechaEdit}
+                                    disabled={personalFechaSaving}
+                                  >
+                                    {personalFechaSaving ? 'Guardando...' : 'Guardar'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
+                                    onClick={() => setPersonalFechaEdit(null)}
+                                    disabled={personalFechaSaving}
+                                  >
+                                    Cancelar
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              item?.fechaRecepcion || item?.fechaRecepcionRaw || fechaRecepcionCarga || '-'
+                            )}
+                          </td>
                           <td className="p-2">{item?.valorDec ? `$ ${Number(item.valorDec).toFixed(2)}` : '-'}</td>
                           <td className="p-2">
                             {item?.recogido ? 'Recogido' : item?.despacho ? 'Despacho' : 'En casillero'}
@@ -3944,9 +3870,18 @@ const confirmAction = async () => {
                               <button
                                 type="button"
                                 className="px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
-                                onClick={() => abrirFotosManual({ trackingEshop: item?.trackingEshop || '', fechaRecepcion: fechaRecepcionCarga || item?.fechaRecepcion || item?.fechaRecepcionRaw || '' })}
+                                onClick={() => abrirFotosManual({ trackingEshop: item?.trackingEshop || '', fechaRecepcion: item?.fechaRecepcion || item?.fechaRecepcionRaw || fechaRecepcionCarga || '' })}
                               >
                                 Foto
+                              </button>
+                              <button
+                                type="button"
+                                className="px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50"
+                                onClick={() => startPersonalFechaEdit(item)}
+                                disabled={personalFechaSaving}
+                                title="Editar solamente la fecha de recepcion"
+                              >
+                                Editar
                               </button>
                               {!item?.despacho && !item?.recogido ? (
                                 <button

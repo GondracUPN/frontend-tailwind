@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../api';
 import { notifySalesChanged } from '../utils/salesSync';
 
@@ -12,7 +12,8 @@ const statusLabel = (status) => ({
 export default function CatalogSalesPending() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState(null);
+  const [busyIds, setBusyIds] = useState(() => new Set());
+  const busyIdsRef = useRef(new Set());
   const [error, setError] = useState('');
   const [exchangeRates, setExchangeRates] = useState({});
 
@@ -44,7 +45,22 @@ export default function CatalogSalesPending() {
     return () => window.clearInterval(timer);
   }, [refresh]);
 
+  const startBusy = (eventId) => {
+    if (busyIdsRef.current.has(eventId)) return false;
+    busyIdsRef.current = new Set(busyIdsRef.current).add(eventId);
+    setBusyIds(new Set(busyIdsRef.current));
+    return true;
+  };
+
+  const finishBusy = (eventId) => {
+    const next = new Set(busyIdsRef.current);
+    next.delete(eventId);
+    busyIdsRef.current = next;
+    setBusyIds(new Set(next));
+  };
+
   const act = async (event, action) => {
+    if (busyIdsRef.current.has(event.id)) return;
     const isCancellation = event.eventType === 'sale.cancelled';
     const exchangeRate = Number(exchangeRates[event.id]);
     if (action === 'confirm' && !isCancellation && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
@@ -57,7 +73,7 @@ export default function CatalogSalesPending() {
         : `¿Confirmar la venta ${event.sku} por S/ ${Number(event.amount).toFixed(2)} con tipo de cambio ${exchangeRate.toFixed(4)}?`
       : `¿Rechazar esta ${isCancellation ? 'anulación' : 'venta'}?`;
     if (!window.confirm(message)) return;
-    setBusyId(event.id);
+    if (!startBusy(event.id)) return;
     try {
       await api.post(
         `/integrations/catalog-sales/${event.id}/${action}`,
@@ -70,17 +86,18 @@ export default function CatalogSalesPending() {
       alert(err?.message || 'No se pudo completar la operación.');
       await refresh();
     } finally {
-      setBusyId(null);
+      finishBusy(event.id);
     }
   };
 
   const saveExchangeRate = async (event) => {
+    if (busyIdsRef.current.has(event.id)) return;
     const exchangeRate = Number(exchangeRates[event.id]);
     if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
       alert('Ingresa un tipo de cambio válido.');
       return;
     }
-    setBusyId(event.id);
+    if (!startBusy(event.id)) return;
     try {
       await api.post(`/integrations/catalog-sales/${event.id}/exchange-rate`, { exchangeRate });
       await refresh();
@@ -88,7 +105,7 @@ export default function CatalogSalesPending() {
     } catch (err) {
       alert(err?.message || 'No se pudo guardar el tipo de cambio.');
     } finally {
-      setBusyId(null);
+      finishBusy(event.id);
     }
   };
 
@@ -156,17 +173,17 @@ export default function CatalogSalesPending() {
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        disabled={busyId === event.id}
+                        disabled={busyIds.has(event.id)}
                         onClick={() => act(event, 'confirm')}
                         className={`rounded-lg px-3 py-1.5 font-medium text-white shadow-sm transition active:translate-y-px active:scale-[0.97] disabled:cursor-wait disabled:opacity-50 ${event.eventType === 'sale.cancelled' ? 'bg-red-600 active:bg-red-800' : 'bg-emerald-600 active:bg-emerald-800'}`}
                       >
-                        {busyId === event.id ? 'Procesando...' : event.eventType === 'sale.cancelled' ? 'Confirmar anulación' : 'Confirmar venta'}
+                        {busyIds.has(event.id) ? 'Procesando...' : event.eventType === 'sale.cancelled' ? 'Confirmar anulación' : 'Confirmar venta'}
                       </button>
                       {event.eventType !== 'sale.cancelled' && (
                         <>
                           <button
                             type="button"
-                            disabled={busyId === event.id}
+                            disabled={busyIds.has(event.id)}
                             onClick={() => act(event, 'reject')}
                             className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 shadow-sm transition active:translate-y-px active:scale-[0.97] active:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
                           >
@@ -174,7 +191,7 @@ export default function CatalogSalesPending() {
                           </button>
                           <button
                             type="button"
-                            disabled={busyId === event.id || !(Number(exchangeRates[event.id]) > 0)}
+                            disabled={busyIds.has(event.id) || !(Number(exchangeRates[event.id]) > 0)}
                             onClick={() => saveExchangeRate(event)}
                             className="rounded-lg border border-blue-500 px-3 py-1.5 font-medium text-blue-700 shadow-sm transition active:translate-y-px active:scale-[0.97] active:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
                           >

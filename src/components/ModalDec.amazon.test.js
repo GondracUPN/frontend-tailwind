@@ -52,6 +52,18 @@ test('al salir del campo corrige el order number manual, pero no el de Amazon', 
   expect(amazonOrderNumber).toHaveValue('12345');
 });
 
+test('el modal DEC solo se cierra desde la X', () => {
+  const onClose = jest.fn();
+  render(<ModalDec productos={[]} onClose={onClose} />);
+
+  fireEvent.click(screen.getByRole('dialog'));
+  fireEvent.keyDown(window, { key: 'Escape' });
+  expect(onClose).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Cerrar modal' }));
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
 test('Amazon muestra una imagen por producto distinto y badge para cantidades mayores a uno', () => {
   const html = buildAmazonTemplateHTML({
     placedOn: '2026-06-29',

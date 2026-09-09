@@ -173,6 +173,14 @@ const getLastTrackingGlobal = (p) => {
   return trk[0] || null;
 };
 
+const getEshopexGuideKeysGlobal = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return [];
+  const normalized = raw.toLowerCase().replace(/\s+/g, '');
+  const digits = raw.replace(/\D+/g, '');
+  return Array.from(new Set([raw, normalized, digits.length >= 6 ? digits : ''].filter(Boolean)));
+};
+
 const buildNombreProductoGlobal = (p) => {
   if (!p) return '';
   const keyTamano = 'tama\u00f1o';
@@ -234,7 +242,7 @@ const getFilteredEshopexPendientes = (rows, productos) => {
     const t = getLastTrackingGlobal(p);
     const estadoProducto = String(t?.estado || '').toLowerCase();
     const trackingEshop = String(t?.trackingEshop || '').trim();
-    if (trackingEshop) productosByEshopex[trackingEshop] = p;
+    getEshopexGuideKeysGlobal(trackingEshop).forEach((key) => { productosByEshopex[key] = p; });
     if (estadoProducto === 'en_eshopex') {
       const digits = String(t?.trackingUsa || '').replace(/\D+/g, '');
       if (digits) trackingUsaEnEshopex.add(digits);
@@ -252,7 +260,7 @@ const getFilteredEshopexPendientes = (rows, productos) => {
       const guiaDigits = guiaRaw.replace(/\D+/g, '');
       const isIngresoMiami = /EN\s+MIAMI|SIN\s+FACTURA|PROCESANDO\s+FACTURA|PROCESADO\s+FACTURA/.test(estado);
       if (guiaDigits.length < 6) return false;
-      if (productosByEshopex[guiaRaw]) return false;
+      if (getEshopexGuideKeysGlobal(guiaRaw).some((key) => productosByEshopex[key])) return false;
       if (guiaDigits && trackingUsaEnEshopex.has(guiaDigits)) return false;
       if (isIngresoMiami) return true;
       if (estado.includes('PAGADO')) return false;
@@ -278,11 +286,11 @@ const getFilteredEshopexPendientes = (rows, productos) => {
 const pendingFromRows = (rows, productos = readProductosCache() || [], personalRows = []) => {
   const personalCodes = new Set(
     (personalRows || [])
-      .map((item) => String(item?.trackingEshop || item?.guia || item?.id || '').trim())
+      .flatMap((item) => getEshopexGuideKeysGlobal(item?.trackingEshop || item?.guia || item?.id))
       .filter(Boolean),
   );
   return getFilteredEshopexPendientes(rows, productos)
-    .filter((row) => !personalCodes.has(String(row?.guia || '').trim()));
+    .filter((row) => !getEshopexGuideKeysGlobal(row?.guia).some((key) => personalCodes.has(key)));
 };
 
 const readCachedCargaRows = () => {
@@ -701,6 +709,25 @@ function App() {
         } catch {
           /* ignore */
         }
+        // El backend acaba de sincronizar los estados de productos y Personal.
+        // Refrescamos solo nuestros datos locales; esto no consulta Eshopex otra vez.
+        try {
+          const [productsData, personalData] = await Promise.all([
+            api.get('/productos'),
+            api.get('/productos/personal-eshopex'),
+          ]);
+          if (alive) {
+            const products = Array.isArray(productsData)
+              ? productsData
+              : (Array.isArray(productsData?.items) ? productsData.items : []);
+            setProductosGlobal(products);
+            writeProductosCache(products);
+            setPersonalEshopexGlobal(Array.isArray(personalData) ? personalData : []);
+            window.dispatchEvent(new Event('personal-eshopex-updated'));
+          }
+        } catch {
+          /* el resultado Eshopex sigue guardado aunque falle esta recarga local */
+        }
       } catch (e) {
         if (!alive) return;
         try {
@@ -782,11 +809,11 @@ function App() {
     () => {
       const personalCodes = new Set(
         (personalEshopexGlobal || [])
-          .map((item) => String(item?.trackingEshop || item?.guia || item?.id || '').trim())
+          .flatMap((item) => getEshopexGuideKeysGlobal(item?.trackingEshop || item?.guia || item?.id))
           .filter(Boolean),
       );
       return getFilteredEshopexPendientes(eshopexModalRows, productosGlobal)
-        .filter((row) => !personalCodes.has(String(row?.guia || '').trim()));
+        .filter((row) => !getEshopexGuideKeysGlobal(row?.guia).some((key) => personalCodes.has(key)));
     },
     [eshopexModalRows, productosGlobal, personalEshopexGlobal],
   );
@@ -795,7 +822,7 @@ function App() {
     const map = {};
     for (const p of productosGlobal || []) {
       const code = String(getLastTrackingGlobal(p)?.trackingEshop || '').trim();
-      if (code) map[code] = p;
+      getEshopexGuideKeysGlobal(code).forEach((key) => { map[key] = p; });
     }
     return map;
   }, [productosGlobal]);
