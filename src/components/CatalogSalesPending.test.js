@@ -24,7 +24,9 @@ test('permite confirmar varias ventas del catálogo simultáneamente', async () 
   ];
   const first = deferred();
   const second = deferred();
-  api.get.mockResolvedValue(rows);
+  api.get.mockImplementation((path) => path.endsWith('/pending')
+    ? Promise.resolve(rows)
+    : Promise.resolve({ seller: 'Gonzalo', cards: [{ tipo: 'bcp' }] }));
   api.post
     .mockImplementationOnce(() => first.promise)
     .mockImplementationOnce(() => second.promise);
@@ -37,8 +39,8 @@ test('permite confirmar varias ventas del catálogo simultáneamente', async () 
   fireEvent.click(confirmButtons[1]);
 
   expect(api.post).toHaveBeenCalledTimes(2);
-  expect(api.post).toHaveBeenNthCalledWith(1, '/integrations/catalog-sales/1/confirm', { exchangeRate: 3.7 });
-  expect(api.post).toHaveBeenNthCalledWith(2, '/integrations/catalog-sales/2/confirm', { exchangeRate: 3.8 });
+  expect(api.post).toHaveBeenNthCalledWith(1, '/integrations/catalog-sales/1/confirm', { exchangeRate: 3.7, incomeBank: 'bcp' });
+  expect(api.post).toHaveBeenNthCalledWith(2, '/integrations/catalog-sales/2/confirm', { exchangeRate: 3.8, incomeBank: 'bcp' });
   expect(screen.getAllByRole('button', { name: 'Procesando...' })).toHaveLength(2);
 
   first.resolve({});

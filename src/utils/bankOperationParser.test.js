@@ -35,6 +35,30 @@ test('parses a BCP own-card payment email', () => {
   });
 });
 
+test('reconoce un pago IO directo de dólares a dólares', () => {
+  const result = parseBankOperation(`Fecha y hora: **Sábado, 05 Septiembre 2026 - 01:52 P. M.**
+Empresa: **IO DE BCP**
+Servicio: **PAGO DOLARES**
+Titular del servicio: **Walter Gonzalo G.**
+Código de usuario: **75135395**
+Cuenta de origen: **Cuenta de ahorros**
+**** 6124
+**WALTER GONZALO**
+Monto total: **$ 167.10**`);
+
+  expect(result).toEqual({
+    ok: true,
+    operation: expect.objectContaining({
+      amount: 167.1,
+      chargedAmount: 167.1,
+      chargedCurrency: 'USD',
+      exchangeRate: null,
+      date: '2026-09-05',
+      sourceLast4: '6124',
+    }),
+  });
+});
+
 test('parses several pasted bank emails as a batch', () => {
   const second = SAMPLE
     .replace(/S\/ 400\.00/g, 'S/ 125.50')

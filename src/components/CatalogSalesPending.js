@@ -8,6 +8,7 @@ const statusLabel = (status) => ({
   pending_cancellation_confirmation: 'Anulación pendiente',
   failed: 'Requiere revisión',
 }[status] || status);
+const CARD_LABEL = { bcp: 'BCP', interbank: 'Interbank', bbva: 'BBVA', bcp_amex: 'BCP Amex', bcp_visa: 'BCP Visa', visa_qore: 'Visa Qore', io: 'IO', saga: 'Saga' };
 
 export default function CatalogSalesPending() {
   const [items, setItems] = useState([]);
@@ -16,11 +17,32 @@ export default function CatalogSalesPending() {
   const busyIdsRef = useRef(new Set());
   const [error, setError] = useState('');
   const [exchangeRates, setExchangeRates] = useState({});
+  const [paymentOptions, setPaymentOptions] = useState({});
+  const [incomeBanks, setIncomeBanks] = useState({});
 
   const refresh = useCallback(async () => {
     try {
       const rows = await api.get('/integrations/catalog-sales/pending');
-      setItems(Array.isArray(rows) ? rows : []);
+      const list = Array.isArray(rows) ? rows : [];
+      setItems(list);
+      const created = list.filter((event) => event.eventType === 'sale.created');
+      const optionEntries = await Promise.all(created.map(async (event) => {
+        try {
+          return [event.id, await api.get(`/integrations/catalog-sales/${event.id}/payment-options`)];
+        } catch {
+          return [event.id, { owner: null, seller: null, cards: [] }];
+        }
+      }));
+      const optionMap = Object.fromEntries(optionEntries);
+      setPaymentOptions(optionMap);
+      setIncomeBanks((current) => {
+        const next = { ...current };
+        optionEntries.forEach(([id, options]) => {
+          const available = Array.isArray(options?.cards) ? options.cards : [];
+          if (!available.some((card) => card.tipo === next[id])) next[id] = available[0]?.tipo || '';
+        });
+        return next;
+      });
       setExchangeRates((current) => {
         const next = { ...current };
         for (const event of Array.isArray(rows) ? rows : []) {
@@ -63,8 +85,13 @@ export default function CatalogSalesPending() {
     if (busyIdsRef.current.has(event.id)) return;
     const isCancellation = event.eventType === 'sale.cancelled';
     const exchangeRate = Number(exchangeRates[event.id]);
+    const incomeBank = incomeBanks[event.id];
     if (action === 'confirm' && !isCancellation && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
       alert('Ingresa un tipo de cambio válido.');
+      return;
+    }
+    if (action === 'confirm' && !isCancellation && !incomeBank) {
+      alert('Selecciona la tarjeta donde se recibió el pago.');
       return;
     }
     const message = action === 'confirm'
@@ -77,7 +104,7 @@ export default function CatalogSalesPending() {
     try {
       await api.post(
         `/integrations/catalog-sales/${event.id}/${action}`,
-        action === 'confirm' && !isCancellation ? { exchangeRate } : {},
+        action === 'confirm' && !isCancellation ? { exchangeRate, incomeBank } : {},
       );
       await refresh();
       notifySalesChanged({ source: 'catalog-sync', action, sku: event.sku });
@@ -136,6 +163,7 @@ export default function CatalogSalesPending() {
                 <th className="p-3">SKU</th>
                 <th className="p-3">Monto</th>
                 <th className="p-3">T. cambio</th>
+                <th className="p-3">Recibido en</th>
                 <th className="p-3">Fecha</th>
                 <th className="p-3">Estado</th>
                 <th className="p-3">Acciones</th>
@@ -165,6 +193,22 @@ export default function CatalogSalesPending() {
                         className="w-28 rounded-lg border border-amber-300 bg-white px-2 py-1.5 text-slate-900"
                         placeholder="Ej: 3.75"
                       />
+                    ) : '-'}
+                  </td>
+                  <td className="p-3">
+                    {event.eventType === 'sale.created' ? (
+                      <div>
+                        <div className="mb-1 text-xs text-slate-500">Venta de {paymentOptions[event.id]?.seller || 'vendedor sin asignar'}</div>
+                        <select
+                          aria-label={`Tarjeta receptora para ${event.sku}`}
+                          value={incomeBanks[event.id] || ''}
+                          onChange={(e) => setIncomeBanks((current) => ({ ...current, [event.id]: e.target.value }))}
+                          className="w-36 rounded-lg border border-amber-300 bg-white px-2 py-1.5"
+                        >
+                          {!paymentOptions[event.id]?.cards?.length && <option value="">Sin tarjetas</option>}
+                          {(paymentOptions[event.id]?.cards || []).map((card) => <option key={card.tipo} value={card.tipo}>{CARD_LABEL[card.tipo] || card.tipo}</option>)}
+                        </select>
+                      </div>
                     ) : '-'}
                   </td>
                   <td className="p-3">{new Date(event.soldAt).toLocaleDateString('es-PE')}</td>

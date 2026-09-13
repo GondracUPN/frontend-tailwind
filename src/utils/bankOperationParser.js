@@ -63,12 +63,15 @@ export function parseBankOperation(input) {
   if (isIoServicePayment) {
     const amount = parseBankAmount(text.match(/Monto\s+total\s*:\s*(?:US\$|USD|\$)\s*([\d.,]+)/i)?.[1]);
     const exchangeRate = parseBankAmount(text.match(/Tipo\s+de\s+cambio\s*:\s*S\/\s*([\d.,]+)/i)?.[1]);
-    const chargedAmount = parseBankAmount(text.match(/Monto\s+transferido\s+al\s+cambio\s*:\s*S\/\s*([\d.,]+)/i)?.[1]);
+    const convertedAmount = parseBankAmount(text.match(/Monto\s+transferido\s+al\s+cambio\s*:\s*S\/\s*([\d.,]+)/i)?.[1]);
+    // IO también permite pagar desde una cuenta en dólares; ese comprobante
+    // no incluye conversión ni un segundo monto cobrado.
+    const chargedAmount = convertedAmount || amount;
+    const chargedCurrency = convertedAmount ? 'PEN' : 'USD';
     const date = parseSpanishDate(text);
     const sourceLast4 = text.match(/Cuenta\s+de\s+origen\s*:\s*[^\n]*(?:\n|\s)+(?:\*{2,}|X{2,})\s*(\d{4})/i)?.[1] || '';
     const missing = [];
     if (!amount) missing.push('monto en dólares');
-    if (!chargedAmount) missing.push('monto cobrado en soles');
     if (!date) missing.push('fecha');
     if (missing.length) return { ok: false, error: `No se pudo reconocer: ${missing.join(', ')}.` };
 
@@ -79,7 +82,7 @@ export function parseBankOperation(input) {
         amount,
         currency: 'USD',
         chargedAmount,
-        chargedCurrency: 'PEN',
+        chargedCurrency,
         exchangeRate,
         date,
         cardType: 'io',

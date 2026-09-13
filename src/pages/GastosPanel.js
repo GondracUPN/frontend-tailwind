@@ -1092,6 +1092,9 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       )}
       {showCreBulk && (
         <ModalGastoCreditoMasivo
+          userId={targetUserId}
+          existingRows={rows}
+          expenseConcepts={expenseConcepts}
           onClose={() => setShowCreBulk(false)}
           onSaved={(createdRows) => {
             setShowCreBulk(false);
