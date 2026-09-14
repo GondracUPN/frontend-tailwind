@@ -1096,9 +1096,9 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           existingRows={rows}
           expenseConcepts={expenseConcepts}
           onClose={() => setShowCreBulk(false)}
-          onSaved={(createdRows) => {
-            setShowCreBulk(false);
+          onSaved={(createdRows, { failed = [] } = {}) => {
             if (Array.isArray(createdRows)) createdRows.forEach(upsertRow);
+            if (failed.length) setErr(`Guardado masivo: ${failed.length} gasto(s) no pudieron guardarse. ${failed.slice(0, 3).join(' ')}`);
             notifyGastosChanged({ action: 'bulk-create', userId: targetUserId });
             reloadAll({ includeGastos: true, useCache: false, silent: true });
           }}

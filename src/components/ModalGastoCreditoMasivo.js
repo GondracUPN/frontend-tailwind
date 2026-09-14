@@ -327,7 +327,6 @@ function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverr
   return comparison.displayRows.map((displayRow, index) => {
     const { imported, saved, matched } = displayRow;
     const importedKey = `imported-${displayRow.sourceIndex ?? index}`;
-    const savedKey = `saved-${saved?.id || index}`;
     const toggle = (key) => setReviewed((current) => ({ ...current, [key]: !current[key] }));
     return (
       <tr key={`manual-${index}-${saved?.id || 'none'}`} className="border-t border-gray-100 align-top">
@@ -336,18 +335,18 @@ function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverr
             <input aria-label={`Revisar gasto cargado ${index + 1}`} type="checkbox" disabled={matched} checked={matched || Boolean(reviewed[importedKey])} onClick={(event) => event.stopPropagation()} onChange={(event) => setReviewed((current) => ({ ...current, [importedKey]: event.target.checked }))} className="mt-0.5" />
             <div className={`min-w-0 flex-1 ${matched ? 'text-emerald-900' : reviewed[importedKey] ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
               <div className="font-medium">{imported.fecha} · {imported.moneda} {Number(imported.monto).toFixed(2)}</div>
-              <div className={matched ? 'text-emerald-700' : 'text-gray-500'}>{imported.notas || imported.concepto}</div>
+              <div className={matched ? 'text-emerald-700' : 'text-gray-500'}>{imported.notas || ''}</div>
               {!matched && !reviewed[importedKey] && <select aria-label={`Tipo de gasto ${index + 1}`} value={conceptOverrides[displayRow.sourceIndex] || imported.concepto} onClick={(event) => event.stopPropagation()} onChange={(event) => setConceptOverrides((current) => ({ ...current, [displayRow.sourceIndex]: event.target.value }))} className="mt-1 rounded border border-gray-300 bg-white px-1.5 py-1 text-[11px] text-gray-800">
                 {conceptOptions.map((concept) => <option key={concept.value} value={concept.value}>{concept.label}</option>)}
               </select>}
             </div>
           </div>}
         </td>
-        <td onClick={() => saved && !matched && toggle(savedKey)} className={`border-l border-gray-100 p-2 ${matched ? 'bg-emerald-100' : saved ? 'cursor-pointer bg-white hover:bg-gray-50' : 'bg-white'}`}>
-          {saved && <label className={`flex items-start gap-2 ${matched ? 'text-emerald-900' : reviewed[savedKey] ? 'text-gray-400 line-through' : 'cursor-pointer text-indigo-800'}`}>
-            <input aria-label={`Revisar gasto del sistema ${index + 1}`} type="checkbox" disabled={matched} checked={matched || Boolean(reviewed[savedKey])} onClick={(event) => event.stopPropagation()} onChange={(event) => setReviewed((current) => ({ ...current, [savedKey]: event.target.checked }))} className="mt-0.5" />
-            <span><span className="font-medium">{String(saved.fecha).slice(0, 10)} · {saved.moneda} {Number(saved.monto).toFixed(2)}</span><span className={matched ? 'block text-emerald-700' : 'block text-gray-500'}>{saved.notas || saved.concepto}</span></span>
-          </label>}
+        <td className={`border-l border-gray-100 p-2 ${matched ? 'bg-emerald-100' : 'bg-white'}`}>
+          {saved && <div className={matched ? 'text-emerald-900' : 'text-indigo-800'}>
+            <span className="font-medium">{String(saved.fecha).slice(0, 10)} · {saved.moneda} {Number(saved.monto).toFixed(2)}</span>
+            <span className={matched ? 'block text-emerald-700' : 'block text-gray-500'}>{saved.notas || ''}</span>
+          </div>}
         </td>
       </tr>
     );
@@ -364,6 +363,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [fileName, setFileName] = useState('');
+  const [draggingFile, setDraggingFile] = useState(false);
   const [reviewed, setReviewed] = useState({});
   const [conceptOverrides, setConceptOverrides] = useState({});
 
@@ -425,9 +425,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
   const preview = useMemo(() => parseBulkRows(bulkText), [bulkText]);
   const comparison = useMemo(() => compareBulkExpenses(preview.rows, systemRows, tarjeta), [preview.rows, systemRows, tarjeta]);
 
-  const loadWorkbook = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
+  const loadFile = async (file) => {
     if (!file) return;
     setError('');
     try {
@@ -470,6 +468,18 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
     }
   };
 
+  const loadWorkbook = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    loadFile(file);
+  };
+
+  const dropWorkbook = (event) => {
+    event.preventDefault();
+    setDraggingFile(false);
+    loadFile(event.dataTransfer.files?.[0]);
+  };
+
   const submitBulk = async (e) => {
     e?.preventDefault?.();
     if (saving) return;
@@ -493,39 +503,33 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
     if (!rowsToSave.length) return setError('No hay gastos pendientes sin marcar para guardar.');
 
     setSaving(true);
-    const created = [];
-    const failed = [];
+    onClose?.();
 
-    try {
-      for (const item of rowsToSave) {
-        const body = { ...item.body, concepto: conceptOverrides[item.lineNumber] || item.body.concepto, tarjeta };
-        try {
-          const row = await createExpenseWithDuplicateCheck(body);
-          if (row) created.push(row);
-        } catch (error) {
-          if (error instanceof ExpenseDuplicateCancelledError) continue;
-          failed.push(`Linea ${item.lineNumber}: ${error?.message || 'No se pudo guardar'}`);
+    // Sigue guardando tras cerrar el modal. Cuatro workers reducen bastante el
+    // tiempo de lotes grandes sin disparar demasiadas solicitudes simultáneas.
+    void (async () => {
+      const created = [];
+      const failed = [];
+      let nextIndex = 0;
+      const worker = async () => {
+        while (nextIndex < rowsToSave.length) {
+          const item = rowsToSave[nextIndex++];
+          const body = { ...item.body, concepto: conceptOverrides[item.lineNumber] || item.body.concepto, tarjeta };
+          try {
+            const row = await createExpenseWithDuplicateCheck(body, { userId, notify: false });
+            if (row) created.push(row);
+          } catch (saveError) {
+            if (saveError instanceof ExpenseDuplicateCancelledError) continue;
+            failed.push(`Linea ${item.lineNumber}: ${saveError?.message || 'No se pudo guardar'}`);
+          }
         }
-      }
-
-      if (created.length) {
-        onSaved?.(created);
-      }
-
-      if (failed.length) {
-        setError(`Se guardaron ${created.length} gastos y fallaron ${failed.length}.\n${failed.slice(0, 6).join('\n')}`);
-        return;
-      }
-
-      setSuccessMsg(`Se guardaron ${created.length} gastos pendientes. Los marcados se omitieron.`);
-      setBulkText('');
-      onClose?.();
-    } catch (err) {
-      console.error('[ModalGastoCreditoMasivo] save error:', err);
-      setError('No se pudo completar el guardado masivo.');
-    } finally {
-      setSaving(false);
-    }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, rowsToSave.length) }, worker));
+      onSaved?.(created, { failed });
+    })().catch((saveError) => {
+      console.error('[ModalGastoCreditoMasivo] save error:', saveError);
+      onSaved?.([], { failed: ['No se pudo completar el guardado masivo.'] });
+    });
   };
 
   return (
@@ -545,13 +549,18 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
           Patron por linea: <code>concepto | moneda | monto | fecha(dd/mm/yyyy) | nota(opcional)</code>.
           Cada linea crea un solo gasto.
         </p>
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <label className="cursor-pointer rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100">
-            Subir XLSX o PDF
+        <div
+          className={`mb-4 flex min-h-24 flex-wrap items-center justify-center gap-3 rounded-xl border-2 border-dashed px-4 py-3 transition-colors ${draggingFile ? 'border-blue-500 bg-blue-100' : 'border-blue-300 bg-blue-50'}`}
+          onDragEnter={(event) => { event.preventDefault(); setDraggingFile(true); }}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDraggingFile(false); }}
+          onDrop={dropWorkbook}
+        >
+          <label className="cursor-pointer rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
+            Subir o arrastrar XLSX/PDF
             <input type="file" accept=".xlsx,.xls,.pdf,application/pdf" onChange={loadWorkbook} className="hidden" />
           </label>
           {fileName && <span className="text-sm text-gray-600">Archivo: {fileName}</span>}
-          <span className="text-xs text-gray-500">XLSX: Fecha y Monto/Importe. PDF protegido: se usa la clave configurada. Se leen gastos negativos y reembolsos; los demás positivos son pagos.</span>
         </div>
 
         {error && (
@@ -594,11 +603,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
               className="w-full min-h-[220px] border rounded px-3 py-2 font-mono text-sm"
               value={bulkText}
               onChange={(e) => setBulkText(e.target.value)}
-              placeholder={[
-                'comida | PEN | 35.50 | 18/02/2026 | almuerzo oficina',
-                'transporte | PEN | 12 | 18/02/2026 | taxi',
-                'inversion | USD | 120.00 | 17/02/2026 | iphone lote 2',
-              ].join('\n')}
+              placeholder=""
             />
             <div className="text-xs text-gray-500">
               Conceptos permitidos: {CREDIT_CONCEPTS.join(', ')}.
@@ -631,7 +636,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
                         <td className="py-1">{r.body.moneda}</td>
                         <td className="py-1">{r.body.monto}</td>
                         <td className="py-1">{r.body.fecha}</td>
-                        <td className="py-1">{r.body.notas || '-'}</td>
+                        <td className="py-1">{r.body.notas || ''}</td>
                       </tr>
                     ))}
                   </tbody>

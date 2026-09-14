@@ -35,7 +35,7 @@ const confirmDuplicates = (duplicates) => {
   );
 };
 
-export async function createExpenseWithDuplicateCheck(body, { userId } = {}) {
+export async function createExpenseWithDuplicateCheck(body, { userId, notify = true } = {}) {
   const token = localStorage.getItem('token');
   const query = userId ? `?userId=${encodeURIComponent(String(userId))}` : '';
   const send = async (payload) => {
@@ -57,6 +57,6 @@ export async function createExpenseWithDuplicateCheck(body, { userId } = {}) {
     const message = result.data?.message || result.data?.error || `HTTP ${result.response.status}`;
     throw new Error(Array.isArray(message) ? message.join(' | ') : String(message));
   }
-  notifyGastosChanged({ action: 'create', userId });
+  if (notify) notifyGastosChanged({ action: 'create', userId });
   return result.data;
 }

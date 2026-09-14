@@ -733,6 +733,37 @@ export default function Productos({ setVista, setAnalisisBack }) {
     return () => window.removeEventListener('personal-eshopex-updated', handler);
   }, [cargarPersonalEshopex]);
 
+  useEffect(() => {
+    if (!personalOpen) return undefined;
+    let alive = true;
+    (async () => {
+      const list = await cargarPersonalEshopex();
+      const pending = list.filter((item) => !item?.recogido && String(item?.trackingEshop || item?.guia || '').trim());
+      let nextIndex = 0;
+      const worker = async () => {
+        while (alive && nextIndex < pending.length) {
+          const item = pending[nextIndex++];
+          const code = String(item?.trackingEshop || item?.guia || '').trim();
+          try {
+            const statusData = await api.get(`/tracking/eshopex-status/${encodeURIComponent(code)}`);
+            if (!alive) return;
+            const status = String(statusData?.status || '').trim();
+            setRecojoStatusMap((current) => ({ ...current, [code]: { ...statusData, loading: false } }));
+            if (status) {
+              setPersonalEshopex((current) => current.map((row) => (
+                String(row?.id || '') === String(item?.id || '') ? { ...row, estatusEsho: status } : row
+              )));
+            }
+          } catch {
+            // Conserva el ultimo estado conocido cuando una guia no responde.
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, pending.length) }, worker));
+    })();
+    return () => { alive = false; };
+  }, [personalOpen, cargarPersonalEshopex]);
+
   // Nombre del producto para el texto (iPad, Air, M2, 11) o "Otros" con descripcion
   const buildNombreProducto = (p) => {
     if (!p) return '';
@@ -1020,6 +1051,16 @@ const confirmAction = async () => {
     }
     return null;
   }, [eshopexCargaByGuia]);
+  const personalEshopexSorted = React.useMemo(() => (
+    [...(personalEshopex || [])].sort((a, b) => {
+      const rowA = getEshopexCargaRow(a?.trackingEshop || a?.guia || '');
+      const rowB = getEshopexCargaRow(b?.trackingEshop || b?.guia || '');
+      const dateA = a?.fechaRecepcion || a?.fechaRecepcionRaw || rowA?.fechaRecepcion || '';
+      const dateB = b?.fechaRecepcion || b?.fechaRecepcionRaw || rowB?.fechaRecepcion || '';
+      return getEshopexReceptionSortTs(dateB) - getEshopexReceptionSortTs(dateA)
+        || Number(b?.id || 0) - Number(a?.id || 0);
+    })
+  ), [personalEshopex, getEshopexCargaRow]);
   const normalizeCargaStatus = (status) => String(status || '').trim();
   const isEnSucursal = isEshopexAtBranch;
   const isEntregado = (status) => /ENTREGADO/i.test(String(status || ''));
@@ -3796,7 +3837,7 @@ const confirmAction = async () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {personalEshopex.map((item) => {
+                    {personalEshopexSorted.map((item) => {
                       const id = String(item?.id || item?.trackingEshop || item?.guia || '');
                       const trackingEshop = String(item?.trackingEshop || item?.guia || '').trim();
                       const cargaRow = getEshopexCargaRow(trackingEshop);
