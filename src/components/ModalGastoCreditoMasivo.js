@@ -48,9 +48,9 @@ const classifyExpenseConcept = (description) => {
   const text = normalizeText(description);
   if (/reembolso|reembols|refund|devolucion/.test(text)) return 'cashback';
   if (/\bebay\b|sp\s*centex\s*luxury\s*goods/.test(text)) return 'inversion';
-  if (/alignet|alignet|alinet/.test(text)) return 'pago_envios';
+  if (/alignet|alinet|eshopex/.test(text)) return 'pago_envios';
   if (/amazon\s*prime/.test(text)) return 'gastos_recurrentes';
-  if (/evaristo|\bpvea\b|plaza\s*vea|\btambo\b|\blisto\b|\bmetro\b/.test(text)) return 'comida';
+  if (/evaristo|\bpvea\b|plaza\s*vea|\btambo\b|\blisto\b|\bmetro\b|mcdonalds|mc\s*donald'?s|\boxxo\b|\bkfc\b|burger\s*king|pizza\s*hut|\bsubway\b|starbucks|dunkin|popeyes/.test(text)) return 'comida';
   return 'gusto';
 };
 

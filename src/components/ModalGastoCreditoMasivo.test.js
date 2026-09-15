@@ -38,6 +38,23 @@ test('clasifica automáticamente comercios conocidos del PDF', () => {
   expect(text).toContain('cashback | USD | 50');
 });
 
+test('clasifica Alignet y Eshopex como envíos, y cadenas de comida como comida', () => {
+  const text = pdfLinesToBulkText([
+    '01/09/26 30/09/26',
+    '05Sep 04Sep ALIGNET*MALL ALIGNETPS LIMA PE 604 CONSUMO 42.00',
+    '06Sep 05Sep Eshopex Peru Lince PE 604 CONSUMO 85.00',
+    '07Sep 06Sep MCDONALDS MIRAFLORES 604 CONSUMO 28.00',
+    '08Sep 07Sep OXXO SAN ISIDRO 604 CONSUMO 12.00',
+    '09Sep 08Sep KFC LIMA 604 CONSUMO 35.00',
+  ]);
+
+  expect(text).toContain('pago_envios | PEN | 42 | 04/09/2026');
+  expect(text).toContain('pago_envios | PEN | 85 | 05/09/2026');
+  expect(text).toContain('comida | PEN | 28 | 06/09/2026');
+  expect(text).toContain('comida | PEN | 12 | 07/09/2026');
+  expect(text).toContain('comida | PEN | 35 | 08/09/2026');
+});
+
 test('ignora dirección, tarjeta enmascarada y periodo del encabezado', () => {
   const text = pdfLinesToBulkText([
     'AV.LOS GORRIONES N.288 MZ.B LT 377-89XX-XXXX-0962 24/07/26 23/08/26',
