@@ -8,7 +8,7 @@ const statusLabel = (status) => ({
   pending_cancellation_confirmation: 'Anulación pendiente',
   failed: 'Requiere revisión',
 }[status] || status);
-const CARD_LABEL = { bcp: 'BCP', interbank: 'Interbank', bbva: 'BBVA', bcp_amex: 'BCP Amex', bcp_visa: 'BCP Visa', visa_qore: 'Visa Qore', io: 'IO', saga: 'Saga' };
+const DEBIT_CARD_LABEL = { bcp: 'BCP', interbank: 'Interbank', bbva: 'BBVA' };
 
 export default function CatalogSalesPending() {
   const [items, setItems] = useState([]);
@@ -91,7 +91,7 @@ export default function CatalogSalesPending() {
       return;
     }
     if (action === 'confirm' && !isCancellation && !incomeBank) {
-      alert('Selecciona la tarjeta donde se recibió el pago.');
+      alert('Selecciona la tarjeta de débito donde se recibió el pago.');
       return;
     }
     const message = action === 'confirm'
@@ -163,7 +163,7 @@ export default function CatalogSalesPending() {
                 <th className="p-3">SKU</th>
                 <th className="p-3">Monto</th>
                 <th className="p-3">T. cambio</th>
-                <th className="p-3">Recibido en</th>
+                <th className="p-3">Recibido en (débito)</th>
                 <th className="p-3">Fecha</th>
                 <th className="p-3">Estado</th>
                 <th className="p-3">Acciones</th>
@@ -200,13 +200,13 @@ export default function CatalogSalesPending() {
                       <div>
                         <div className="mb-1 text-xs text-slate-500">Venta de {paymentOptions[event.id]?.seller || 'vendedor sin asignar'}</div>
                         <select
-                          aria-label={`Tarjeta receptora para ${event.sku}`}
+                          aria-label={`Tarjeta de débito receptora para ${event.sku}`}
                           value={incomeBanks[event.id] || ''}
                           onChange={(e) => setIncomeBanks((current) => ({ ...current, [event.id]: e.target.value }))}
                           className="w-36 rounded-lg border border-amber-300 bg-white px-2 py-1.5"
                         >
-                          {!paymentOptions[event.id]?.cards?.length && <option value="">Sin tarjetas</option>}
-                          {(paymentOptions[event.id]?.cards || []).map((card) => <option key={card.tipo} value={card.tipo}>{CARD_LABEL[card.tipo] || card.tipo}</option>)}
+                          {!paymentOptions[event.id]?.cards?.length && <option value="">Sin tarjetas de débito</option>}
+                          {(paymentOptions[event.id]?.cards || []).map((card) => <option key={card.tipo} value={card.tipo}>{DEBIT_CARD_LABEL[card.tipo] || card.tipo}</option>)}
                         </select>
                       </div>
                     ) : '-'}
