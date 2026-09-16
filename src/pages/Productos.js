@@ -1712,6 +1712,26 @@ const confirmAction = async () => {
     });
   };
 
+  const handleCopyPersonalCodigos = async () => {
+    const items = (personalEshopex || [])
+      .filter((item) => {
+        const id = String(item?.id || item?.trackingEshop || item?.guia || '');
+        return id && personalSelected.has(id) && !item?.recogido;
+      })
+      .map((item) => ({
+        casillero: item?.casillero,
+        trackingEshop: item?.trackingEshop || item?.guia,
+      }));
+    if (!items.length) { alert('Selecciona al menos un paquete Personal.'); return; }
+    const text = buildRecojoCodigosText(items);
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('Casilleros y códigos seleccionados copiados para Roberto.');
+    } catch {
+      alert('No se pudieron copiar los códigos. Revisa los permisos del portapapeles.');
+    }
+  };
+
   const handlePersonalRecogidoSelected = async () => {
     const selectedItems = (personalEshopex || []).filter((item) => {
       const id = String(item?.id || item?.trackingEshop || item?.guia || '');
@@ -3786,6 +3806,15 @@ const confirmAction = async () => {
                 title={!personalRecojoDate ? 'Elige una fecha de recojo' : ''}
               >
                 Marcar recogido
+              </button>
+              <button
+                type="button"
+                className="px-3 py-2 rounded bg-sky-600 text-white hover:bg-sky-700 disabled:bg-gray-300 disabled:text-gray-600 disabled:cursor-not-allowed"
+                disabled={personalSelected.size === 0}
+                onClick={handleCopyPersonalCodigos}
+                title="Copiar casilleros y códigos Eshopex seleccionados"
+              >
+                Roberto
               </button>
               <button
                 type="button"
