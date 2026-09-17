@@ -45,33 +45,41 @@ const DEC_FORM_EMAIL_BY_CASILLERO = {
   Sebastian: "macsominus@gmail.com",
 };
 const DEC_FORM_CLIP_PREFIX = "DEC_AUTOFILL:";
+const EBAY_ORDER_CLIP_PREFIX = "DEC_EBAY_ORDER:";
 const DEC_FORM_TARGET_URL_KEY = "decAutofillTargetUrl";
 const DEFAULT_DEC_FORM_TARGET_URL = "https://www.eshopex.com/pe/prealerta_cb0.aspx";
 
 /* -------- Biblioteca de problemas por tipo -------- */
 const PROBLEMS = {
   macbook: [
-    "Screen not working","Battery not charging","Keyboard and trackpad not working",
-    "Screen flickering","Speaker not working","WiFi and Bluetooth not working",
-    "Screen cracked","Battery drains fast","SSD not detected","System stuck on loading screen",
-    "Black screen no display","USB ports not working","Overheating issue",
-    "Camera and microphone not working","No sound output","Charger not detected",
-    "Screen with lines","Battery swollen","Fan loud and overheating","Stuck on Apple logo",
+    "Screen cracked - FOR PARTS","Broken keyboard - Parts/Repair","Trackpad not clicking - AS IS",
+    "Battery service recommended","Battery not charging - READ","No power - For Parts or Repair",
+    "Black screen / no display","Display has lines - AS IS","Screen flickers with dim image",
+    "Stuck on Apple logo","Boot loop - FOR PARTS","SSD not detected","Logic board issue - AS IS",
+    "USB ports not working","Charger not detected","Fan runs loud / overheating",
+    "Liquid damage - For Parts","Bad speakers - READ","Camera not working","Damaged hinge - AS IS",
+    "^FOR PARTS - No power","^AS-IS / READ - Cracked display","^PARTS OR REPAIR - Bad keyboard",
   ],
   ipad: [
-    "Screen cracked","Touch screen not working","iCloud locked","Battery not charging",
-    "WiFi and Bluetooth not working","Screen frozen","Stuck on Apple logo","Camera not working",
-    "Speaker and microphone not working","No display","Screen with lines","Battery drains fast",
-    "SIM card not detected","Apple ID locked","Charging port not working","Screen flickering",
-    "No sound","Back and front camera blurry","Boot loop issue","Water damage no power",
+    "Cracked digitizer - READ","Touch screen not responding","iCloud locked - FOR PARTS",
+    "Activation locked - AS IS","Bent frame / cracked screen","LCD has colored lines",
+    "White spots on display","No display - For Parts","Stuck on Apple logo","Boot loop - AS IS",
+    "Won't turn on or charge","Charging port not working","Battery drains fast","Bad home button",
+    "Power button not working","Camera not working","No sound - READ","SIM not detected",
+    "Cellular not working","Water damage / no power","^DEFECT - Cracked Screen / Lock",
+    "^FOR PARTS - Touchscreen Issue","^AS-IS - Bent Frame and Bad LCD",
   ],
   iphone: [
-    "iCloud locked","Activation lock enabled","Apple ID locked","Screen cracked",
-    "Touch not working","WiFi and Bluetooth not working","Battery not charging","Screen frozen",
-    "Stuck on Apple logo","Camera not working","Speaker not working","No network service",
-    "SIM card not detected","Face ID not working","Home button not working","Screen flickering",
-    "Ghost touch issue","No sound output","Boot loop stuck","Water damaged won't turn on",
+    "Cracked screen - READ","Back glass cracked","Touch not working","Ghost touch issue",
+    "iCloud locked - FOR PARTS","Activation lock enabled","Face ID not working","Bad battery health",
+    "Battery not charging","Charging port issue","No power - AS IS","Stuck on Apple logo",
+    "Boot loop - For Parts","No network service","SIM not detected","Unknown part message",
+    "Rear camera shakes","Front camera not working","Speaker not working","Water damage - READ",
+    "^BROKEN - Face ID / Cracked Screen","^FOR PARTS - iCloud Locked","^AS-IS - No Power",
   ],
+  watch: ["Activation locked - FOR PARTS","Cracked screen - AS IS","Touch not working","No power","Battery not holding charge","Digital Crown not working","Stuck on Apple logo","Water damage - READ"],
+  desktop: ["No power - For Parts","No display - AS IS","Fusion Drive not detected","Hard drive failure","GPU artifacts on screen","Stuck on Apple logo","Kernel panic / reboots","Damaged display - READ","Fan runs loud","Logic board issue","^FOR PARTS - No Power","^AS-IS - Bad Display"],
+  other: ["For Parts or Repair","Not working - AS IS","Untested - READ","Damaged - FOR PARTS"],
 };
 const pickOne = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const EBAY_LOGO = "https://ir.ebaystatic.com/rs/v/fxxj3ttftm5ltcqnto1o4baovyl.png";
@@ -334,7 +342,33 @@ function randomProblemForProduct(p) {
   if (tipo.includes("macbook")) return pickOne(PROBLEMS.macbook);
   if (tipo.includes("ipad")) return pickOne(PROBLEMS.ipad);
   if (tipo.includes("iphone")) return pickOne(PROBLEMS.iphone);
-  return pickOne([].concat(PROBLEMS.macbook, PROBLEMS.ipad, PROBLEMS.iphone));
+  if (tipo.includes("watch")) return pickOne(PROBLEMS.watch);
+  if (tipo.includes("imac") || tipo.includes("mac mini") || tipo.includes("mac studio")) return pickOne(PROBLEMS.desktop);
+  return pickOne(PROBLEMS.other);
+}
+
+function formatProblemTitle(core, problem) {
+  const base = String(core || "").trim();
+  const issue = String(problem || "").trim();
+  if (!issue) return base;
+  if (issue.startsWith("^")) return `${issue.slice(1).trim()} ${base}`.trim();
+  return `${base} ${issue}`.trim();
+}
+
+export function parseEbayOrderClipboard(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  try {
+    const jsonText = raw.startsWith(EBAY_ORDER_CLIP_PREFIX) ? raw.slice(EBAY_ORDER_CLIP_PREFIX.length) : raw;
+    const parsed = JSON.parse(jsonText);
+    const seller = String(parsed?.seller || "").trim();
+    const orderNumber = String(parsed?.orderNumber || parsed?.order || "").trim();
+    return seller || orderNumber ? { seller, orderNumber } : null;
+  } catch {
+    const seller = raw.match(/seller\s*[:\t]\s*([^\n\r]+)/i)?.[1]?.trim() || "";
+    const orderNumber = raw.match(/order(?:\s+number|\s*#)?\s*[:\t]\s*([\d-]+)/i)?.[1]?.trim() || "";
+    return seller || orderNumber ? { seller, orderNumber } : null;
+  }
 }
 
 /* --------- Resolver casillero automáticamente --------- */
@@ -1343,6 +1377,8 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [publishStatus, setPublishStatus] = useState("");
   const [publishAt, setPublishAt] = useState("");
   const [autofillTargetUrl, setAutofillTargetUrl] = useState("");
+  const [manualExternalProduct, setManualExternalProduct] = useState("Apple piezas");
+  const [ebayPasteStatus, setEbayPasteStatus] = useState("");
   const [randomNames, setRandomNames] = useState({});
   const [linkedItemNames, setLinkedItemNames] = useState({});
   const [linkedItemLinks, setLinkedItemLinks] = useState({});
@@ -1565,7 +1601,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         core = buildCoreName(p, cpu);
       }
       const prob = randomProblemForProduct(p);
-      return core + (prob ? ` ${prob}` : "");
+      return formatProblemTitle(core, prob);
     }
     const genericCore = pickOne([
       'MacBook Pro i7 13" 16GB RAM 512GB',
@@ -1573,7 +1609,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       'iPhone 13 Pro 256GB',
     ]);
     const prob = randomProblemForProduct(null);
-    return `${genericCore} ${prob}`.trim();
+    return formatProblemTitle(genericCore, prob);
   };
 
   // ?? CPU aleatoria (Mac) + problema aleatorio al final
@@ -1590,7 +1626,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       core = buildCoreName(productoSel, cpu);
     }
     const prob = randomProblemForProduct(productoSel);
-    const full = core + (prob ? ` ${prob}` : "");
+      const full = formatProblemTitle(core, prob);
     setNameCore(core);
     setProblemSuffix(prob || "");
     setRandomNames((prev) => ({ ...prev, [productoSel.id]: { core, problem: prob, full } }));
@@ -1606,7 +1642,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       core = buildCoreName(p, cpu);
     }
     const prob = randomProblemForProduct(p);
-    const full = core + (prob ? ` ${prob}` : "");
+    const full = formatProblemTitle(core, prob);
     setRandomNames((prev) => ({ ...prev, [p.id]: { core, problem: prob, full } }));
     setLinkedItemNames((prev) => ({ ...prev, [p.id]: full }));
     if (p?.id === productoSel?.id) {
@@ -1622,7 +1658,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
 
   // itemName = core + (opcional) problema
   useEffect(() => {
-    setItemName(nameCore + (problemSuffix ? ` ${problemSuffix}` : ""));
+    setItemName(formatProblemTitle(nameCore, problemSuffix));
   }, [nameCore, problemSuffix]);
 
   // Edición manual: reemplaza el core y borra problema
@@ -1651,7 +1687,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       carrier: effectiveCarrier,
       tracking: effectiveCarrierTracking,
       store: "ebay",
-      product: normalizeExternalProductLabel(typeSource),
+      product: productoSel ? normalizeExternalProductLabel(typeSource) : String(manualExternalProduct || "Apple piezas").trim(),
       purchaseValue: resolvedPrice,
       decTotalUsd: resolvedPrice,
       rawItemName: itemName || "",
@@ -1667,6 +1703,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     itemName,
     placedOn,
     orderNumber,
+    manualExternalProduct,
   ]);
   const autofillUrl = useMemo(
     () => buildAutofillUrl(autofillTargetUrl, autofillPayload),
@@ -2204,6 +2241,19 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       alert("No se pudo copiar el payload DEC.");
     }
   };
+  const pasteEbayOrderData = async () => {
+    setEbayPasteStatus("");
+    try {
+      const parsed = parseEbayOrderClipboard(await navigator.clipboard.readText());
+      if (!parsed) throw new Error("Formato no reconocido");
+      if (parsed.seller) setSeller(parsed.seller);
+      if (parsed.orderNumber) setOrderNumber(normalizeManualEbayOrderNumber(parsed.orderNumber));
+      setEbayPasteStatus("Seller y order number pegados.");
+    } catch (err) {
+      console.warn("[ModalDec] No se pudieron pegar datos de eBay", err);
+      setEbayPasteStatus("No se encontró un copiado válido de eBay.");
+    }
+  };
   const configureAutofillTarget = () => {
     const nextUrl = window.prompt("URL del formulario externo para autofill", autofillTargetUrl || DEFAULT_DEC_FORM_TARGET_URL);
     if (nextUrl == null) return;
@@ -2354,6 +2404,16 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             </label>
           </div>
 
+          {isHtmlStore ? (
+            <div className="sticky top-0 z-10 -mx-2 flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-white/95 p-3 shadow-sm backdrop-blur">
+              <span className="mr-auto text-sm font-semibold text-indigo-950">Acciones rápidas</span>
+              <button type="button" onClick={copySelector} className="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">Copiar selector</button>
+              <button type="button" onClick={copyHTML} className="px-3 py-2 rounded bg-black text-white text-sm hover:bg-gray-900">Copiar HTML</button>
+              <button type="button" onClick={publishTemplate} disabled={publishingTemplate} className="px-3 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60">{publishingTemplate ? "Publicando..." : "Publicar plantilla TM"}</button>
+              <button type="button" onClick={toggleFacturaMarcada} disabled={!productoSel || savingFactura || facturaMarcada} className="px-3 py-2 rounded border border-emerald-300 bg-emerald-50 text-emerald-800 text-sm disabled:opacity-50">{facturaButtonLabel}</button>
+            </div>
+          ) : null}
+
           <div className="grid sm:grid-cols-4 gap-3">
             <label className="text-sm sm:col-span-2">
               <span className="block text-gray-600 mb-1">Producto (opcional, en camino)</span>
@@ -2424,7 +2484,11 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             {store === "ebay" ? (
               <label className="text-sm">
                 <span className="block text-gray-600 mb-1">Seller</span>
-                <input value={seller} onChange={(e) => setSeller(e.target.value)} className="input" placeholder="961firstave" />
+                <div className="flex gap-2">
+                  <input value={seller} onChange={(e) => setSeller(e.target.value)} className="input" placeholder="961firstave" />
+                  <button type="button" onClick={pasteEbayOrderData} className="shrink-0 rounded-lg border border-indigo-300 px-3 text-xs font-semibold text-indigo-800 hover:bg-indigo-50">Pegar de eBay</button>
+                </div>
+                {ebayPasteStatus ? <span className="mt-1 block text-[11px] text-indigo-700">{ebayPasteStatus}</span> : null}
               </label>
             ) : null}
             <label className="text-sm">
@@ -2500,6 +2564,15 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                 </button>
               </div>
             </div>
+            {!productoSel ? (
+              <label className="mt-3 block max-w-md text-sm">
+                <span className="mb-1 block text-sky-900">Producto para el formulario externo</span>
+                <input value={manualExternalProduct} onChange={(e) => setManualExternalProduct(e.target.value)} className="input bg-white" list="dec-external-products" placeholder="Ej. MacBook piezas" />
+                <datalist id="dec-external-products">
+                  <option value="MacBook piezas" /><option value="iPad piezas" /><option value="iPhone piezas" /><option value="Apple Watch piezas" /><option value="Apple piezas" />
+                </datalist>
+              </label>
+            ) : null}
             <div className="text-[11px] text-sky-900 mt-2 break-all">
               {autofillTargetUrl
                 ? `Destino guardado: ${autofillTargetUrl}`
@@ -2925,36 +2998,6 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1">
                 Recordatorio: busca <code>{htmlSelector}</code> en tu DOM para pegar este HTML.
               </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button onClick={copySelector} className="px-3 py-1.5 rounded border border-gray-300 text-sm hover:bg-gray-50 h-9">Copiar selector</button>
-              <button onClick={copyHTML} className="px-3 py-1.5 rounded bg-black text-white text-sm hover:bg-gray-900 h-9">Copiar HTML</button>
-              <button
-                type="button"
-                onClick={publishTemplate}
-                disabled={publishingTemplate}
-                className={`px-3 py-1.5 rounded text-sm h-9 border transition ${
-                  publishingTemplate
-                    ? "bg-blue-300 text-white border-blue-300"
-                    : "bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
-                } ${publishingTemplate ? "cursor-not-allowed opacity-70" : ""}`}
-                title="Guardar plantilla en el endpoint para Tampermonkey"
-              >
-                {publishingTemplate ? "Publicando..." : "Publicar plantilla TM"}
-              </button>
-              <button
-                type="button"
-                onClick={toggleFacturaMarcada}
-                disabled={!productoSel || savingFactura || facturaMarcada}
-                className={`px-3 py-1.5 rounded text-sm h-9 border transition ${
-                  facturaMarcada
-                    ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                } ${(!productoSel || savingFactura || facturaMarcada) ? 'opacity-60 cursor-not-allowed' : ''}`}
-                title={productoSel ? (facturaTargets.length > 1 ? 'Marca cuando las facturas del grupo ya fueron subidas' : 'Marca cuando la factura ya fue subida') : 'Selecciona un producto primero'}
-              >
-                {facturaButtonLabel}
-              </button>
             </div>
           </div>
 
