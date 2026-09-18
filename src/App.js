@@ -724,6 +724,12 @@ function App() {
             writeProductosCache(products);
             setPersonalEshopexGlobal(Array.isArray(personalData) ? personalData : []);
             window.dispatchEvent(new Event('personal-eshopex-updated'));
+            window.dispatchEvent(new CustomEvent('eshopex-statuses-updated', {
+              detail: {
+                productos: products,
+                personal: Array.isArray(personalData) ? personalData : [],
+              },
+            }));
           }
         } catch {
           /* el resultado Eshopex sigue guardado aunque falle esta recarga local */

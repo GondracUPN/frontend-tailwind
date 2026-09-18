@@ -1070,7 +1070,7 @@ const confirmAction = async () => {
     const code = getEshopexCode(p);
     if (!code) return false;
     const row = getEshopexCargaRow(code);
-    const status = row?.estado || getLastTracking(p)?.estatusEsho || '';
+    const status = getLastTracking(p)?.estatusEsho || row?.estado || '';
     return isEnSucursal(status) || isPagado(status) || isEntregado(status);
   };
 
@@ -1535,7 +1535,7 @@ const confirmAction = async () => {
       const t = pkg.tracking || {};
       const esh = String(pkg.trackingEshop || '').trim();
       const cargaRow = getEshopexCargaRow(esh);
-      const estatusEsho = normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
+      const estatusEsho = normalizeCargaStatus(t?.estatusEsho || cargaRow?.estado || '');
       const casRaw = String(pkg.casillero || t?.casillero || '').trim();
       const casKey = casRaw.toLowerCase();
       const accountFromCas = casKey ? accountByCasillero[casKey] : '';
@@ -2573,6 +2573,25 @@ const confirmAction = async () => {
     }
     return 0;
   }, []);
+
+  // El worker global termina la consulta aunque esta vista siga abierta. Aplicamos
+  // su resultado inmediatamente para que no sea necesario recargar la pagina.
+  useEffect(() => {
+    const handleEshopexStatusesUpdated = (event) => {
+      const nextProducts = event?.detail?.productos;
+      const nextPersonal = event?.detail?.personal;
+      if (Array.isArray(nextProducts)) {
+        productosRef.current = nextProducts;
+        setProductos(nextProducts);
+      } else {
+        refreshProductos({ force: true, useCache: false, silent: true });
+      }
+      if (Array.isArray(nextPersonal)) setPersonalEshopex(nextPersonal);
+      else cargarPersonalEshopex();
+    };
+    window.addEventListener('eshopex-statuses-updated', handleEshopexStatusesUpdated);
+    return () => window.removeEventListener('eshopex-statuses-updated', handleEshopexStatusesUpdated);
+  }, [refreshProductos, cargarPersonalEshopex]);
   // Lee el monto de la venta en S/ sin importar el nombre/caso/anidacifn
   const getMontoVentaSoles = useCallback((venta) => {
     if (!venta) return 0;
@@ -3478,7 +3497,7 @@ const confirmAction = async () => {
                   const groupSucursalTotal = group.packages.reduce((sum, pkg) => {
                     const tracking = pkg.tracking || {};
                     const code = String(pkg.trackingEshop || tracking?.trackingEshop || '').trim();
-                    const status = getEshopexCargaRow(code)?.estado || tracking?.estatusEsho || '';
+                    const status = tracking?.estatusEsho || getEshopexCargaRow(code)?.estado || '';
                     return isEnSucursal(status) ? sum + getRecojoPackageShippingCost(pkg) : sum;
                   }, 0);
                   return (
@@ -3529,7 +3548,7 @@ const confirmAction = async () => {
                               ? new Date(pkg.fechaRecepcion).toLocaleDateString('es-PE', { timeZone: 'UTC' })
                               : '-';
                             const cargaRow = getEshopexCargaRow(esh);
-                            const estatusEsho = normalizeCargaStatus(cargaRow?.estado || t?.estatusEsho || '');
+                            const estatusEsho = normalizeCargaStatus(t?.estatusEsho || cargaRow?.estado || '');
                             const cas = String(pkg.casillero || t?.casillero || '').trim();
                             const isReady = isRecojoReady(p);
                             const checked = recojoSelected.has(pkg.id);
@@ -3874,7 +3893,7 @@ const confirmAction = async () => {
                       const statusNorm = normalizeEshopexStatus(statusInfo.status);
                       const estatusEsho = statusInfo.loading && !cargaRow?.estado
                         ? 'Cargando'
-                        : normalizeCargaStatus(cargaRow?.estado || item?.estatusEsho || statusInfo.status || '');
+                        : normalizeCargaStatus(item?.estatusEsho || statusInfo.status || cargaRow?.estado || '');
                       const fechaRecepcionCarga = cargaRow?.fechaRecepcion || '';
                       const accountKey = String(item?.account || '').trim().toLowerCase();
                       const pagoKey = `${item?.trackingEshop || id}-${accountKey}`;
