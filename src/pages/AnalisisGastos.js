@@ -122,7 +122,8 @@ export default function AnalisisGastos({ setVista }) {
   const [showBolsaModal, setShowBolsaModal] = useState(false);
   const [bolsaModalAction, setBolsaModalAction] = useState('invest');
   const [bolsaPaymentMode, setBolsaPaymentMode] = useState('todo');
-  const [bolsaPaymentAmount, setBolsaPaymentAmount] = useState('');
+  const [bolsaHapiAmount, setBolsaHapiAmount] = useState('');
+  const [bolsaTriiAmount, setBolsaTriiAmount] = useState('');
   const [bolsaPaymentDate, setBolsaPaymentDate] = useState('');
   const [bolsaSaving, setBolsaSaving] = useState(false);
   const [bolsaError, setBolsaError] = useState('');
@@ -491,9 +492,12 @@ export default function AnalisisGastos({ setVista }) {
       }
     }
 
-    let pendingDebt = 0;
+    let pendingHapi = 0;
+    let pendingTrii = 0;
     let requiredAccumulated = 0;
     let investedAccumulated = 0;
+    let hapiInvestedAccumulated = 0;
+    let triiInvestedAccumulated = 0;
     let current = null;
     months.forEach((monthKey) => {
       const grossIncome = ventas.reduce((sum, venta) => {
@@ -510,22 +514,42 @@ export default function AnalisisGastos({ setVista }) {
       }, 0);
       const manualRecord = bolsaRecords.find((record) => record?.month === monthKey) || null;
       const actual = Number((manualRecord ? Number(manualRecord.amount || 0) : expenseActual).toFixed(2));
-      const pendingBefore = pendingDebt;
-      const totalToInvest = Number((monthlyTarget + pendingBefore).toFixed(2));
+      const hasPlatformAmounts = manualRecord && (manualRecord.hapiAmount !== undefined || manualRecord.triiAmount !== undefined);
+      const actualHapi = Number((hasPlatformAmounts ? Number(manualRecord.hapiAmount || 0) : actual * 0.7).toFixed(2));
+      const actualTrii = Number((hasPlatformAmounts ? Number(manualRecord.triiAmount || 0) : actual - actualHapi).toFixed(2));
+      const monthlyHapi = Number((monthlyTarget * 0.7).toFixed(2));
+      const monthlyTrii = Number((monthlyTarget - monthlyHapi).toFixed(2));
+      const pendingHapiBefore = pendingHapi;
+      const pendingTriiBefore = pendingTrii;
+      const totalHapiToInvest = Number((monthlyHapi + pendingHapiBefore).toFixed(2));
+      const totalTriiToInvest = Number((monthlyTrii + pendingTriiBefore).toFixed(2));
+      const totalToInvest = Number((totalHapiToInvest + totalTriiToInvest).toFixed(2));
       requiredAccumulated = Number((requiredAccumulated + monthlyTarget).toFixed(2));
       investedAccumulated = Number((investedAccumulated + actual).toFixed(2));
-      const currentMonthShortfall = Number(Math.max(0, monthlyTarget - actual).toFixed(2));
-      const amountAboveMonthlyMinimum = Number(Math.max(0, actual - monthlyTarget).toFixed(2));
-      const priorDebtAfterExcess = Number(Math.max(0, pendingBefore - amountAboveMonthlyMinimum).toFixed(2));
-      const pendingAfter = Number((currentMonthShortfall + priorDebtAfterExcess).toFixed(2));
-      const currentExcess = Number(Math.max(0, amountAboveMonthlyMinimum - pendingBefore).toFixed(2));
+      hapiInvestedAccumulated = Number((hapiInvestedAccumulated + actualHapi).toFixed(2));
+      triiInvestedAccumulated = Number((triiInvestedAccumulated + actualTrii).toFixed(2));
+      const platformBalance = (target, invested, debt) => ({
+        pending: Number((Math.max(0, target - invested) + Math.max(0, debt - Math.max(0, invested - target))).toFixed(2)),
+        credit: Number(Math.max(0, Math.max(0, invested - target) - debt).toFixed(2)),
+      });
+      const hapiBalance = platformBalance(monthlyHapi, actualHapi, pendingHapiBefore);
+      const triiBalance = platformBalance(monthlyTrii, actualTrii, pendingTriiBefore);
       // Primero se cumple el mínimo del mes. Lo que lo supera paga la deuda
       // anterior; solo después de saldarla puede quedar un excedente real.
-      pendingDebt = pendingAfter;
-      if (monthKey === month) current = { calculatedMonthly, monthlyTarget, totalToInvest, actual, expenseActual, manualRecord, pendingBefore, pendingAfter, currentExcess, grossIncome };
+      pendingHapi = hapiBalance.pending;
+      pendingTrii = triiBalance.pending;
+      if (monthKey === month) current = {
+        calculatedMonthly, monthlyTarget, totalToInvest, actual, actualHapi, actualTrii,
+        monthlyHapi, monthlyTrii, totalHapiToInvest, totalTriiToInvest,
+        expenseActual, manualRecord, pendingHapiBefore, pendingTriiBefore,
+        pendingAfter: pendingHapi + pendingTrii,
+        currentExcess: hapiBalance.credit + triiBalance.credit,
+        hapiPending: hapiBalance.pending, triiPending: triiBalance.pending,
+        hapiCredit: hapiBalance.credit, triiCredit: triiBalance.credit, grossIncome,
+      };
     });
 
-    const data = current || { calculatedMonthly: 0, monthlyTarget: 0, totalToInvest: 0, actual: 0, pendingBefore: 0, pendingAfter: 0, currentExcess: 0, grossIncome: 0 };
+    const data = current || { calculatedMonthly: 0, monthlyTarget: 0, totalToInvest: 0, actual: 0, actualHapi: 0, actualTrii: 0, monthlyHapi: 0, monthlyTrii: 0, totalHapiToInvest: 0, totalTriiToInvest: 0, pendingHapiBefore: 0, pendingTriiBefore: 0, pendingAfter: 0, currentExcess: 0, hapiPending: 0, triiPending: 0, hapiCredit: 0, triiCredit: 0, grossIncome: 0 };
     return {
       enabled: true,
       calculatedMonthly: data.calculatedMonthly,
@@ -536,13 +560,27 @@ export default function AnalisisGastos({ setVista }) {
       manualRecord: data.manualRecord || null,
       monthDifference: data.actual - data.monthlyTarget,
       monthRemaining: data.pendingAfter,
-      pendingBefore: data.pendingBefore,
+      pendingBefore: data.pendingHapiBefore + data.pendingTriiBefore,
       pending: data.pendingAfter,
       credit: data.currentExcess,
+      actualHapi: data.actualHapi,
+      actualTrii: data.actualTrii,
+      monthlyHapi: data.monthlyHapi,
+      monthlyTrii: data.monthlyTrii,
+      totalHapiToInvest: data.totalHapiToInvest,
+      totalTriiToInvest: data.totalTriiToInvest,
+      pendingHapiBefore: data.pendingHapiBefore,
+      pendingTriiBefore: data.pendingTriiBefore,
+      hapiPending: data.hapiPending,
+      triiPending: data.triiPending,
+      hapiCredit: data.hapiCredit,
+      triiCredit: data.triiCredit,
       grossIncome: data.grossIncome,
       totalToDate: data.pendingAfter,
       requiredAccumulated,
       investedAccumulated,
+      hapiInvestedAccumulated,
+      triiInvestedAccumulated,
     };
   }, [month, rows, ventas, bolsaRecords, selectedPersona]);
 
@@ -556,7 +594,8 @@ export default function AnalisisGastos({ setVista }) {
     const isEditing = bolsaProjection.actualMonth > 0;
     setBolsaModalAction(isEditing ? 'edit' : 'invest');
     setBolsaPaymentMode(isEditing ? 'variable' : 'todo');
-    setBolsaPaymentAmount((isEditing ? bolsaProjection.actualMonth : bolsaProjection.totalToInvest).toFixed(2));
+    setBolsaHapiAmount((isEditing ? bolsaProjection.actualHapi : bolsaProjection.totalHapiToInvest).toFixed(2));
+    setBolsaTriiAmount((isEditing ? bolsaProjection.actualTrii : bolsaProjection.totalTriiToInvest).toFixed(2));
     setBolsaPaymentDate(`${month}-${day}`);
     setBolsaError('');
     setShowBolsaModal(true);
@@ -565,8 +604,10 @@ export default function AnalisisGastos({ setVista }) {
   const saveBolsaInvestment = async (event) => {
     event.preventDefault();
     if (bolsaSaving) return;
-    const amount = bolsaPaymentMode === 'todo' ? bolsaProjection.totalToInvest : Number(bolsaPaymentAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const hapiAmount = bolsaPaymentMode === 'todo' ? bolsaProjection.totalHapiToInvest : Number(bolsaHapiAmount);
+    const triiAmount = bolsaPaymentMode === 'todo' ? bolsaProjection.totalTriiToInvest : Number(bolsaTriiAmount);
+    const amount = Number((hapiAmount + triiAmount).toFixed(2));
+    if (!Number.isFinite(hapiAmount) || hapiAmount < 0 || !Number.isFinite(triiAmount) || triiAmount < 0 || amount <= 0) {
       setBolsaError('Ingresa un monto válido mayor a cero.');
       return;
     }
@@ -588,6 +629,8 @@ export default function AnalisisGastos({ setVista }) {
         body: JSON.stringify({
           month,
           amount: Number(amount.toFixed(2)),
+          hapiAmount: Number(hapiAmount.toFixed(2)),
+          triiAmount: Number(triiAmount.toFixed(2)),
           date: bolsaPaymentDate,
         }),
       });
@@ -675,6 +718,12 @@ export default function AnalisisGastos({ setVista }) {
   const pieGradientUnificado = useMemo(() => buildGradient(pieDataUnificado), [pieDataUnificado]);
   const pieGradientVida = useMemo(() => buildGradient(pieDataVida), [pieDataVida]);
   const balanceVida = gananciaNetaSeleccionada - gastosVidaPen;
+  const bolsaFormHapi = Number(bolsaPaymentMode === 'todo' ? bolsaProjection.totalHapiToInvest : bolsaHapiAmount) || 0;
+  const bolsaFormTrii = Number(bolsaPaymentMode === 'todo' ? bolsaProjection.totalTriiToInvest : bolsaTriiAmount) || 0;
+  const bolsaFormTotal = bolsaFormHapi + bolsaFormTrii;
+  const bolsaPreviewHapi = Math.max(0, Number(bolsaProjection.totalHapiToInvest || 0) - bolsaFormHapi);
+  const bolsaPreviewTrii = Math.max(0, Number(bolsaProjection.totalTriiToInvest || 0) - bolsaFormTrii);
+  const bolsaPreviewPending = bolsaPreviewHapi + bolsaPreviewTrii;
 
   const allLifeMovs = useMemo(
     () => rows.filter((r) => isLifeExpenseConcept(r.concepto, conceptCategories)),
@@ -855,7 +904,6 @@ export default function AnalisisGastos({ setVista }) {
                 )}
               </div>
               {bolsaProjection.enabled && (() => {
-                const splitAmount = bolsaProjection.actualMonth > 0 ? bolsaProjection.actualMonth : bolsaProjection.totalToInvest;
                 return (
                   <div className="mt-2 flex items-start justify-between gap-3 text-xs leading-5">
                     <div className="min-w-0">
@@ -869,8 +917,8 @@ export default function AnalisisGastos({ setVista }) {
                       </div>
                     </div>
                     <div className="shrink-0 text-right">
-                      <div className="text-sky-700"><span className="font-medium">Hapi 70%</span> · S/ {(splitAmount * 0.7).toFixed(2)}</div>
-                      <div className="text-violet-700"><span className="font-medium">Trii 30%</span> · S/ {(splitAmount * 0.3).toFixed(2)}</div>
+                      <div className="text-sky-700"><span className="font-medium">Hapi 70%</span> · S/ {(bolsaProjection.actualMonth > 0 ? bolsaProjection.actualHapi : bolsaProjection.totalHapiToInvest).toFixed(2)}</div>
+                      <div className="text-violet-700"><span className="font-medium">Trii 30%</span> · S/ {(bolsaProjection.actualMonth > 0 ? bolsaProjection.actualTrii : bolsaProjection.totalTriiToInvest).toFixed(2)}</div>
                     </div>
                   </div>
                 );
@@ -886,8 +934,8 @@ export default function AnalisisGastos({ setVista }) {
               </div>
               {bolsaProjection.enabled ? (
                 <div className="mt-2 flex items-center justify-between gap-3 text-xs">
-                  <div className="text-sky-700"><span className="font-medium">Hapi 70%</span> · S/ {(bolsaProjection.investedAccumulated * 0.7).toFixed(2)}</div>
-                  <div className="text-right text-violet-700"><span className="font-medium">Trii 30%</span> · S/ {(bolsaProjection.investedAccumulated * 0.3).toFixed(2)}</div>
+                  <div className="text-sky-700"><span className="font-medium">Hapi</span> · S/ {bolsaProjection.hapiInvestedAccumulated.toFixed(2)}</div>
+                  <div className="text-right text-violet-700"><span className="font-medium">Trii</span> · S/ {bolsaProjection.triiInvestedAccumulated.toFixed(2)}</div>
                 </div>
               ) : (
                 <div className="mt-1 text-xs text-gray-500">Disponible desde enero de 2026.</div>
@@ -1189,7 +1237,7 @@ export default function AnalisisGastos({ setVista }) {
             <button type="button" onClick={() => setShowBolsaModal(false)} className="text-gray-500 hover:text-gray-800">x</button>
           </div>
 
-          <div className="mt-4 rounded-lg border bg-gray-50 p-3 text-sm">
+          <div className="hidden">
             <div className="flex justify-between gap-3"><span className="text-gray-600">2% calculado del mes</span><strong>S/ {bolsaProjection.calculatedMonthly.toFixed(2)}</strong></div>
             <div className="mt-1 flex justify-between gap-3"><span className="text-gray-600">Corresponde este mes</span><strong>S/ {bolsaProjection.monthly.toFixed(2)}</strong></div>
             <div className="mt-1 flex justify-between gap-3">
@@ -1197,6 +1245,10 @@ export default function AnalisisGastos({ setVista }) {
               <strong>S/ {Math.abs(bolsaProjection.pendingBefore).toFixed(2)}</strong>
             </div>
             <div className="mt-1 flex justify-between gap-3 text-indigo-700"><span>Total a invertir</span><strong>S/ {bolsaProjection.totalToInvest.toFixed(2)}</strong></div>
+            <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg bg-white p-2">
+              <div className="text-sky-700"><strong>Hapi</strong><br />Este mes: S/ {bolsaProjection.monthlyHapi.toFixed(2)}<br />Faltante anterior: S/ {bolsaProjection.pendingHapiBefore.toFixed(2)}<br /><strong>Total: S/ {bolsaProjection.totalHapiToInvest.toFixed(2)}</strong></div>
+              <div className="text-violet-700"><strong>Trii</strong><br />Este mes: S/ {bolsaProjection.monthlyTrii.toFixed(2)}<br />Faltante anterior: S/ {bolsaProjection.pendingTriiBefore.toFixed(2)}<br /><strong>Total: S/ {bolsaProjection.totalTriiToInvest.toFixed(2)}</strong></div>
+            </div>
             <div className="mt-1 flex justify-between gap-3"><span className="text-gray-600">Ya invertido este mes</span><strong>S/ {bolsaProjection.actualMonth.toFixed(2)}</strong></div>
             {bolsaProjection.expenseActual > 0 && !bolsaProjection.manualRecord && (
               <div className="mt-1 text-xs text-sky-600">Este monto fue detectado desde el gasto Bolsa existente.</div>
@@ -1205,7 +1257,28 @@ export default function AnalisisGastos({ setVista }) {
               <span>{bolsaProjection.credit > 0 ? 'Excedente resultante' : 'Faltante resultante'}</span>
               <strong>S/ {(bolsaProjection.credit > 0 ? bolsaProjection.credit : bolsaProjection.pending).toFixed(2)}</strong>
             </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+              <div className={bolsaProjection.hapiPending > 0 ? 'text-amber-700' : 'text-green-700'}>Hapi: {bolsaProjection.hapiPending > 0 ? `faltarán S/ ${bolsaProjection.hapiPending.toFixed(2)}` : `sin faltante${bolsaProjection.hapiCredit > 0 ? ` (excede S/ ${bolsaProjection.hapiCredit.toFixed(2)})` : ''}`}</div>
+              <div className={bolsaProjection.triiPending > 0 ? 'text-amber-700' : 'text-green-700'}>Trii: {bolsaProjection.triiPending > 0 ? `faltarán S/ ${bolsaProjection.triiPending.toFixed(2)}` : `sin faltante${bolsaProjection.triiCredit > 0 ? ` (excede S/ ${bolsaProjection.triiCredit.toFixed(2)})` : ''}`}</div>
+            </div>
             <div className="mt-1 flex justify-between gap-3"><span className="text-gray-600">Bolsa acumulada registrada</span><strong>S/ {bolsaProjection.investedAccumulated.toFixed(2)}</strong></div>
+          </div>
+
+          <div className="mt-4 overflow-hidden rounded-xl border bg-gray-50 text-sm">
+            <div className="grid grid-cols-3 divide-x border-b bg-white text-center">
+              <div className="p-2"><div className="text-xs text-gray-500">Meta del mes</div><strong>S/ {bolsaProjection.monthly.toFixed(2)}</strong></div>
+              <div className="p-2"><div className="text-xs text-gray-500">Pendiente anterior</div><strong className="text-amber-700">S/ {bolsaProjection.pendingBefore.toFixed(2)}</strong></div>
+              <div className="p-2"><div className="text-xs text-gray-500">A invertir</div><strong className="text-indigo-700">S/ {bolsaProjection.totalToInvest.toFixed(2)}</strong></div>
+            </div>
+            <div className="grid grid-cols-[1fr_repeat(3,auto)] items-center gap-x-3 gap-y-1 p-3 text-right text-xs">
+              <span className="text-left text-gray-500">Destino</span><span className="text-gray-500">Mes</span><span className="text-gray-500">Pend.</span><span className="text-gray-500">Total</span>
+              <strong className="text-left text-sky-700">Hapi</strong><span>S/ {bolsaProjection.monthlyHapi.toFixed(2)}</span><span>S/ {bolsaProjection.pendingHapiBefore.toFixed(2)}</span><strong>S/ {bolsaProjection.totalHapiToInvest.toFixed(2)}</strong>
+              <strong className="text-left text-violet-700">Trii</strong><span>S/ {bolsaProjection.monthlyTrii.toFixed(2)}</span><span>S/ {bolsaProjection.pendingTriiBefore.toFixed(2)}</span><strong>S/ {bolsaProjection.totalTriiToInvest.toFixed(2)}</strong>
+            </div>
+            <div className={`flex items-center justify-between border-t px-3 py-2 font-medium ${bolsaPreviewPending > 0 ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>
+              <span>{bolsaPreviewPending > 0 ? 'Quedará pendiente' : 'Inversión completa'}</span>
+              <strong>{bolsaPreviewPending > 0 ? `S/ ${bolsaPreviewPending.toFixed(2)}` : '✓'}</strong>
+            </div>
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
@@ -1213,7 +1286,8 @@ export default function AnalisisGastos({ setVista }) {
               type="button"
               onClick={() => {
                 setBolsaPaymentMode('todo');
-                setBolsaPaymentAmount(bolsaProjection.totalToInvest.toFixed(2));
+                setBolsaHapiAmount(bolsaProjection.totalHapiToInvest.toFixed(2));
+                setBolsaTriiAmount(bolsaProjection.totalTriiToInvest.toFixed(2));
                 setBolsaError('');
               }}
               className={`rounded-lg border px-3 py-2 text-sm ${bolsaPaymentMode === 'todo' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'bg-white text-gray-700'}`}
@@ -1224,7 +1298,8 @@ export default function AnalisisGastos({ setVista }) {
               type="button"
               onClick={() => {
                 setBolsaPaymentMode('variable');
-                setBolsaPaymentAmount('');
+                setBolsaHapiAmount('');
+                setBolsaTriiAmount('');
                 setBolsaError('');
               }}
               className={`rounded-lg border px-3 py-2 text-sm ${bolsaPaymentMode === 'variable' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'bg-white text-gray-700'}`}
@@ -1233,19 +1308,26 @@ export default function AnalisisGastos({ setVista }) {
             </button>
           </div>
 
-          <label className="mt-4 block text-sm text-gray-700">
-            Monto invertido (S/)
+          <div className="mt-4 grid grid-cols-2 gap-3">
+          <label className="block text-sm text-sky-700">
+            Hapi (S/)
             <input
               type="number"
-              min="0.01"
+              min="0"
               step="0.01"
-              value={bolsaPaymentMode === 'todo' ? bolsaProjection.totalToInvest.toFixed(2) : bolsaPaymentAmount}
-              onChange={(event) => setBolsaPaymentAmount(event.target.value)}
+              value={bolsaPaymentMode === 'todo' ? bolsaProjection.totalHapiToInvest.toFixed(2) : bolsaHapiAmount}
+              onChange={(event) => setBolsaHapiAmount(event.target.value)}
               disabled={bolsaPaymentMode === 'todo'}
               className="mt-1 w-full rounded-lg border px-3 py-2 disabled:bg-gray-100"
               placeholder="0.00"
             />
           </label>
+          <label className="block text-sm text-violet-700">
+            Trii (S/)
+            <input type="number" min="0" step="0.01" value={bolsaPaymentMode === 'todo' ? bolsaProjection.totalTriiToInvest.toFixed(2) : bolsaTriiAmount} onChange={(event) => setBolsaTriiAmount(event.target.value)} disabled={bolsaPaymentMode === 'todo'} className="mt-1 w-full rounded-lg border px-3 py-2 disabled:bg-gray-100" placeholder="0.00" />
+          </label>
+          </div>
+          <div className="mt-2 text-right text-sm font-medium text-gray-700">Total: S/ {bolsaFormTotal.toFixed(2)}</div>
           <label className="mt-3 block text-sm text-gray-700">
             Fecha de inversión
             <input
@@ -1260,7 +1342,7 @@ export default function AnalisisGastos({ setVista }) {
           </label>
 
           {bolsaError && <div className="mt-3 text-sm text-red-600">{bolsaError}</div>}
-          <p className="mt-3 text-xs text-gray-500">Este registro sólo controla la inversión en Análisis y nunca crea, elimina ni modifica un gasto general. Al retirar la inversión, únicamente se quita de este cálculo.</p>
+          <p className="mt-3 text-xs text-gray-500">Registro interno de Análisis; no modifica tus gastos.</p>
 
           <div className="mt-5 flex justify-end gap-2">
             {bolsaModalAction === 'edit' && (
