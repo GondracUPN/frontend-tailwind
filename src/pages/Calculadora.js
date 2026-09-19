@@ -195,7 +195,7 @@ const getMacbookConfig = (gama, procesador) => {
   }
   return { sizes, rams, ssds };
 };
-const IPAD_PROCESADORES_AIR = ['M1', 'M2', 'M3'];
+const IPAD_PROCESADORES_AIR = ['Gen 4', 'M1', 'M2', 'M3'];
 const IPAD_PROCESADORES_PRO = ['M1', 'M2', 'M4', 'M5'];
 const getIpadProcesadores = (gama) => {
   if (gama === 'Air') return IPAD_PROCESADORES_AIR;
@@ -203,6 +203,7 @@ const getIpadProcesadores = (gama) => {
   return [];
 };
 const getIpadTamanos = (gama, procesador) => {
+  if (gama === 'Air' && procesador === 'Gen 4') return ['10.9'];
   if (gama === 'Air' && ['M2', 'M3'].includes(procesador)) return ['11', '13'];
   if (gama === 'Pro') {
     if (['M1', 'M2'].includes(procesador)) return ['11', '12.9'];
@@ -218,6 +219,7 @@ const getIpadAlmacenamiento = (gama, generacion, procesador) => {
     return [];
   }
   if (gama === 'Air') {
+    if (procesador === 'Gen 4') return ['64', '256'];
     if (procesador === 'M1') return ['64', '128', '256'];
     if (['M2', 'M3'].includes(procesador)) return ['128', '256', '512'];
   }

@@ -65,7 +65,7 @@ const IPAD_SCREEN_OPTIONS = ['', '11', '12.9', '13'];
 const IPAD_AIR_SCREEN_OPTIONS = ['', '10.9', '11', '13'];
 const IPAD_PRO_SCREEN_OPTIONS = ['', '11', '12.9', '13'];
 const IPAD_PROCESSOR_OPTIONS = ['', 'A16', 'M1', 'M2', 'M3', 'M4', 'M5'];
-const IPAD_AIR_PROCESSOR_OPTIONS = ['', 'M1', 'M2', 'M3'];
+const IPAD_AIR_PROCESSOR_OPTIONS = ['', 'Gen 4', 'M1', 'M2', 'M3'];
 const IPAD_PRO_PROCESSOR_OPTIONS = ['', 'M1', 'M2', 'M4', 'M5'];
 const IPAD_STORAGE_OPTIONS = ['', '64GB', '128GB', '256GB', '512GB', '1TB', '2TB'];
 const IPAD_CONNECTIVITY_OPTIONS = [
@@ -369,6 +369,7 @@ const getIpadStorageOptions = (form) => {
     if (number === '7') return ['', '128GB', '256GB', '512GB'];
   }
   if (line === 'air') {
+    if (processor === 'Gen 4') return ['', '64GB', '256GB'];
     if (processor === 'M1') return ['', '64GB', '128GB', '256GB'];
     if (['M2', 'M3'].includes(processor)) return ['', '128GB', '256GB', '512GB'];
   }
