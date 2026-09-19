@@ -206,6 +206,15 @@ export default function AnalisisGastos({ setVista }) {
       to: `${month}-${String(lastDay).padStart(2, '0')}`,
     };
   }, [month]);
+  const bolsaDateRange = useMemo(() => {
+    const [year, monthNumber] = month.split('-').map(Number);
+    if (!year || !monthNumber) return { min: '', max: '' };
+    const nextMonthLastDay = new Date(year, monthNumber + 1, 0);
+    return {
+      min: `${month}-01`,
+      max: `${nextMonthLastDay.getFullYear()}-${String(nextMonthLastDay.getMonth() + 1).padStart(2, '0')}-${String(nextMonthLastDay.getDate()).padStart(2, '0')}`,
+    };
+  }, [month]);
   const filtered = useMemo(
     () => rows.filter((r) => {
       const date = String(r.fecha || '').slice(0, 10);
@@ -611,8 +620,8 @@ export default function AnalisisGastos({ setVista }) {
       setBolsaError('Ingresa un monto válido mayor a cero.');
       return;
     }
-    if (!bolsaPaymentDate || !bolsaPaymentDate.startsWith(month)) {
-      setBolsaError('La fecha debe pertenecer al mes seleccionado.');
+    if (!bolsaPaymentDate || bolsaPaymentDate < bolsaDateRange.min || bolsaPaymentDate > bolsaDateRange.max) {
+      setBolsaError('La fecha puede ser del mes seleccionado o del mes siguiente.');
       return;
     }
 
@@ -1333,13 +1342,14 @@ export default function AnalisisGastos({ setVista }) {
             <input
               type="date"
               value={bolsaPaymentDate}
-              min={`${month}-01`}
-              max={monthRange.to}
+              min={bolsaDateRange.min}
+              max={bolsaDateRange.max}
               onChange={(event) => setBolsaPaymentDate(event.target.value)}
               className="mt-1 w-full rounded-lg border px-3 py-2"
               required
             />
           </label>
+          <div className="mt-1 text-xs text-gray-500">Puede realizarse hasta el mes siguiente.</div>
 
           {bolsaError && <div className="mt-3 text-sm text-red-600">{bolsaError}</div>}
           <p className="mt-3 text-xs text-gray-500">Registro interno de Análisis; no modifica tus gastos.</p>
