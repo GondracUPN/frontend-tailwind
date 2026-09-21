@@ -63,7 +63,7 @@ const PERSONAL_SHIPPING_RATES = [
   { maxKg: 8.5, price: 236.55 }, { maxKg: 9, price: 246.55 },
   { maxKg: 9.5, price: 257.22 }, { maxKg: 10, price: 267.22 },
 ];
-export const calculatePersonalShipping = (rawWeight) => {
+export const calculatePersonalShipping = (rawWeight, rawDec = 0) => {
   const weight = Number(String(rawWeight ?? '').replace(',', '.'));
   if (!Number.isFinite(weight) || weight <= 0) return 0;
   const hundredths = Math.round(weight * 100);
@@ -77,7 +77,10 @@ export const calculatePersonalShipping = (rawWeight) => {
   const promoBaseWeight = Math.min(roundedWeight, 3);
   const promoRate = PERSONAL_SHIPPING_RATES.find(({ maxKg }) => promoBaseWeight <= maxKg)?.price || 0;
   const discount = Math.min(Number((promoRate * 0.35).toFixed(2)), 41.99);
-  return Number(Math.max(0, gross - discount).toFixed(2));
+  const dec = Number(rawDec) || 0;
+  const fees = dec <= 100 ? 23.50 : dec <= 200 ? 28.80 : dec <= 1000 ? 39.76 : 60.16;
+  const insurance = dec <= 100 ? 8.86 : dec <= 200 ? 15.98 : 21.10;
+  return Number(Math.max(0, gross - discount + fees + insurance).toFixed(2));
 };
 const normalizeProductType = (value) => {
   const raw = String(value || '').trim().toLowerCase();
@@ -1649,12 +1652,16 @@ const confirmAction = async () => {
     const casillero = accountKey ? casilleroByAccount[accountKey] : '';
     const fecha = parseEshopexFecha(row?.fechaRecepcion || '');
     const peso = parseEshopexPeso(row?.peso || '');
+    const valorRaw = String(row?.valor || '').replace(/,/g, '.').replace(/[^0-9.]+/g, ' ').trim();
+    const valorDec = Number(valorRaw.split(/\s+/).find(Boolean) || 0);
     const item = {
       id: code,
       trackingEshop: code,
       descripcion: String(row?.descripcion || 'Personal').trim() || 'Personal',
       peso,
-      costoEnvio: calculatePersonalShipping(peso),
+      // Se envía únicamente para calcular el costo; el backend no guarda el DEC.
+      valorDec: Number.isFinite(valorDec) ? valorDec : 0,
+      costoEnvio: calculatePersonalShipping(peso, valorDec),
       estatusEsho: normalizeCargaStatus(row?.estado || ''),
       fechaRecepcion: fecha,
       fechaRecepcionRaw: row?.fechaRecepcion || '',
