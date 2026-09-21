@@ -77,10 +77,11 @@ export const calculatePersonalShipping = (rawWeight, rawDec = 0) => {
   const promoBaseWeight = Math.min(roundedWeight, 3);
   const promoRate = PERSONAL_SHIPPING_RATES.find(({ maxKg }) => promoBaseWeight <= maxKg)?.price || 0;
   const discount = Math.min(Number((promoRate * 0.35).toFixed(2)), 41.99);
+  const minimum = Number((PERSONAL_SHIPPING_RATES[0].price * 0.65).toFixed(2));
   const dec = Number(rawDec) || 0;
   const fees = dec <= 100 ? 23.50 : dec <= 200 ? 28.80 : dec <= 1000 ? 39.76 : 60.16;
   const insurance = dec <= 100 ? 8.86 : dec <= 200 ? 15.98 : 21.10;
-  return Number(Math.max(0, gross - discount + fees + insurance).toFixed(2));
+  return Number((Math.max(minimum, gross - discount) + fees + insurance).toFixed(2));
 };
 const normalizeProductType = (value) => {
   const raw = String(value || '').trim().toLowerCase();
@@ -1659,7 +1660,6 @@ const confirmAction = async () => {
       trackingEshop: code,
       descripcion: String(row?.descripcion || 'Personal').trim() || 'Personal',
       peso,
-      // Se envía únicamente para calcular el costo; el backend no guarda el DEC.
       valorDec: Number.isFinite(valorDec) ? valorDec : 0,
       costoEnvio: calculatePersonalShipping(peso, valorDec),
       estatusEsho: normalizeCargaStatus(row?.estado || ''),

@@ -374,13 +374,14 @@ const migratePersonalEshopexLocalStorage = async (current = []) => {
         const pesoFacturable = roundTenth05DownCalc(peso);
         const gross = tarifaEshopexCalc(pesoFacturable);
         const discount = Math.min(Number((tarifaHasta3KgCalc(pesoFacturable) * 0.35).toFixed(2)), 41.99);
+        const minimum = Number((tarifaEshopexCalc(0.5) * 0.65).toFixed(2));
         const honorarios = honorariosPorDecCalc(legacyValorDec);
         const seguro = seguroPorDecCalc(legacyValorDec);
         return api.post('/productos/personal-eshopex', {
           ...personal,
           peso,
           valorDec: legacyValorDec,
-          costoEnvio: Number(Math.max(0, gross - discount + honorarios + seguro).toFixed(2)),
+          costoEnvio: Number((Math.max(minimum, gross - discount) + honorarios + seguro).toFixed(2)),
           trackingEshop: String(personal?.trackingEshop || personal?.guia || personal?.id || '').trim(),
         });
       }),
@@ -991,6 +992,7 @@ function App() {
     const pesoFacturable = roundTenth05DownCalc(peso);
     const transporteBruto = tarifaEshopexCalc(pesoFacturable);
     const promoDescuento = Math.min(Number((tarifaHasta3KgCalc(pesoFacturable) * 0.35).toFixed(2)), 41.99);
+    const minimum = Number((tarifaEshopexCalc(0.5) * 0.65).toFixed(2));
     const honorarios = honorariosPorDecCalc(valorDec);
     const seguro = seguroPorDecCalc(valorDec);
     const item = {
@@ -999,7 +1001,7 @@ function App() {
       descripcion: String(row?.descripcion || 'Personal').trim() || 'Personal',
       peso,
       valorDec: Number.isFinite(valorDec) ? valorDec : 0,
-      costoEnvio: Number(Math.max(0, transporteBruto - promoDescuento + honorarios + seguro).toFixed(2)),
+      costoEnvio: Number((Math.max(minimum, transporteBruto - promoDescuento) + honorarios + seguro).toFixed(2)),
       estatusEsho: String(row?.estado || '').trim(),
       fechaRecepcion: parseEshopexFecha(row?.fechaRecepcion || ''),
       fechaRecepcionRaw: row?.fechaRecepcion || '',
