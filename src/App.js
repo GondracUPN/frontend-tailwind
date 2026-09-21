@@ -364,12 +364,22 @@ const migratePersonalEshopexLocalStorage = async (current = []) => {
       return current;
     }
     const results = await Promise.allSettled(
-      pending.map((item) =>
-        api.post('/productos/personal-eshopex', {
-          ...item,
-          trackingEshop: String(item?.trackingEshop || item?.guia || item?.id || '').trim(),
-        }),
-      ),
+      pending.map((item) => {
+        const personal = { ...(item || {}) };
+        delete personal.valorDec;
+        const rawWeight = String(personal?.peso || '').replace(/,/g, '.').replace(/[^0-9.]+/g, ' ').trim();
+        const parsedWeight = Number(rawWeight.split(/\s+/).find(Boolean) || 0);
+        const peso = Number.isFinite(parsedWeight) && parsedWeight > 0 ? Number(parsedWeight.toFixed(2)) : null;
+        const pesoFacturable = roundTenth05DownCalc(peso);
+        const gross = tarifaEshopexCalc(pesoFacturable);
+        const discount = Math.min(Number((tarifaHasta3KgCalc(pesoFacturable) * 0.35).toFixed(2)), 41.99);
+        return api.post('/productos/personal-eshopex', {
+          ...personal,
+          peso,
+          costoEnvio: Number(Math.max(0, gross - discount).toFixed(2)),
+          trackingEshop: String(personal?.trackingEshop || personal?.guia || personal?.id || '').trim(),
+        });
+      }),
     );
     const saved = results
       .filter((result) => result.status === 'fulfilled')
@@ -971,14 +981,16 @@ function App() {
     if (!code) return;
     const accountKey = String(row?.account || '').trim().toLowerCase();
     const casillero = accountKey ? (CASILLERO_BY_ACCOUNT[accountKey] || '') : '';
-    const valorRaw = String(row?.valor || '').replace(/,/g, '.').replace(/[^0-9.]+/g, ' ').trim();
-    const valorDec = Number((valorRaw.split(/\s+/).find(Boolean) || '0'));
+    const peso = parseEshopexPeso(row?.peso || '');
+    const pesoFacturable = roundTenth05DownCalc(peso);
+    const transporteBruto = tarifaEshopexCalc(pesoFacturable);
+    const promoDescuento = Math.min(Number((tarifaHasta3KgCalc(pesoFacturable) * 0.35).toFixed(2)), 41.99);
     const item = {
       id: code,
       trackingEshop: code,
       descripcion: String(row?.descripcion || 'Personal').trim() || 'Personal',
-      peso: parseEshopexPeso(row?.peso || ''),
-      valorDec: Number.isFinite(valorDec) ? valorDec : 0,
+      peso,
+      costoEnvio: Number(Math.max(0, transporteBruto - promoDescuento).toFixed(2)),
       estatusEsho: String(row?.estado || '').trim(),
       fechaRecepcion: parseEshopexFecha(row?.fechaRecepcion || ''),
       fechaRecepcionRaw: row?.fechaRecepcion || '',

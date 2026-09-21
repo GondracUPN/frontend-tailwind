@@ -51,6 +51,34 @@ const PRODUCT_STATE_LABELS = {
   usado: 'Usado',
   open_box: 'Box',
 };
+const PERSONAL_SHIPPING_RATES = [
+  { maxKg: 0.5, price: 31.79 }, { maxKg: 1, price: 56.19 },
+  { maxKg: 1.5, price: 75.86 }, { maxKg: 2, price: 91.86 },
+  { maxKg: 2.5, price: 112.53 }, { maxKg: 3, price: 122.53 },
+  { maxKg: 3.5, price: 133.20 }, { maxKg: 4, price: 143.20 },
+  { maxKg: 4.5, price: 153.87 }, { maxKg: 5, price: 163.87 },
+  { maxKg: 5.5, price: 174.54 }, { maxKg: 6, price: 184.54 },
+  { maxKg: 6.5, price: 195.21 }, { maxKg: 7, price: 205.21 },
+  { maxKg: 7.5, price: 215.88 }, { maxKg: 8, price: 225.88 },
+  { maxKg: 8.5, price: 236.55 }, { maxKg: 9, price: 246.55 },
+  { maxKg: 9.5, price: 257.22 }, { maxKg: 10, price: 267.22 },
+];
+export const calculatePersonalShipping = (rawWeight) => {
+  const weight = Number(String(rawWeight ?? '').replace(',', '.'));
+  if (!Number.isFinite(weight) || weight <= 0) return 0;
+  const hundredths = Math.round(weight * 100);
+  const tenths = Math.floor(hundredths / 10);
+  const roundedWeight = (hundredths - tenths * 10 <= 5 ? tenths : tenths + 1) / 10;
+  const rate = PERSONAL_SHIPPING_RATES.find(({ maxKg }) => roundedWeight <= maxKg);
+  const gross = rate
+    ? rate.price
+    : PERSONAL_SHIPPING_RATES[PERSONAL_SHIPPING_RATES.length - 1].price
+      + Math.ceil((roundedWeight - 10) / 0.5) * 10.52;
+  const promoBaseWeight = Math.min(roundedWeight, 3);
+  const promoRate = PERSONAL_SHIPPING_RATES.find(({ maxKg }) => promoBaseWeight <= maxKg)?.price || 0;
+  const discount = Math.min(Number((promoRate * 0.35).toFixed(2)), 41.99);
+  return Number(Math.max(0, gross - discount).toFixed(2));
+};
 const normalizeProductType = (value) => {
   const raw = String(value || '').trim().toLowerCase();
   const compact = raw.replace(/[\s_-]+/g, '');
@@ -812,7 +840,10 @@ export default function Productos({ setVista, setAnalisisBack }) {
         tipo: 'personal',
         descripcion: item.descripcion || 'Personal',
         detalle: { descripcionOtro: item.descripcion || 'Personal' },
-        valor: { valorDec: Number(item.valorDec || 0) || 0 },
+        valor: {
+          peso: Number(item.peso || 0) || 0,
+          costoEnvio: Number(item.costoEnvio || 0) || 0,
+        },
         despacho: Boolean(item.despacho),
         recogido: Boolean(item.recogido),
         tracking: [{
@@ -1618,14 +1649,12 @@ const confirmAction = async () => {
     const casillero = accountKey ? casilleroByAccount[accountKey] : '';
     const fecha = parseEshopexFecha(row?.fechaRecepcion || '');
     const peso = parseEshopexPeso(row?.peso || '');
-    const valorRaw = String(row?.valor || '').replace(/,/g, '.').replace(/[^0-9.]+/g, ' ').trim();
-    const valorDec = Number((valorRaw.split(/\s+/).find(Boolean) || '0'));
     const item = {
       id: code,
       trackingEshop: code,
       descripcion: String(row?.descripcion || 'Personal').trim() || 'Personal',
       peso,
-      valorDec: Number.isFinite(valorDec) ? valorDec : 0,
+      costoEnvio: calculatePersonalShipping(peso),
       estatusEsho: normalizeCargaStatus(row?.estado || ''),
       fechaRecepcion: fecha,
       fechaRecepcionRaw: row?.fechaRecepcion || '',
@@ -3869,16 +3898,17 @@ const confirmAction = async () => {
               <div className="text-sm text-gray-500">No hay paquetes personales guardados.</div>
             ) : (
               <div className="overflow-x-auto rounded-xl ring-1 ring-gray-200 shadow-sm overflow-y-auto">
-                <table className="min-w-[1050px] w-full text-sm">
+                <table className="min-w-[1150px] w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="p-2 text-left">Sel.</th>
-                      <th className="p-2 text-left">Descripcion</th>
+                      <th className="w-56 p-2 text-left">Descripcion</th>
                       <th className="p-2 text-left">Tracking Eshopex</th>
                       <th className="p-2 text-left">Casillero</th>
                       <th className="p-2 text-left">EstatusEsho</th>
                       <th className="p-2 text-left">Fecha recepcion</th>
-                      <th className="p-2 text-left">DEC</th>
+                      <th className="p-2 text-left">Peso</th>
+                      <th className="p-2 text-left">Costo envio</th>
                       <th className="p-2 text-left">Estado</th>
                       <th className="p-2 text-left">Fecha entrega</th>
                       <th className="p-2 text-left">Acciones</th>
@@ -3911,7 +3941,15 @@ const confirmAction = async () => {
                               title={item?.recogido ? 'Ya esta recogido' : ''}
                             />
                           </td>
-                          <td className="p-2">{item?.descripcion || 'Personal'}</td>
+                          <td className="w-56 p-2">
+                            <div
+                              className="h-10 overflow-hidden leading-5"
+                              title={item?.descripcion || 'Personal'}
+                              style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
+                            >
+                              {item?.descripcion || 'Personal'}
+                            </div>
+                          </td>
                           <td className="p-2">{trackingEshop || '-'}</td>
                           <td className="p-2">{item?.casillero || '-'}</td>
                           <td className="p-2">{estatusEsho || statusNorm.label || '-'}</td>
@@ -3949,7 +3987,12 @@ const confirmAction = async () => {
                               item?.fechaRecepcion || item?.fechaRecepcionRaw || fechaRecepcionCarga || '-'
                             )}
                           </td>
-                          <td className="p-2">{item?.valorDec ? `$ ${Number(item.valorDec).toFixed(2)}` : '-'}</td>
+                          <td className="p-2 whitespace-nowrap">{item?.peso ? `${Number(item.peso).toFixed(2)} kg` : '-'}</td>
+                          <td className="p-2 whitespace-nowrap">
+                            {Number(item?.costoEnvio) > 0 || Number(item?.peso) > 0
+                              ? `S/ ${Number(item?.costoEnvio || calculatePersonalShipping(item?.peso)).toFixed(2)}`
+                              : '-'}
+                          </td>
                           <td className="p-2">
                             {item?.recogido ? 'Recogido' : item?.despacho ? 'Despacho' : 'En casillero'}
                           </td>
