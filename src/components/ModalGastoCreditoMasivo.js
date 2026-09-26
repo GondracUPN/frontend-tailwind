@@ -345,12 +345,12 @@ export const compareBulkExpenses = (importedRows, savedRows, card) => {
       : importedDates.reduce((best, date) => Math.abs(dayValue(date) - dayValue(savedDate)) < Math.abs(dayValue(best) - dayValue(savedDate)) ? date : best, importedDates[0]);
     systemGroups.get(anchorDate).push(saved);
   });
+  const allMatchedTargets = new Set(pairs.map((pair) => pair.target).filter(Boolean));
   const displayRows = [];
   importedDates.forEach((date) => {
     const datePairs = pairs.filter((pair) => pair.source.fecha === date);
     const groupRows = datePairs.map((pair) => ({ imported: pair.source, saved: pair.target, matched: Boolean(pair.target), sourceIndex: pair.sourceIndex }));
-    const matchedTargets = new Set(datePairs.map((pair) => pair.target).filter(Boolean));
-    (systemGroups.get(date) || []).filter((saved) => !matchedTargets.has(saved)).forEach((saved) => {
+    (systemGroups.get(date) || []).filter((saved) => !allMatchedTargets.has(saved)).forEach((saved) => {
       const empty = groupRows.find((row) => !row.saved);
       if (empty) empty.saved = saved;
       else groupRows.push({ imported: null, saved, matched: false, sourceIndex: null });

@@ -143,3 +143,19 @@ test('omite cualquier fila BBVA que diga pago o exceso, pero conserva desgravame
   expect(parsed.rows).toHaveLength(2);
   expect(parsed.rows.map((row) => row.body.concepto)).toEqual(['desgravamen', 'gusto']);
 });
+
+test('no repite en la tabla un gasto del sistema emparejado con el día anterior', () => {
+  const imported = [
+    { lineNumber: 1, body: { fecha: '2026-07-12', moneda: 'PEN', monto: 11.90, metodoPago: 'credito', notas: 'Spotify' } },
+    { lineNumber: 2, body: { fecha: '2026-07-13', moneda: 'USD', monto: 20.84, metodoPago: 'credito', notas: 'Disney Plus' } },
+  ];
+  const spotify = { id: 20, fecha: '2026-07-13', moneda: 'PEN', monto: '11.90', metodoPago: 'credito', tarjeta: 'interbank', notas: 'Spotify' };
+  const disney = { id: 21, fecha: '2026-07-14', moneda: 'USD', monto: '20.84', metodoPago: 'credito', tarjeta: 'interbank', notas: 'Disney Plus' };
+
+  const comparison = compareBulkExpenses(imported, [spotify, disney], 'interbank');
+  const spotifyAppearances = comparison.displayRows.filter((row) => row.saved?.id === spotify.id);
+
+  expect(comparison.matched).toBe(2);
+  expect(spotifyAppearances).toHaveLength(1);
+  expect(spotifyAppearances[0].matched).toBe(true);
+});
