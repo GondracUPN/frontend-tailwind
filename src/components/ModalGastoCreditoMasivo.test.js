@@ -104,3 +104,42 @@ test('compara tarjeta sin distinguir mayúsculas y montos guardados con signo', 
   expect(comparison.matched).toBe(1);
   expect(comparison.missing).toEqual([]);
 });
+
+test('Interbank considera coincidencia si la fecha difiere hasta un día', () => {
+  const imported = [
+    { lineNumber: 1, body: { fecha: '2026-06-28', moneda: 'USD', monto: 35.68, metodoPago: 'credito', notas: 'Temu' } },
+    { lineNumber: 2, body: { fecha: '2026-07-06', moneda: 'PEN', monto: 53.03, metodoPago: 'credito', notas: 'Eshopex' } },
+  ];
+  const saved = [
+    { id: 10, fecha: '2026-06-29', moneda: 'USD', monto: '35.68', metodoPago: 'credito', tarjeta: 'interbank' },
+    { id: 11, fecha: '2026-07-07', moneda: 'PEN', monto: '53.03', metodoPago: 'credito', tarjeta: 'interbank' },
+  ];
+
+  const comparison = compareBulkExpenses(imported, saved, 'interbank');
+  expect(comparison.matched).toBe(2);
+  expect(comparison.missing).toEqual([]);
+});
+
+test('prioriza fecha exacta sobre la coincidencia de un día contiguo', () => {
+  const imported = [{ lineNumber: 1, body: { fecha: '2026-07-07', moneda: 'PEN', monto: 53.03, metodoPago: 'credito' } }];
+  const saved = [
+    { id: 10, fecha: '2026-07-06', moneda: 'PEN', monto: '53.03', metodoPago: 'credito', tarjeta: 'interbank' },
+    { id: 11, fecha: '2026-07-07', moneda: 'PEN', monto: '53.03', metodoPago: 'credito', tarjeta: 'interbank' },
+  ];
+
+  expect(compareBulkExpenses(imported, saved, 'interbank').pairs[0].target.id).toBe(11);
+});
+
+test('omite cualquier fila BBVA que diga pago o exceso, pero conserva desgravamen', () => {
+  const parsed = parseBulkRows([
+    'FECHA\tDESCRIPCIÓN\tMONTO',
+    '18/09/2026\tSEGURO DE DESGRAVAMEN\tS/ 0.11',
+    '17/09/2026\tPAGO CUENTA\tS/ -100.00',
+    '16/09/2026\tEXCESO LINEA\tS/ -20.00',
+    '15/09/2026\tPHANTOM\tS/ 59.49',
+  ].join('\n'));
+
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows).toHaveLength(2);
+  expect(parsed.rows.map((row) => row.body.concepto)).toEqual(['desgravamen', 'gusto']);
+});

@@ -95,7 +95,7 @@ const toSignedAmount = (raw) => {
   return parenthesized || trailingMinus ? -Math.abs(number) : number;
 };
 
-const isPaymentOrBalanceMovement = (description) => /\bpago\s+(?:de\s+)?tarj(?:eta)?\b|pago\s+tarj\s+web\s+app|exceso\s+linea|sdo\.?\s*acre|saldo\s+acre/i.test(normalizeText(description));
+const isPaymentOrBalanceMovement = (description) => /\bpago\b|\bexceso\b|sdo\.?\s*acre|saldo\s+acre/i.test(normalizeText(description));
 
 const matrixToBulkLines = (matrix) => {
   const headerIndex = (matrix || []).findIndex((row) => {
@@ -310,26 +310,32 @@ export const compareBulkExpenses = (importedRows, savedRows, card) => {
   const dates = imported.map((row) => row.fecha).filter(Boolean).sort();
   const from = dates[0];
   const to = dates[dates.length - 1];
+  const dayValue = (value) => {
+    const time = new Date(`${String(value || '').slice(0, 10)}T00:00:00Z`).getTime();
+    return Number.isFinite(time) ? time : 0;
+  };
+  const oneDay = 24 * 60 * 60 * 1000;
+  const candidateFrom = new Date(dayValue(from) - oneDay).toISOString().slice(0, 10);
+  const candidateTo = new Date(dayValue(to) + oneDay).toISOString().slice(0, 10);
   const normalizedCard = normalizeText(card).replace(/[^a-z0-9]/g, '');
   const candidates = (savedRows || []).filter((row) => normalizeText(row.metodoPago) === 'credito'
     && normalizeText(row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard
-    && String(row.fecha || '').slice(0, 10) >= from && String(row.fecha || '').slice(0, 10) <= to)
+    && String(row.fecha || '').slice(0, 10) >= candidateFrom && String(row.fecha || '').slice(0, 10) <= candidateTo)
     .sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')) || Number(a.monto || 0) - Number(b.monto || 0));
   const used = new Set();
   const pairs = imported.map((source, sourceIndex) => {
-    const index = candidates.findIndex((target, candidateIndex) => !used.has(candidateIndex)
-      && String(target.fecha || '').slice(0, 10) === source.fecha
-      && normalizeText(target.moneda) === normalizeText(source.moneda)
-      && Math.abs(Math.abs(Number(target.monto)) - Math.abs(Number(source.monto))) < 0.005);
+    const matchingIndexes = candidates.map((target, candidateIndex) => ({ target, candidateIndex }))
+      .filter(({ target, candidateIndex }) => !used.has(candidateIndex)
+        && normalizeText(target.moneda) === normalizeText(source.moneda)
+        && Math.abs(Math.abs(Number(target.monto)) - Math.abs(Number(source.monto))) < 0.005
+        && Math.abs(dayValue(target.fecha) - dayValue(source.fecha)) <= oneDay)
+      .sort((a, b) => Math.abs(dayValue(a.target.fecha) - dayValue(source.fecha)) - Math.abs(dayValue(b.target.fecha) - dayValue(source.fecha)));
+    const index = matchingIndexes[0]?.candidateIndex ?? -1;
     if (index >= 0) used.add(index);
     return { source, sourceIndex: source._lineNumber, target: index >= 0 ? candidates[index] : null };
   });
   const missing = pairs.filter((pair) => !pair.target).map((pair) => pair.source);
   const remaining = candidates.filter((_, index) => !used.has(index));
-  const dayValue = (value) => {
-    const time = new Date(`${String(value || '').slice(0, 10)}T00:00:00Z`).getTime();
-    return Number.isFinite(time) ? time : 0;
-  };
   const importedDates = [...new Set(imported.map((row) => row.fecha))].sort();
   const systemGroups = new Map(importedDates.map((date) => [date, []]));
   candidates.forEach((saved) => {
@@ -364,25 +370,31 @@ function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverr
   return comparison.displayRows.map((displayRow, index) => {
     const { imported, saved, matched } = displayRow;
     const importedKey = `imported-${displayRow.sourceIndex ?? index}`;
-    const toggle = (key) => setReviewed((current) => ({ ...current, [key]: !current[key] }));
+    const hasManualReview = Object.prototype.hasOwnProperty.call(reviewed, importedKey);
+    const checked = hasManualReview ? Boolean(reviewed[importedKey]) : matched;
+    const acceptedMatch = matched && checked;
+    const toggle = (key) => setReviewed((current) => ({
+      ...current,
+      [key]: !(Object.prototype.hasOwnProperty.call(current, key) ? current[key] : matched),
+    }));
     return (
       <tr key={`manual-${index}-${saved?.id || 'none'}`} className="border-t border-gray-100 align-top">
-        <td onClick={() => imported && !matched && toggle(importedKey)} className={`p-2 ${matched ? 'bg-emerald-100' : imported ? 'cursor-pointer bg-white hover:bg-gray-50' : 'bg-white'}`}>
+        <td onClick={() => imported && toggle(importedKey)} className={`p-2 ${acceptedMatch ? 'bg-emerald-100' : imported ? 'cursor-pointer bg-white hover:bg-gray-50' : 'bg-white'}`}>
           {imported && <div className="flex items-start gap-2">
-            <input aria-label={`Revisar gasto cargado ${index + 1}`} type="checkbox" disabled={matched} checked={matched || Boolean(reviewed[importedKey])} onClick={(event) => event.stopPropagation()} onChange={(event) => setReviewed((current) => ({ ...current, [importedKey]: event.target.checked }))} className="mt-0.5" />
-            <div className={`min-w-0 flex-1 ${matched ? 'text-emerald-900' : reviewed[importedKey] ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+            <input aria-label={`Revisar gasto cargado ${index + 1}`} type="checkbox" checked={checked} onClick={(event) => event.stopPropagation()} onChange={(event) => setReviewed((current) => ({ ...current, [importedKey]: event.target.checked }))} className="mt-0.5" />
+            <div className={`min-w-0 flex-1 ${acceptedMatch ? 'text-emerald-900' : checked ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
               <div className="font-medium">{imported.fecha} · {imported.moneda} {Number(imported.monto).toFixed(2)}</div>
-              <div className={matched ? 'text-emerald-700' : 'text-gray-500'}>{imported.notas || ''}</div>
-              {!matched && !reviewed[importedKey] && <select aria-label={`Tipo de gasto ${index + 1}`} value={conceptOverrides[displayRow.sourceIndex] || imported.concepto} onClick={(event) => event.stopPropagation()} onChange={(event) => setConceptOverrides((current) => ({ ...current, [displayRow.sourceIndex]: event.target.value }))} className="mt-1 rounded border border-gray-300 bg-white px-1.5 py-1 text-[11px] text-gray-800">
+              <div className={acceptedMatch ? 'text-emerald-700' : 'text-gray-500'}>{imported.notas || ''}</div>
+              {!checked && <select aria-label={`Tipo de gasto ${index + 1}`} value={conceptOverrides[displayRow.sourceIndex] || imported.concepto} onClick={(event) => event.stopPropagation()} onChange={(event) => setConceptOverrides((current) => ({ ...current, [displayRow.sourceIndex]: event.target.value }))} className="mt-1 rounded border border-gray-300 bg-white px-1.5 py-1 text-[11px] text-gray-800">
                 {conceptOptions.map((concept) => <option key={concept.value} value={concept.value}>{concept.label}</option>)}
               </select>}
             </div>
           </div>}
         </td>
-        <td className={`border-l border-gray-100 p-2 ${matched ? 'bg-emerald-100' : 'bg-white'}`}>
-          {saved && <div className={matched ? 'text-emerald-900' : 'text-indigo-800'}>
+        <td className={`border-l border-gray-100 p-2 ${acceptedMatch ? 'bg-emerald-100' : 'bg-white'}`}>
+          {saved && <div className={acceptedMatch ? 'text-emerald-900' : 'text-indigo-800'}>
             <span className="font-medium">{String(saved.fecha).slice(0, 10)} · {saved.moneda} {Number(saved.monto).toFixed(2)}</span>
-            <span className={matched ? 'block text-emerald-700' : 'block text-gray-500'}>{saved.notas || ''}</span>
+            <span className={acceptedMatch ? 'block text-emerald-700' : 'block text-gray-500'}>{saved.notas || ''}</span>
           </div>}
         </td>
       </tr>
@@ -519,7 +531,9 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
       setError(parsed.errors.slice(0, 8).join('\n'));
       return;
     }
-    const matchedLines = new Set((comparison?.pairs || []).filter((pair) => pair.target).map((pair) => pair.source._lineNumber));
+    const matchedLines = new Set((comparison?.pairs || [])
+      .filter((pair) => pair.target && reviewed[`imported-${pair.source._lineNumber}`] !== false)
+      .map((pair) => pair.source._lineNumber));
     const rowsToSave = parsed.rows.filter((item) => !matchedLines.has(item.lineNumber) && !reviewed[`imported-${item.lineNumber}`]);
     if (!rowsToSave.length) return setError('No hay gastos pendientes sin marcar para guardar.');
 
