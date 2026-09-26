@@ -1,6 +1,6 @@
 jest.mock('pdfjs-dist/webpack', () => ({}));
 
-import { pdfLinesToBulkText } from './ModalGastoCreditoMasivo';
+import { compareBulkExpenses, parseBulkRows, pdfLinesToBulkText } from './ModalGastoCreditoMasivo';
 
 test('lee consumos, omite pagos y conserva devoluciones del estado BCP', () => {
   const text = pdfLinesToBulkText([
@@ -64,4 +64,43 @@ test('ignora dirección, tarjeta enmascarada y periodo del encabezado', () => {
   expect(text).not.toContain('GORRIONES');
   expect(text).not.toContain('962');
   expect(text.split('\n')).toHaveLength(1);
+});
+
+test('lee el CSV de Interbank, importa consumos negativos y omite pagos positivos', () => {
+  const parsed = parseBulkRows([
+    'Fecha,"Descripcion","Moneda","Monto"',
+    '2026-09-25,"SEGURO DESGRAVAMEN","S/","-4.64"',
+    '2026-09-24,"Vercel Pro","$","-20.00"',
+    '2026-09-21,"PAGO TARJ WEB APP","$","57.86"',
+  ].join('\n'));
+
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows).toHaveLength(2);
+  expect(parsed.rows[0].body).toMatchObject({ fecha: '2026-09-25', moneda: 'PEN', monto: 4.64, concepto: 'desgravamen' });
+  expect(parsed.rows[1].body).toMatchObject({ fecha: '2026-09-24', moneda: 'USD', monto: 20, notas: 'Vercel Pro' });
+});
+
+test('lee Últimos movimientos, usa consumos positivos y omite pagos y exceso de línea', () => {
+  const parsed = parseBulkRows([
+    'Últimos movimientos\t\t',
+    'FECHA\tDESCRIPCIÓN\tMONTO',
+    '23/09/2026\tB81 TX VERIFY\tUS$ 2.50',
+    '24/08/2026\tBM. PAGO TARJETA DE CRED.\tS/ -2.26',
+    '07/08/2026\t*** EXCESO LINEA ***\tS/ -77.58',
+    '06/08/2026\tOPENAI *CHATGPT SUBSCR\tUS$ 23.60',
+  ].join('\n'));
+
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows).toHaveLength(2);
+  expect(parsed.rows.map((row) => row.body.monto)).toEqual([2.5, 23.6]);
+  expect(parsed.rows.every((row) => row.body.moneda === 'USD')).toBe(true);
+});
+
+test('compara tarjeta sin distinguir mayúsculas y montos guardados con signo', () => {
+  const imported = [{ lineNumber: 1, body: { fecha: '2026-09-25', moneda: 'PEN', monto: 4.64, metodoPago: 'credito', notas: 'Seguro' } }];
+  const saved = [{ id: 9, fecha: '2026-09-25', moneda: 'PEN', monto: '-4.64', metodoPago: 'credito', tarjeta: 'interbank', notas: 'Seguro' }];
+  const comparison = compareBulkExpenses(imported, saved, 'Interbank');
+
+  expect(comparison.matched).toBe(1);
+  expect(comparison.missing).toEqual([]);
 });

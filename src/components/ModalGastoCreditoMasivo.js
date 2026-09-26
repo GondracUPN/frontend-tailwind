@@ -47,6 +47,7 @@ const normalizeText = (value) =>
 const classifyExpenseConcept = (description) => {
   const text = normalizeText(description);
   if (/reembolso|reembols|refund|devolucion/.test(text)) return 'cashback';
+  if (/seguro\s+(?:de\s+)?desgravamen|\bdesgravamen\b/.test(text)) return 'desgravamen';
   if (/\bebay\b|sp\s*centex\s*luxury\s*goods/.test(text)) return 'inversion';
   if (/alignet|alinet|eshopex/.test(text)) return 'pago_envios';
   if (/amazon\s*prime/.test(text)) return 'gastos_recurrentes';
@@ -92,6 +93,52 @@ const toSignedAmount = (raw) => {
   const number = Number(value);
   if (!Number.isFinite(number) || number === 0) return null;
   return parenthesized || trailingMinus ? -Math.abs(number) : number;
+};
+
+const isPaymentOrBalanceMovement = (description) => /\bpago\s+(?:de\s+)?tarj(?:eta)?\b|pago\s+tarj\s+web\s+app|exceso\s+linea|sdo\.?\s*acre|saldo\s+acre/i.test(normalizeText(description));
+
+const matrixToBulkLines = (matrix) => {
+  const headerIndex = (matrix || []).findIndex((row) => {
+    const headers = (row || []).map(normalizeText);
+    return headers.some((header) => header.includes('fecha'))
+      && headers.some((header) => /monto|importe|total/.test(header));
+  });
+  if (headerIndex < 0) return null;
+
+  const headers = (matrix[headerIndex] || []).map(normalizeText);
+  const findColumn = (...names) => headers.findIndex((header) => names.some((name) => header.includes(name)));
+  const dateIndex = findColumn('fecha');
+  const amountIndex = findColumn('monto', 'importe', 'total');
+  const currencyIndex = findColumn('moneda');
+  const conceptIndex = findColumn('concepto', 'categoria');
+  const noteIndex = findColumn('nota', 'descripcion', 'detalle', 'comercio');
+  if (dateIndex < 0 || amountIndex < 0) return null;
+
+  const entries = matrix.slice(headerIndex + 1).map((row) => {
+    const rawAmount = String(row?.[amountIndex] ?? '');
+    const note = noteIndex >= 0 ? String(row?.[noteIndex] || '').replace(/\|/g, '/') : '';
+    return { row, rawAmount, note, signedAmount: toSignedAmount(rawAmount) };
+  }).filter((entry) => entry.signedAmount && !isPaymentOrBalanceMovement(entry.note));
+
+  // Interbank exporta consumos negativos; otros extractos muestran consumos
+  // positivos y pagos/excesos negativos. Tras retirar pagos, el signo que tenga
+  // más movimientos representa los consumos del archivo.
+  const negativeCount = entries.filter((entry) => entry.signedAmount < 0).length;
+  const positiveCount = entries.filter((entry) => entry.signedAmount > 0).length;
+  const expenseSign = negativeCount || positiveCount
+    ? (negativeCount >= positiveCount ? -1 : 1)
+    : 0;
+
+  return entries.flatMap(({ row, rawAmount, note, signedAmount }) => {
+    const inferredConcept = classifyExpenseConcept(note);
+    const isRefund = inferredConcept === 'cashback';
+    if (!isRefund && Math.sign(signedAmount) !== expenseSign) return [];
+    const currency = currencyIndex >= 0
+      ? (toMoneda(row[currencyIndex]) || (/US\$|USD|\$/i.test(rawAmount) ? 'USD' : 'PEN'))
+      : (/US\$|USD|\$/i.test(rawAmount) ? 'USD' : 'PEN');
+    const concept = conceptIndex >= 0 && toConceptApi(row[conceptIndex]) ? row[conceptIndex] : inferredConcept;
+    return [`${concept} | ${currency} | ${Math.abs(signedAmount)} | ${excelDateToText(row[dateIndex])} | ${note}`];
+  });
 };
 
 const PDF_MONTHS = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12 };
@@ -174,29 +221,16 @@ const toIsoDate = (raw) => {
 
 export const parseBulkRows = (text) => {
   let lines = String(text || '').split(/\r?\n/);
-  // Al pegar un rango desde Excel/Sheets llega separado por tabulaciones.
-  // Si contiene encabezados comunes, lo convertimos al formato interno.
-  if (!lines.some((line) => line.includes('|')) && lines.some((line) => line.includes('\t'))) {
-    const matrix = lines.filter((line) => line.trim()).map((line) => line.split('\t'));
-    const headers = (matrix[0] || []).map(normalizeText);
-    const findColumn = (...names) => headers.findIndex((header) => names.some((name) => header.includes(name)));
-    const dateIndex = findColumn('fecha');
-    const amountIndex = findColumn('monto', 'importe', 'total');
-    const currencyIndex = findColumn('moneda');
-    const conceptIndex = findColumn('concepto', 'categoria');
-    const noteIndex = findColumn('nota', 'descripcion', 'detalle', 'comercio');
-    if (dateIndex >= 0 && amountIndex >= 0) {
-      lines = matrix.slice(1).flatMap((row) => {
-        const rawAmount = String(row[amountIndex] || '');
-        const signedAmount = toSignedAmount(rawAmount);
-        const note = noteIndex >= 0 ? String(row[noteIndex] || '').replace(/\|/g, '/') : '';
-        const inferredConcept = classifyExpenseConcept(note);
-        if (!(signedAmount < 0) && inferredConcept !== 'cashback') return [];
-        if (!signedAmount) return [];
-        const currency = currencyIndex >= 0 ? (toMoneda(row[currencyIndex]) || 'PEN') : (/\$|USD/i.test(rawAmount) ? 'USD' : 'PEN');
-        const concept = conceptIndex >= 0 && toConceptApi(row[conceptIndex]) ? row[conceptIndex] : inferredConcept;
-        return [`${concept} | ${currency} | ${Math.abs(signedAmount)} | ${row[dateIndex]} | ${note}`];
-      });
+  // Excel/Sheets pega TSV, mientras Interbank entrega CSV. XLSX interpreta
+  // correctamente comillas, comas internas y ambos delimitadores.
+  if (!lines.some((line) => line.includes('|'))) {
+    try {
+      const pastedBook = XLSX.read(String(text || ''), { type: 'string', raw: true });
+      const pastedMatrix = XLSX.utils.sheet_to_json(pastedBook.Sheets[pastedBook.SheetNames[0]], { header: 1, defval: '' });
+      const converted = matrixToBulkLines(pastedMatrix);
+      if (converted) lines = converted;
+    } catch {
+      // El validador normal mostrará las líneas que no tengan un formato válido.
     }
   }
   const rows = [];
@@ -276,14 +310,17 @@ export const compareBulkExpenses = (importedRows, savedRows, card) => {
   const dates = imported.map((row) => row.fecha).filter(Boolean).sort();
   const from = dates[0];
   const to = dates[dates.length - 1];
-  const candidates = (savedRows || []).filter((row) => row.metodoPago === 'credito'
-    && row.tarjeta === card && String(row.fecha || '').slice(0, 10) >= from && String(row.fecha || '').slice(0, 10) <= to)
+  const normalizedCard = normalizeText(card).replace(/[^a-z0-9]/g, '');
+  const candidates = (savedRows || []).filter((row) => normalizeText(row.metodoPago) === 'credito'
+    && normalizeText(row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard
+    && String(row.fecha || '').slice(0, 10) >= from && String(row.fecha || '').slice(0, 10) <= to)
     .sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')) || Number(a.monto || 0) - Number(b.monto || 0));
   const used = new Set();
   const pairs = imported.map((source, sourceIndex) => {
     const index = candidates.findIndex((target, candidateIndex) => !used.has(candidateIndex)
       && String(target.fecha || '').slice(0, 10) === source.fecha
-      && Math.abs(Number(target.monto) - Number(source.monto)) < 0.005);
+      && normalizeText(target.moneda) === normalizeText(source.moneda)
+      && Math.abs(Math.abs(Number(target.monto)) - Math.abs(Number(source.monto))) < 0.005);
     if (index >= 0) used.add(index);
     return { source, sourceIndex: source._lineNumber, target: index >= 0 ? candidates[index] : null };
   });
@@ -440,25 +477,9 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
       }
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
       const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: '' });
-      const headers = (matrix[0] || []).map(normalizeText);
-      const findColumn = (...names) => headers.findIndex((header) => names.some((name) => header.includes(name)));
-      const dateIndex = findColumn('fecha');
-      const amountIndex = findColumn('monto', 'importe', 'total');
-      const currencyIndex = findColumn('moneda');
-      const conceptIndex = findColumn('concepto', 'categoria');
-      const noteIndex = findColumn('nota', 'descripcion', 'detalle', 'comercio');
-      if (dateIndex < 0 || amountIndex < 0) throw new Error('Faltan las columnas Fecha y Monto/Importe.');
-      const lines = matrix.slice(1).filter((row) => row.some((cell) => String(cell).trim())).flatMap((row) => {
-        const signedAmount = toSignedAmount(row[amountIndex]);
-        const note = noteIndex >= 0 ? String(row[noteIndex] || '').replace(/\|/g, '/') : '';
-        const inferredConcept = classifyExpenseConcept(note);
-        if (!(signedAmount < 0) && inferredConcept !== 'cashback') return [];
-        if (!signedAmount) return [];
-        const currency = currencyIndex >= 0 ? (toMoneda(row[currencyIndex]) || (/\$|USD/i.test(String(row[amountIndex])) ? 'USD' : 'PEN')) : (/\$|USD/i.test(String(row[amountIndex])) ? 'USD' : 'PEN');
-        const concept = conceptIndex >= 0 && toConceptApi(row[conceptIndex]) ? row[conceptIndex] : inferredConcept;
-        return [`${concept} | ${currency} | ${Math.abs(signedAmount)} | ${excelDateToText(row[dateIndex])} | ${note}`];
-      });
-      if (!lines.length) throw new Error('No se encontraron importes negativos. Los importes positivos se consideran pagos y se omiten.');
+      const lines = matrixToBulkLines(matrix);
+      if (!lines) throw new Error('Faltan las columnas Fecha y Monto/Importe.');
+      if (!lines.length) throw new Error('No se encontraron consumos en el archivo.');
       setBulkText(lines.join('\n'));
       setFileName(file.name);
       setReviewed({});
@@ -557,8 +578,8 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
           onDrop={dropWorkbook}
         >
           <label className="cursor-pointer rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
-            Subir o arrastrar XLSX/PDF
-            <input type="file" accept=".xlsx,.xls,.pdf,application/pdf" onChange={loadWorkbook} className="hidden" />
+            Subir o arrastrar XLSX/CSV/PDF
+            <input type="file" accept=".xlsx,.xls,.csv,text/csv,.pdf,application/pdf" onChange={loadWorkbook} className="hidden" />
           </label>
           {fileName && <span className="text-sm text-gray-600">Archivo: {fileName}</span>}
         </div>
