@@ -2291,7 +2291,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     if (!uspsPdfUrl) return;
     const link = document.createElement("a");
     link.href = uspsPdfUrl;
-    link.download = `${(uspsPdfName || "usps-proof-of-delivery").replace(/\.pdf$/i, "")}-editado.pdf`;
+    link.download = `Proof Of Delivery ${uspsTracking || "USPS"}.pdf`;
     document.body.appendChild(link);
     link.click();
     link.remove();
