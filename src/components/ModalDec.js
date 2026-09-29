@@ -2,6 +2,8 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import api, { API_URL } from "../api";
 import { FaDice } from "react-icons/fa";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import * as pdfjsLib from "pdfjs-dist/webpack";
 
 /** Casilleros exactos (para el HTML final) */
 const CASILLEROS = {
@@ -1342,6 +1344,160 @@ async function fetchUrlAsDataUrl(url) {
   return blobToDataUrl(await res.blob());
 }
 
+function formatUspsDate(value, withTime = false) {
+  if (!value) return "";
+  const [datePart, timePart = ""] = String(value).split("T");
+  const [year, month, day] = datePart.split("-").map(Number);
+  if (!year || !month || !day) return String(value);
+  const dateText = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "2-digit",
+    year: "numeric",
+  }).format(new Date(year, month - 1, day));
+  if (!withTime || !timePart) return dateText;
+  const [hours = 0, minutes = 0] = timePart.split(":").map(Number);
+  const timeText = new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(year, month - 1, day, hours, minutes)).toLowerCase();
+  return `${dateText}, ${timeText}`;
+}
+
+function localDateInputValue(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function recentUspsStatusDateValue() {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return `${localDateInputValue(date)}T09:28`;
+}
+
+function formatUspsTracking(value) {
+  return String(value || "")
+    .replace(/\D/g, "")
+    .match(/.{1,4}/g)
+    ?.join(" ") || "";
+}
+
+const USPS_PDF_EDITOR_VERSION = "flattened-text-v2";
+
+function buildPrintableUspsDoc({ letterDate, dearName, statusDate, recipientName, weight, tracking }) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>USPS Proof of Delivery</title><style>
+    *{box-sizing:border-box}html,body{margin:0;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif}.sheet{width:100%;max-width:820px;min-height:1040px;margin:0 auto;padding:42px 58px;font-size:12px;line-height:1.22}.usps-logo{display:flex;align-items:center;color:#333366;font-weight:700;font-style:italic;font-size:13px;line-height:.92}.usps-mark{width:43px;height:28px;margin-right:5px;position:relative;overflow:hidden}.usps-mark:before{content:"";position:absolute;left:2px;top:5px;width:35px;height:17px;background:#333366;clip-path:polygon(0 0,100% 12%,71% 43%,100% 52%,35% 100%,47% 57%,0 50%,55% 38%)}.registered{font-size:7px;vertical-align:top;margin-left:2px}.letter-date{margin-top:13px}.salutation{margin-top:26px}.intro{margin-top:25px;font-weight:700}.tracking{font-weight:700;margin-top:2px}.bar{height:27px;margin-top:21px;background:#000066;color:#fff;font-size:12px;font-weight:700;padding:6px 4px}.details{display:grid;grid-template-columns:270px 1fr;margin-top:9px}.label{font-weight:700}.note{font-size:10px}.shipment{margin-top:5px}.signature-bar{margin-top:10px}.signature-note{margin-top:14px;font-size:10px}.thanks{margin-top:28px;line-height:1.45}.closing{margin-top:22px;line-height:1.45}@media print{@page{size:letter;margin:0}.sheet{max-width:none;width:100%;min-height:0;padding:42px 58px}}
+  </style></head><body><main class="sheet">
+    <div class="usps-logo"><span class="usps-mark"></span><span>UNITED STATES<br>POSTAL SERVICE<span class="registered">®</span></span></div>
+    <div class="letter-date">${esc(formatUspsDate(letterDate))}</div>
+    <div class="salutation">Dear ${esc(dearName)}:</div>
+    <div class="intro">The following is in response to your request for proof of delivery on your item with the tracking number:</div>
+    <div class="tracking">${esc(formatUspsTracking(tracking))}.</div>
+    <div class="bar">Item Details</div>
+    <div class="details">
+      <div class="label">Status:</div><div>Delivered to Agent, Left with Individual</div>
+      <div class="label">Status Date / Time:</div><div>${esc(formatUspsDate(statusDate, true))}</div>
+      <div class="label">Location:</div><div>MIAMI, FL 33122</div>
+      <div class="label">Postal Product:</div><div>USPS Ground Advantage™</div>
+      <div class="label">Extra Services:</div><div>Signature Confirmation™<br>Up to $100 insurance included</div>
+      <div class="label" style="margin-top:10px">Recipient Name:</div><div style="margin-top:10px">${esc(recipientName)}</div>
+      <div class="label">Actual Recipient Name:</div><div>H Perez</div>
+      <div class="note" style="grid-column:1/-1">Note: Actual Recipient Name may vary if the intended recipient is not available at the time of delivery.</div>
+    </div>
+    <div class="bar shipment">Shipment Details</div>
+    <div class="details"><div class="label">Weight:</div><div>${esc(weight)}</div></div>
+    <div class="bar signature-bar">Recipient Signature</div>
+    <div class="signature-note">Note: There is no delivery signature on file for this item.</div>
+    <div class="thanks">Thank you for selecting the United States Postal Service® for your mailing needs. If you require additional<br>assistance, please contact your local Post Office™ or a Postal representative at 1-800-222-1811.</div>
+    <div class="closing">Sincerely,<br>United States Postal Service®<br>475 L'Enfant Plaza SW<br>Washington, D.C. 20260-0004</div>
+  </main></body></html>`;
+}
+
+async function editUspsPdf(sourceBytes, values) {
+  const sourceCopy = new Uint8Array(new Uint8Array(sourceBytes));
+  const sourcePdf = await pdfjsLib.getDocument({ data: sourceCopy }).promise;
+  if (!sourcePdf.numPages) throw new Error("El PDF no tiene paginas.");
+  const pdf = await PDFDocument.create();
+  const regular = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const renderScale = 2.5;
+  let page;
+  let width = 612;
+  let height = 792;
+
+  // Aplana cada pagina como imagen. Así el texto anterior deja de existir en
+  // la capa copiable del PDF y solamente quedan seleccionables los datos nuevos.
+  for (let pageNumber = 1; pageNumber <= sourcePdf.numPages; pageNumber += 1) {
+    const sourcePage = await sourcePdf.getPage(pageNumber);
+    const pdfViewport = sourcePage.getViewport({ scale: 1 });
+    const renderViewport = sourcePage.getViewport({ scale: renderScale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(renderViewport.width);
+    canvas.height = Math.ceil(renderViewport.height);
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("No se pudo preparar el PDF.");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    await sourcePage.render({ canvasContext: context, viewport: renderViewport }).promise;
+
+    if (pageNumber === 1) {
+      const cover = ({ x, y, w }) => {
+        context.fillStyle = "#ffffff";
+        context.fillRect(
+          (x - 2) * renderScale,
+          (pdfViewport.height - (y + 12.5)) * renderScale,
+          w * renderScale,
+          15 * renderScale,
+        );
+      };
+      cover({ x: 50, y: 711, w: 220 });
+      cover({ x: 50, y: 679, w: 300 });
+      cover({ x: 50, y: 631, w: 500 });
+      cover({ x: 282.4, y: 557, w: 265 });
+      cover({ x: 282.4, y: 482, w: 265 });
+      cover({ x: 282.4, y: 407.6, w: 150 });
+    }
+
+    const pngBlob = await new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("No se pudo rasterizar el PDF."))), "image/png");
+    });
+    const background = await pdf.embedPng(await pngBlob.arrayBuffer());
+    const outputPage = pdf.addPage([pdfViewport.width, pdfViewport.height]);
+    outputPage.drawImage(background, { x: 0, y: 0, width: pdfViewport.width, height: pdfViewport.height });
+    if (pageNumber === 1) {
+      page = outputPage;
+      width = pdfViewport.width;
+      height = pdfViewport.height;
+    }
+    sourcePage.cleanup();
+  }
+
+  if (!page) throw new Error("El PDF no tiene paginas.");
+  await sourcePdf.destroy();
+  // Los dos formatos USPS admitidos usan una pagina Letter de 612 x 792 pt.
+  const sx = width / 612;
+  const sy = height / 792;
+  const black = rgb(0, 0, 0);
+  const replace = ({ x, y, text, size = 11, font = regular }) => {
+    page.drawText(String(text || ""), {
+      x: x * sx,
+      y: y * sy,
+      size: size * sx,
+      font,
+      color: black,
+    });
+  };
+  replace({ x: 50, y: 711, w: 220, text: formatUspsDate(values.letterDate) });
+  replace({ x: 50, y: 679, w: 300, text: `Dear ${values.dearName}:` });
+  replace({ x: 50, y: 631, w: 500, text: `${formatUspsTracking(values.tracking)}.`, font: bold });
+  replace({ x: 282.4, y: 557, w: 265, text: formatUspsDate(values.statusDate, true) });
+  replace({ x: 282.4, y: 482, w: 265, text: values.recipientName });
+  replace({ x: 282.4, y: 407.6, w: 150, text: values.weight });
+  return pdf.save();
+}
+
 /* ================== Componente ================== */
 export default function ModalDec({ onClose, productos: productosProp, loading: loadingProp = false }) {
   // Si te pasan productos por props, se usan; si no, cargo del backend.
@@ -1393,6 +1549,17 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [imageStatus, setImageStatus] = useState("");
   const [imageFileName, setImageFileName] = useState("");
   const [linkedImages, setLinkedImages] = useState({});
+  const [uspsLetterDate, setUspsLetterDate] = useState(() => localDateInputValue());
+  const [uspsDearName, setUspsDearName] = useState("Jorge Garcia");
+  const [uspsStatusDate, setUspsStatusDate] = useState(() => recentUspsStatusDateValue());
+  const [uspsRecipientName, setUspsRecipientName] = useState("JORGE SAHID GARCIA SANCHEZ");
+  const [uspsWeight, setUspsWeight] = useState("3lb, 0.0oz");
+  const [uspsTracking, setUspsTracking] = useState("9434608106244552769924");
+  const [uspsPdfBytes, setUspsPdfBytes] = useState(null);
+  const [uspsPdfName, setUspsPdfName] = useState("");
+  const [uspsPdfUrl, setUspsPdfUrl] = useState("");
+  const [uspsPdfBusy, setUspsPdfBusy] = useState(false);
+  const [uspsPdfError, setUspsPdfError] = useState("");
   const manualLineIdRef = useRef(1);
   const [manualLinkedLines, setManualLinkedLines] = useState([]);
   const normalizeOrderNumberIfNeeded = () => {
@@ -2007,7 +2174,16 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     [deliveryMode, deliveredOn, customDeliveryText]
   );
   const previewDoc = useMemo(
-    () => (store === "ebay"
+    () => (store === "usps"
+      ? buildPrintableUspsDoc({
+          letterDate: uspsLetterDate,
+          dearName: uspsDearName,
+          statusDate: uspsStatusDate,
+          recipientName: uspsRecipientName,
+          weight: uspsWeight,
+          tracking: uspsTracking,
+        })
+      : store === "ebay"
       ? buildPrintableEbayDoc({
           seller,
           placedOn,
@@ -2050,8 +2226,78 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       deliveredOn,
       deliveryHeadline,
       imageSmall,
+      uspsLetterDate,
+      uspsDearName,
+      uspsStatusDate,
+      uspsRecipientName,
+      uspsWeight,
+      uspsTracking,
     ]
   );
+
+  useEffect(() => {
+    if (!uspsPdfBytes) {
+      setUspsPdfUrl("");
+      return undefined;
+    }
+    let active = true;
+    let objectUrl = "";
+    const timer = setTimeout(async () => {
+      setUspsPdfBusy(true);
+      setUspsPdfError("");
+      try {
+        const output = await editUspsPdf(uspsPdfBytes, {
+          letterDate: uspsLetterDate,
+          dearName: uspsDearName,
+          statusDate: uspsStatusDate,
+          recipientName: uspsRecipientName,
+          weight: uspsWeight,
+          tracking: uspsTracking,
+        });
+        if (!active) return;
+        objectUrl = URL.createObjectURL(new Blob([output], { type: "application/pdf" }));
+        setUspsPdfUrl(objectUrl);
+      } catch (err) {
+        if (active) setUspsPdfError(err?.message || "No se pudo editar el PDF.");
+      } finally {
+        if (active) setUspsPdfBusy(false);
+      }
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [uspsPdfBytes, uspsLetterDate, uspsDearName, uspsStatusDate, uspsRecipientName, uspsWeight, uspsTracking, USPS_PDF_EDITOR_VERSION]);
+
+  const handleUspsPdfFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUspsPdfError("");
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setUspsPdfError("Selecciona un archivo PDF.");
+      event.target.value = "";
+      return;
+    }
+    try {
+      setUspsPdfName(file.name);
+      setUspsPdfBytes(await file.arrayBuffer());
+    } catch {
+      setUspsPdfError("No se pudo leer el PDF.");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const downloadUspsPdf = () => {
+    if (!uspsPdfUrl) return;
+    const link = document.createElement("a");
+    link.href = uspsPdfUrl;
+    link.download = `${(uspsPdfName || "usps-proof-of-delivery").replace(/\.pdf$/i, "")}-editado.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
 
   const openPrintDialog = () => {
     const win = window.open("", "_blank", "width=1400,height=1000");
@@ -2400,9 +2646,73 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                 <option value="ebay">eBay</option>
                 <option value="amazon">Amazon</option>
                 <option value="apple">Apple</option>
+                <option value="usps">USPS</option>
               </select>
             </label>
           </div>
+
+          {store === "usps" ? (
+            <div className="grid gap-4">
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+                Sube el PDF original de USPS. Solo se reemplazan los campos indicados; el resto del documento se conserva.
+              </div>
+              <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-5">
+                <div className="font-medium text-slate-900">PDF original de USPS</div>
+                <div className="mt-1 text-xs text-slate-500">El archivo se procesa localmente en esta pagina.</div>
+                <label className="mt-3 inline-flex cursor-pointer rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-black">
+                  {uspsPdfName ? "Cambiar PDF" : "Subir PDF"}
+                  <input type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleUspsPdfFile} />
+                </label>
+                {uspsPdfName ? <div className="mt-2 text-xs font-medium text-emerald-700">Archivo: {uspsPdfName}</div> : null}
+                {uspsPdfError ? <div className="mt-2 text-xs text-red-600">{uspsPdfError}</div> : null}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Fecha de arriba</span>
+                  <input type="date" value={uspsLetterDate} onChange={(e) => setUspsLetterDate(e.target.value)} className="input" />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Nombre en “Dear”</span>
+                  <input value={uspsDearName} onChange={(e) => setUspsDearName(e.target.value)} className="input" placeholder="Jorge Garcia" />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Status Date / Time</span>
+                  <input type="datetime-local" value={uspsStatusDate} onChange={(e) => setUspsStatusDate(e.target.value)} className="input" />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Recipient Name</span>
+                  <input value={uspsRecipientName} onChange={(e) => setUspsRecipientName(e.target.value)} className="input" placeholder="JORGE SAHID GARCIA SANCHEZ" />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-gray-600 mb-1">Weight</span>
+                  <input value={uspsWeight} onChange={(e) => setUspsWeight(e.target.value)} className="input" placeholder="3lb, 0.0oz" />
+                </label>
+                <label className="text-sm sm:col-span-2">
+                  <span className="block text-gray-600 mb-1">Tracking number</span>
+                  <input
+                    value={uspsTracking}
+                    onChange={(e) => setUspsTracking(e.target.value.replace(/\D/g, ""))}
+                    className="input font-mono"
+                    inputMode="numeric"
+                    placeholder="9434608106244552769924"
+                  />
+                  <span className="mt-1 block text-xs text-gray-500">
+                    En el documento: {formatUspsTracking(uspsTracking) || "-"}
+                  </span>
+                </label>
+              </div>
+              <button
+                type="button"
+                onClick={downloadUspsPdf}
+                disabled={!uspsPdfUrl || uspsPdfBusy}
+                className="w-fit px-4 py-2 rounded bg-[#000066] text-white text-sm hover:bg-blue-950 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {uspsPdfBusy ? "Actualizando PDF..." : "Descargar PDF editado"}
+              </button>
+            </div>
+          ) : null}
+
+          <div className={store === "usps" ? "hidden" : "contents"}>
 
           {isHtmlStore ? (
             <div className="sticky top-0 z-10 -mx-2 flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-white/95 p-3 shadow-sm backdrop-blur">
@@ -2974,19 +3284,30 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
               </button>
             </div>
           ) : null}
+          </div>
         </div>
 
-        {store === "apple" ? (
+        {store === "apple" || store === "usps" ? (
         <div className="p-4 sm:p-6 bg-slate-100">
           <div className="flex items-center justify-between gap-3 mb-3">
             <div>
               <h3 className="font-semibold text-slate-900">Vista previa</h3>
               <p className="text-xs text-slate-500">Esto es lo que se imprimira o se guardara como PDF.</p>
             </div>
-            <div className="text-xs text-slate-500">{store === "ebay" ? "Template eBay" : store === "amazon" ? "Template Amazon" : "Template Apple"}</div>
+            <div className="text-xs text-slate-500">{store === "usps" ? "Template USPS" : "Template Apple"}</div>
           </div>
           <div className="rounded-xl overflow-hidden border border-slate-300 bg-white shadow-sm">
-            <iframe title="DEC preview" srcDoc={previewDoc} className="w-full h-[78vh] bg-white" />
+            {store === "usps" ? (
+              uspsPdfUrl ? (
+                <iframe title="Vista previa USPS" src={uspsPdfUrl} className="w-full h-[78vh] bg-white" />
+              ) : (
+                <div className="flex h-[60vh] items-center justify-center p-8 text-center text-sm text-slate-500">
+                  Sube el PDF original para ver aqui el documento editado.
+                </div>
+              )
+            ) : (
+              <iframe title="DEC preview" srcDoc={previewDoc} className="w-full h-[78vh] bg-white" />
+            )}
           </div>
         </div>
         ) : null}

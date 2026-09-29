@@ -1951,7 +1951,6 @@ const confirmAction = async () => {
     if (!t) return null;
 
     const trackingUsa = typeof t.trackingUsa === 'string' ? t.trackingUsa.trim() : '';
-    const trackingEsh = typeof t.trackingEshop === 'string' ? t.trackingEshop.trim() : '';
     const operadorRaw = typeof t.transportista === 'string' ? t.transportista : '';
     const operador = operadorRaw.toLowerCase();
 
@@ -1962,8 +1961,8 @@ const confirmAction = async () => {
         if (!trackingUsa || !operador || !URLS[operador]) return null;
         return { href: URLS[operador](trackingUsa), text: `Ver tracking ${operador.toUpperCase()}`};
       case 'en_eshopex':
-        if (!trackingEsh) return null;
-        return { href: URLS.eshopex(trackingEsh), text: 'Ver tracking Eshopex' };
+        if (!trackingUsa || !operador || !URLS[operador]) return null;
+        return { href: URLS[operador](trackingUsa), text: `Ver tracking ${operador.toUpperCase()}` };
       case 'recogido':
         if (trackingUsa && operador && URLS[operador]) {
           return { href: URLS[operador](trackingUsa), text: `Ver historial ${operador.toUpperCase()}` };

@@ -1,7 +1,9 @@
 import {
   buildProductSearchQueries,
   isLikelyAppleCatalogTitle,
+  isTargetAirPodsTitle,
   isTargetAppleWatchTitle,
+  isUnwantedCaseOrCarStereoTitle,
   keepItemsOlderThanVisibleTail,
   isApplePartTitle,
   splitProductSearchBatch,
@@ -9,13 +11,55 @@ import {
 } from './Ebay';
 
 test.each([
-  'APPLE A3001 (P18029800)',
+  '7" Car Stereo For BMW 3-series E46 M3 Apple CarPlay Radio GPS NAVI',
+  'New - OtterBox Defender Pro XT MagSafe Apple iPhone 16 Pro Max',
+  'New - OtterBox Defender Pro XT MagSafe Apple iPhone 16 Plus Black/Clear',
+  'Apple iPhone 16 Pro Max Silicone Case with MagSafe',
+])('excluye fundas y equipos de sonido para automovil: %s', (title) => {
+  expect(isUnwantedCaseOrCarStereoTitle(title)).toBe(true);
+  expect(isLikelyAppleCatalogTitle(title)).toBe(false);
+});
+
+test('no confunde unos AirPods completos con una funda por incluir Charging Case', () => {
+  const title = 'Apple AirPods 4th Generation with Charging Case';
+  expect(isUnwantedCaseOrCarStereoTitle(title)).toBe(false);
+  expect(isLikelyAppleCatalogTitle(title)).toBe(true);
+});
+
+test.each([
   'APPLE WATCH SE 2ND GEN - A2727 (P18029792)',
-  'Apple Watch Series 10 GPS Cellular 42mm',
+  'Apple Watch Series 11 GPS Cellular 42mm A3331',
   'Apple Watch Ultra 2 A2986',
 ])('reconoce Watch recientes aunque el titulo venga abreviado: %s', (title) => {
   expect(isTargetAppleWatchTitle(title.toLowerCase())).toBe(true);
   expect(isLikelyAppleCatalogTitle(title)).toBe(true);
+});
+
+test.each([
+  'Apple Watch Series 10 GPS Cellular 42mm A2997',
+  'APPLE A3001 (P18029800)',
+])('excluye los Apple Watch normales anteriores a Series 11: %s', (title) => {
+  expect(isTargetAppleWatchTitle(title.toLowerCase())).toBe(false);
+  expect(isLikelyAppleCatalogTitle(title)).toBe(false);
+});
+
+test.each([
+  'Apple AirPods Pro 3 Wireless Earbuds',
+  'Apple AirPods 4th Generation with Charging Case',
+  'Apple AirPods 5',
+])('incluye AirPods Pro 3 y generaciones 4 o superiores: %s', (title) => {
+  expect(isTargetAirPodsTitle(title)).toBe(true);
+  expect(isLikelyAppleCatalogTitle(title)).toBe(true);
+});
+
+test.each([
+  'Apple AirPods Pro 2',
+  'Apple AirPods 3rd Generation',
+  'Apple AirTag 4 Pack',
+  'Apple USB-C Cable 2m',
+  'Apple 20W USB-C Power Adapter Charger',
+])('excluye generaciones antiguas y accesorios del catálogo general: %s', (title) => {
+  expect(isLikelyAppleCatalogTitle(title)).toBe(false);
 });
 
 test.each([
@@ -37,6 +81,17 @@ test.each([
   'Apple A3404 8GB 256GB',
   'MHFF4LL/A Apple laptop Indigo',
 ])('mantiene el reconocimiento de MacBook Neo en el navegador: %s', (title) => {
+  expect(isLikelyAppleCatalogTitle(title)).toBe(true);
+});
+
+test.each([
+  'Apple Macboob Air laptop MGE94LL/A',
+  'Apple laptop M6 16GB 512GB',
+  'Apple iPhone 13 Mini A2481 128GB Unlocked',
+  'Apple iPad Air M6 11-inch',
+  'Apple Mac mini M6 Pro',
+  'Apple iMac M6 24-inch',
+])('acepta equipos elegibles por código o generación futura: %s', (title) => {
   expect(isLikelyAppleCatalogTitle(title)).toBe(true);
 });
 

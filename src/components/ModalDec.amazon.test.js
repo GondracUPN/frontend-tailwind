@@ -1,3 +1,5 @@
+jest.mock('pdfjs-dist/webpack', () => ({ getDocument: jest.fn() }));
+
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import api from '../api';
 import ModalDec, {

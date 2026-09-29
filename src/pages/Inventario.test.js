@@ -589,6 +589,22 @@ test('solicita fecha solo cuando la garantía es limitada', async () => {
   expect(screen.queryByLabelText('Detalle de garantía')).not.toBeInTheDocument();
 });
 
+test('muestra la fecha de garantía directamente en la tarjeta del inventario', async () => {
+  api.get.mockResolvedValue([{
+    ...entry,
+    ficha: {
+      tieneGarantia: true,
+      tipoGarantia: 'limitada',
+      garantiaHasta: '2027-01-01',
+    },
+  }]);
+  render(<Inventario setVista={jest.fn()} />);
+
+  const warranty = await screen.findByLabelText('Garantía del producto');
+  expect(warranty).toHaveTextContent('Garantía: Hasta 1 de enero de 2027');
+  expect(screen.queryByRole('dialog', { name: 'Completar ficha de inventario' })).not.toBeInTheDocument();
+});
+
 test('para un producto nuevo oculta batería y garantía y limpia esos datos al guardar', async () => {
   const newEntry = {
     ...entry,

@@ -12,6 +12,7 @@ import { normalizeProductLookupUrl } from '../utils/productUrl';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
 import IncludedAccessories, { normalizeIncludedAccessories } from './IncludedAccessories';
 import { formatAppleWatchName } from '../utils/productName';
+import { describeAppleModelMatch, lookupAppleModel } from '../utils/appleModelLookup';
 
 const normalizeText = (val) =>
   String(val || '')
@@ -292,6 +293,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
   const [ebayPrice, setEbayPrice] = useState(null);
   const [ebayShipping, setEbayShipping] = useState(null);
   const [ebayConditionRaw, setEbayConditionRaw] = useState('');
+  const [ebayModelMatch, setEbayModelMatch] = useState(null);
   const [linkerOpen, setLinkerOpen] = useState(false);
   const [loadingLinker, setLoadingLinker] = useState(false);
   const [linkables, setLinkables] = useState([]);
@@ -390,6 +392,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
     setEbayPrice(null);
     setEbayShipping(null);
     setEbayConditionRaw('');
+    setEbayModelMatch(null);
   }, [isEdit]);
 
   useEffect(() => {
@@ -653,6 +656,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
     }
     setEbayLoading(true);
     setEbayError('');
+    setEbayModelMatch(null);
     setEbayUrl(url);
     try {
       const data = await api.get(`/utils/ebay?url=${encodeURIComponent(url)}`);
@@ -662,20 +666,21 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
       const title = String(data?.title || '');
       const parsed = data?.titleParsed || {};
       const condition = String(data?.condition || '');
+      const identifierMatch = lookupAppleModel(title);
 
-      const tipoInfer = normalizeText(parsed?.tipo || inferTipo(title));
+      const tipoInfer = normalizeText(parsed?.tipo || identifierMatch?.tipo || inferTipo(title));
       const tipo = tipoInfer || 'otro';
-      const gama = parsed?.gama || inferGama(title, tipo);
-      const proc = parsed?.proc || inferProcesador(title);
-      const pantalla = parsed?.pantalla || inferPantalla(title);
-      const ram = extractRamValue(parsed?.ram || '') || inferRamFromTitle(title);
+      const gama = identifierMatch?.gama || parsed?.gama || inferGama(title, tipo);
+      const proc = identifierMatch?.procesador || parsed?.proc || inferProcesador(title);
+      const pantalla = identifierMatch?.tamano || parsed?.pantalla || inferPantalla(title);
+      const ram = extractRamValue(parsed?.ram || '') || inferRamFromTitle(title) || identifierMatch?.ram || '';
       const ssd = extractStorageValue(
         parsed?.ssd ||
           parsed?.storage ||
           parsed?.almacenamiento ||
           parsed?.capacidad ||
           '',
-      ) || inferStorageFromTitle(title);
+      ) || inferStorageFromTitle(title) || identifierMatch?.almacenamiento || '';
       const iphoneMeta = inferIphoneMeta(title);
       const watchMeta = inferWatchMeta(title);
       const ipadConexion = normalizeIpadConexion(
@@ -689,6 +694,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
       setEbayPrice(price);
       setEbayShipping(ship);
       setEbayConditionRaw(condition || 'used');
+      setEbayModelMatch(identifierMatch);
 
       setForm((f) => {
         const nextDetalle = { ...f.detalle };
@@ -709,10 +715,15 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
           nextDetalle.modelo = iphoneMeta.modelo || nextDetalle.modelo;
           nextDetalle.almacenamiento = ssd || nextDetalle.almacenamiento;
         } else if (tipo === 'watch') {
-          nextDetalle.gama = watchMeta.gama || nextDetalle.gama;
-          nextDetalle.generacion = watchMeta.generacion || nextDetalle.generacion;
-          nextDetalle.tamano = watchMeta.tamano || nextDetalle.tamano;
-          nextDetalle.conexion = watchMeta.conexion || nextDetalle.conexion;
+          nextDetalle.gama = identifierMatch?.gama || watchMeta.gama || nextDetalle.gama;
+          nextDetalle.generacion = identifierMatch?.generacion || watchMeta.generacion || nextDetalle.generacion;
+          nextDetalle.tamano = identifierMatch?.tamano || watchMeta.tamano || nextDetalle.tamano;
+          nextDetalle.conexion = identifierMatch?.conexion || watchMeta.conexion || nextDetalle.conexion;
+        } else if (tipo === 'imac' || tipo === 'macmini') {
+          nextDetalle.procesador = identifierMatch?.procesador || proc || nextDetalle.procesador;
+          nextDetalle.tamano = identifierMatch?.tamano || pantalla || nextDetalle.tamano;
+          nextDetalle.ram = ram || nextDetalle.ram;
+          nextDetalle.almacenamiento = ssd || nextDetalle.almacenamiento;
         } else if (tipo === 'otro') {
           nextDetalle.descripcionOtro = title || nextDetalle.descripcionOtro;
         }
@@ -721,7 +732,11 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
           tipo: tipo || f.tipo,
           estado: mapEbayConditionToEstado(condition || 'used'),
           detalle: nextDetalle,
-          valor: { ...f.valor, valorProducto: Number.isFinite(total) && total > 0 ? String(total) : f.valor.valorProducto },
+          valor: {
+            ...f.valor,
+            valorProducto: Number.isFinite(total) && total > 0 ? String(total) : f.valor.valorProducto,
+            peso: identifierMatch?.pesoEnvioKg ? String(identifierMatch.pesoEnvioKg) : f.valor.peso,
+          },
         };
       });
     } catch (err) {
@@ -1149,6 +1164,14 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                     {ebayTitle && (
                       <div className="text-xs text-gray-700 mt-2 border rounded bg-white p-2">
                         {ebayTitle}
+                      </div>
+                    )}
+                    {ebayModelMatch && (
+                      <div className="text-xs text-emerald-800 mt-2 border border-emerald-200 rounded bg-emerald-50 p-2" role="status">
+                        Código {ebayModelMatch.identifier} reconocido: <strong>{describeAppleModelMatch(ebayModelMatch)}</strong>
+                        {ebayModelMatch.pesoEnvioKg && (
+                          <> · Peso del equipo: {ebayModelMatch.pesoProductoKg} kg · Peso automático: <strong>{ebayModelMatch.pesoEnvioKg} kg</strong></>
+                        )}
                       </div>
                     )}
                   </div>

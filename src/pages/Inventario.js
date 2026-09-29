@@ -187,6 +187,28 @@ const lastPickupDate = (producto) => {
   return rows.find((row) => row?.fechaRecogido)?.fechaRecogido || '';
 };
 
+const formatWarrantyDate = (value) => {
+  const raw = text(value);
+  if (!raw) return '';
+  const parts = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!parts) return raw;
+  const date = new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+  if (Number.isNaN(date.getTime())) return raw;
+  return date.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' });
+};
+
+const warrantySummary = (producto, ficha) => {
+  if (isNewProduct(producto)) return '';
+  const hasWarranty = Boolean(
+    ficha?.tieneGarantia || ficha?.tipoGarantia || ficha?.garantiaHasta || ficha?.garantiaDetalle,
+  );
+  if (!hasWarranty) return 'Sin garantía';
+  const date = formatWarrantyDate(ficha?.garantiaHasta);
+  const appleCare = ficha?.tipoGarantia === 'applecare' || /apple\s*care/i.test(ficha?.garantiaDetalle || '');
+  if (appleCare) return date ? `AppleCare hasta ${date}` : 'AppleCare (sin fecha)';
+  return date ? `Hasta ${date}` : 'Garantía activa (sin fecha)';
+};
+
 const toForm = (entry) => {
   const ficha = entry?.ficha || {};
   const sourceAccessories = Array.isArray(entry?.producto?.accesorios)
@@ -968,6 +990,7 @@ export default function Inventario({ setVista }) {
               const { producto, ficha } = entry;
               const accessoryStock = String(producto.tipo || '').toLowerCase() === 'accesorios';
               const disabled = busyId === producto.id;
+              const garantiaResumen = accessoryStock ? '' : warrantySummary(producto, ficha);
               const fichaCompleta = Boolean(
                 ficha?.enAlmacen && ficha?.fotosTomadas && ficha?.marketplaceSubido,
               );
@@ -1041,7 +1064,16 @@ export default function Inventario({ setVista }) {
                     )}
 
                     <div className="mt-4 grid grid-cols-2 gap-2">
-                      {!accessoryStock && <span className="col-span-2 text-xs text-slate-500">Recogido: {lastPickupDate(producto) || 'Sin fecha'}</span>}
+                      {!accessoryStock && (
+                        <div className="col-span-2 flex flex-col gap-1 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+                          <span>Recogido: {lastPickupDate(producto) || 'Sin fecha'}</span>
+                          {garantiaResumen && (
+                            <span aria-label="Garantía del producto" className={`font-semibold ${garantiaResumen === 'Sin garantía' ? 'text-slate-500' : 'text-indigo-700'}`}>
+                              Garantía: {garantiaResumen}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <button type="button" onClick={() => openEditor(entry)} className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 ${!(accessoryStock ? Number(producto.stockActual || 0) > 0 : ficha?.enAlmacen) ? 'col-span-2' : ''}`}>
                         <FiEdit3 /> {accessoryStock ? 'Editar stock' : (fichaCompleta ? 'Editar ficha' : 'Completar ficha')}
                       </button>
