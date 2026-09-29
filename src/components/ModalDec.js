@@ -2488,7 +2488,13 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const pasteEbayOrderData = async () => {
     setEbayPasteStatus("");
     try {
-      const parsed = parseEbayOrderClipboard(await navigator.clipboard.readText());
+      let clipboardText = "";
+      try {
+        clipboardText = await navigator.clipboard.readText();
+      } catch {
+        clipboardText = window.prompt("El navegador no permitio leer el portapapeles. Pega aqui los datos copiados de eBay:", "") || "";
+      }
+      const parsed = parseEbayOrderClipboard(clipboardText);
       if (!parsed) throw new Error("Formato no reconocido");
       if (parsed.seller) setSeller(parsed.seller);
       if (parsed.orderNumber) setOrderNumber(normalizeManualEbayOrderNumber(parsed.orderNumber));

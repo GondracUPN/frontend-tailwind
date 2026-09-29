@@ -6,6 +6,7 @@ import ModalDec, {
   allocateDecByReference,
   buildAmazonTemplateHTML,
   normalizeManualEbayOrderNumber,
+  parseEbayOrderClipboard,
 } from './ModalDec';
 
 jest.mock('../api', () => ({
@@ -37,6 +38,36 @@ test('completa y formatea un order number corto de eBay', () => {
   const result = normalizeManualEbayOrderNumber('1311134141', () => randomDigits.shift());
 
   expect(result).toBe('13-11134-14148');
+});
+
+test('lee los datos copiados desde el boton de eBay', () => {
+  expect(parseEbayOrderClipboard('DEC_EBAY_ORDER:{"seller":"961firstave","orderNumber":"16-13587-70764"}')).toEqual({
+    seller: '961firstave',
+    orderNumber: '16-13587-70764',
+  });
+  expect(parseEbayOrderClipboard('Seller: pawn_shop_1\nOrder number: 26-12345-67890')).toEqual({
+    seller: 'pawn_shop_1',
+    orderNumber: '26-12345-67890',
+  });
+});
+
+test('Pegar de eBay llena seller y order number desde el portapapeles', async () => {
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: {
+      readText: jest.fn().mockResolvedValue(
+        'DEC_EBAY_ORDER:{"seller":"pawn_shop_1","orderNumber":"26-12345-67890"}',
+      ),
+    },
+  });
+  render(<ModalDec productos={[]} onClose={jest.fn()} />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Pegar de eBay' }));
+
+  await waitFor(() => {
+    expect(screen.getByPlaceholderText('961firstave')).toHaveValue('pawn_shop_1');
+    expect(screen.getByPlaceholderText('16-13587-70764')).toHaveValue('26-12345-67890');
+  });
 });
 
 test('al salir del campo corrige el order number manual, pero no el de Amazon', async () => {
