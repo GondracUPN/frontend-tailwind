@@ -1384,8 +1384,6 @@ function formatUspsTracking(value) {
     ?.join(" ") || "";
 }
 
-const USPS_PDF_EDITOR_VERSION = "flattened-text-v2";
-
 function buildPrintableUspsDoc({ letterDate, dearName, statusDate, recipientName, weight, tracking }) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>USPS Proof of Delivery</title><style>
     *{box-sizing:border-box}html,body{margin:0;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif}.sheet{width:100%;max-width:820px;min-height:1040px;margin:0 auto;padding:42px 58px;font-size:12px;line-height:1.22}.usps-logo{display:flex;align-items:center;color:#333366;font-weight:700;font-style:italic;font-size:13px;line-height:.92}.usps-mark{width:43px;height:28px;margin-right:5px;position:relative;overflow:hidden}.usps-mark:before{content:"";position:absolute;left:2px;top:5px;width:35px;height:17px;background:#333366;clip-path:polygon(0 0,100% 12%,71% 43%,100% 52%,35% 100%,47% 57%,0 50%,55% 38%)}.registered{font-size:7px;vertical-align:top;margin-left:2px}.letter-date{margin-top:13px}.salutation{margin-top:26px}.intro{margin-top:25px;font-weight:700}.tracking{font-weight:700;margin-top:2px}.bar{height:27px;margin-top:21px;background:#000066;color:#fff;font-size:12px;font-weight:700;padding:6px 4px}.details{display:grid;grid-template-columns:270px 1fr;margin-top:9px}.label{font-weight:700}.note{font-size:10px}.shipment{margin-top:5px}.signature-bar{margin-top:10px}.signature-note{margin-top:14px;font-size:10px}.thanks{margin-top:28px;line-height:1.45}.closing{margin-top:22px;line-height:1.45}@media print{@page{size:letter;margin:0}.sheet{max-width:none;width:100%;min-height:0;padding:42px 58px}}
@@ -2268,7 +2266,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       clearTimeout(timer);
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [uspsPdfBytes, uspsLetterDate, uspsDearName, uspsStatusDate, uspsRecipientName, uspsWeight, uspsTracking, USPS_PDF_EDITOR_VERSION]);
+  }, [uspsPdfBytes, uspsLetterDate, uspsDearName, uspsStatusDate, uspsRecipientName, uspsWeight, uspsTracking]);
 
   const handleUspsPdfFile = async (event) => {
     const file = event.target.files?.[0];
