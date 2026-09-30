@@ -63,8 +63,8 @@ const toConceptApi = (raw) => {
 
 const toMoneda = (raw) => {
   const key = normalizeText(raw).replace(/\./g, '');
-  if (['pen', 'sol', 'soles', 's/', 's'].includes(key)) return 'PEN';
-  if (['usd', 'dolar', 'dolares', '$'].includes(key)) return 'USD';
+  if (['pen', 'sol', 'soles', 's/', 's'].includes(key) || /\bpen\b|\bsoles?\b|s\//.test(key)) return 'PEN';
+  if (['usd', 'dolar', 'dolares', '$', 'us$'].includes(key) || /\busd\b|\bdolares?\b|us\$/.test(key)) return 'USD';
   return null;
 };
 
@@ -101,23 +101,35 @@ const matrixToBulkLines = (matrix) => {
   const headerIndex = (matrix || []).findIndex((row) => {
     const headers = (row || []).map(normalizeText);
     return headers.some((header) => header.includes('fecha'))
-      && headers.some((header) => /monto|importe|total/.test(header));
+      && headers.some((header) => /monto|importe|total|soles|dolares|\bpen\b|\busd\b/.test(header));
   });
   if (headerIndex < 0) return null;
 
   const headers = (matrix[headerIndex] || []).map(normalizeText);
   const findColumn = (...names) => headers.findIndex((header) => names.some((name) => header.includes(name)));
   const dateIndex = findColumn('fecha');
-  const amountIndex = findColumn('monto', 'importe', 'total');
+  const penAmountIndex = headers.findIndex((header) => /^(?:s\/|pen|soles?)$/.test(header)
+    || (/(?:monto|importe|total)/.test(header) && /(?:\bpen\b|soles?|s\/)/.test(header)));
+  const usdAmountIndex = headers.findIndex((header) => /^(?:us\$|usd|dolares?|\$)$/.test(header)
+    || (/(?:monto|importe|total)/.test(header) && /(?:\busd\b|dolares?|us\$)/.test(header)));
+  const amountIndex = headers.findIndex((header, index) => index !== penAmountIndex && index !== usdAmountIndex && /monto|importe|total/.test(header));
   const currencyIndex = findColumn('moneda');
   const conceptIndex = findColumn('concepto', 'categoria');
   const noteIndex = findColumn('nota', 'descripcion', 'detalle', 'comercio');
-  if (dateIndex < 0 || amountIndex < 0) return null;
+  if (dateIndex < 0 || (amountIndex < 0 && penAmountIndex < 0 && usdAmountIndex < 0)) return null;
 
-  const entries = matrix.slice(headerIndex + 1).map((row) => {
-    const rawAmount = String(row?.[amountIndex] ?? '');
+  const entries = matrix.slice(headerIndex + 1).flatMap((row) => {
     const note = noteIndex >= 0 ? String(row?.[noteIndex] || '').replace(/\|/g, '/') : '';
-    return { row, rawAmount, note, signedAmount: toSignedAmount(rawAmount) };
+    const currencyAmounts = [
+      penAmountIndex >= 0 ? { index: penAmountIndex, currency: 'PEN' } : null,
+      usdAmountIndex >= 0 ? { index: usdAmountIndex, currency: 'USD' } : null,
+    ].filter(Boolean).map(({ index, currency }) => {
+      const rawAmount = String(row?.[index] ?? '');
+      return { row, rawAmount, note, signedAmount: toSignedAmount(rawAmount), explicitCurrency: currency };
+    }).filter((entry) => entry.signedAmount);
+    if (currencyAmounts.length) return currencyAmounts;
+    const rawAmount = String(row?.[amountIndex] ?? '');
+    return [{ row, rawAmount, note, signedAmount: toSignedAmount(rawAmount), explicitCurrency: null }];
   }).filter((entry) => entry.signedAmount && !isPaymentOrBalanceMovement(entry.note));
 
   // Interbank exporta consumos negativos; otros extractos muestran consumos
@@ -129,13 +141,13 @@ const matrixToBulkLines = (matrix) => {
     ? (negativeCount >= positiveCount ? -1 : 1)
     : 0;
 
-  return entries.flatMap(({ row, rawAmount, note, signedAmount }) => {
+  return entries.flatMap(({ row, rawAmount, note, signedAmount, explicitCurrency }) => {
     const inferredConcept = classifyExpenseConcept(note);
     const isRefund = inferredConcept === 'cashback';
     if (!isRefund && Math.sign(signedAmount) !== expenseSign) return [];
-    const currency = currencyIndex >= 0
+    const currency = explicitCurrency || (currencyIndex >= 0
       ? (toMoneda(row[currencyIndex]) || (/US\$|USD|\$/i.test(rawAmount) ? 'USD' : 'PEN'))
-      : (/US\$|USD|\$/i.test(rawAmount) ? 'USD' : 'PEN');
+      : (/US\$|USD|\$/i.test(rawAmount) ? 'USD' : 'PEN'));
     const concept = conceptIndex >= 0 && toConceptApi(row[conceptIndex]) ? row[conceptIndex] : inferredConcept;
     return [`${concept} | ${currency} | ${Math.abs(signedAmount)} | ${excelDateToText(row[dateIndex])} | ${note}`];
   });
@@ -152,38 +164,77 @@ export const pdfLinesToBulkText = (lines) => {
   const allText = lines.join(' ');
   const detectedYear = allText.match(/\b(20\d{2})\b/)?.[1]
     || (allText.match(/\b\d{1,2}\/\d{1,2}\/(\d{2})\b/)?.[1] ? `20${allText.match(/\b\d{1,2}\/\d{1,2}\/(\d{2})\b/)[1]}` : String(new Date().getFullYear()));
+  let pdfSection = '';
   return lines.flatMap((line) => {
+    const normalizedLine = normalizeText(line);
+    if (/^abonos$/.test(normalizedLine)) { pdfSection = 'credits'; return []; }
+    if (/^consumos directos/.test(normalizedLine)) { pdfSection = 'purchases'; return []; }
+    if (/^consumos en cuotas/.test(normalizedLine)) { pdfSection = 'installments'; return []; }
+    if (/^resumen de movimientos|^plan de cuotas|^informacion sobre/.test(normalizedLine)) { pdfSection = ''; return []; }
     if (/\bAV\.|XX-XXXX|X{4,}|ESTADO\s+DE\s+CUENTA|PAG\s+\d+\s+DE\s+\d+/i.test(line)) return [];
-    const bcp = line.match(/^\s*(\d{1,2})(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Set|Oct|Nov|Dic)\s+(\d{1,2})(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Set|Oct|Nov|Dic)\s+(.+?)\s+([\d,.]+)(-?)\s*$/i);
+    const bcp = line.match(/^\s*(\d{1,2})(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Set|Oct|Nov|Dic)\s+(\d{1,2})(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Set|Oct|Nov|Dic)\s+(.+?)\s+([\d,.]+)(-?)\s*(?:\[(PEN|USD)\])?\s*$/i);
     if (bcp) {
       const middle = bcp[5].trim();
       const operation = middle.match(/\b(CONSUMO|DEVOLUCI[OÓ]N|PAGO)\b/i)?.[1] || '';
       if (/PAGO/i.test(operation)) return [];
       const isRefund = /DEVOLUCI/i.test(operation);
       const description = middle.replace(/\s+\b(CONSUMO|DEVOLUCI[OÓ]N)\b.*$/i, '').trim();
-      const currency = /\b840\b/.test(middle) ? 'USD' : 'PEN';
+      // El marcador proviene de la columna visual real del PDF y tiene
+      // prioridad. El código 840 queda solo como respaldo para PDFs antiguos.
+      const currency = bcp[8]?.toUpperCase() || (/\b840\b/.test(middle) ? 'USD' : 'PEN');
       const date = statementDate(bcp[3], bcp[4], detectedYear);
       const amount = toAmount(bcp[6]);
       if (!date || !amount) return [];
       return [`${isRefund ? 'cashback' : classifyExpenseConcept(description)} | ${currency} | ${amount} | ${date} | ${description.replace(/\|/g, '/')}${isRefund ? ' DEVOLUCION' : ''}`];
+    }
+
+    // iO: la moneda se obtiene de la posición de la cifra en la tabla y el
+    // extractor la agrega como marcador. Los abonos (pagos y devoluciones) no
+    // son consumos y se omiten completos.
+    const io = line.match(/^\s*(\d{1,2})-(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|SET|OCT|NOV|DIC)\s+(.+?)\s+([\d,.]+)\s+\[(PEN|USD)\]\s*$/i);
+    if (io) {
+      if (pdfSection === 'credits' || isPaymentOrBalanceMovement(io[3])) return [];
+      if (!['purchases', 'installments'].includes(pdfSection)) return [];
+      const date = statementDate(io[1], io[2], detectedYear);
+      const amount = toAmount(io[4]);
+      if (!date || !amount) return [];
+      const description = io[3].trim();
+      return [`${classifyExpenseConcept(description)} | ${io[5].toUpperCase()} | ${amount} | ${date} | ${description.replace(/\|/g, '/')}`];
+    }
+
+    // Banco Falabella/CMR: dos fechas completas, detalle y monto. La palabra
+    // Pago manda sobre el signo; así un pago negativo nunca se vuelve gasto.
+    const falabella = line.match(/^\s*(\d{1,2}\/\d{1,2}\/20\d{2})\s+(\d{1,2}\/\d{1,2}\/20\d{2})\s+(.+?)\s+(-?[\d,.]+)\s*$/i);
+    if (falabella) {
+      const description = falabella[3].trim();
+      if (isPaymentOrBalanceMovement(description)) return [];
+      const amount = toSignedAmount(falabella[4]);
+      if (!amount) return [];
+      const currency = /\[(?:USD|DOLARES?)\]|US\$|\bUSD\b/i.test(line) ? 'USD' : 'PEN';
+      return [`${classifyExpenseConcept(description)} | ${currency} | ${Math.abs(amount)} | ${falabella[1]} | ${description.replace(/\|/g, '/')}`];
     }
     const dateMatch = line.match(/\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b/);
     if (!dateMatch) return [];
     const amountMatches = [...line.matchAll(/(?:US\$|USD|\$|S\/)\s*\(?-?\s*[\d.,]+\)?-?|\(?-\s*[\d.,]+\)?|\([\d.,]+\)/gi)];
     const amountToken = amountMatches.at(-1)?.[0];
     const signedAmount = toSignedAmount(amountToken);
-    const description = line.replace(dateMatch[0], ' ').replace(amountToken || '', ' ').replace(/\s+/g, ' ').trim();
+    const visualCurrency = line.match(/\[(PEN|USD)\]\s*$/i)?.[1]?.toUpperCase();
+    const description = line.replace(dateMatch[0], ' ').replace(amountToken || '', ' ').replace(/\[(?:PEN|USD)\]\s*$/i, '').replace(/\s+/g, ' ').trim();
     const isRefund = classifyExpenseConcept(description) === 'cashback';
-    if (!(signedAmount < 0) && !isRefund) return [];
     if (!signedAmount) return [];
+    if (isPaymentOrBalanceMovement(description)) return [];
+    // Si conocemos la columna visual, el signo deja de ser una señal de
+    // moneda o de tipo de movimiento. Algunos bancos muestran consumos en
+    // positivo y otros en negativo.
+    if (!visualCurrency && !(signedAmount < 0) && !isRefund) return [];
     const date = `${String(dateMatch[1]).padStart(2, '0')}/${String(dateMatch[2]).padStart(2, '0')}/${dateMatch[3] || detectedYear}`;
-    const currency = /US\$|USD|\$/i.test(amountToken || '') && !/S\//i.test(amountToken || '') ? 'USD' : 'PEN';
+    const currency = visualCurrency || (/US\$|USD|\$/i.test(amountToken || '') && !/S\//i.test(amountToken || '') ? 'USD' : 'PEN');
     return [`${classifyExpenseConcept(description)} | ${currency} | ${Math.abs(signedAmount)} | ${date} | ${description.replace(/\|/g, '/')}`];
   }).join('\n');
 };
 
-const extractPdfTextLines = async (file) => {
-  const document = await pdfjsLib.getDocument({ data: await file.arrayBuffer(), password: '75135395' }).promise;
+const extractPdfTextLines = async (file, password = '') => {
+  const document = await pdfjsLib.getDocument({ data: await file.arrayBuffer(), password: password || undefined }).promise;
   const lines = [];
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
     const page = await document.getPage(pageNumber);
@@ -194,8 +245,25 @@ const extractPdfTextLines = async (file) => {
       if (!groups.has(y)) groups.set(y, []);
       groups.get(y).push({ x: Number(item.transform?.[4] || 0), text: String(item.str || '') });
     });
+    const pageHasCurrencyColumns = content.items.some((item) => normalizeText(item.str) === 'soles')
+      && content.items.some((item) => normalizeText(item.str) === 'dolares');
+    const currencyHeaders = pageHasCurrencyColumns
+      ? content.items.filter((item) => ['soles', 'dolares'].includes(normalizeText(item.str)))
+        .map((item) => ({ currency: normalizeText(item.str) === 'dolares' ? 'USD' : 'PEN', x: Number(item.transform?.[4] || 0) }))
+      : [];
     [...groups.entries()].sort((a, b) => b[0] - a[0]).forEach(([, items]) => {
-      lines.push(items.sort((a, b) => a.x - b.x).map((item) => item.text).join(' ').replace(/\s+/g, ' ').trim());
+      const ordered = items.sort((a, b) => a.x - b.x);
+      let line = ordered.map((item) => item.text).join(' ').replace(/\s+/g, ' ').trim();
+      const looksLikeTransaction = /^\d{1,2}-?(?:ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|SET|OCT|NOV|DIC)\b/i.test(line)
+        || /^\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|20\d{2})\b/.test(line);
+      if (currencyHeaders.length && looksLikeTransaction) {
+        const amountItem = [...ordered].reverse().find((item) => /^[\d,.]+$/.test(item.text.trim()));
+        if (amountItem) {
+          const nearest = [...currencyHeaders].sort((a, b) => Math.abs(a.x - amountItem.x) - Math.abs(b.x - amountItem.x))[0];
+          if (nearest) line += ` [${nearest.currency}]`;
+        }
+      }
+      lines.push(line);
     });
   }
   return lines.filter(Boolean);
@@ -415,6 +483,12 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
   const [draggingFile, setDraggingFile] = useState(false);
   const [reviewed, setReviewed] = useState({});
   const [conceptOverrides, setConceptOverrides] = useState({});
+  const currentUser = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
+  }, []);
+  const passwordStorageKey = `credit-statement-password:${userId || currentUser?.id || currentUser?.username || 'current'}`;
+  const [pdfPassword, setPdfPassword] = useState(() => localStorage.getItem(passwordStorageKey) || '');
+  const [showPdfPassword, setShowPdfPassword] = useState(false);
 
   const cardLabel = (c) => c?.label || c?.name || c?.tipo || c?.type || '';
   const cardValue = (c) => c?.type || c?.tipo || c?.label || c?.name || '';
@@ -479,8 +553,8 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
     setError('');
     try {
       if (file.name.toLowerCase().endsWith('.pdf')) {
-        const value = pdfLinesToBulkText(await extractPdfTextLines(file));
-        if (!value.trim()) throw new Error('No se encontraron gastos negativos ni reembolsos en el PDF.');
+        const value = pdfLinesToBulkText(await extractPdfTextLines(file, pdfPassword));
+        if (!value.trim()) throw new Error('No se encontraron consumos normales en el PDF. Los pagos a la tarjeta se omiten.');
         setBulkText(value);
         setFileName(file.name);
         setReviewed({});
@@ -497,7 +571,10 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
       setReviewed({});
       setConceptOverrides({});
     } catch (loadError) {
-      setError(loadError?.message || 'No se pudo leer el archivo XLSX o PDF.');
+      const passwordProblem = loadError?.name === 'PasswordException' || /password|contrase/i.test(loadError?.message || '');
+      setError(passwordProblem
+        ? 'No se pudo desbloquear el PDF. Revisa la contraseña guardada para esta persona e intenta subirlo otra vez.'
+        : (loadError?.message || 'No se pudo leer el archivo XLSX o PDF.'));
     }
   };
 
@@ -584,6 +661,30 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
           Patron por linea: <code>concepto | moneda | monto | fecha(dd/mm/yyyy) | nota(opcional)</code>.
           Cada linea crea un solo gasto.
         </p>
+        <div className="mb-4 max-w-md rounded-xl border border-gray-200 bg-gray-50 p-3">
+          <label className="text-sm text-gray-700">
+            <span className="mb-1 block font-medium">Contraseña de estados de cuenta de esta persona</span>
+            <div className="flex gap-2">
+              <input
+                type={showPdfPassword ? 'text' : 'password'}
+                autoComplete="off"
+                value={pdfPassword}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setPdfPassword(value);
+                  if (value) localStorage.setItem(passwordStorageKey, value);
+                  else localStorage.removeItem(passwordStorageKey);
+                }}
+                placeholder="Solo si el PDF está protegido"
+                className="min-w-0 flex-1 rounded border border-gray-300 bg-white px-3 py-2"
+              />
+              <button type="button" onClick={() => setShowPdfPassword((value) => !value)} className="rounded border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700 hover:bg-gray-100">
+                {showPdfPassword ? 'Ocultar' : 'Ver / cambiar'}
+              </button>
+            </div>
+          </label>
+          <div className="mt-1 text-xs text-gray-500">Se guarda en este navegador por persona y puedes cambiarla cuando sea necesario.</div>
+        </div>
         <div
           className={`mb-4 flex min-h-24 flex-wrap items-center justify-center gap-3 rounded-xl border-2 border-dashed px-4 py-3 transition-colors ${draggingFile ? 'border-blue-500 bg-blue-100' : 'border-blue-300 bg-blue-50'}`}
           onDragEnter={(event) => { event.preventDefault(); setDraggingFile(true); }}

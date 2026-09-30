@@ -55,6 +55,19 @@ test('clasifica Alignet y Eshopex como envíos, y cadenas de comida como comida'
   expect(text).toContain('comida | PEN | 35 | 08/09/2026');
 });
 
+test('prioriza la columna visual Dólares aunque el movimiento BCP no tenga código 840', () => {
+  const text = pdfLinesToBulkText([
+    '24/08/26 23/09/26',
+    '14Set 11Set PAYPAL *IMEI CHECK 35314369001 GB CONSUMO 10.50 [USD]',
+    '14Set 12Set Mol *SC CARBON PRO HQ S 40720659785 RO CONSUMO 5.25 [USD]',
+    '13Set 13Set LARCO C4 LIMA PE CONSUMO 6.89 [PEN]',
+  ]);
+
+  expect(text).toContain('gusto | USD | 10.5 | 11/09/2026');
+  expect(text).toContain('gusto | USD | 5.25 | 12/09/2026');
+  expect(text).toContain('gusto | PEN | 6.89 | 13/09/2026');
+});
+
 test('ignora dirección, tarjeta enmascarada y periodo del encabezado', () => {
   const text = pdfLinesToBulkText([
     'AV.LOS GORRIONES N.288 MZ.B LT 377-89XX-XXXX-0962 24/07/26 23/08/26',
@@ -78,6 +91,30 @@ test('lee el CSV de Interbank, importa consumos negativos y omite pagos positivo
   expect(parsed.rows).toHaveLength(2);
   expect(parsed.rows[0].body).toMatchObject({ fecha: '2026-09-25', moneda: 'PEN', monto: 4.64, concepto: 'desgravamen' });
   expect(parsed.rows[1].body).toMatchObject({ fecha: '2026-09-24', moneda: 'USD', monto: 20, notas: 'Vercel Pro' });
+});
+
+test('lee XLSX/CSV con columnas separadas de soles y dólares sin confundirlas', () => {
+  const parsed = parseBulkRows([
+    'Fecha,Descripcion,Soles,Dolares',
+    '11/09/2026,PAYPAL IMEI CHECK,,10.50',
+    '12/09/2026,LARCO C4,6.89,',
+    '13/09/2026,PAGO TARJETA,-100.00,',
+  ].join('\n'));
+
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows).toHaveLength(2);
+  expect(parsed.rows[0].body).toMatchObject({ moneda: 'USD', monto: 10.5, notas: 'PAYPAL IMEI CHECK' });
+  expect(parsed.rows[1].body).toMatchObject({ moneda: 'PEN', monto: 6.89, notas: 'LARCO C4' });
+});
+
+test('la marca de columna visual también corrige PDFs con fecha completa', () => {
+  const text = pdfLinesToBulkText([
+    '11/09/2026 PAYPAL IMEI CHECK US$ 10.50 [USD]',
+    '12/09/2026 COMPRA LOCAL S/ 6.89 [PEN]',
+  ]);
+
+  expect(text).toContain('gusto | USD | 10.5 | 11/09/2026');
+  expect(text).toContain('gusto | PEN | 6.89 | 12/09/2026');
 });
 
 test('lee Últimos movimientos, usa consumos positivos y omite pagos y exceso de línea', () => {
@@ -142,6 +179,38 @@ test('omite cualquier fila BBVA que diga pago o exceso, pero conserva desgravame
   expect(parsed.errors).toEqual([]);
   expect(parsed.rows).toHaveLength(2);
   expect(parsed.rows.map((row) => row.body.concepto)).toEqual(['desgravamen', 'gusto']);
+});
+
+test('lee consumos iO por sección y columna de moneda, y omite abonos', () => {
+  const text = pdfLinesToBulkText([
+    'Ciclo de facturación: 26/08/2026 al 25/09/2026',
+    'Abonos',
+    '30-AGO PAGO DE TARJETA iO - BANCA MÓVIL 324.59 [PEN]',
+    '16-SEP DEVOLUCIÓN DE COMPRA -EBAY US 492.00 [USD]',
+    'Consumos directos (Sin cuotas)',
+    '26-AGO OXXO CRONOS 23.70 [PEN]',
+    '17-SEP ELECTRONIC ARTS 16.99 [USD]',
+  ]);
+
+  expect(text).toContain('comida | PEN | 23.7 | 26/08/2026 | OXXO CRONOS');
+  expect(text).toContain('gusto | USD | 16.99 | 17/09/2026 | ELECTRONIC ARTS');
+  expect(text).not.toContain('PAGO DE TARJETA');
+  expect(text).not.toContain('492');
+});
+
+test('lee Banco Falabella y omite pagos aunque su monto sea negativo', () => {
+  const text = pdfLinesToBulkText([
+    'Último día de pago 15/10/2026',
+    '19/08/2026 20/08/2026 Compra El Brasero Peru 44.00',
+    '21/08/2026 21/08/2026 Pago Mobile Peru -100.00',
+    '20/08/2026 21/08/2026 Compra Eshopex Peru Peru 133.59',
+    '19/09/2026 19/09/2026 Seguro Desgravamen 13.90',
+  ]);
+
+  expect(text).toContain('gusto | PEN | 44 | 19/08/2026 | Compra El Brasero Peru');
+  expect(text).toContain('pago_envios | PEN | 133.59 | 20/08/2026');
+  expect(text).toContain('desgravamen | PEN | 13.9 | 19/09/2026');
+  expect(text).not.toContain('Pago Mobile');
 });
 
 test('no repite en la tabla un gasto del sistema emparejado con el día anterior', () => {
