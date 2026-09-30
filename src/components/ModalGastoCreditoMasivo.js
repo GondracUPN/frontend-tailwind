@@ -51,7 +51,7 @@ const classifyExpenseConcept = (description) => {
   if (/\bebay\b|sp\s*centex\s*luxury\s*goods/.test(text)) return 'inversion';
   if (/alignet|alinet|eshopex/.test(text)) return 'pago_envios';
   if (/amazon\s*prime/.test(text)) return 'gastos_recurrentes';
-  if (/evaristo|\bpvea\b|plaza\s*vea|\btambo\b|\blisto\b|\bmetro\b|mcdonalds|mc\s*donald'?s|\boxxo\b|\bkfc\b|burger\s*king|pizza\s*hut|\bsubway\b|starbucks|dunkin|popeyes/.test(text)) return 'comida';
+  if (/evaristo|\bpvea\b|plaza\s*vea|\btambo\b|\blisto\b|\bmetro\b|mcdonalds|mc\s*donald'?s|\boxxo\b|\bkfc\b|burger\s*king|pizza\s*hut|\bsubway\b|starbucks|dunkin|popeyes|\brappi\b|pedidos\s*ya|pedidosya|uber\s*eats|didi\s*food/.test(text)) return 'comida';
   return 'gusto';
 };
 

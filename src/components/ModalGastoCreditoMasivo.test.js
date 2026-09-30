@@ -13,7 +13,7 @@ test('lee consumos, omite pagos y conserva devoluciones del estado BCP', () => {
 
   expect(text).toContain('inversion | USD | 22.6 | 07/08/2026');
   expect(text).toContain('cashback | USD | 495.97 | 30/07/2026');
-  expect(text).toContain('gusto | PEN | 10.14 | 25/07/2026');
+  expect(text).toContain('comida | PEN | 10.14 | 25/07/2026');
   expect(text).not.toContain('1,072.00');
 });
 
@@ -53,6 +53,19 @@ test('clasifica Alignet y Eshopex como envíos, y cadenas de comida como comida'
   expect(text).toContain('comida | PEN | 28 | 06/09/2026');
   expect(text).toContain('comida | PEN | 12 | 07/09/2026');
   expect(text).toContain('comida | PEN | 35 | 08/09/2026');
+});
+
+test('clasifica plataformas de delivery como comida', () => {
+  const text = pdfLinesToBulkText([
+    '01/09/26 30/09/26',
+    '05Sep 04Sep RAPPI PERU 604 CONSUMO 42.00',
+    '06Sep 05Sep PEDIDOS YA PLUS 604 CONSUMO 18.90',
+    '07Sep 06Sep UBER EATS 604 CONSUMO 31.50',
+    '08Sep 07Sep DIDI FOOD 604 CONSUMO 22.00',
+  ]);
+
+  expect(text.split('\n')).toHaveLength(4);
+  expect(text.split('\n').every((line) => line.startsWith('comida | PEN |'))).toBe(true);
 });
 
 test('prioriza la columna visual Dólares aunque el movimiento BCP no tenga código 840', () => {
