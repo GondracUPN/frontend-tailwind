@@ -188,7 +188,7 @@ test('para accesorios recibe el precio total, calcula el unitario y muestra el r
 
   expect(screen.queryByText('Tipo de venta')).not.toBeInTheDocument();
   expect(screen.getByLabelText('Precio total de venta (S/)')).toBeInTheDocument();
-  await waitFor(() => expect(screen.getByLabelText('Resumen de ventas del accesorio')).toHaveTextContent('Ingreso por ventas'));
+  await waitFor(() => expect(screen.getByLabelText('Resumen de ventas del accesorio')).toHaveTextContent('Ingreso total'));
   expect(screen.getByLabelText('Resumen de ventas del accesorio')).toHaveTextContent('S/ 240.00');
   expect(screen.queryByText('Ganancia neta')).not.toBeInTheDocument();
   expect(screen.queryByText('Costo vendido')).not.toBeInTheDocument();

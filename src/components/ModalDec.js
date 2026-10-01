@@ -1,3 +1,4 @@
+/* eslint-disable no-unreachable */
 // src/components/ModalDec.js
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import api, { API_URL } from "../api";
@@ -1414,20 +1415,19 @@ function buildPrintableUspsDoc({ letterDate, dearName, statusDate, recipientName
 }
 
 async function editUspsPdf(sourceBytes, values) {
-  const sourceCopy = new Uint8Array(new Uint8Array(sourceBytes));
-  const sourcePdf = await pdfjsLib.getDocument({ data: sourceCopy }).promise;
-  if (!sourcePdf.numPages) throw new Error("El PDF no tiene paginas.");
-  const pdf = await PDFDocument.create();
+  return editUspsPdfWithSelectiveRedaction(sourceBytes, values);
+  /* istanbul ignore next */
+  const pdf = await PDFDocument.load(new Uint8Array(sourceBytes));
+  const pages = pdf.getPages();
+  if (!pages.length) throw new Error("El PDF no tiene paginas.");
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const renderScale = 2.5;
-  let page;
-  let width = 612;
-  let height = 792;
+  const page = pages[0];
+  const { width, height } = page.getSize();
 
-  // Aplana cada pagina como imagen. Así el texto anterior deja de existir en
-  // la capa copiable del PDF y solamente quedan seleccionables los datos nuevos.
-  for (let pageNumber = 1; pageNumber <= sourcePdf.numPages; pageNumber += 1) {
+  // El bloque de rasterizado anterior queda desactivado: conservar la capa de
+  // texto permite seleccionar y buscar todo lo que no se reemplaza.
+  /* for (let pageNumber = 1; pageNumber <= sourcePdf.numPages; pageNumber += 1) {
     const sourcePage = await sourcePdf.getPage(pageNumber);
     const pdfViewport = sourcePage.getViewport({ scale: 1 });
     const renderViewport = sourcePage.getViewport({ scale: renderScale });
@@ -1473,11 +1473,26 @@ async function editUspsPdf(sourceBytes, values) {
   }
 
   if (!page) throw new Error("El PDF no tiene paginas.");
-  await sourcePdf.destroy();
+  await sourcePdf.destroy(); */
   // Los dos formatos USPS admitidos usan una pagina Letter de 612 x 792 pt.
   const sx = width / 612;
   const sy = height / 792;
   const black = rgb(0, 0, 0);
+  const white = rgb(1, 1, 1);
+  const cover = ({ x, y, w }) => page.drawRectangle({
+    x: (x - 2) * sx,
+    y: (y - 2.5) * sy,
+    width: w * sx,
+    height: 15 * sy,
+    color: white,
+    borderWidth: 0,
+  });
+  cover({ x: 50, y: 711, w: 220 });
+  cover({ x: 50, y: 679, w: 300 });
+  cover({ x: 50, y: 631, w: 500 });
+  cover({ x: 282.4, y: 557, w: 265 });
+  cover({ x: 282.4, y: 482, w: 265 });
+  cover({ x: 282.4, y: 407.6, w: 150 });
   const replace = ({ x, y, text, size = 11, font = regular }) => {
     page.drawText(String(text || ""), {
       x: x * sx,
@@ -1493,7 +1508,101 @@ async function editUspsPdf(sourceBytes, values) {
   replace({ x: 282.4, y: 557, w: 265, text: formatUspsDate(values.statusDate, true) });
   replace({ x: 282.4, y: 482, w: 265, text: values.recipientName });
   replace({ x: 282.4, y: 407.6, w: 150, text: values.weight });
-  return pdf.save();
+  return pdf.save({ useObjectStreams: false });
+}
+
+async function editUspsPdfWithSelectiveRedaction(sourceBytes, values) {
+  const sourcePdf = await pdfjsLib.getDocument({ data: new Uint8Array(sourceBytes) }).promise;
+  if (!sourcePdf.numPages) throw new Error("El PDF no tiene paginas.");
+  const output = await PDFDocument.create();
+  const regular = await output.embedFont(StandardFonts.Helvetica);
+  const bold = await output.embedFont(StandardFonts.HelveticaBold);
+  const black = rgb(0, 0, 0);
+  const renderScale = 2.5;
+  const redactions = [
+    { x: 48, y: 708.5, w: 220, h: 15 },
+    { x: 48, y: 676.5, w: 300, h: 15 },
+    { x: 48, y: 628.5, w: 500, h: 15 },
+    { x: 280.4, y: 554.5, w: 265, h: 15 },
+    { x: 280.4, y: 479.5, w: 265, h: 15 },
+    { x: 280.4, y: 405.1, w: 150, h: 15 },
+  ];
+  const intersectsRedaction = (box) => redactions.some((area) => (
+    box.x < area.x + area.w && box.x + box.w > area.x
+    && box.y < area.y + area.h && box.y + box.h > area.y
+  ));
+  let firstPage = null;
+
+  for (let pageNumber = 1; pageNumber <= sourcePdf.numPages; pageNumber += 1) {
+    const sourcePage = await sourcePdf.getPage(pageNumber);
+    const pdfViewport = sourcePage.getViewport({ scale: 1 });
+    const renderViewport = sourcePage.getViewport({ scale: renderScale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(renderViewport.width);
+    canvas.height = Math.ceil(renderViewport.height);
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("No se pudo preparar el PDF.");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    await sourcePage.render({ canvasContext: context, viewport: renderViewport }).promise;
+
+    if (pageNumber === 1) {
+      context.fillStyle = "#ffffff";
+      redactions.forEach((area) => context.fillRect(
+        area.x * renderScale,
+        (pdfViewport.height - area.y - area.h) * renderScale,
+        area.w * renderScale,
+        area.h * renderScale,
+      ));
+    }
+
+    const pngBlob = await new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("No se pudo rasterizar el PDF."))), "image/png");
+    });
+    const background = await output.embedPng(await pngBlob.arrayBuffer());
+    const page = output.addPage([pdfViewport.width, pdfViewport.height]);
+    page.drawImage(background, { x: 0, y: 0, width: pdfViewport.width, height: pdfViewport.height });
+
+    // Repone una capa de lectura invisible únicamente para el texto que no se
+    // modificó. Los valores redactados quedan fuera y no pueden seleccionarse.
+    const textContent = await sourcePage.getTextContent();
+    textContent.items.forEach((item) => {
+      const value = Array.from(String(item?.str || ""))
+        .filter((character) => character.charCodeAt(0) >= 32)
+        .join("")
+        .trim();
+      if (!value) return;
+      const transform = Array.isArray(item.transform) ? item.transform : [];
+      const x = Number(transform[4] || 0);
+      const y = Number(transform[5] || 0);
+      const fontSize = Math.max(1, Math.hypot(Number(transform[2] || 0), Number(transform[3] || 0)));
+      const box = { x, y: y - fontSize * 0.25, w: Math.max(1, Number(item.width || 0)), h: fontSize * 1.15 };
+      if (pageNumber === 1 && intersectsRedaction(box)) return;
+      try {
+        page.drawText(value, { x, y, size: fontSize, font: regular, color: black, opacity: 0 });
+      } catch {
+        // Un glifo no compatible no debe impedir generar el comprobante.
+      }
+    });
+    if (pageNumber === 1) firstPage = page;
+    sourcePage.cleanup();
+  }
+
+  if (!firstPage) throw new Error("El PDF no tiene paginas.");
+  await sourcePdf.destroy();
+  const { width, height } = firstPage.getSize();
+  const sx = width / 612;
+  const sy = height / 792;
+  const replace = ({ x, y, text, size = 11, font = regular }) => firstPage.drawText(String(text || ""), {
+    x: x * sx, y: y * sy, size: size * sx, font, color: black,
+  });
+  replace({ x: 50, y: 711, text: formatUspsDate(values.letterDate) });
+  replace({ x: 50, y: 679, text: `Dear ${values.dearName}:` });
+  replace({ x: 50, y: 631, text: `${formatUspsTracking(values.tracking)}.`, font: bold });
+  replace({ x: 282.4, y: 557, text: formatUspsDate(values.statusDate, true) });
+  replace({ x: 282.4, y: 482, text: values.recipientName });
+  replace({ x: 282.4, y: 407.6, text: values.weight });
+  return output.save({ useObjectStreams: false });
 }
 
 /* ================== Componente ================== */

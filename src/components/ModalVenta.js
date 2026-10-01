@@ -712,14 +712,20 @@ export default function ModalVenta({
           <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-lg bg-white p-3"><span className="block text-xs text-slate-500">Unidades vendidas</span><strong>{accessorySummary?.unidadesVendidas || 0}</strong></div>
             <div className="rounded-lg bg-white p-3"><span className="block text-xs text-slate-500">Disponibles</span><strong>{accessorySummary?.unidadesDisponibles ?? producto.stockActual ?? 0}</strong></div>
-            <div className="col-span-2 rounded-lg bg-emerald-50 p-3 text-emerald-800"><span className="block text-xs">Ingreso por ventas</span><strong className="text-lg">{summaryMoney(accessorySummary?.ventaBruta)}</strong></div>
+            <div className="rounded-lg bg-emerald-50 p-3 text-emerald-800"><span className="block text-xs">Ingreso total</span><strong className="text-lg">{summaryMoney(accessorySummary?.ventaBruta)}</strong></div>
+            <div className="rounded-lg bg-indigo-50 p-3 text-indigo-800"><span className="block text-xs">Ganancia general</span><strong className="text-lg">{summaryMoney(accessorySummary?.gananciaNeta)}</strong></div>
           </div>
           <p className="mt-3 text-xs text-slate-600">Tipo de cambio promedio: <strong>{accessorySummary?.tipoCambioPromedio != null ? Number(accessorySummary.tipoCambioPromedio).toFixed(4) : '--'}</strong></p>
           <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
             {(accessorySummary?.ventas || []).map((item) => (
               <div key={item.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
                 <div className="flex justify-between gap-2"><strong>{item.fechaVenta}</strong><span>{item.cantidad} und.</span></div>
-                <div className="mt-1 flex justify-end gap-2"><strong className="text-emerald-700">Ingreso {summaryMoney(item.ventaBruta)}</strong></div>
+                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
+                  <span>Cada uno: <strong>{summaryMoney(item.precioUnitario)}</strong></span>
+                  <span className="text-right">Total: <strong>{summaryMoney(item.ventaBruta)}</strong></span>
+                  <span>Costo: <strong>{summaryMoney(item.costo)}</strong></span>
+                  <span className="text-right text-emerald-700">Ganancia: <strong>{summaryMoney(item.gananciaNeta)}</strong></span>
+                </div>
               </div>
             ))}
           </div>

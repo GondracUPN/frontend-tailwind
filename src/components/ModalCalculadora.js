@@ -33,6 +33,7 @@ const buildProductName = (product) => {
   if (type === 'ipad') return ['iPad', detail.gama === 'Normal' ? '' : detail.gama].map(clean).filter(Boolean).join(' ');
   if (type === 'watch') return formatAppleWatchName(detail);
   if (type === 'otro') return clean(detail.descripcionOtro) || 'Otro producto';
+  if (type === 'accesorios') return clean(detail.modelo || detail.gama || detail.descripcionOtro) || 'Accesorio';
   const typeLabel = type === 'macbook' ? 'MacBook' : clean(product?.tipo);
   return [typeLabel, detail.gama].map(clean).filter(Boolean).join(' ');
 };
@@ -299,7 +300,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
           {historyOpen && (
             <aside className="border-t border-slate-200 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0" aria-label="Últimos equipos vendidos similares">
               <h3 className="text-base font-semibold text-slate-950">Últimos vendidos similares</h3>
-              <p className="mt-1 text-xs text-slate-500">Mismo producto, procesador y tamaño de pantalla.</p>
+              <p className="mt-1 text-xs text-slate-500">{isAccessory ? 'Misma familia de accesorio; no mezcla AirTag, Apple Pencil u otros.' : 'Mismo producto, procesador y tamaño de pantalla.'}</p>
               {historyLoading ? (
                 <div className="py-8 text-center text-sm text-slate-500">Cargando...</div>
               ) : historyError ? (

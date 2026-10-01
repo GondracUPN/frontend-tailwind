@@ -68,8 +68,8 @@ test('separa todos los accesorios del inventario y los muestra tengan o no foto'
   expect(screen.getByText('Total inventario').parentElement).toHaveTextContent('1');
 
   fireEvent.click(screen.getByRole('button', { name: 'Accesorios' }));
-  expect(screen.getByText('MS-501')).toBeInTheDocument();
-  expect(screen.getByText('MS-502')).toBeInTheDocument();
+  expect(screen.getByText('ACC-501')).toBeInTheDocument();
+  expect(screen.getByText('ACC-502')).toBeInTheDocument();
   expect(screen.getByText('Sin foto de inventario')).toBeInTheDocument();
   expect(screen.getAllByText('Accesorio')).toHaveLength(2);
 });
