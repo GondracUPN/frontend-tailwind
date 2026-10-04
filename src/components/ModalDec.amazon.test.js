@@ -7,6 +7,7 @@ import ModalDec, {
   buildAmazonTemplateHTML,
   normalizeManualEbayOrderNumber,
   parseEbayOrderClipboard,
+  parseEbayUspsClipboard,
 } from './ModalDec';
 
 jest.mock('../api', () => ({
@@ -49,6 +50,16 @@ test('lee los datos copiados desde el boton de eBay', () => {
     seller: 'pawn_shop_1',
     orderNumber: '26-12345-67890',
   });
+});
+
+test('lee los campos USPS copiados de eBay y rechaza datos incompletos', () => {
+  expect(parseEbayUspsClipboard('DEC_EBAY_USPS:{"statusDate":"2026-09-19T16:42","dearName":"JORGE GARCIA","recipientName":"JORGE SAHID GARCIA SANCHEZ","tracking":"9405 5081 0624 5583 7769 13"}')).toEqual({
+    statusDate: '2026-09-19T16:42',
+    dearName: 'JORGE GARCIA',
+    recipientName: 'JORGE SAHID GARCIA SANCHEZ',
+    tracking: '9405508106245583776913',
+  });
+  expect(parseEbayUspsClipboard('DEC_EBAY_USPS:{"statusDate":"","tracking":"9405"}')).toBeNull();
 });
 
 test('Pegar de eBay llena seller y order number desde el portapapeles', async () => {

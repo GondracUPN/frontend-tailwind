@@ -6,6 +6,7 @@ import { localDateInputValue } from '../utils/dates';
 import CloseX from './CloseX';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
 import { currentMonthlyExpenseRows, restoreMonthlyExpense } from '../utils/monthlyExpenses';
+import { formatPending500, getPending500 } from '../utils/pending500';
 
 const BANKS_DEBITO = [
   { value: 'bcp', label: 'BCP' },
@@ -29,6 +30,7 @@ const BASE_CONCEPTOS_DEBITO = [
   { value: 'comida', label: 'Comida' },
   { value: 'gustos', label: 'Gustos' },
   { value: 'ingresos', label: 'Ingresos' },
+  { value: 'itf', label: 'ITF' },
   { value: 'bolsa', label: 'Bolsa' },
   { value: 'transporte', label: 'Transporte' },
   { value: 'pago_envios', label: 'Pago de envios' },
@@ -98,6 +100,9 @@ export default function ModalGastoDebito({
   const [moneda, setMoneda] = useState('PEN');
   const monedaElegidaManualmente = useRef(false);
   const [monto, setMonto] = useState('');
+  const [ingresoEn500, setIngresoEn500] = useState(false);
+  const [cantidad500, setCantidad500] = useState('');
+  const [destinatario500, setDestinatario500] = useState('');
   const [fecha, setFecha] = useState(() => localDateInputValue());
   const [pagoObjetivo, setPagoObjetivo] = useState('PEN'); // 'PEN' | 'USD'
   const [banco, setBanco] = useState('bcp');
@@ -245,6 +250,13 @@ export default function ModalGastoDebito({
     if (!isFinite(n) || n <= 0) return setError('Monto inválido.');
     if (!fecha) return setError('Selecciona fecha.');
     const isBolsa = concepto === 'bolsa';
+    const isIngresoEn500 = normConcept(concepto) === 'ingreso' && moneda === 'PEN' && ingresoEn500;
+    if (isIngresoEn500 && (!Number.isInteger(Number(cantidad500)) || Number(cantidad500) < 1 || Number(cantidad500) * 500 > n)) {
+      return setError('La cantidad x500 no puede superar el monto del ingreso.');
+    }
+    if (isIngresoEn500 && !destinatario500) {
+      return setError('Indica si los depósitos se dieron a ti o a Renato.');
+    }
 
     if (concepto === 'pago_tarjeta' && !tarjetaPagar) {
       return setError('Selecciona la tarjeta a la que vas a pagar.');
@@ -289,6 +301,8 @@ export default function ModalGastoDebito({
       fecha,
       notas: isMensual ? String(detalleMensual).trim() : (nota ? String(nota).trim() : null),
       tarjeta: banco,
+      ...(isIngresoEn500 ? { cantidad500: Number(cantidad500) } : {}),
+      ...(isIngresoEn500 ? { destinatario500 } : {}),
       ...(concepto === 'pago_tarjeta' ? { tarjetaPago: tarjetaPagar } : {}),
       ...bodyExtra,
     };
@@ -327,6 +341,9 @@ export default function ModalGastoDebito({
       onSaved?.(data, { keepOpen });
       if (keepOpen) {
         setMonto('');
+        setIngresoEn500(false);
+        setCantidad500('');
+        setDestinatario500('');
         setNota('');
         setDetalleMensual('');
         setMonthlySelection('__new__');
@@ -347,7 +364,7 @@ export default function ModalGastoDebito({
   ];
   const selectedCustomConcept = customConcepts.find((item) => item.value === normConcept(concepto));
   const selectedCustomCategory = String(selectedCustomConcept?.metadata?.category || '').toLowerCase();
-  const conceptoIsIncome = concepto === 'ingreso' || selectedCustomCategory === 'income';
+  const conceptoIsIncome = normConcept(concepto) === 'ingreso' || selectedCustomCategory === 'income';
   const conceptoAllowsCurrency = isFlexibleMoneda(concepto) || Boolean(selectedCustomConcept);
 
   const showPagoTarjeta = concepto === 'pago_tarjeta';
@@ -368,6 +385,7 @@ export default function ModalGastoDebito({
     return soles / tc;
   })();
 
+  const pending500 = getPending500(monto, cantidad500);
   return (
     <div className="fixed inset-0 z-50 bg-neutral-900/50 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={(e)=>{ if(e.target===e.currentTarget) onClose?.(); }}>
       <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl ring-1 ring-gray-200 p-6 relative max-h-[90vh] overflow-y-auto" onClick={(e)=>e.stopPropagation()}>
@@ -554,6 +572,38 @@ export default function ModalGastoDebito({
             </>
           )}
 
+          {normConcept(concepto) === 'ingreso' && moneda === 'PEN' && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="flex items-center gap-2 font-medium text-emerald-900">
+                  <input type="checkbox" checked={ingresoEn500} onChange={(event) => { setIngresoEn500(event.target.checked); if (!event.target.checked) { setCantidad500(''); setDestinatario500(''); } }} />
+                  x500
+                </label>
+                {ingresoEn500 && <span className="font-semibold text-amber-800">Faltante: S/ {pending500.amount.toFixed(2)}</span>}
+              </div>
+              {ingresoEn500 && <div className="mt-1 text-xs text-amber-800">{formatPending500(pending500)}</div>}
+              {ingresoEn500 && (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block text-emerald-950">
+                    Cantidad de 500
+                    <input type="number" min="1" step="1" value={cantidad500} onChange={(event) => setCantidad500(event.target.value)} className="mt-1 w-full rounded border border-emerald-300 bg-white px-3 py-2" placeholder="Ej. 8 de 10" required />
+                  </label>
+                  <label className="block text-emerald-950">
+                    ¿A quién se le dio?
+                    <select value={destinatario500} onChange={(event) => setDestinatario500(event.target.value)} className="mt-1 w-full rounded border border-emerald-300 bg-white px-3 py-2" required>
+                      <option value="">Seleccionar</option>
+                      <option value="yo">Yo</option>
+                      <option value="renato">Renato</option>
+                    </select>
+                  </label>
+                </div>
+              )}
+              {!ingresoEn500 && Number(monto) > 1000 && (
+                <div className="mt-2 text-xs text-emerald-800">Se registrará ITF: S/ {(Number(monto) * 0.00005).toFixed(2)}</div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="text-sm">
               <span className="block text-gray-600 mb-1">{conceptoIsIncome ? 'Fecha de ingreso' : (concepto === 'pago_tarjeta' ? 'Fecha de pago' : 'Fecha de compra')}</span>
@@ -561,7 +611,7 @@ export default function ModalGastoDebito({
             </label>
 
             <label className="text-sm">
-              <span className="block text-gray-600 mb-1">{concepto === 'ingreso' ? 'Tarjeta (banco)' : 'Débito (banco)'}</span>
+              <span className="block text-gray-600 mb-1">{conceptoIsIncome ? 'Tarjeta (banco)' : 'Débito (banco)'}</span>
               <select className="w-full border rounded px-3 py-2" value={banco} onChange={(e)=>setBanco(e.target.value)}>
                 {BANKS_DEBITO.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
               </select>

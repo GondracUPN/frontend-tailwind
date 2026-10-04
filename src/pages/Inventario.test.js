@@ -74,6 +74,23 @@ test('separa todos los accesorios del inventario y los muestra tengan o no foto'
   expect(screen.getAllByText('Accesorio')).toHaveLength(2);
 });
 
+test('crea el accesorio simple como compra exclusiva de Inventario', async () => {
+  api.post.mockResolvedValue({ id: 503 });
+  api.patch.mockResolvedValue({ enAlmacen: true });
+  render(<Inventario setVista={jest.fn()} />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Agregar accesorio simple' }));
+  const dialog = screen.getByRole('dialog', { name: 'Agregar accesorio simple' });
+  fireEvent.change(within(dialog).getByPlaceholderText('Ej. Case para iPhone 16 Pro'), { target: { value: 'Cable USB-C' } });
+  fireEvent.change(within(dialog).getByLabelText('Precio de compra por unidad *'), { target: { value: '15' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Agregar accesorio' }));
+
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/productos', expect.objectContaining({
+    tipo: 'accesorios', soloInventario: true,
+  })));
+});
+
 test('lista un producto disponible y abre su ficha de cotejo', async () => {
   render(<Inventario setVista={jest.fn()} />);
 

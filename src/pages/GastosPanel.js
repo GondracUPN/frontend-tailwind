@@ -7,6 +7,7 @@ import ModalGastoCreditoMasivo from '../components/ModalGastoCreditoMasivo';
 import ModalTarjetas from '../components/ModalTarjetas';
 import ModalCuotasYGastos from '../components/ModalCuotasYGastos';
 import ModalEditarGasto from '../components/ModalEditarGasto';
+import ModalCobroVenta from '../components/ModalCobroVenta';
 import ModalEditarEfectivo from '../components/ModalEditarEfectivo';
 import ModalAnalisisGastosMes from '../components/ModalAnalisisGastosMes';
 import ModalCiclosTarjeta from '../components/ModalCiclosTarjeta';
@@ -15,6 +16,7 @@ import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept, normalizeExpens
 import { getAnalyticsSummary } from '../services/analytics';
 import { notifyGastosChanged, subscribeGastosChanges } from '../utils/gastosSync';
 import { hideMonthlyExpense } from '../utils/monthlyExpenses';
+import { formatPending500, getPending500 } from '../utils/pending500';
 
   const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
@@ -49,6 +51,14 @@ const fmtPen = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return 'S/ 0.00';
   return `S/ ${n.toFixed(2)}`;
+};
+
+export const receivedIncomeAmount = (gasto) => {
+  if (gasto?.salePaymentType) return Number(gasto.saleReceivedAmount) || 0;
+  const quantity = Number(gasto?.cantidad500);
+  return Number.isInteger(quantity) && quantity > 0
+    ? quantity * 500
+    : Number(gasto?.monto) || 0;
 };
 
 const fmtSignedMoney = (moneda, monto, sign) => {
@@ -151,6 +161,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [compraBudgetCustomPct, setCompraBudgetCustomPct] = useState('20');
   const [linePlannerAmount, setLinePlannerAmount] = useState('');
   const [editingGasto, setEditingGasto] = useState(null);
+  const [collectingSale, setCollectingSale] = useState(null);
   const [debitConceptFilter, setDebitConceptFilter] = useState('all');
   const [debitPaymentCardFilter, setDebitPaymentCardFilter] = useState('all');
   const [creditCardFilter, setCreditCardFilter] = useState('all');
@@ -406,6 +417,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     if (n === 'gastos_recurrentes') return 'Gastos mensuales';
     if (n === 'cashback') return 'Devo/Cash';
     if (n === 'bolsa') return 'Bolsa';
+    if (n === 'itf') return 'ITF';
     if (n === 'inversion') return metodoPago === 'debito' ? 'Bolsa' : 'Inversion';
     return String(c || '').replace(/_/g,' ');
   };
@@ -453,7 +465,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       const m = Number(g.monto) || 0;
       if (g.moneda === 'USD') continue;
       if (g.metodoPago !== 'debito') continue;
-      if (isIncomeExpenseConcept(g.concepto, conceptCategories)) delta += m; else delta -= m;
+      if (isIncomeExpenseConcept(g.concepto, conceptCategories)) delta += receivedIncomeAmount(g); else delta -= m;
     }
     return (Number(wallet.efectivoPen || 0) + delta).toFixed(2);
   }, [rows, wallet.efectivoPen, conceptCategories]);
@@ -664,7 +676,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const onEdited = (row) => {
     setEditingGasto(null);
     if (row) upsertRow(row);
-    refreshTotals();
+    reloadAll({ includeGastos: true, useCache: false, silent: true });
   };
   const onDelete = async (g) => {
     if (!g?.id) return;
@@ -892,10 +904,15 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                     const conceptoCell = g.concepto === 'pago_tarjeta'
                       ? `Pago Tarjeta  ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
                       : displayConcepto(g.concepto, g.metodoPago);
-                    const detalle = visibleExpenseNotes(g.notas);
+                    const detalle = g.saleSku || visibleExpenseNotes(g.notas);
                     const isIncome = isIncomeExpenseConcept(g.concepto, conceptCategories)
                       && normalizeExpenseConcept(g.concepto) !== 'cashback';
+                    const displayedAmount = g.salePaymentType ? receivedIncomeAmount(g) : g.monto;
                     const usdEquivalent = getDebitUsdEquivalent(g);
+                    const partialReceived = g.salePaymentType === 'debt'
+                      ? Math.max(0, Number(g.saleReceivedAmount || 0) - Number(g.cantidad500 || 0) * 500)
+                      : 0;
+                    const pending500 = getPending500(g.monto, g.cantidad500, partialReceived);
                     return (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
                         <td className="p-2 align-top">{g.fecha}</td>
@@ -903,7 +920,26 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                         <td className="p-2 align-top">{CARD_LABEL[g.tarjeta] || g.tarjeta || '-'}</td>
                         <td className="p-2 align-top">{detalle}</td>
                         <td className="p-2 align-top">
-                          <div className={`font-semibold ${isIncome ? 'text-emerald-700' : 'text-red-700'}`}>{fmtSignedMoney(g.moneda, g.monto, isIncome ? '+' : '-')}</div>
+                          <div className={`font-semibold ${isIncome ? 'text-emerald-700' : 'text-red-700'}`}>{fmtSignedMoney(g.moneda, displayedAmount, isIncome ? '+' : '-')}</div>
+                          {['card', 'debt'].includes(g.salePaymentType) && <div className="text-xs text-slate-500">Total de venta: {fmtMoney('PEN', g.monto)}</div>}
+                          {isIncome && Number(g.cantidad500) > 0 && !g.salePaymentType && (
+                            <div className="mt-0.5 text-xs font-semibold text-emerald-700" title="Depósitos de S/ 500 y saldo por recibir">
+                              x500: {g.cantidad500} · Faltante {fmtMoney('PEN', pending500.amount)} · Recibió: {g.destinatario500 === 'renato' ? 'Renato' : g.destinatario500 === 'yo' ? 'Yo' : 'Sin asignar'}
+                            </div>
+                          )}
+                          {isIncome && Number(g.cantidad500) > 0 && !g.salePaymentType && (
+                            <div className="text-xs text-amber-800">{formatPending500(pending500)}</div>
+                          )}
+                          {g.salePaymentType === 'direct' && (
+                            <div className="mt-1 text-xs font-semibold text-emerald-700">Directo · recibido en cuenta</div>
+                          )}
+                          {['card', 'debt'].includes(g.salePaymentType) && (
+                            <button type="button" onClick={() => setCollectingSale(g)} className="mt-1 block text-left text-xs font-semibold text-amber-800 underline decoration-dotted hover:text-amber-950" title="Abrir cobro de venta">
+                              {g.salePaymentType === 'debt'
+                                ? `x500: ${g.cantidad500 || 0} recibidas · Faltante ${fmtMoney('PEN', pending500.amount)} · ${formatPending500(pending500)}`
+                                : `Deuda: ${fmtMoney('PEN', Math.max(0, Number(g.monto) - Number(g.saleReceivedAmount || 0)))}${g.salePaidAt ? ` · Último pago ${g.salePaidAt}` : ''}`}
+                            </button>
+                          )}
                           {usdEquivalent != null && (
                             <div className={`mt-0.5 text-xs font-normal ${isIncome ? 'text-emerald-600' : 'text-red-600'}`}>
                               {isIncome ? '+' : '-'} $ {Math.abs(usdEquivalent).toFixed(2)}
@@ -911,6 +947,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                           )}
                         </td>
                         <td className="p-2 align-top">
+                          {g.itfIngresoId || g.salePaymentType ? <span className="text-xs text-gray-500">{g.salePaymentType ? 'Cobro de venta' : 'Automático'}</span> : (
                           <div className="flex items-center gap-2">
                             <button type="button" title="Editar" onClick={() => openEdit(g)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">
                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M16.862 3.487a1.5 1.5 0 0 1 2.121 2.121l-10.02 10.02a4.5 4.5 0 0 1-1.757 1.07l-3.042.912a.75.75 0 0 1-.928-.928l.912-3.042a4.5 4.5 0 0 1 1.07-1.757l10.02-10.02Zm-2.12-.001L5.62 12.608a6 6 0 0 0-1.427 2.243l-.912 3.042a2.25 2.25 0 0 0 2.784 2.784l3.042-.912a6 6 0 0 0 2.243-1.427l9.121-9.121-6.433-6.433Z" /></svg>
@@ -919,6 +956,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M9 3.75A2.25 2.25 0 0 1 11.25 1.5h1.5A2.25 2.25 0 0 1 15 3.75V4.5h3.75a.75.75 0 0 1 0 1.5H5.25a.75.75 0 0 1 0-1.5H9v-.75ZM6.75 7.5h10.5l-.63 11.34a2.25 2.25 0 0 1-2.245 2.11H9.625a2.25 2.25 0 0 1-2.244-2.11L6.75 7.5Z" /></svg>
                             </button>
                           </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1072,7 +1110,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           onSaved={(row, { keepOpen } = {}) => {
             if (!keepOpen) setShowDeb(false);
             if (row) upsertRow(row);
-            refreshTotals();
+            reloadAll({ includeGastos: true, useCache: false, silent: true });
           }}
         />
       )}
@@ -1237,6 +1275,17 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           gasto={editingGasto}
           onClose={closeEdit}
           onSaved={onEdited}
+        />
+      )}
+      {collectingSale && (
+        <ModalCobroVenta
+          gasto={collectingSale}
+          onClose={() => setCollectingSale(null)}
+          onSaved={() => {
+            setCollectingSale(null);
+            reloadAll({ includeGastos: true, useCache: false, silent: true });
+            notifyGastosChanged({ action: 'sale-payment', userId: targetUserId });
+          }}
         />
       )}
       {showCG && (

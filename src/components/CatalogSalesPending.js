@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../api';
 import { notifySalesChanged } from '../utils/salesSync';
+import { formatPending500, getPending500 } from '../utils/pending500';
 
 const eventLabel = (event) => event.eventType === 'sale.cancelled' ? 'Anulación' : 'Venta';
 const statusLabel = (status) => ({
@@ -15,10 +16,14 @@ export default function CatalogSalesPending() {
   const [loading, setLoading] = useState(true);
   const [busyIds, setBusyIds] = useState(() => new Set());
   const busyIdsRef = useRef(new Set());
+  const rateTimersRef = useRef(new Map());
+  const submittedRatesRef = useRef(new Map());
+  const rateSavesRef = useRef(new Map());
   const [error, setError] = useState('');
   const [exchangeRates, setExchangeRates] = useState({});
   const [paymentOptions, setPaymentOptions] = useState({});
   const [incomeBanks, setIncomeBanks] = useState({});
+  const [paymentTypes, setPaymentTypes] = useState({});
 
   const refresh = useCallback(async () => {
     try {
@@ -48,7 +53,7 @@ export default function CatalogSalesPending() {
         for (const event of Array.isArray(rows) ? rows : []) {
           if (next[event.id] === undefined) {
             const received = Number(event.exchangeRate);
-            next[event.id] = Number.isFinite(received) && received > 0 ? String(received) : '';
+            next[event.id] = Number.isFinite(received) && received > 0 ? String(received) : '3.7';
           }
         }
         return next;
@@ -64,7 +69,11 @@ export default function CatalogSalesPending() {
   useEffect(() => {
     refresh();
     const timer = window.setInterval(refresh, 5000);
-    return () => window.clearInterval(timer);
+    const rateTimers = rateTimersRef.current;
+    return () => {
+      window.clearInterval(timer);
+      rateTimers.forEach((pending) => window.clearTimeout(pending));
+    };
   }, [refresh]);
 
   const startBusy = (eventId) => {
@@ -86,12 +95,17 @@ export default function CatalogSalesPending() {
     const isCancellation = event.eventType === 'sale.cancelled';
     const exchangeRate = Number(exchangeRates[event.id]);
     const incomeBank = incomeBanks[event.id];
+    const paymentType = paymentTypes[event.id];
     if (action === 'confirm' && !isCancellation && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
       alert('Ingresa un tipo de cambio válido.');
       return;
     }
     if (action === 'confirm' && !isCancellation && !incomeBank) {
       alert('Selecciona la tarjeta de débito donde se recibió el pago.');
+      return;
+    }
+    if (action === 'confirm' && !isCancellation && !paymentType) {
+      alert('Selecciona pago con tarjeta o deuda.');
       return;
     }
     const message = action === 'confirm'
@@ -104,7 +118,7 @@ export default function CatalogSalesPending() {
     try {
       await api.post(
         `/integrations/catalog-sales/${event.id}/${action}`,
-        action === 'confirm' && !isCancellation ? { exchangeRate, incomeBank } : {},
+        action === 'confirm' && !isCancellation ? { exchangeRate, incomeBank, paymentType } : {},
       );
       await refresh();
       notifySalesChanged({ source: 'catalog-sync', action, sku: event.sku });
@@ -117,23 +131,27 @@ export default function CatalogSalesPending() {
     }
   };
 
-  const saveExchangeRate = async (event) => {
-    if (busyIdsRef.current.has(event.id)) return;
-    const exchangeRate = Number(exchangeRates[event.id]);
-    if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
-      alert('Ingresa un tipo de cambio válido.');
-      return;
-    }
-    if (!startBusy(event.id)) return;
+  const saveExchangeRate = async (event, value = exchangeRates[event.id]) => {
+    const exchangeRate = Number(value);
+    if (!Number.isFinite(exchangeRate) || exchangeRate <= 0 || exchangeRate === Number(event.exchangeRate) || submittedRatesRef.current.get(event.id) === exchangeRate) return;
+    submittedRatesRef.current.set(event.id, exchangeRate);
+    const previous = rateSavesRef.current.get(event.id) || Promise.resolve();
+    const save = previous.catch(() => {}).then(() => api.post(`/integrations/catalog-sales/${event.id}/exchange-rate`, { exchangeRate }));
+    rateSavesRef.current.set(event.id, save);
     try {
-      await api.post(`/integrations/catalog-sales/${event.id}/exchange-rate`, { exchangeRate });
-      await refresh();
-      alert('Tipo de cambio guardado. Ya puedes confirmar la venta.');
+      await save;
     } catch (err) {
-      alert(err?.message || 'No se pudo guardar el tipo de cambio.');
-    } finally {
-      finishBusy(event.id);
+      if (submittedRatesRef.current.get(event.id) === exchangeRate) submittedRatesRef.current.delete(event.id);
+      setError(err?.message || 'No se pudo guardar el tipo de cambio.');
     }
+  };
+
+  const scheduleExchangeRate = (event, value) => {
+    window.clearTimeout(rateTimersRef.current.get(event.id));
+    rateTimersRef.current.set(event.id, window.setTimeout(() => {
+      rateTimersRef.current.delete(event.id);
+      saveExchangeRate(event, value);
+    }, 800));
   };
 
   if (!loading && !items.length && !error) return null;
@@ -162,6 +180,7 @@ export default function CatalogSalesPending() {
                 <th className="p-3">Operación</th>
                 <th className="p-3">SKU</th>
                 <th className="p-3">Monto</th>
+                <th className="p-3">Forma de cobro</th>
                 <th className="p-3">T. cambio</th>
                 <th className="p-3">Recibido en (débito)</th>
                 <th className="p-3">Fecha</th>
@@ -177,7 +196,8 @@ export default function CatalogSalesPending() {
                   </td>
                   <td className="p-3 font-medium">{eventLabel(event)}</td>
                   <td className="p-3">{event.sku}</td>
-                  <td className="p-3">S/ {Number(event.amount).toFixed(2)}</td>
+                  <td className="p-3">S/ {Number(event.amount).toFixed(2)}{paymentTypes[event.id] === 'debt' && <div className="text-xs text-amber-800">Ingreso inicial: S/ 0.00 · x500: 0 · {formatPending500(getPending500(event.amount, 0))}</div>}{paymentTypes[event.id] === 'card' && <div className="text-xs text-amber-800">Ingreso inicial: S/ 0.00 · Deuda: S/ {Number(event.amount).toFixed(2)}</div>}{paymentTypes[event.id] === 'direct' && <div className="text-xs text-emerald-700">Ingreso completo en cuenta</div>}</td>
+                  <td className="p-3">{event.eventType === 'sale.created' ? <select aria-label={`Forma de cobro para ${event.sku}`} value={paymentTypes[event.id] || ''} onChange={(e) => setPaymentTypes((current) => ({ ...current, [event.id]: e.target.value }))} className="rounded-lg border border-amber-300 bg-white px-2 py-1.5"><option value="">Seleccionar</option><option value="direct">Directo</option><option value="card">Pago con tarjeta</option><option value="debt">Deuda x500</option></select> : '-'}</td>
                   <td className="p-3">
                     {event.eventType === 'sale.created' ? (
                       <input
@@ -186,10 +206,16 @@ export default function CatalogSalesPending() {
                         min="0.0001"
                         step="0.0001"
                         value={exchangeRates[event.id] ?? ''}
-                        onChange={(changeEvent) => setExchangeRates((current) => ({
-                          ...current,
-                          [event.id]: changeEvent.target.value,
-                        }))}
+                        onChange={(changeEvent) => {
+                          const value = changeEvent.target.value;
+                          setExchangeRates((current) => ({ ...current, [event.id]: value }));
+                          scheduleExchangeRate(event, value);
+                        }}
+                        onBlur={() => {
+                          window.clearTimeout(rateTimersRef.current.get(event.id));
+                          rateTimersRef.current.delete(event.id);
+                          saveExchangeRate(event);
+                        }}
                         className="w-28 rounded-lg border border-amber-300 bg-white px-2 py-1.5 text-slate-900"
                         placeholder="Ej: 3.75"
                       />
@@ -232,14 +258,6 @@ export default function CatalogSalesPending() {
                             className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 shadow-sm transition active:translate-y-px active:scale-[0.97] active:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
                           >
                             Rechazar
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busyIds.has(event.id) || !(Number(exchangeRates[event.id]) > 0)}
-                            onClick={() => saveExchangeRate(event)}
-                            className="rounded-lg border border-blue-500 px-3 py-1.5 font-medium text-blue-700 shadow-sm transition active:translate-y-px active:scale-[0.97] active:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Poner tipo de cambio
                           </button>
                         </>
                       )}

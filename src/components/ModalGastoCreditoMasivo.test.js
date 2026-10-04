@@ -68,6 +68,31 @@ test('clasifica plataformas de delivery como comida', () => {
   expect(text.split('\n').every((line) => line.startsWith('comida | PEN |'))).toBe(true);
 });
 
+test('clasifica RIDES y viajes Uber como transporte en PDF y texto masivo', () => {
+  const text = pdfLinesToBulkText([
+    'Ciclo de facturación: 26/08/2026 al 25/09/2026',
+    'Consumos directos (Sin cuotas)',
+    '27-AGO RIDES 12.90 [PEN]',
+    '27-AGO UBER RIDES 19.70 [PEN]',
+    '28-AGO UBER TRIP 8.50 [PEN]',
+    '29-AGO UBER EATS 24.00 [PEN]',
+  ]);
+  const parsed = parseBulkRows([
+    'gusto | PEN | 12.90 | 27/08/2026 | RIDES',
+    'gusto | PEN | 19.70 | 27/08/2026 | UBER RIDES',
+    'gusto | PEN | 8.50 | 28/08/2026 | UBER TRIP',
+    'comida | PEN | 24.00 | 29/08/2026 | UBER EATS',
+  ].join('\n'));
+
+  expect(text.split('\n').map((line) => line.split(' | ')[0])).toEqual([
+    'transporte', 'transporte', 'transporte', 'comida',
+  ]);
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows.map((row) => row.body.concepto)).toEqual([
+    'transporte', 'transporte', 'transporte', 'comida',
+  ]);
+});
+
 test('prioriza la columna visual Dólares aunque el movimiento BCP no tenga código 840', () => {
   const text = pdfLinesToBulkText([
     '24/08/26 23/09/26',

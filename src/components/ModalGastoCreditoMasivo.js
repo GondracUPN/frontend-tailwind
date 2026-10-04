@@ -44,6 +44,11 @@ const normalizeText = (value) =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ');
 
+const isTransportExpenseDescription = (description) => {
+  const text = normalizeText(description);
+  return /\brides?\b/.test(text) || /\buber\b(?![\s*._-]*(?:eats|one)\b)/.test(text);
+};
+
 const classifyExpenseConcept = (description) => {
   const text = normalizeText(description);
   if (/reembolso|reembols|refund|devolucion/.test(text)) return 'cashback';
@@ -51,6 +56,7 @@ const classifyExpenseConcept = (description) => {
   if (/\bebay\b|sp\s*centex\s*luxury\s*goods/.test(text)) return 'inversion';
   if (/alignet|alinet|eshopex/.test(text)) return 'pago_envios';
   if (/amazon\s*prime/.test(text)) return 'gastos_recurrentes';
+  if (isTransportExpenseDescription(text)) return 'transporte';
   if (/evaristo|\bpvea\b|plaza\s*vea|\btambo\b|\blisto\b|\bmetro\b|mcdonalds|mc\s*donald'?s|\boxxo\b|\bkfc\b|burger\s*king|pizza\s*hut|\bsubway\b|starbucks|dunkin|popeyes|\brappi\b|pedidos\s*ya|pedidosya|uber\s*eats|didi\s*food/.test(text)) return 'comida';
   return 'gusto';
 };
@@ -314,8 +320,8 @@ export const parseBulkRows = (text) => {
       return;
     }
 
-    const concept = toConceptApi(parts[0]);
-    if (!concept) {
+    const inputConcept = toConceptApi(parts[0]);
+    if (!inputConcept) {
       errors.push(`Linea ${idx + 1}: concepto invalido "${parts[0]}".`);
       return;
     }
@@ -339,6 +345,9 @@ export const parseBulkRows = (text) => {
     }
 
     const notas = parts[4] ? parts[4].trim() : null;
+    const concept = inputConcept !== 'cashback' && isTransportExpenseDescription(notas)
+      ? 'transporte'
+      : inputConcept;
     if (concept === 'gusto' && !notas) {
       errors.push(`Linea ${idx + 1}: para concepto "gusto" la nota es obligatoria.`);
       return;

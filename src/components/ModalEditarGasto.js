@@ -4,6 +4,7 @@ import { API_URL } from '../api';
 import { localDateInputValue } from '../utils/dates';
 import { isTechnicalExpenseNote, visibleExpenseNotes } from '../utils/expenseConcepts';
 import CloseX from './CloseX';
+import { formatPending500, getPending500 } from '../utils/pending500';
 
 const BANKS_DEBITO = [
   { value: 'bcp', label: 'BCP' },
@@ -20,6 +21,9 @@ const normalizeEditConcept = (g, isCredito) => (
 export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
   const isCredito = gasto?.metodoPago === 'credito';
   const [monto, setMonto] = useState(String(Math.abs(Number(gasto?.monto ?? 0)) || ''));
+  const [cantidad500, setCantidad500] = useState(gasto?.cantidad500 ? String(gasto.cantidad500) : '');
+  const [ingresoEn500, setIngresoEn500] = useState(Boolean(gasto?.cantidad500));
+  const [destinatario500, setDestinatario500] = useState(gasto?.destinatario500 || '');
   const [fecha, setFecha] = useState(gasto?.fecha || localDateInputValue());
   const [notas, setNotas] = useState(visibleExpenseNotes(gasto?.notas, ''));
   const [saving, setSaving] = useState(false);
@@ -52,6 +56,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
       { value: 'comida', label: 'Comida' },
       { value: 'gustos', label: 'Gustos' },
       { value: 'ingresos', label: 'Ingresos' },
+      { value: 'itf', label: 'ITF' },
       { value: 'bolsa', label: 'Bolsa' },
       { value: 'retiro_agente', label: 'Retiro agente' },
       { value: 'transporte', label: 'Transporte' },
@@ -96,6 +101,9 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
     setTarjetaPago(gasto.tarjetaPago || '');
     setMoneda(gasto.moneda || 'PEN');
     setMonto(String(Math.abs(Number(gasto.monto || 0)) || ''));
+    setIngresoEn500(Boolean(gasto.cantidad500));
+    setCantidad500(gasto.cantidad500 ? String(gasto.cantidad500) : '');
+    setDestinatario500(gasto.destinatario500 || '');
     setNotas(visibleExpenseNotes(gasto.notas, ''));
   }, [gasto, isCredito]);
 
@@ -126,6 +134,13 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
     setErr('');
     const n = Number(monto);
     if (!isFinite(n) || n <= 0) return setErr('Monto inválido.');
+    const isIngresoEn500 = !isCredito && ['ingreso', 'ingresos'].includes(concepto) && moneda === 'PEN' && ingresoEn500;
+    if (isIngresoEn500 && (!Number.isInteger(Number(cantidad500)) || Number(cantidad500) < 1 || Number(cantidad500) * 500 > n)) {
+      return setErr('La cantidad x500 no puede superar el monto del ingreso.');
+    }
+    if (isIngresoEn500 && !destinatario500) {
+      return setErr('Indica si los depósitos se dieron a ti o a Renato.');
+    }
     if (!fecha) return setErr('Selecciona fecha.');
     const token = localStorage.getItem('token');
     if (!token) return setErr('No hay sesión.');
@@ -135,6 +150,8 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
         ? gasto.notas
         : (notas || null);
       const body = { monto: Math.abs(n), fecha, notas: notesToSave, moneda };
+      body.cantidad500 = isIngresoEn500 ? Number(cantidad500) : null;
+      body.destinatario500 = isIngresoEn500 ? destinatario500 : null;
       if (concepto) body.concepto = concepto;
       if (isCredito) {
         if (tarjeta) body.tarjeta = tarjeta;
@@ -162,6 +179,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
 
   if (!gasto) return null;
 
+  const pending500 = getPending500(monto, cantidad500);
   return (
     <div className="fixed inset-0 z-50 bg-neutral-900/50 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={handleOverlay}>
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl ring-1 ring-gray-200 p-6 relative max-h-[90vh] overflow-y-auto" onClick={(e)=>e.stopPropagation()}>
@@ -226,6 +244,20 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
               <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={monto} onChange={(e)=>setMonto(e.target.value)} placeholder="0.00" required />
             </label>
           </div>
+
+          {!isCredito && ['ingreso', 'ingresos'].includes(concepto) && moneda === 'PEN' && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="flex items-center gap-2 font-medium text-emerald-900"><input type="checkbox" checked={ingresoEn500} onChange={(event) => setIngresoEn500(event.target.checked)} />x500</label>
+                {ingresoEn500 && <span className="font-semibold text-amber-800">Faltante: S/ {pending500.amount.toFixed(2)}</span>}
+              </div>
+              {ingresoEn500 && <div className="mt-1 text-xs text-amber-800">{formatPending500(pending500)}</div>}
+              {ingresoEn500 && <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block">Cantidad de 500<input type="number" min="1" step="1" value={cantidad500} onChange={(event) => setCantidad500(event.target.value)} className="mt-1 w-full rounded border border-emerald-300 px-3 py-2" required /></label>
+                <label className="block">¿A quién se le dio?<select value={destinatario500} onChange={(event) => setDestinatario500(event.target.value)} className="mt-1 w-full rounded border border-emerald-300 px-3 py-2" required><option value="">Seleccionar</option><option value="yo">Yo</option><option value="renato">Renato</option></select></label>
+              </div>}
+            </div>
+          )}
 
           <label className="text-sm">
             <span className="block text-gray-600 mb-1">Fecha</span>

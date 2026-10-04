@@ -49,6 +49,7 @@ const DEC_FORM_EMAIL_BY_CASILLERO = {
 };
 const DEC_FORM_CLIP_PREFIX = "DEC_AUTOFILL:";
 const EBAY_ORDER_CLIP_PREFIX = "DEC_EBAY_ORDER:";
+const EBAY_USPS_CLIP_PREFIX = "DEC_EBAY_USPS:";
 const DEC_FORM_TARGET_URL_KEY = "decAutofillTargetUrl";
 const DEFAULT_DEC_FORM_TARGET_URL = "https://www.eshopex.com/pe/prealerta_cb0.aspx";
 
@@ -371,6 +372,22 @@ export function parseEbayOrderClipboard(value) {
     const seller = raw.match(/seller\s*[:\t]\s*([^\n\r]+)/i)?.[1]?.trim() || "";
     const orderNumber = raw.match(/order(?:\s+number|\s*#)?\s*[:\t]\s*([\d-]+)/i)?.[1]?.trim() || "";
     return seller || orderNumber ? { seller, orderNumber } : null;
+  }
+}
+
+export function parseEbayUspsClipboard(value) {
+  const raw = String(value || "").trim();
+  if (!raw.startsWith(EBAY_USPS_CLIP_PREFIX)) return null;
+  try {
+    const data = JSON.parse(raw.slice(EBAY_USPS_CLIP_PREFIX.length));
+    const statusDate = String(data?.statusDate || "").trim();
+    const dearName = String(data?.dearName || "").trim();
+    const recipientName = String(data?.recipientName || "").trim();
+    const tracking = String(data?.tracking || "").replace(/\D/g, "");
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(statusDate) || !recipientName || !tracking) return null;
+    return { statusDate, dearName, recipientName, tracking };
+  } catch {
+    return null;
   }
 }
 
@@ -1662,6 +1679,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [uspsRecipientName, setUspsRecipientName] = useState("JORGE SAHID GARCIA SANCHEZ");
   const [uspsWeight, setUspsWeight] = useState("3lb, 0.0oz");
   const [uspsTracking, setUspsTracking] = useState("9434608106244552769924");
+  const [uspsPasteStatus, setUspsPasteStatus] = useState("");
   const [uspsPdfBytes, setUspsPdfBytes] = useState(null);
   const [uspsPdfName, setUspsPdfName] = useState("");
   const [uspsPdfUrl, setUspsPdfUrl] = useState("");
@@ -2613,6 +2631,27 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       setEbayPasteStatus("No se encontró un copiado válido de eBay.");
     }
   };
+  const pasteEbayUspsData = async () => {
+    setUspsPasteStatus("");
+    try {
+      let clipboardText;
+      try {
+        clipboardText = await navigator.clipboard.readText();
+      } catch {
+        clipboardText = window.prompt("Pega aquí los datos USPS copiados de eBay:", "") || "";
+      }
+      const data = parseEbayUspsClipboard(clipboardText);
+      if (!data) throw new Error("Formato USPS no reconocido");
+      setUspsStatusDate(data.statusDate);
+      if (data.dearName) setUspsDearName(data.dearName);
+      setUspsRecipientName(data.recipientName);
+      setUspsTracking(data.tracking);
+      setUspsPasteStatus("Datos USPS pegados.");
+    } catch (err) {
+      console.warn("[ModalDec] No se pudieron pegar datos USPS", err);
+      setUspsPasteStatus("No se encontraron datos USPS válidos en el portapapeles.");
+    }
+  };
   const configureAutofillTarget = () => {
     const nextUrl = window.prompt("URL del formulario externo para autofill", autofillTargetUrl || DEFAULT_DEC_FORM_TARGET_URL);
     if (nextUrl == null) return;
@@ -2766,6 +2805,10 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
 
           {store === "usps" ? (
             <div className="grid gap-4">
+              <div>
+                <button type="button" onClick={pasteEbayUspsData} className="rounded-lg border border-indigo-300 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-50">Pegar datos USPS de eBay</button>
+                {uspsPasteStatus ? <span className="ml-3 text-xs text-indigo-700">{uspsPasteStatus}</span> : null}
+              </div>
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
                 Sube el PDF original de USPS. Solo se reemplazan los campos indicados; el resto del documento se conserva.
               </div>

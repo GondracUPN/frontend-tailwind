@@ -645,6 +645,7 @@ export default function Inventario({ setVista }) {
       const producto = await api.post('/productos', {
         tipo: 'accesorios',
         estado: 'nuevo',
+        soloInventario: true,
         cantidad,
         detalle: { modelo: nombre, modelosCompatibles: simpleAccessory.modelosCompatibles },
         valor: {
