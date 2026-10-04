@@ -159,6 +159,15 @@ const matrixToBulkLines = (matrix) => {
   });
 };
 
+export const spreadsheetToBulkLines = (data, fileName = '') => {
+  // En CSV/TSV las fechas son texto dd/mm/yyyy. SheetJS puede convertir
+  // 03/10/2026 a 10 de marzo si aplica su formato estadounidense.
+  const isDelimitedText = /\.(?:csv|tsv)$/i.test(fileName);
+  const workbook = XLSX.read(data, { type: 'array', cellDates: true, raw: isDelimitedText, ...(isDelimitedText ? { codepage: 65001 } : {}) });
+  const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: '' });
+  return matrixToBulkLines(matrix);
+};
+
 const PDF_MONTHS = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12 };
 
 const statementDate = (day, monthText, year) => {
@@ -570,9 +579,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
         setConceptOverrides({});
         return;
       }
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
-      const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: '' });
-      const lines = matrixToBulkLines(matrix);
+      const lines = spreadsheetToBulkLines(await file.arrayBuffer(), file.name);
       if (!lines) throw new Error('Faltan las columnas Fecha y Monto/Importe.');
       if (!lines.length) throw new Error('No se encontraron consumos en el archivo.');
       setBulkText(lines.join('\n'));

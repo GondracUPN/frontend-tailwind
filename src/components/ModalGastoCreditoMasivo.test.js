@@ -1,6 +1,6 @@
 jest.mock('pdfjs-dist/webpack', () => ({}));
 
-import { compareBulkExpenses, parseBulkRows, pdfLinesToBulkText } from './ModalGastoCreditoMasivo';
+import { compareBulkExpenses, parseBulkRows, pdfLinesToBulkText, spreadsheetToBulkLines } from './ModalGastoCreditoMasivo';
 
 test('lee consumos, omite pagos y conserva devoluciones del estado BCP', () => {
   const text = pdfLinesToBulkText([
@@ -129,6 +129,24 @@ test('lee el CSV de Interbank, importa consumos negativos y omite pagos positivo
   expect(parsed.rows).toHaveLength(2);
   expect(parsed.rows[0].body).toMatchObject({ fecha: '2026-09-25', moneda: 'PEN', monto: 4.64, concepto: 'desgravamen' });
   expect(parsed.rows[1].body).toMatchObject({ fecha: '2026-09-24', moneda: 'USD', monto: 20, notas: 'Vercel Pro' });
+});
+
+test('conserva fechas día/mes/año al cargar un CSV con movimientos de octubre', () => {
+  const csv = [
+    'Fecha,Descripción,Monto,Moneda,Estado',
+    '03/10/2026,PEDIDOSYA FOOD,-87.2,PEN,EN PROCESO',
+    '02/10/2026,PAGO DE TARJETA,140.0,USD,',
+    '01/10/2026,UBER RIDES,-5.4,PEN,',
+    '30/09/2026,UBER RIDES,-3.8,PEN,',
+  ].join('\n');
+  const lines = spreadsheetToBulkLines(Buffer.from(csv, 'utf8'), 'movimientos_sep_oct_2026_actualizado.csv');
+  const parsed = parseBulkRows(lines.join('\n'));
+
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows.map((row) => row.body.fecha)).toEqual([
+    '2026-10-03', '2026-10-01', '2026-09-30',
+  ]);
+  expect(parsed.rows[1].body.concepto).toBe('transporte');
 });
 
 test('lee XLSX/CSV con columnas separadas de soles y dólares sin confundirlas', () => {
