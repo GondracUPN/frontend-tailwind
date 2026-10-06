@@ -1,6 +1,13 @@
 jest.mock('pdfjs-dist/webpack', () => ({ getDocument: jest.fn() }));
 
-import { buildCreditExpensesText, receivedIncomeAmount } from './GastosPanel';
+import { buildCreditExpensesText, debitPendingBalance, receivedIncomeAmount } from './GastosPanel';
+
+test('muestra solo el saldo faltante de deuda y x500 en Débito', () => {
+  expect(debitPendingBalance({ salePaymentType: 'card', monto: 2200, saleReceivedAmount: 600 })).toEqual({ label: 'Deuda', amount: 1600 });
+  expect(debitPendingBalance({ salePaymentType: 'debt', monto: 5200, cantidad500: 0, saleReceivedAmount: 0 })).toEqual({ label: 'x500', amount: 5200 });
+  expect(debitPendingBalance({ monto: 4100, cantidad500: 8 })).toEqual({ label: 'x500', amount: 100 });
+  expect(debitPendingBalance({ monto: 250, concepto: 'ingreso' })).toBeNull();
+});
 
 test('cuenta solo los depósitos x500 recibidos en el saldo', () => {
   expect(receivedIncomeAmount({ monto: 5000, cantidad500: 8 })).toBe(4000);

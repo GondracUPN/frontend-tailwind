@@ -27,6 +27,7 @@ const ModalAdelantoCompletar = lazy(() => import('../components/ModalAdelantoCom
 const ModalVentaMensaje = lazy(() => import('../components/ModalVentaMensaje'));
 
 const CACHE_KEY = 'productos:cache:v3';
+export const onlyProducts = (items) => (Array.isArray(items) ? items : []).filter((product) => !product?.soloInventario);
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos para revalidar
 let productosRequest = null;
 const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
@@ -263,7 +264,7 @@ const readCache = () => {
   const parsed = JSON.parse(raw);
   if (!parsed?.ts) return null;
   return {
-    productos: Array.isArray(parsed.productos) ? parsed.productos : [],
+    productos: onlyProducts(parsed.productos),
     ventasMap: parsed.ventasMap && typeof parsed.ventasMap === 'object' ? parsed.ventasMap : {},
     adelantosMap: parsed.adelantosMap && typeof parsed.adelantosMap === 'object' ? parsed.adelantosMap : {},
     resumen: parsed.resumen || null,
@@ -279,7 +280,7 @@ const writeCache = (productos, ventasMap, resumen, adelantosMap) => {
     localStorage.setItem(
       CACHE_KEY,
       JSON.stringify({
-        productos,
+        productos: onlyProducts(productos),
         ventasMap,
         adelantosMap,
         resumen,
@@ -339,8 +340,8 @@ export default function Productos({ setVista, setAnalisisBack }) {
       if (!updated?.id && !deletedId) return;
       setProductos((current) => {
         const exists = updated?.id && current.some((item) => item.id === updated.id);
-        const next = deletedId
-          ? current.filter((item) => item.id !== deletedId)
+        const next = deletedId || updated?.soloInventario
+          ? current.filter((item) => item.id !== (deletedId || updated.id))
           : (exists ? current.map((item) => (item.id === updated.id ? updated : item)) : [updated, ...current]);
         writeCache(next, ventasRef.current, resumenRef.current, adelantosRef.current);
         return next;
@@ -1997,9 +1998,9 @@ const confirmAction = async () => {
         productosRequest = api.get('/productos').finally(() => { productosRequest = null; });
       }
       const data = await productosRequest;
-      const lista = Array.isArray(data)
+      const lista = onlyProducts(Array.isArray(data)
         ? data
-        : (Array.isArray(data?.items) ? data.items : []);
+        : (Array.isArray(data?.items) ? data.items : []));
       setProductos(lista);
       // Ventas se mantienen (se revalidan en otro efecto), pero el cache se pisa con ventas actuales ref
       writeCache(lista, ventasRef.current, resumenRef.current, adelantosRef.current);

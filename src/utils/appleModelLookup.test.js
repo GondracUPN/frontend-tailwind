@@ -29,6 +29,12 @@ test('completa la RAM y el almacenamiento mínimos cuando el código no indica c
   expect(lookupAppleModel('MacBook A2337')).toMatchObject({
     tipo: 'macbook', gama: 'Air', procesador: 'M1', ram: '8', almacenamiento: '256',
   });
+  expect(lookupAppleModel('MacBook Air A3448')).toMatchObject({
+    tipo: 'macbook', gama: 'Air', procesador: 'M5', ram: '16', almacenamiento: '512',
+  });
+  expect(lookupAppleModel('MacBook Air A3449')).toMatchObject({
+    tipo: 'macbook', gama: 'Air', procesador: 'M5', ram: '16', almacenamiento: '512',
+  });
   expect(lookupAppleModel('Mac mini A3239')).toMatchObject({
     tipo: 'macmini', procesador: 'M4 Pro', ram: '24', almacenamiento: '512',
   });

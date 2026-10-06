@@ -237,7 +237,7 @@ test('omite cualquier fila BBVA que diga pago o exceso, pero conserva desgravame
   expect(parsed.rows.map((row) => row.body.concepto)).toEqual(['desgravamen', 'gusto']);
 });
 
-test('lee consumos iO por sección y columna de moneda, y omite abonos', () => {
+test('lee consumos iO y registra devoluciones como cashback, omitiendo pagos', () => {
   const text = pdfLinesToBulkText([
     'Ciclo de facturación: 26/08/2026 al 25/09/2026',
     'Abonos',
@@ -250,8 +250,55 @@ test('lee consumos iO por sección y columna de moneda, y omite abonos', () => {
 
   expect(text).toContain('comida | PEN | 23.7 | 26/08/2026 | OXXO CRONOS');
   expect(text).toContain('gusto | USD | 16.99 | 17/09/2026 | ELECTRONIC ARTS');
+  expect(text).toContain('cashback | USD | 492 | 16/09/2026');
   expect(text).not.toContain('PAGO DE TARJETA');
-  expect(text).not.toContain('492');
+});
+
+test('importa en débito solo pagos a tarjeta desde PDF y CSV', () => {
+  const pdf = pdfLinesToBulkText([
+    '24/07/26 23/08/26',
+    '10Ago 07Ago PAGO BANCA MOVIL PAGO 1,072.00-',
+    '10Ago 07Ago TIENDA CONSUMO 22.60',
+    '31Jul 30Jul TIENDA DEVOLUCION 50.00-',
+  ], 'debito');
+  const csv = [
+    'Fecha,Descripcion,Moneda,Monto',
+    '03/10/2026,PAGO TARJ WEB APP,USD,57.86',
+    '02/10/2026,TIENDA,PEN,-20.00',
+    '01/10/2026,DEVOLUCION,PEN,10.00',
+  ].join('\n');
+  const parsed = parseBulkRows(csv, 'debito');
+
+  expect(pdf).toContain('pago_tarjeta | PEN | 1072 | 07/08/2026');
+  expect(pdf).not.toContain('22.6');
+  expect(pdf).not.toContain('50');
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows).toHaveLength(1);
+  expect(parsed.rows[0].body).toMatchObject({ concepto: 'pago_tarjeta', metodoPago: 'debito', moneda: 'USD', monto: 57.86 });
+});
+
+test('fuerza las devoluciones de crédito a cashback aunque la línea diga gusto', () => {
+  const parsed = parseBulkRows('gusto | PEN | 35 | 04/10/2026 | Devolución compra', 'credito');
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows[0].body.concepto).toBe('cashback');
+});
+
+test('incluye pagos iO en débito y compara por banco y tarjeta pagada', () => {
+  const text = pdfLinesToBulkText([
+    'Ciclo: 26/08/2026 al 25/09/2026',
+    'Abonos',
+    '30-AGO PAGO DE TARJETA iO - BANCA MOVIL 324.59 [PEN]',
+    '16-SEP DEVOLUCION DE COMPRA -EBAY US 492.00 [USD]',
+  ], 'debito');
+  const imported = parseBulkRows(text, 'debito').rows;
+  const saved = [
+    { id: 1, fecha: '2026-08-30', moneda: 'PEN', monto: 324.59, metodoPago: 'debito', concepto: 'pago_tarjeta', tarjeta: 'bcp', tarjetaPago: 'io' },
+    { id: 2, fecha: '2026-08-30', moneda: 'PEN', monto: 324.59, metodoPago: 'debito', concepto: 'pago_tarjeta', tarjeta: 'bbva', tarjetaPago: 'io' },
+  ];
+
+  expect(imported).toHaveLength(1);
+  expect(imported[0].body.concepto).toBe('pago_tarjeta');
+  expect(compareBulkExpenses(imported, saved, 'io', 'debito', 'bcp').pairs[0].target.id).toBe(1);
 });
 
 test('lee Banco Falabella y omite pagos aunque su monto sea negativo', () => {

@@ -109,6 +109,10 @@ const MACBOOK_AIR_PROCESSOR_OPTIONS = ['', 'M1', 'M2', 'M3', 'M4', 'M5'];
 const MACBOOK_PRO_PROCESSOR_OPTIONS = MACBOOK_PROCESSOR_OPTIONS;
 const MACBOOK_RAM_OPTIONS = ['', '8GB', '16GB', '18GB', '24GB', '32GB', '36GB', '48GB', '64GB'];
 const MACBOOK_STORAGE_OPTIONS = ['', '256GB', '512GB', '1TB', '2TB', '4TB', '8TB'];
+const getMacbookStorageOptions = ({ line, processor }) =>
+  line === 'Air' && processor === 'M5'
+    ? ['', '512GB', '1TB', '2TB', '4TB']
+    : MACBOOK_STORAGE_OPTIONS;
 const TARGET_MACBOOK_MODEL_NUMBERS = [
   'a2336', 'a3404',
   'a2337', 'a2338', 'a2442', 'a2485', 'a2681', 'a2779', 'a2780', 'a2918',
@@ -999,6 +1003,7 @@ const normalizeMacbookFormForLine = (prev, nextLine) => {
   const processorOptions = getMacbookProcessorOptions(nextLine);
   if (!screenOptions.includes(next.screen)) next.screen = '';
   if (!processorOptions.includes(next.processor)) next.processor = '';
+  if (!getMacbookStorageOptions(next).includes(next.storage)) next.storage = '';
   return next;
 };
 
@@ -1549,6 +1554,7 @@ function Ebay({ setVista }) {
   const ipadStorageOptions = getIpadStorageOptions(ipadForm);
   const macbookScreenOptions = getMacbookScreenOptions(macbookForm.line);
   const macbookProcessorOptions = getMacbookProcessorOptions(macbookForm.line);
+  const macbookStorageOptions = getMacbookStorageOptions(macbookForm);
   const macbookModelNumberOptions = getMacbookModelNumberOptions(macbookForm);
   const macbookOrderNumberOptions = getMacbookOrderNumberOptions(macbookForm);
 
@@ -2562,9 +2568,9 @@ function Ebay({ setVista }) {
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-9">
                 <FieldShell label="Linea"><MappedSelectField value={macbookForm.line} onChange={(e) => setMacbookForm((prev) => normalizeMacbookFormForLine(prev, e.target.value))} options={MACBOOK_LINE_OPTIONS} /></FieldShell>
                 <FieldShell label="Pantalla"><SelectField value={macbookForm.screen} onChange={(e) => setMacbookForm((prev) => ({ ...prev, screen: e.target.value, modelNumber: '', orderNumber: '' }))} options={macbookScreenOptions} /></FieldShell>
-                <FieldShell label="Procesador"><SelectField value={macbookForm.processor} onChange={(e) => setMacbookForm((prev) => ({ ...prev, processor: e.target.value, modelNumber: '', orderNumber: '' }))} options={macbookProcessorOptions} /></FieldShell>
+                <FieldShell label="Procesador"><SelectField value={macbookForm.processor} onChange={(e) => setMacbookForm((prev) => ({ ...prev, processor: e.target.value, storage: getMacbookStorageOptions({ ...prev, processor: e.target.value }).includes(prev.storage) ? prev.storage : '', modelNumber: '', orderNumber: '' }))} options={macbookProcessorOptions} /></FieldShell>
                 <FieldShell label="RAM"><SelectField value={macbookForm.ram} onChange={(e) => setMacbookForm((prev) => ({ ...prev, ram: e.target.value }))} options={MACBOOK_RAM_OPTIONS} /></FieldShell>
-                <FieldShell label="Almacenamiento"><SelectField value={macbookForm.storage} onChange={(e) => setMacbookForm((prev) => ({ ...prev, storage: e.target.value }))} options={MACBOOK_STORAGE_OPTIONS} /></FieldShell>
+                <FieldShell label="Almacenamiento"><SelectField value={macbookForm.storage} onChange={(e) => setMacbookForm((prev) => ({ ...prev, storage: e.target.value }))} options={macbookStorageOptions} /></FieldShell>
                 <FieldShell label="Model No.">
                   <MappedSelectField
                     value={macbookForm.modelNumber}

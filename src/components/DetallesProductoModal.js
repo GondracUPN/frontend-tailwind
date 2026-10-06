@@ -161,7 +161,8 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
 
     // Lista blanca de campos permitidos en 'detalle' (sin 'id')
     const cleanDetalle = Object.fromEntries(
-      Object.entries(form.detalle || {}).filter(([k]) => k !== 'id')
+      Object.entries(form.detalle || {}).filter(([k]) =>
+        k !== 'id' && (k !== 'modelosCompatibles' || form.tipo === 'accesorios'))
     );
     // payload completo con todos los campos editables (sin 'detalle.id')
     const pedidoNombre = String(form.pedidoCliente || '').trim();
@@ -260,14 +261,16 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
               <section>
                 <h3 className="font-medium mb-2">Especificaciones</h3>
                 <ul className="list-disc list-inside text-gray-700 space-y-1">
-                  {Object.entries(producto.detalle)
-                    .filter(([k, v]) => k !== 'id' && v) // no mostrar 'id'
+                  {Object.entries(producto.detalle || {})
+                    .filter(([k, v]) => k !== 'id'
+                      && (k !== 'modelosCompatibles' || String(producto.tipo || '').toLowerCase() === 'accesorios')
+                      && (Array.isArray(v) ? v.length > 0 : Boolean(v)))
                     .map(([k, v]) => (
                       <li key={k}>
                         <span className="capitalize">
                           {k.replace(/([A-Z])/g, ' $1')}:
                         </span>{' '}
-                        {v}
+                        {Array.isArray(v) ? v.join(', ') : v}
                       </li>
                     ))}
                 </ul>

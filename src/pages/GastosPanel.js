@@ -16,7 +16,7 @@ import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept, normalizeExpens
 import { getAnalyticsSummary } from '../services/analytics';
 import { notifyGastosChanged, subscribeGastosChanges } from '../utils/gastosSync';
 import { hideMonthlyExpense } from '../utils/monthlyExpenses';
-import { formatPending500, getPending500 } from '../utils/pending500';
+import { getPending500 } from '../utils/pending500';
 
   const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
@@ -59,6 +59,16 @@ export const receivedIncomeAmount = (gasto) => {
   return Number.isInteger(quantity) && quantity > 0
     ? quantity * 500
     : Number(gasto?.monto) || 0;
+};
+
+export const debitPendingBalance = (gasto) => {
+  if (gasto?.salePaymentType === 'debt' || gasto?.salePaymentType === 'card') {
+    return { label: gasto.salePaymentType === 'debt' ? 'x500' : 'Deuda', amount: Math.max(0, Number(gasto.monto || 0) - Number(gasto.saleReceivedAmount || 0)) };
+  }
+  if (Number(gasto?.cantidad500) > 0) {
+    return { label: 'x500', amount: getPending500(gasto.monto, gasto.cantidad500).amount };
+  }
+  return null;
 };
 
 const fmtSignedMoney = (moneda, monto, sign) => {
@@ -143,6 +153,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [showDeb, setShowDeb] = useState(false);
   const [showCre, setShowCre] = useState(false);
   const [showCreBulk, setShowCreBulk] = useState(false);
+  const [showDebBulk, setShowDebBulk] = useState(false);
   const [showTar, setShowTar] = useState(false);
   const [showCG, setShowCG] = useState(false);
   const [showAnalisisMes, setShowAnalisisMes] = useState(false);
@@ -169,6 +180,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [creditDateFrom, setCreditDateFrom] = useState('');
   const [creditDateTo, setCreditDateTo] = useState('');
   const [showCreditText, setShowCreditText] = useState(false);
+  const [mobileExpenseTab, setMobileExpenseTab] = useState('debito');
   const [creditTextCopied, setCreditTextCopied] = useState(false);
   const [creditTextError, setCreditTextError] = useState('');
 
@@ -844,9 +856,13 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       </div>
 
       {/* Debito y Credito */}
+      <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 lg:hidden" role="tablist" aria-label="Tipo de gasto">
+        <button type="button" role="tab" aria-selected={mobileExpenseTab === 'debito'} onClick={() => setMobileExpenseTab('debito')} className={`rounded-lg px-3 py-2.5 text-sm font-semibold ${mobileExpenseTab === 'debito' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600'}`}>Débito</button>
+        <button type="button" role="tab" aria-selected={mobileExpenseTab === 'credito'} onClick={() => setMobileExpenseTab('credito')} className={`rounded-lg px-3 py-2.5 text-sm font-semibold ${mobileExpenseTab === 'credito' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600'}`}>Crédito</button>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Debito */}
-        <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
+        <div className={`${mobileExpenseTab === 'debito' ? 'block' : 'hidden'} min-w-0 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6 lg:block`}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
             <h3 className="text-lg font-semibold">Debito</h3>
             <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
@@ -878,7 +894,8 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   </select>
                 </label>
               )}
-              <button onClick={openDeb} className="w-full sm:w-auto px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[44px]">Agregar gasto debito</button>
+              <button onClick={openDeb} className="w-full sm:w-auto px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[44px]">Agregar uno</button>
+              <button onClick={() => setShowDebBulk(true)} className="w-full sm:w-auto px-4 py-2 rounded bg-teal-600 text-white hover:bg-teal-700 min-h-[44px]">Importar pagos</button>
             </div>
           </div>
 
@@ -909,10 +926,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                       && normalizeExpenseConcept(g.concepto) !== 'cashback';
                     const displayedAmount = g.salePaymentType ? receivedIncomeAmount(g) : g.monto;
                     const usdEquivalent = getDebitUsdEquivalent(g);
-                    const partialReceived = g.salePaymentType === 'debt'
-                      ? Math.max(0, Number(g.saleReceivedAmount || 0) - Number(g.cantidad500 || 0) * 500)
-                      : 0;
-                    const pending500 = getPending500(g.monto, g.cantidad500, partialReceived);
+                    const pending = debitPendingBalance(g);
                     return (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
                         <td className="p-2 align-top">{g.fecha}</td>
@@ -921,33 +935,24 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                         <td className="p-2 align-top">{detalle}</td>
                         <td className="p-2 align-top">
                           <div className={`font-semibold ${isIncome ? 'text-emerald-700' : 'text-red-700'}`}>{fmtSignedMoney(g.moneda, displayedAmount, isIncome ? '+' : '-')}</div>
-                          {['card', 'debt'].includes(g.salePaymentType) && <div className="text-xs text-slate-500">Total de venta: {fmtMoney('PEN', g.monto)}</div>}
-                          {isIncome && Number(g.cantidad500) > 0 && !g.salePaymentType && (
-                            <div className="mt-0.5 text-xs font-semibold text-emerald-700" title="Depósitos de S/ 500 y saldo por recibir">
-                              x500: {g.cantidad500} · Faltante {fmtMoney('PEN', pending500.amount)} · Recibió: {g.destinatario500 === 'renato' ? 'Renato' : g.destinatario500 === 'yo' ? 'Yo' : 'Sin asignar'}
-                            </div>
-                          )}
-                          {isIncome && Number(g.cantidad500) > 0 && !g.salePaymentType && (
-                            <div className="text-xs text-amber-800">{formatPending500(pending500)}</div>
-                          )}
-                          {g.salePaymentType === 'direct' && (
-                            <div className="mt-1 text-xs font-semibold text-emerald-700">Directo · recibido en cuenta</div>
-                          )}
-                          {['card', 'debt'].includes(g.salePaymentType) && (
-                            <button type="button" onClick={() => setCollectingSale(g)} className="mt-1 block text-left text-xs font-semibold text-amber-800 underline decoration-dotted hover:text-amber-950" title="Abrir cobro de venta">
-                              {g.salePaymentType === 'debt'
-                                ? `x500: ${g.cantidad500 || 0} recibidas · Faltante ${fmtMoney('PEN', pending500.amount)} · ${formatPending500(pending500)}`
-                                : `Deuda: ${fmtMoney('PEN', Math.max(0, Number(g.monto) - Number(g.saleReceivedAmount || 0)))}${g.salePaidAt ? ` · Último pago ${g.salePaidAt}` : ''}`}
-                            </button>
-                          )}
                           {usdEquivalent != null && (
                             <div className={`mt-0.5 text-xs font-normal ${isIncome ? 'text-emerald-600' : 'text-red-600'}`}>
                               {isIncome ? '+' : '-'} $ {Math.abs(usdEquivalent).toFixed(2)}
                             </div>
                           )}
+                          {pending && pending.amount > 0 && (
+                            <div className="mt-0.5 text-[11px] leading-tight text-amber-700">
+                              {pending.label}: {fmtMoney('PEN', pending.amount)} pendiente
+                            </div>
+                          )}
+                          {pending && pending.amount === 0 && (
+                            <div className="mt-0.5 text-[11px] font-semibold leading-tight text-emerald-700">
+                              ✓ {pending.label === 'Deuda' ? 'Deuda pagada' : 'x500 completo'}
+                            </div>
+                          )}
                         </td>
                         <td className="p-2 align-top">
-                          {g.itfIngresoId || g.salePaymentType ? <span className="text-xs text-gray-500">{g.salePaymentType ? 'Cobro de venta' : 'Automático'}</span> : (
+                          {['card', 'debt'].includes(g.salePaymentType) ? <button type="button" onClick={() => setCollectingSale(g)} className="rounded border border-amber-300 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50">{pending?.amount === 0 ? 'Ver pagos' : 'Cobrar'}</button> : g.itfIngresoId || g.salePaymentType ? <span className="text-xs text-gray-500">Automático</span> : (
                           <div className="flex items-center gap-2">
                             <button type="button" title="Editar" onClick={() => openEdit(g)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">
                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M16.862 3.487a1.5 1.5 0 0 1 2.121 2.121l-10.02 10.02a4.5 4.5 0 0 1-1.757 1.07l-3.042.912a.75.75 0 0 1-.928-.928l.912-3.042a4.5 4.5 0 0 1 1.07-1.757l10.02-10.02Zm-2.12-.001L5.62 12.608a6 6 0 0 0-1.427 2.243l-.912 3.042a2.25 2.25 0 0 0 2.784 2.784l3.042-.912a6 6 0 0 0 2.243-1.427l9.121-9.121-6.433-6.433Z" /></svg>
@@ -973,7 +978,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         </div>
 
         {/* Credito */}
-        <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
+        <div className={`${mobileExpenseTab === 'credito' ? 'block' : 'hidden'} min-w-0 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6 lg:block`}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
             <div className="flex items-center gap-2">
               <h3 className="text-lg font-semibold">Credito</h3>
@@ -1015,8 +1020,8 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
               <button type="button" onClick={() => setShowCreditText((current) => !current)} className="w-full sm:w-auto px-4 py-2 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 min-h-[44px]">
                 {showCreditText ? 'Ocultar texto' : 'Texto para copiar'}
               </button>
-              <button onClick={openCre} className="w-full sm:w-auto px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 min-h-[44px]">Agregar gasto credito</button>
-              <button onClick={openCreBulk} className="w-full sm:w-auto px-4 py-2 rounded bg-sky-600 text-white hover:bg-sky-700 min-h-[44px]">Agregar gastos masivos</button>
+              <button onClick={openCre} className="w-full sm:w-auto px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 min-h-[44px]">Agregar uno</button>
+              <button onClick={openCreBulk} className="w-full sm:w-auto px-4 py-2 rounded bg-sky-600 text-white hover:bg-sky-700 min-h-[44px]">Importar varios</button>
             </div>
           </div>
 
@@ -1137,6 +1142,20 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           onSaved={(createdRows, { failed = [] } = {}) => {
             if (Array.isArray(createdRows)) createdRows.forEach(upsertRow);
             if (failed.length) setErr(`Guardado masivo: ${failed.length} gasto(s) no pudieron guardarse. ${failed.slice(0, 3).join(' ')}`);
+            notifyGastosChanged({ action: 'bulk-create', userId: targetUserId });
+            reloadAll({ includeGastos: true, useCache: false, silent: true });
+          }}
+        />
+      )}
+      {showDebBulk && (
+        <ModalGastoCreditoMasivo
+          mode="debito"
+          userId={targetUserId}
+          existingRows={rows}
+          onClose={() => setShowDebBulk(false)}
+          onSaved={(createdRows, { failed = [] } = {}) => {
+            if (Array.isArray(createdRows)) createdRows.forEach(upsertRow);
+            if (failed.length) setErr(`Guardado masivo: ${failed.length} pago(s) no pudieron guardarse. ${failed.slice(0, 3).join(' ')}`);
             notifyGastosChanged({ action: 'bulk-create', userId: targetUserId });
             reloadAll({ includeGastos: true, useCache: false, silent: true });
           }}
@@ -1279,9 +1298,13 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       )}
       {collectingSale && (
         <ModalCobroVenta
+          key={`${collectingSale.id}:${collectingSale.saleReceivedAmount}:${collectingSale.saleExchangeRate || ''}`}
           gasto={collectingSale}
           onClose={() => setCollectingSale(null)}
-          onSaved={() => {
+          onSaved={(updated) => {
+            if (updated?.id) {
+              setRows((current) => sortRows([updated, ...current.filter((row) => row.id !== updated.id)]));
+            }
             setCollectingSale(null);
             reloadAll({ includeGastos: true, useCache: false, silent: true });
             notifyGastosChanged({ action: 'sale-payment', userId: targetUserId });

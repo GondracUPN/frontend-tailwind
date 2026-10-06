@@ -175,7 +175,7 @@ const getMacbookConfig = (gama, procesador) => {
     else if (p === 'M2') { sizes = ['13', '15']; rams = ['8', '16', '24']; ssds = ['256', '512', '1TB', '2TB']; }
     else if (p === 'M3') { sizes = ['13', '15']; rams = ['8', '16', '24']; ssds = ['256', '512', '1TB', '2TB']; }
     else if (p === 'M4') { sizes = ['13', '15']; rams = ['16', '24', '32']; ssds = ['256', '512', '1TB', '2TB']; }
-    else if (p === 'M5') { sizes = ['13', '15']; rams = ['16', '24', '32']; ssds = ['256', '512', '1TB', '2TB']; }
+    else if (p === 'M5') { sizes = ['13', '15']; rams = ['16', '24', '32']; ssds = ['512', '1TB', '2TB', '4TB']; }
   } else if (gama === 'Neo') {
     if (p === 'A18 Pro') { sizes = ['13']; rams = ['8']; ssds = ['256', '512']; }
   } else if (gama === 'Pro') {

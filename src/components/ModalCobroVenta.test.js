@@ -2,40 +2,56 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import api from '../api';
 import ModalCobroVenta from './ModalCobroVenta';
 
-jest.mock('../api', () => ({ __esModule: true, default: { get: jest.fn(), patch: jest.fn() } }));
+jest.mock('../api', () => ({ __esModule: true, default: { patch: jest.fn() } }));
 
 beforeEach(() => {
   jest.clearAllMocks();
-  api.get.mockResolvedValue({ tipoCambio: 3.7 });
   api.patch.mockResolvedValue({});
 });
 
-test('registra cobros parciales x500 y envía el tipo de cambio a la venta', async () => {
+test('registra pagos x500 con fecha y mantiene vacíos los campos del nuevo pago', async () => {
   const onSaved = jest.fn();
-  render(<ModalCobroVenta gasto={{ id: 31, saleId: 7, saleSku: 'MS-366', salePaymentType: 'debt', monto: '5200', saleReceivedAmount: '0.00' }} onClose={jest.fn()} onSaved={onSaved} />);
-  expect(screen.getByText(/Faltante: S\/ 5200.00/)).toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText('Pagos de S/ 500 recibidos'), { target: { value: '2' } });
-  fireEvent.change(screen.getByLabelText('Último monto recibido'), { target: { value: '200' } });
-  fireEvent.change(screen.getByLabelText('Fecha del último pago recibido'), { target: { value: '2026-10-02' } });
-  await waitFor(() => expect(screen.getByLabelText('Tipo de cambio de la venta')).toHaveValue(3.7));
-  fireEvent.change(screen.getByLabelText('Tipo de cambio de la venta'), { target: { value: '3.8' } });
-  expect(screen.getByText(/Faltante: S\/ 4000.00/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Guardar cobro' }));
+  render(<ModalCobroVenta gasto={{ id: 31, saleId: 7, saleSku: 'MS-366', salePaymentType: 'debt', monto: '5200', saleReceivedAmount: '500.00', salePaymentHistory: [{ amount: 500, paidAt: '2026-10-02', units500: 1 }] }} onClose={jest.fn()} onSaved={onSaved} />);
+  expect(screen.getByText('2026-10-02 · 1 × 500')).toBeInTheDocument();
+  expect(screen.getByLabelText(/Pagos de S\/ 500 que vas a registrar/)).toHaveValue(null);
+  expect(screen.getByLabelText('Fecha del pago')).toHaveValue('');
+  fireEvent.change(screen.getByLabelText(/Pagos de S\/ 500 que vas a registrar/), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('Fecha del pago'), { target: { value: '2026-10-05' } });
+  fireEvent.change(screen.getByLabelText('Tipo de cambio (opcional)'), { target: { value: '3.8' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
   await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/31', {
-    receivedAmount: 1200, paidAt: '2026-10-02', exchangeRate: 3.8,
+    paymentCount: 3, paidAt: '2026-10-05', exchangeRate: 3.8,
   }));
   expect(onSaved).toHaveBeenCalled();
 });
 
-test('mantiene el pago con tarjeta en cero hasta registrar un importe', async () => {
-  render(<ModalCobroVenta gasto={{ id: 32, saleId: 8, saleSku: 'MS-367', salePaymentType: 'card', monto: '1800', saleReceivedAmount: '0.00' }} onClose={jest.fn()} onSaved={jest.fn()} />);
-  fireEvent.change(screen.getByLabelText('Fecha en que pagó con tarjeta'), { target: { value: '2026-10-02' } });
-  expect(screen.getByText(/Recibido:/)).toHaveTextContent('S/ 0.00');
-  fireEvent.click(screen.getByRole('button', { name: 'Guardar cobro' }));
-  expect(screen.getByRole('alert')).toHaveTextContent('Registra un monto recibido');
+test('en deuda normal solo agrega el importe nuevo hasta el saldo máximo', async () => {
+  render(<ModalCobroVenta gasto={{ id: 32, saleId: 8, salePaymentType: 'card', monto: '2600', saleReceivedAmount: '900.00', salePaymentHistory: [{ amount: 900, paidAt: '2026-10-02' }] }} onClose={jest.fn()} onSaved={jest.fn()} />);
+  const amount = screen.getByLabelText('Nuevo pago recibido');
+  expect(amount).toHaveValue(null);
+  expect(amount).toHaveAttribute('max', '1700');
+  fireEvent.change(amount, { target: { value: '1701' } });
+  fireEvent.change(screen.getByLabelText('Fecha del pago'), { target: { value: '2026-10-05' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
+  expect(screen.getByRole('alert')).toHaveTextContent('no puede superar S/ 1700.00');
   expect(api.patch).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByLabelText('Monto recibido hasta ahora'), { target: { value: '800' } });
-  expect(screen.getByText(/Recibido:/)).toHaveTextContent('S/ 800.00');
-  fireEvent.click(screen.getByRole('button', { name: 'Guardar cobro' }));
-  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/32', { receivedAmount: 800, paidAt: '2026-10-02' }));
+  fireEvent.change(amount, { target: { value: '1700' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/32', { paymentAmount: 1700, paidAt: '2026-10-05' }));
+});
+
+test('muestra el último monto x500 y permite corregir el cambio una vez pagado', async () => {
+  const { unmount } = render(<ModalCobroVenta gasto={{ id: 33, saleId: 9, salePaymentType: 'debt', monto: '1200', saleReceivedAmount: '1000.00', saleExchangeRate: '3.7000' }} onClose={jest.fn()} onSaved={jest.fn()} />);
+  expect(screen.queryByLabelText(/Pagos de S\/ 500 que vas a registrar/)).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Último monto recibido'), { target: { value: '200' } });
+  fireEvent.change(screen.getByLabelText('Fecha del pago'), { target: { value: '2026-10-05' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/33', { paymentAmount: 200, paidAt: '2026-10-05' }));
+
+  unmount();
+  render(<ModalCobroVenta gasto={{ id: 34, saleId: 10, salePaymentType: 'card', monto: '1200', saleReceivedAmount: '1200.00', saleExchangeRate: '3.7000' }} onClose={jest.fn()} onSaved={jest.fn()} />);
+  expect(screen.getByText('✓ Deuda pagada')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Tipo de cambio (opcional)'), { target: { value: '3.8' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar cambio' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/34', { exchangeRate: 3.8 }));
 });

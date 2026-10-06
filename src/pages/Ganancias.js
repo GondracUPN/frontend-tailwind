@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../api';
 import ModalVenta from '../components/ModalVenta';
-import { formatAppleWatchName } from '../utils/productName';
+import { formatProfitProductName } from '../utils/productName';
 
 /* =========================
    Helpers
@@ -98,41 +98,15 @@ const splitMetrics = (venta, seller) => {
   return { ingreso, costo, ganancia, pct };
 };
 
-function nombreProducto(p) {
-  if (!p) return '';
-  const d = p.detalle || {};
-  const tipoRaw = (p.tipo || '').toString().trim();
-  const tipoKey = tipoRaw.toLowerCase().replace(/\s+/g, ''); // ej. "applewatch"
-
-  // iPad: incluir Generacion, Tamano (pulgadas) y Conexion
-  if (tipoKey.includes('ipad')) {
-    const gen = d.generacion ? String(d.generacion).trim() : null;
-    const sizeVal = d.tamano ?? d.tamanio ?? d['tamano'];
-    const size = sizeVal ? `${sizeVal}"` : null; // pulgadas
-    const conn = (d.conexion ?? d.conectividad) ? String(d.conexion ?? d.conectividad).trim() : null;
-
-    return ['iPad', gen, size, conn].filter(Boolean).join(' ');
-  }
-
-  // Apple Watch: incluir Generacion, Tamano (mm) y Conexion
-  if (tipoKey.includes('applewatch') || tipoKey === 'watch') {
-    return formatAppleWatchName(d);
-  }
-
-  // Otros tipos (Macbook, iPhone, etc.) -> comportamiento anterior
-  if (tipoKey === 'otro' || tipoKey === 'otros') {
-    return (d.descripcionOtro || 'Otros').toString().trim();
-  }
-
-  const parts = [
-    tipoRaw,
-    d.gama,
-    d.procesador,
-    d.tamano || d.tamanio || d['tamano'],
-  ].filter(Boolean);
-
-  return parts.join(' ');
-}
+const nombreProducto = (product) => formatProfitProductName(product);
+const nameCellStyle = {
+  display: '-webkit-box',
+  WebkitBoxOrient: 'vertical',
+  WebkitLineClamp: 2,
+  overflow: 'hidden',
+  overflowWrap: 'anywhere',
+  lineHeight: '1.15rem',
+};
 
 function lastDayOfMonth(year, month1to12) {
   return new Date(year, month1to12, 0).getDate();
@@ -407,10 +381,10 @@ export default function Ganancias({ setVista }) {
           <div className="text-sm text-gray-500">Sin ventas pendientes de asignar.</div>
         ) : (
           <div className="overflow-x-auto border rounded max-h-[60vh]">
-            <table className="min-w-[980px] w-full text-left text-sm">
+            <table className="min-w-[1080px] w-full table-fixed text-left text-sm">
               <thead className="bg-gray-100 sticky top-0">
                 <tr>
-                  <th className="p-2">Nombre</th>
+                  <th className="w-[220px] p-2">Nombre</th>
                   <th className="p-2">Total (S/)</th>
                   <th className="p-2">F. compra</th>
                   <th className="p-2">Precio venta (S/)</th>
@@ -430,7 +404,7 @@ export default function Ganancias({ setVista }) {
                   const pct = costoTotal > 0 ? (ganancia / costoTotal) * 100 : 0;
                   return (
                     <tr key={v.id} className="border-t">
-                      <td className="p-2">{nombreProducto(p) || '--'}</td>
+                      <td className="p-2 align-top"><span style={nameCellStyle} title={nombreProducto(p)}>{nombreProducto(p) || '--'}</span></td>
                       <td className="p-2">{fmtSoles(costoTotal)}</td>
                       <td className="p-2">
                       {val.fechaCompra ? formatDateLocal(val.fechaCompra) : '--'}
@@ -600,10 +574,10 @@ function ColVendedor({
 
       {/* Tabla de ventas del vendedor (sin Precio DEC) */}
       <div className="overflow-x-auto max-h-[60vh] border rounded">
-        <table className="min-w-[980px] w-full text-left text-sm">
+        <table className="min-w-[1080px] w-full table-fixed text-left text-sm">
           <thead className="bg-gray-100 sticky top-0">
             <tr>
-              <th className="p-2">Nombre</th>
+              <th className="w-[220px] p-2">Nombre</th>
               <th className="p-2">Total (S/)</th>
               <th className="p-2">F. compra</th>
               <th className="p-2">Precio venta (S/)</th>
@@ -639,9 +613,9 @@ function ColVendedor({
 
                 return (
                   <tr key={v.id} className="border-t">
-                    <td className="p-2">
+                    <td className="p-2 align-top">
                       <div className="flex flex-col">
-                        <span>{nombreProducto(p) || '--'}</span>
+                        <span style={nameCellStyle} title={nombreProducto(p)}>{nombreProducto(p) || '--'}</span>
                         {share !== 1 && (
                           <span className="text-[10px] uppercase text-gray-500">
                             50% compartido
@@ -853,10 +827,10 @@ function ModalSunat({ seller, onClose, ventas }) {
           <p>No hay ventas en ese rango.</p>
         ) : (
           <div className="overflow-x-auto max-h-[60vh] border rounded">
-            <table className="min-w-[980px] w-full text-left text-sm">
+            <table className="min-w-[1080px] w-full table-fixed text-left text-sm">
               <thead className="bg-gray-100 sticky top-0">
                 <tr>
-                  <th className="p-2">Nombre</th>
+                  <th className="w-[220px] p-2">Nombre</th>
                   <th className="p-2">DEC ($)</th>
                   <th className="p-2">DEC (S/)</th>
                   <th className="p-2">Envio (S/)</th>
@@ -869,9 +843,9 @@ function ModalSunat({ seller, onClose, ventas }) {
               <tbody>
                 {filas.map(f => (
                   <tr key={f.id} className="border-t">
-                    <td className="p-2">
+                    <td className="p-2 align-top">
                       <div className="flex flex-col">
-                        <span>{f.nombre || '--'}</span>
+                        <span style={nameCellStyle} title={f.nombre}>{f.nombre || '--'}</span>
                         {f.split && (
                           <span className="text-[10px] uppercase text-gray-500">
                             50% compartido

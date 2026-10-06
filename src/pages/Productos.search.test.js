@@ -3,6 +3,7 @@ import {
   filterProductsByCodeOrTracking,
   getRecojoPackageShippingCost,
   isEshopexAtBranch,
+  onlyProducts,
 } from './Productos';
 
 const products = [
@@ -11,6 +12,14 @@ const products = [
   { id: 328, tipo: 'watch', tracking: [{ trackingEshop: 'ESH-293-77' }] },
   { id: 500, tipo: 'accesorios', codigoInventario: 77, tracking: [] },
 ];
+
+test('oculta los accesorios simples en Productos aunque vengan del cache o de la API', () => {
+  expect(onlyProducts([
+    { id: 1, tipo: 'accesorios', soloInventario: true },
+    { id: 2, tipo: 'accesorios', soloInventario: false },
+    { id: 3, tipo: 'iphone' },
+  ]).map((product) => product.id)).toEqual([2, 3]);
+});
 
 test.each(['293', 'MS 293', 'MS-293', 'MS293', 'code 293'])(
   'prioriza la coincidencia exacta del código para %s',

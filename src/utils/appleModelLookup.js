@@ -68,7 +68,7 @@ const MACBOOK_MINIMUMS = {
   'Air|M2': { ram: '8', almacenamiento: '256' },
   'Air|M3': { ram: '8', almacenamiento: '256' },
   'Air|M4': { ram: '16', almacenamiento: '256' },
-  'Air|M5': { ram: '16', almacenamiento: '256' },
+  'Air|M5': { ram: '16', almacenamiento: '512' },
   'Pro|M1': { ram: '8', almacenamiento: '256' },
   'Pro|M2': { ram: '8', almacenamiento: '256' },
   'Pro|M1 Pro': { ram: '16', almacenamiento: '512' },
