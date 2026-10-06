@@ -27,7 +27,19 @@ const ModalAdelantoCompletar = lazy(() => import('../components/ModalAdelantoCom
 const ModalVentaMensaje = lazy(() => import('../components/ModalVentaMensaje'));
 
 const CACHE_KEY = 'productos:cache:v3';
-export const onlyProducts = (items) => (Array.isArray(items) ? items : []).filter((product) => !product?.soloInventario);
+export const isLegacySimpleAccessory = (product) => {
+  if (String(product?.tipo || '').toLowerCase() !== 'accesorios' || product?.vendedor || product?.envioGrupoId) return false;
+  if (product?.valor?.valorDec == null || product?.valor?.peso == null) return false;
+  if (Number(product?.valor?.valorDec) !== 0 || Number(product?.valor?.peso) !== 0) return false;
+  const tracking = Array.isArray(product?.tracking) ? product.tracking : [];
+  return tracking.length === 1
+    && tracking[0]?.estado === 'comprado_sin_tracking'
+    && !tracking[0]?.trackingUsa
+    && !tracking[0]?.trackingEshop
+    && !tracking[0]?.casillero;
+};
+export const onlyProducts = (items) => (Array.isArray(items) ? items : [])
+  .filter((product) => !product?.soloInventario && !isLegacySimpleAccessory(product));
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos para revalidar
 let productosRequest = null;
 const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';

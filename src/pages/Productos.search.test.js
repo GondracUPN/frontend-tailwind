@@ -3,6 +3,7 @@ import {
   filterProductsByCodeOrTracking,
   getRecojoPackageShippingCost,
   isEshopexAtBranch,
+  isLegacySimpleAccessory,
   onlyProducts,
 } from './Productos';
 
@@ -19,6 +20,17 @@ test('oculta los accesorios simples en Productos aunque vengan del cache o de la
     { id: 2, tipo: 'accesorios', soloInventario: false },
     { id: 3, tipo: 'iphone' },
   ]).map((product) => product.id)).toEqual([2, 3]);
+});
+
+test('reconoce compras simples antiguas sin marcar y conserva accesorios normales', () => {
+  const legacy = {
+    id: 464, tipo: 'accesorios', vendedor: null,
+    valor: { valorDec: '0.00', peso: '0.00' },
+    tracking: [{ estado: 'comprado_sin_tracking', trackingUsa: null, trackingEshop: null, casillero: null }],
+  };
+  const regular = { ...legacy, id: 465, vendedor: 'Gonzalo' };
+  expect(isLegacySimpleAccessory(legacy)).toBe(true);
+  expect(onlyProducts([legacy, regular]).map((product) => product.id)).toEqual([465]);
 });
 
 test.each(['293', 'MS 293', 'MS-293', 'MS293', 'code 293'])(
