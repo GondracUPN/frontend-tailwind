@@ -17,6 +17,8 @@ test('Guardar masivo envía el pago en soles y conserva monto USD y tipo de camb
   const onSaved = jest.fn();
   try {
     render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={onSaved} />);
+    await screen.findByRole('option', { name: 'iO' });
+    await waitFor(() => expect(screen.queryByText('Cargando pagos existentes para comparar...')).not.toBeInTheDocument());
     fireEvent.change(screen.getByLabelText('Líneas de pagos'), { target: { value: 'pago_tarjeta | USD | 100 | 05/10/2026 | Banco' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Tipo de cambio línea 1' }));
     fireEvent.change(screen.getByLabelText('Tipo de cambio para línea 1'), { target: { value: '3.75' } });
@@ -34,6 +36,29 @@ test('Guardar masivo envía el pago en soles y conserva monto USD y tipo de camb
   }
 });
 
+test('un TC ingresado encuentra el pago en otro banco y evita duplicarlo', async () => {
+  const originalFetch = global.fetch;
+  const saved = { id: 9, fecha: '2026-10-05', moneda: 'PEN', monto: 375, metodoPago: 'debito', concepto: 'pago_tarjeta', tarjeta: 'bbva', tarjetaPago: 'io' };
+  global.fetch = jest.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/cards') ? [{ type: 'io', label: 'iO' }] : [saved] }));
+  localStorage.setItem('token', 'test-token');
+  createExpenseWithDuplicateCheck.mockClear();
+  try {
+    render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={jest.fn()} />);
+    await screen.findByRole('option', { name: 'iO' });
+    await waitFor(() => expect(screen.queryByText('Cargando pagos existentes para comparar...')).not.toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('Líneas de pagos'), { target: { value: 'pago_tarjeta | USD | 100 | 05/10/2026 | Banco' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Tipo de cambio línea 1' }));
+    fireEvent.change(screen.getByLabelText('Tipo de cambio para línea 1'), { target: { value: '3.75' } });
+    await waitFor(() => expect(screen.getByText(/Coinciden por fecha y monto: 1\/1/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar masivo' }));
+    expect(screen.getByText('No hay gastos pendientes sin marcar para guardar.')).toBeInTheDocument();
+    expect(createExpenseWithDuplicateCheck).not.toHaveBeenCalled();
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('token');
+  }
+});
+
 test('guarda un pago importado en dólares como soles pagados con el tipo de cambio elegido', () => {
   expect(debitPaymentBody({ moneda: 'USD', monto: 100, fecha: '2026-10-05' }, '3.75')).toMatchObject({
     moneda: 'PEN', monto: 375, pagoObjetivo: 'USD', montoUsdAplicado: 100, tipoCambioDia: 3.75,
@@ -46,28 +71,33 @@ test('guarda un pago importado en dólares como soles pagados con el tipo de cam
 test('compara pagos de débito entre dólares y soles solo cuando hay tipo de cambio', () => {
   const imported = [{ lineNumber: 1, body: { fecha: '2026-10-05', moneda: 'USD', monto: 100, metodoPago: 'debito', concepto: 'pago_tarjeta' } }];
   const saved = [{ id: 9, fecha: '2026-10-05', moneda: 'PEN', monto: 375, metodoPago: 'debito', concepto: 'pago_tarjeta', tarjeta: 'bcp', tarjetaPago: 'io' }];
-  expect(compareBulkExpenses(imported, saved, 'io', 'debito', 'bcp').matched).toBe(0);
-  expect(compareBulkExpenses(imported, saved, 'io', 'debito', 'bcp', { 1: '3.75' }).pairs[0].target.id).toBe(9);
-  expect(compareBulkExpenses(imported, [{ ...saved[0], monto: 380, tasaUsdPen: '3.8', montoUsdAplicado: '100' }], 'io', 'debito', 'bcp').matched).toBe(1);
-  expect(compareBulkExpenses(imported, [{ ...saved[0], tasaUsdPen: '3.75' }], 'io', 'debito', 'bcp').matched).toBe(1);
-  expect(compareBulkExpenses(imported, [{ ...saved[0], tasaUsdPen: '3.8' }], 'io', 'debito', 'bcp', { 1: '3.75' }).matched).toBe(0);
-  expect(compareBulkExpenses(imported, [{ ...saved[0], tasaUsdPen: '3.8', montoUsdAplicado: '100' }], 'io', 'debito', 'bcp').matched).toBe(0);
+  expect(compareBulkExpenses(imported, saved, 'io', 'debito').matched).toBe(0);
+  expect(compareBulkExpenses(imported, saved, 'io', 'debito', { 1: '3.75' }).pairs[0].target.id).toBe(9);
+  expect(compareBulkExpenses(imported, [{ ...saved[0], monto: 380, tasaUsdPen: '3.8', montoUsdAplicado: '100' }], 'io', 'debito').matched).toBe(1);
+  expect(compareBulkExpenses(imported, [{ ...saved[0], tasaUsdPen: '3.75' }], 'io', 'debito').matched).toBe(1);
+  expect(compareBulkExpenses(imported, [{ ...saved[0], tasaUsdPen: '3.8' }], 'io', 'debito', { 1: '3.75' }).matched).toBe(1);
+  expect(compareBulkExpenses(imported, [{ ...saved[0], tasaUsdPen: '3.8', montoUsdAplicado: '100' }], 'io', 'debito').matched).toBe(0);
   const solesImported = [{ ...imported[0], body: { ...imported[0].body, moneda: 'PEN', monto: 375 } }];
   const dollarsSaved = [{ ...saved[0], moneda: 'USD', monto: 100 }];
-  expect(compareBulkExpenses(solesImported, dollarsSaved, 'io', 'debito', 'bcp', { 1: '3.75' }).matched).toBe(1);
+  expect(compareBulkExpenses(solesImported, [{ ...dollarsSaved[0], tasaUsdPen: '3.75' }], 'io', 'debito').matched).toBe(1);
 });
 
 test('muestra el equivalente USD de un pago en soles del sistema y oculta TC si ya coincide', async () => {
   const originalFetch = global.fetch;
-  const saved = { id: 9, fecha: '2026-10-05', moneda: 'PEN', monto: 375, tasaUsdPen: '3.75', metodoPago: 'debito', concepto: 'pago_tarjeta', tarjeta: 'bcp', tarjetaPago: 'io' };
+  const saved = { id: 9, fecha: '2026-10-05', moneda: 'PEN', monto: 375, tasaUsdPen: '3.75', metodoPago: 'debito', concepto: 'pago_tarjeta', tarjeta: 'bbva', tarjetaPago: 'io' };
   global.fetch = jest.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/cards') ? [{ type: 'io', label: 'iO' }] : [saved] }));
   try {
     render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={jest.fn()} />);
     fireEvent.change(screen.getByLabelText('Líneas de pagos'), { target: { value: 'pago_tarjeta | USD | 100 | 05/10/2026 | Banco' } });
     expect(await screen.findByText(/Equivale a \$ 100\.00/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Tipo de cambio línea 1' })).not.toBeInTheDocument();
+    localStorage.setItem('token', 'test-token');
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar masivo' }));
+    expect(screen.getByText('No hay gastos pendientes sin marcar para guardar.')).toBeInTheDocument();
+    expect(createExpenseWithDuplicateCheck).not.toHaveBeenCalled();
   } finally {
     global.fetch = originalFetch;
+    localStorage.removeItem('token');
   }
 });
 
@@ -352,7 +382,7 @@ test('fuerza las devoluciones de crédito a cashback aunque la línea diga gusto
   expect(parsed.rows[0].body.concepto).toBe('cashback');
 });
 
-test('incluye pagos iO en débito y compara por banco y tarjeta pagada', () => {
+test('incluye pagos iO en débito y busca la tarjeta pagada en todos los bancos', () => {
   const text = pdfLinesToBulkText([
     'Ciclo: 26/08/2026 al 25/09/2026',
     'Abonos',
@@ -367,7 +397,8 @@ test('incluye pagos iO en débito y compara por banco y tarjeta pagada', () => {
 
   expect(imported).toHaveLength(1);
   expect(imported[0].body.concepto).toBe('pago_tarjeta');
-  expect(compareBulkExpenses(imported, saved, 'io', 'debito', 'bcp').pairs[0].target.id).toBe(1);
+  expect(compareBulkExpenses(imported, saved, 'io', 'debito').candidates).toHaveLength(2);
+  expect(compareBulkExpenses(imported, [saved[1]], 'io', 'debito').pairs[0].target.id).toBe(2);
 });
 
 test('lee Banco Falabella y omite pagos aunque su monto sea negativo', () => {

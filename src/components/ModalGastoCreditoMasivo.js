@@ -441,20 +441,20 @@ const matchingAmounts = (source, target, exchangeRate, mode) => {
   if (normalizeText(source.moneda) === normalizeText(target.moneda)) return Math.abs(sourceAmount - targetAmount) < 0.005;
   if (mode !== 'debito') return false;
   const savedRate = validExchangeRate(target.tasaUsdPen);
-  const rate = savedRate || validExchangeRate(exchangeRate);
+  const enteredRate = validExchangeRate(exchangeRate);
   if (source.moneda === 'USD' && target.moneda === 'PEN') {
     const appliedUsd = validExchangeRate(target.montoUsdAplicado);
-    if (savedRate != null) return Math.abs(sourceAmount - money(targetAmount / savedRate)) < 0.015;
-    return (appliedUsd != null && Math.abs(sourceAmount - appliedUsd) < 0.015)
-      || (rate != null && Math.abs(sourceAmount - money(targetAmount / rate)) < 0.015);
+    return (savedRate != null && Math.abs(sourceAmount - money(targetAmount / savedRate)) < 0.015)
+      || (savedRate == null && appliedUsd != null && Math.abs(sourceAmount - appliedUsd) < 0.015)
+      || (enteredRate != null && Math.abs(sourceAmount - money(targetAmount / enteredRate)) < 0.015);
   }
   if (source.moneda === 'PEN' && target.moneda === 'USD') {
-    return rate != null && Math.abs(sourceAmount - money(targetAmount * rate)) < 0.015;
+    return savedRate != null && Math.abs(sourceAmount - money(targetAmount * savedRate)) < 0.015;
   }
   return false;
 };
 
-export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credito', bank = '', exchangeRates = {}) => {
+export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credito', exchangeRates = {}) => {
   const imported = (importedRows || []).map((row) => ({ ...row.body, _lineNumber: row.lineNumber })).sort((a, b) =>
     String(a.fecha || '').localeCompare(String(b.fecha || '')) || Number(a.monto || 0) - Number(b.monto || 0));
   if (!imported.length) return null;
@@ -472,7 +472,6 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
   const candidates = (savedRows || []).filter((row) => normalizeText(row.metodoPago) === mode
     && (mode !== 'debito' || normalizeText(row.concepto) === 'pago_tarjeta')
     && normalizeText(mode === 'debito' ? row.tarjetaPago : row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard
-    && (mode !== 'debito' || !bank || normalizeText(row.tarjeta) === normalizeText(bank))
     && String(row.fecha || '').slice(0, 10) >= candidateFrom && String(row.fecha || '').slice(0, 10) <= candidateTo)
     .sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')) || Number(a.monto || 0) - Number(b.monto || 0));
   const used = new Set();
@@ -573,9 +572,13 @@ function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverr
   });
 }
 
-export default function ModalGastoCreditoMasivo({ userId, existingRows = [], expenseConcepts = [], mode = 'credito', onClose, onSaved }) {
+const EMPTY_ROWS = [];
+
+export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_ROWS, expenseConcepts = [], mode = 'credito', onClose, onSaved }) {
   const [cards, setCards] = useState([]);
   const [systemRows, setSystemRows] = useState(existingRows);
+  const [loadingSystemRows, setLoadingSystemRows] = useState(true);
+  const [systemRowsError, setSystemRowsError] = useState(false);
   const [loadingCards, setLoadingCards] = useState(true);
   const [tarjeta, setTarjeta] = useState('');
   const [banco, setBanco] = useState('bcp');
@@ -610,6 +613,8 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
 
   useEffect(() => {
     let alive = true;
+    setLoadingSystemRows(true);
+    setSystemRowsError(false);
     (async () => {
       try {
         const token = localStorage.getItem('token');
@@ -643,16 +648,22 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
         const response = await fetch(url, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
         if (!response.ok) throw new Error(await response.text());
         const data = await response.json();
-        if (alive) setSystemRows(Array.isArray(data) ? data : []);
+        if (!Array.isArray(data)) throw new Error('La lista de pagos no es válida.');
+        if (alive) setSystemRows(data);
       } catch {
-        if (alive) setSystemRows(existingRows);
+        if (alive) {
+          setSystemRows(existingRows);
+          setSystemRowsError(true);
+        }
+      } finally {
+        if (alive) setLoadingSystemRows(false);
       }
     })();
     return () => { alive = false; };
   }, [userId, existingRows]);
 
   const preview = useMemo(() => parseBulkRows(bulkText, mode), [bulkText, mode]);
-  const comparison = useMemo(() => compareBulkExpenses(preview.rows, systemRows, tarjeta, mode, banco, exchangeRates), [preview.rows, systemRows, tarjeta, mode, banco, exchangeRates]);
+  const comparison = useMemo(() => compareBulkExpenses(preview.rows, systemRows, tarjeta, mode, exchangeRates), [preview.rows, systemRows, tarjeta, mode, exchangeRates]);
 
   const loadFile = async (file) => {
     if (!file) return;
@@ -704,6 +715,8 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
 
     if (!cards.length) return setError('No tienes tarjetas registradas.');
     if (!tarjeta) return setError('Selecciona una tarjeta.');
+    if (mode === 'debito' && loadingSystemRows) return setError('Espera a que termine de cargar la comparación de pagos.');
+    if (mode === 'debito' && systemRowsError) return setError('No se pudieron cargar los pagos existentes. Cierra y vuelve a abrir para comparar antes de guardar.');
 
     const token = localStorage.getItem('token');
     if (!token) return setError('No hay sesion.');
@@ -821,6 +834,8 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
             {successMsg}
           </div>
         )}
+        {mode === 'debito' && loadingSystemRows && <div className="mb-3 text-sm text-gray-600">Cargando pagos existentes para comparar...</div>}
+        {mode === 'debito' && systemRowsError && <div className="mb-3 text-sm text-red-700">No se pudieron cargar los pagos existentes. Vuelve a abrir este formulario antes de guardar.</div>}
 
         {loadingCards ? (
           <div className="text-sm text-gray-600 mb-3">Cargando tarjetas...</div>
@@ -832,10 +847,11 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
 
         <form className="grid gap-4" onSubmit={submitBulk}>
           {mode === 'debito' && <label className="text-sm max-w-sm">
-            <span className="block text-gray-600 mb-1">Banco de débito desde el que se pagó</span>
+            <span className="block text-gray-600 mb-1">Banco de débito para registrar pagos nuevos</span>
             <select className="w-full border rounded px-3 py-2" value={banco} onChange={(event) => setBanco(event.target.value)}>
               {DEBIT_BANKS.map((bank) => <option key={bank.value} value={bank.value}>{bank.label}</option>)}
             </select>
+            <span className="block mt-1 text-xs text-gray-500">La comparación busca pagos existentes en todos los bancos de débito.</span>
           </label>}
           <label className="text-sm max-w-sm">
             <span className="block text-gray-600 mb-1">{mode === 'debito' ? 'Tarjeta pagada en todas las líneas' : 'Tarjeta para todas las líneas'}</span>
@@ -923,7 +939,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
             </button>
             <button
               type="submit"
-              disabled={saving || !cards.length}
+              disabled={saving || !cards.length || (mode === 'debito' && (loadingSystemRows || systemRowsError))}
               className="px-5 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
             >
               {saving ? 'Guardando...' : 'Guardar masivo'}
