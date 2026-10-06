@@ -415,7 +415,44 @@ const excelDateToText = (value) => {
   return iso ? `${iso[3]}/${iso[2]}/${iso[1]}` : raw;
 };
 
-export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credito', bank = '') => {
+const validExchangeRate = (value) => {
+  if (value == null || String(value).trim() === '') return null;
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate > 0 ? rate : null;
+};
+const money = (value) => Number(Number(value).toFixed(2));
+const amountLabel = (currency, amount) => `${currency === 'USD' ? '$' : 'S/'} ${Number(amount).toFixed(2)}`;
+
+export const debitPaymentBody = (body, exchangeRate) => {
+  const rate = validExchangeRate(exchangeRate);
+  if (!rate) return { ...body, pagoObjetivo: body.moneda };
+  if (body.moneda === 'USD') return {
+    ...body, moneda: 'PEN', monto: money(Number(body.monto) * rate),
+    pagoObjetivo: 'USD', montoUsdAplicado: money(body.monto), tipoCambioDia: rate,
+  };
+  return {
+    ...body, pagoObjetivo: 'USD', montoUsdAplicado: money(Number(body.monto) / rate), tipoCambioDia: rate,
+  };
+};
+
+const matchingAmounts = (source, target, exchangeRate, mode) => {
+  const sourceAmount = Math.abs(Number(source.monto));
+  const targetAmount = Math.abs(Number(target.monto));
+  if (normalizeText(source.moneda) === normalizeText(target.moneda)) return Math.abs(sourceAmount - targetAmount) < 0.005;
+  if (mode !== 'debito') return false;
+  const rate = validExchangeRate(exchangeRate) || validExchangeRate(target.tasaUsdPen);
+  if (source.moneda === 'USD' && target.moneda === 'PEN') {
+    const appliedUsd = validExchangeRate(target.montoUsdAplicado);
+    return (appliedUsd != null && Math.abs(sourceAmount - appliedUsd) < 0.015)
+      || (rate != null && Math.abs(money(sourceAmount * rate) - targetAmount) < 0.015);
+  }
+  if (source.moneda === 'PEN' && target.moneda === 'USD') {
+    return rate != null && Math.abs(sourceAmount - money(targetAmount * rate)) < 0.015;
+  }
+  return false;
+};
+
+export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credito', bank = '', exchangeRates = {}) => {
   const imported = (importedRows || []).map((row) => ({ ...row.body, _lineNumber: row.lineNumber })).sort((a, b) =>
     String(a.fecha || '').localeCompare(String(b.fecha || '')) || Number(a.monto || 0) - Number(b.monto || 0));
   if (!imported.length) return null;
@@ -441,8 +478,7 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
     const matchingIndexes = candidates.map((target, candidateIndex) => ({ target, candidateIndex }))
       .filter(({ target, candidateIndex }) => !used.has(candidateIndex)
         && (source.concepto !== 'cashback' || normalizeText(target.concepto) === 'cashback')
-        && normalizeText(target.moneda) === normalizeText(source.moneda)
-        && Math.abs(Math.abs(Number(target.monto)) - Math.abs(Number(source.monto))) < 0.005
+        && matchingAmounts(source, target, exchangeRates[source._lineNumber], mode)
         && Math.abs(dayValue(target.fecha) - dayValue(source.fecha)) <= oneDay)
       .sort((a, b) => Math.abs(dayValue(a.target.fecha) - dayValue(source.fecha)) - Math.abs(dayValue(b.target.fecha) - dayValue(source.fecha)));
     const index = matchingIndexes[0]?.candidateIndex ?? -1;
@@ -481,7 +517,7 @@ const CONCEPT_LABELS = {
   transporte: 'Transporte', reinicio: 'Reinicio', cashback: 'Cashback / reembolso',
 };
 
-function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverrides, setConceptOverrides, conceptOptions }) {
+function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverrides, setConceptOverrides, conceptOptions, mode, exchangeRates }) {
   return comparison.displayRows.map((displayRow, index) => {
     const { imported, saved, matched } = displayRow;
     const importedKey = `imported-${displayRow.sourceIndex ?? index}`;
@@ -498,7 +534,12 @@ function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverr
           {imported && <div className="flex items-start gap-2">
             <input aria-label={`Revisar gasto cargado ${index + 1}`} type="checkbox" checked={checked} onClick={(event) => event.stopPropagation()} onChange={(event) => setReviewed((current) => ({ ...current, [importedKey]: event.target.checked }))} className="mt-0.5" />
             <div className={`min-w-0 flex-1 ${acceptedMatch ? 'text-emerald-900' : checked ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-              <div className="font-medium">{imported.fecha} · {imported.moneda} {Number(imported.monto).toFixed(2)}</div>
+              <div className="font-medium">{imported.fecha} · {amountLabel(imported.moneda, imported.monto)}</div>
+              {mode === 'debito' && validExchangeRate(exchangeRates[displayRow.sourceIndex]) && (
+                <div className="text-xs">{imported.moneda === 'USD'
+                  ? `Pagado: ${amountLabel('PEN', money(Number(imported.monto) * Number(exchangeRates[displayRow.sourceIndex])))}`
+                  : `Aplicado: ${amountLabel('USD', money(Number(imported.monto) / Number(exchangeRates[displayRow.sourceIndex])))}`}</div>
+              )}
               <div className={acceptedMatch ? 'text-emerald-700' : 'text-gray-500'}>{imported.notas || ''}</div>
               {!checked && imported.concepto !== 'cashback' && <select aria-label={`Tipo de gasto ${index + 1}`} value={conceptOverrides[displayRow.sourceIndex] || imported.concepto} onClick={(event) => event.stopPropagation()} onChange={(event) => setConceptOverrides((current) => ({ ...current, [displayRow.sourceIndex]: event.target.value }))} className="mt-1 rounded border border-gray-300 bg-white px-1.5 py-1 text-[11px] text-gray-800">
                 {conceptOptions.map((concept) => <option key={concept.value} value={concept.value}>{concept.label}</option>)}
@@ -508,7 +549,10 @@ function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverr
         </td>
         <td className={`border-l border-gray-100 p-2 ${acceptedMatch ? 'bg-emerald-100' : 'bg-white'}`}>
           {saved && <div className={acceptedMatch ? 'text-emerald-900' : 'text-indigo-800'}>
-            <span className="font-medium">{String(saved.fecha).slice(0, 10)} · {saved.moneda} {Number(saved.monto).toFixed(2)}</span>
+            <span className="font-medium">{String(saved.fecha).slice(0, 10)} · {amountLabel(saved.moneda, saved.monto)}</span>
+            {mode === 'debito' && saved.moneda === 'PEN' && validExchangeRate(saved.tasaUsdPen) && validExchangeRate(saved.montoUsdAplicado) && (
+              <span className="block text-xs">Aplicado: {amountLabel('USD', saved.montoUsdAplicado)} · TC {Number(saved.tasaUsdPen).toFixed(4)}</span>
+            )}
             <span className={acceptedMatch ? 'block text-emerald-700' : 'block text-gray-500'}>{saved.notas || ''}</span>
           </div>}
         </td>
@@ -531,6 +575,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
   const [draggingFile, setDraggingFile] = useState(false);
   const [reviewed, setReviewed] = useState({});
   const [conceptOverrides, setConceptOverrides] = useState({});
+  const [exchangeRates, setExchangeRates] = useState({});
   const currentUser = useMemo(() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
   }, []);
@@ -595,7 +640,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
   }, [userId, existingRows]);
 
   const preview = useMemo(() => parseBulkRows(bulkText, mode), [bulkText, mode]);
-  const comparison = useMemo(() => compareBulkExpenses(preview.rows, systemRows, tarjeta, mode, banco), [preview.rows, systemRows, tarjeta, mode, banco]);
+  const comparison = useMemo(() => compareBulkExpenses(preview.rows, systemRows, tarjeta, mode, banco, exchangeRates), [preview.rows, systemRows, tarjeta, mode, banco, exchangeRates]);
 
   const loadFile = async (file) => {
     if (!file) return;
@@ -608,6 +653,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
         setFileName(file.name);
         setReviewed({});
         setConceptOverrides({});
+        setExchangeRates({});
         return;
       }
       const lines = spreadsheetToBulkLines(await file.arrayBuffer(), file.name, mode);
@@ -617,6 +663,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
       setFileName(file.name);
       setReviewed({});
       setConceptOverrides({});
+      setExchangeRates({});
     } catch (loadError) {
       const passwordProblem = loadError?.name === 'PasswordException' || /password|contrase/i.test(loadError?.message || '');
       setError(passwordProblem
@@ -655,6 +702,10 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
       setError(parsed.errors.slice(0, 8).join('\n'));
       return;
     }
+    const invalidRate = mode === 'debito' && parsed.rows.find((item) =>
+      Object.prototype.hasOwnProperty.call(exchangeRates, item.lineNumber)
+      && !validExchangeRate(exchangeRates[item.lineNumber]));
+    if (invalidRate) return setError(`Linea ${invalidRate.lineNumber}: ingresa un tipo de cambio válido.`);
     const matchedLines = new Set((comparison?.pairs || [])
       .filter((pair) => pair.target && reviewed[`imported-${pair.source._lineNumber}`] !== false)
       .map((pair) => pair.source._lineNumber));
@@ -674,7 +725,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
         while (nextIndex < rowsToSave.length) {
           const item = rowsToSave[nextIndex++];
           const body = mode === 'debito'
-            ? { ...item.body, concepto: 'pago_tarjeta', tarjeta: banco, tarjetaPago: tarjeta, pagoObjetivo: item.body.moneda }
+            ? { ...debitPaymentBody(item.body, exchangeRates[item.lineNumber]), concepto: 'pago_tarjeta', tarjeta: banco, tarjetaPago: tarjeta }
             : { ...item.body, concepto: item.body.concepto === 'cashback' ? 'cashback' : (conceptOverrides[item.lineNumber] || item.body.concepto), tarjeta };
           try {
             const row = await createExpenseWithDuplicateCheck(body, { userId, notify: false });
@@ -791,9 +842,10 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
           <div className="grid gap-2">
             <label className="text-sm text-gray-600">{mode === 'debito' ? 'Líneas de pagos' : 'Líneas de gastos'}</label>
             <textarea
+              aria-label={mode === 'debito' ? 'Líneas de pagos' : 'Líneas de gastos'}
               className="w-full min-h-[220px] border rounded px-3 py-2 font-mono text-sm"
               value={bulkText}
-              onChange={(e) => setBulkText(e.target.value)}
+              onChange={(e) => { setBulkText(e.target.value); setExchangeRates({}); }}
               placeholder=""
             />
             <div className="text-xs text-gray-500">
@@ -825,7 +877,25 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
                         <td className="py-1">{r.lineNumber}</td>
                         <td className="py-1">{r.body.concepto}</td>
                         <td className="py-1">{r.body.moneda}</td>
-                        <td className="py-1">{r.body.monto}</td>
+                        <td className="py-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>{amountLabel(r.body.moneda, r.body.monto)}</span>
+                            {mode === 'debito' && <button type="button" aria-label={`Tipo de cambio línea ${r.lineNumber}`} onClick={() => setExchangeRates((current) => {
+                              const next = { ...current };
+                              if (Object.prototype.hasOwnProperty.call(next, r.lineNumber)) delete next[r.lineNumber];
+                              else next[r.lineNumber] = '';
+                              return next;
+                            })} className="rounded border border-indigo-200 px-1.5 py-0.5 text-indigo-700 hover:bg-indigo-50">{Object.prototype.hasOwnProperty.call(exchangeRates, r.lineNumber) ? 'Quitar TC' : 'Poner TC'}</button>}
+                          </div>
+                          {mode === 'debito' && Object.prototype.hasOwnProperty.call(exchangeRates, r.lineNumber) && (
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              <input aria-label={`Tipo de cambio para línea ${r.lineNumber}`} type="number" min="0.0001" step="0.0001" value={exchangeRates[r.lineNumber]} onChange={(event) => setExchangeRates((current) => ({ ...current, [r.lineNumber]: event.target.value }))} placeholder="S/ por $" className="w-24 rounded border px-1.5 py-1" />
+                              {validExchangeRate(exchangeRates[r.lineNumber]) && <span>{r.body.moneda === 'USD'
+                                ? `Pagado ${amountLabel('PEN', money(Number(r.body.monto) * Number(exchangeRates[r.lineNumber])))}`
+                                : `Aplicado ${amountLabel('USD', money(Number(r.body.monto) / Number(exchangeRates[r.lineNumber])))}`}</span>}
+                            </div>
+                          )}
+                        </td>
                         <td className="py-1">{r.body.fecha}</td>
                         <td className="py-1">{r.body.notas || ''}</td>
                       </tr>
@@ -843,7 +913,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
               <div className="mt-3 overflow-x-auto rounded-lg border border-indigo-200 bg-white">
                 <table className="min-w-[760px] w-full text-xs">
                   <thead className="bg-indigo-100 text-indigo-950"><tr><th className="w-1/2 p-2 text-left">Movimientos cargados ({comparison.imported.length})</th><th className="w-1/2 border-l border-indigo-200 p-2 text-left">Movimientos en el sistema ({comparison.candidates.length})</th></tr></thead>
-                  <tbody><ExpenseComparisonRows comparison={comparison} reviewed={reviewed} setReviewed={setReviewed} conceptOverrides={conceptOverrides} setConceptOverrides={setConceptOverrides} conceptOptions={conceptOptions} /></tbody>
+                  <tbody><ExpenseComparisonRows comparison={comparison} reviewed={reviewed} setReviewed={setReviewed} conceptOverrides={conceptOverrides} setConceptOverrides={setConceptOverrides} conceptOptions={conceptOptions} mode={mode} exchangeRates={exchangeRates} /></tbody>
                 </table>
               </div>
             </div>

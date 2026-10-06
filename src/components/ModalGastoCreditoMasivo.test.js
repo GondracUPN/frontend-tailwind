@@ -1,6 +1,58 @@
 jest.mock('pdfjs-dist/webpack', () => ({}));
+jest.mock('../utils/createExpense', () => ({
+  createExpenseWithDuplicateCheck: jest.fn(),
+  ExpenseDuplicateCancelledError: class ExpenseDuplicateCancelledError extends Error {},
+}));
 
-import { compareBulkExpenses, parseBulkRows, pdfLinesToBulkText, spreadsheetToBulkLines } from './ModalGastoCreditoMasivo';
+import React from 'react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createExpenseWithDuplicateCheck } from '../utils/createExpense';
+import ModalGastoCreditoMasivo, { compareBulkExpenses, debitPaymentBody, parseBulkRows, pdfLinesToBulkText, spreadsheetToBulkLines } from './ModalGastoCreditoMasivo';
+
+test('Guardar masivo envía el pago en soles y conserva monto USD y tipo de cambio', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/cards') ? [{ type: 'io', label: 'iO' }] : [] }));
+  localStorage.setItem('token', 'test-token');
+  createExpenseWithDuplicateCheck.mockResolvedValue({ id: 1 });
+  const onSaved = jest.fn();
+  try {
+    render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={onSaved} />);
+    fireEvent.change(screen.getByLabelText('Líneas de pagos'), { target: { value: 'pago_tarjeta | USD | 100 | 05/10/2026 | Banco' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Tipo de cambio línea 1' }));
+    fireEvent.change(screen.getByLabelText('Tipo de cambio para línea 1'), { target: { value: '3.75' } });
+    expect(screen.getByText('Pagado S/ 375.00')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar masivo' }));
+    await waitFor(() => expect(createExpenseWithDuplicateCheck).toHaveBeenCalledWith(expect.objectContaining({
+      moneda: 'PEN', monto: 375, pagoObjetivo: 'USD', montoUsdAplicado: 100, tipoCambioDia: 3.75,
+      tarjeta: 'bcp', tarjetaPago: 'io',
+    }), { userId: 1, notify: false }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('token');
+    createExpenseWithDuplicateCheck.mockReset();
+  }
+});
+
+test('guarda un pago importado en dólares como soles pagados con el tipo de cambio elegido', () => {
+  expect(debitPaymentBody({ moneda: 'USD', monto: 100, fecha: '2026-10-05' }, '3.75')).toMatchObject({
+    moneda: 'PEN', monto: 375, pagoObjetivo: 'USD', montoUsdAplicado: 100, tipoCambioDia: 3.75,
+  });
+  expect(debitPaymentBody({ moneda: 'PEN', monto: 375 }, '3.75')).toMatchObject({
+    moneda: 'PEN', monto: 375, pagoObjetivo: 'USD', montoUsdAplicado: 100, tipoCambioDia: 3.75,
+  });
+});
+
+test('compara pagos de débito entre dólares y soles solo cuando hay tipo de cambio', () => {
+  const imported = [{ lineNumber: 1, body: { fecha: '2026-10-05', moneda: 'USD', monto: 100, metodoPago: 'debito', concepto: 'pago_tarjeta' } }];
+  const saved = [{ id: 9, fecha: '2026-10-05', moneda: 'PEN', monto: 375, metodoPago: 'debito', concepto: 'pago_tarjeta', tarjeta: 'bcp', tarjetaPago: 'io' }];
+  expect(compareBulkExpenses(imported, saved, 'io', 'debito', 'bcp').matched).toBe(0);
+  expect(compareBulkExpenses(imported, saved, 'io', 'debito', 'bcp', { 1: '3.75' }).pairs[0].target.id).toBe(9);
+  expect(compareBulkExpenses(imported, [{ ...saved[0], monto: 380, tasaUsdPen: '3.8', montoUsdAplicado: '100' }], 'io', 'debito', 'bcp').matched).toBe(1);
+  const solesImported = [{ ...imported[0], body: { ...imported[0].body, moneda: 'PEN', monto: 375 } }];
+  const dollarsSaved = [{ ...saved[0], moneda: 'USD', monto: 100 }];
+  expect(compareBulkExpenses(solesImported, dollarsSaved, 'io', 'debito', 'bcp', { 1: '3.75' }).matched).toBe(1);
+});
 
 test('lee consumos, omite pagos y conserva devoluciones del estado BCP', () => {
   const text = pdfLinesToBulkText([
