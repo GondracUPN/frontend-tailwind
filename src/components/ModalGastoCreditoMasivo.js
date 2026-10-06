@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL } from '../api';
 import CloseX from './CloseX';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
@@ -108,7 +108,9 @@ const toSignedAmount = (raw) => {
   return parenthesized || trailingMinus ? -Math.abs(number) : number;
 };
 
-const isPaymentMovement = (description) => /\bpagos?\b|\bpago[_ -]?tarjeta\b|\bpag\.?\s*tarj\w*\b|\bpagtc\b/.test(normalizeText(description));
+const isMercadoPagoMerchant = (description) => /\bmercado\s*pago\b/.test(normalizeText(description));
+const isPaymentMovement = (description) => /\bpagos?\b|\bpago[_ -]?tarjeta\b|\bpag\.?\s*tarj\w*\b|\bpagtc\b/
+  .test(normalizeText(description).replace(/\bmercado\s*pago\b/g, 'mercado_pago'));
 const isPaymentOrBalanceMovement = (description) => isPaymentMovement(description) || /\bexceso\b|sdo\.?\s*acre|saldo\s+acre/i.test(normalizeText(description));
 const isRefundMovement = (description) => /reembolso|refund|devolucion|\bdev\.?\s*(?:compra|consumo|tarjeta)\b/.test(normalizeText(description));
 
@@ -170,7 +172,7 @@ const matrixToBulkLines = (matrix, mode = 'credito') => {
     }
     const inferredConcept = classifyExpenseConcept(note);
     const isRefund = inferredConcept === 'cashback';
-    if (!isRefund && Math.sign(signedAmount) !== expenseSign) return [];
+    if (!isRefund && Math.sign(signedAmount) !== expenseSign && !isMercadoPagoMerchant(note)) return [];
     const currency = explicitCurrency || (currencyIndex >= 0
       ? (toMoneda(row[currencyIndex]) || (/US\$|USD|\$/i.test(rawAmount) ? 'USD' : 'PEN'))
       : (/US\$|USD|\$/i.test(rawAmount) ? 'USD' : 'PEN'));
@@ -210,7 +212,7 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
     const bcp = line.match(/^\s*(\d{1,2})(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Set|Oct|Nov|Dic)\s+(\d{1,2})(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Set|Oct|Nov|Dic)\s+(.+?)\s+([\d,.]+)(-?)\s*(?:\[(PEN|USD)\])?\s*$/i);
     if (bcp) {
       const middle = bcp[5].trim();
-      const operation = middle.match(/\b(CONSUMO|DEVOLUCI[OÓ]N|PAGO)\b/i)?.[1] || '';
+      const operation = [...middle.matchAll(/\b(CONSUMO|DEVOLUCI[OÓ]N|PAGO)\b/gi)].at(-1)?.[1] || '';
       const isPayment = isPaymentMovement(middle) || /PAGO/i.test(operation);
       if (mode === 'debito' ? !isPayment : isPayment) return [];
       const isRefund = /DEVOLUCI/i.test(operation) || isRefundMovement(middle);
@@ -264,7 +266,8 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
     // Si conocemos la columna visual, el signo deja de ser una señal de
     // moneda o de tipo de movimiento. Algunos bancos muestran consumos en
     // positivo y otros en negativo.
-    if (mode === 'credito' && !visualCurrency && !(signedAmount < 0) && !isRefund) return [];
+    if (mode === 'credito' && !visualCurrency && !(signedAmount < 0) && !isRefund
+      && !/\b(?:consumo|compra)\b/.test(normalizeText(description)) && !isMercadoPagoMerchant(description)) return [];
     const date = `${String(dateMatch[1]).padStart(2, '0')}/${String(dateMatch[2]).padStart(2, '0')}/${dateMatch[3] || detectedYear}`;
     const currency = visualCurrency || (/US\$|USD|\$/i.test(amountToken || '') && !/S\//i.test(amountToken || '') ? 'USD' : 'PEN');
     return [`${mode === 'debito' ? 'pago_tarjeta' : classifyExpenseConcept(description)} | ${currency} | ${Math.abs(signedAmount)} | ${date} | ${description.replace(/\|/g, '/')}`];
@@ -475,9 +478,13 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
   const candidateFrom = new Date(dayValue(from) - oneDay).toISOString().slice(0, 10);
   const candidateTo = new Date(dayValue(to) + oneDay).toISOString().slice(0, 10);
   const normalizedCard = normalizeText(card).replace(/[^a-z0-9]/g, '');
-  const candidates = (savedRows || []).filter((row) => normalizeText(row.metodoPago) === mode
-    && (mode !== 'debito' || normalizeText(row.concepto) === 'pago_tarjeta')
-    && normalizeText(mode === 'debito' ? row.tarjetaPago : row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard
+  const allExpenses = mode === 'all_gastos';
+  const candidates = (savedRows || []).filter((row) => (allExpenses
+    ? ['credito', 'debito'].includes(normalizeText(row.metodoPago))
+      && !['pago_tarjeta', 'ingreso', 'ingresos', 'cashback'].includes(normalizeText(row.concepto))
+    : normalizeText(row.metodoPago) === mode
+      && (mode !== 'debito' || normalizeText(row.concepto) === 'pago_tarjeta')
+      && normalizeText(mode === 'debito' ? row.tarjetaPago : row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard)
     && String(row.fecha || '').slice(0, 10) >= candidateFrom && String(row.fecha || '').slice(0, 10) <= candidateTo)
     .sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')) || Number(a.monto || 0) - Number(b.monto || 0));
   const used = new Set();
@@ -597,6 +604,11 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
   const [reviewed, setReviewed] = useState({});
   const [conceptOverrides, setConceptOverrides] = useState({});
   const [exchangeRates, setExchangeRates] = useState({});
+  const [expensePdfLines, setExpensePdfLines] = useState(null);
+  const [expensePdfFileName, setExpensePdfFileName] = useState('');
+  const [showExpenseComparison, setShowExpenseComparison] = useState(false);
+  const [loadingExpensePdf, setLoadingExpensePdf] = useState(false);
+  const expensePdfInputRef = useRef(null);
   const currentUser = useMemo(() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
   }, []);
@@ -670,14 +682,25 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
 
   const preview = useMemo(() => parseBulkRows(bulkText, mode), [bulkText, mode]);
   const comparison = useMemo(() => compareBulkExpenses(preview.rows, systemRows, tarjeta, mode, exchangeRates), [preview.rows, systemRows, tarjeta, mode, exchangeRates]);
+  const expenseRows = useMemo(() => expensePdfLines
+    ? parseBulkRows(pdfLinesToBulkText(expensePdfLines, 'credito'), 'credito').rows.filter((row) => row.body.concepto !== 'cashback')
+    : [], [expensePdfLines]);
+  const expenseComparison = useMemo(() => showExpenseComparison
+    ? compareBulkExpenses(expenseRows, systemRows, '', 'all_gastos')
+    : null, [showExpenseComparison, expenseRows, systemRows]);
 
   const loadFile = async (file) => {
     if (!file) return;
     setError('');
     try {
       if (file.name.toLowerCase().endsWith('.pdf')) {
-        const value = pdfLinesToBulkText(await extractPdfTextLines(file, pdfPassword), mode);
+        const pdfLines = await extractPdfTextLines(file, pdfPassword);
+        const value = pdfLinesToBulkText(pdfLines, mode);
         if (!value.trim()) throw new Error(mode === 'debito' ? 'No se encontraron pagos a tarjeta en el PDF.' : 'No se encontraron consumos ni devoluciones en el PDF.');
+        if (mode === 'debito') {
+          setExpensePdfLines(pdfLines);
+          setExpensePdfFileName(file.name);
+        }
         setBulkText(value);
         setFileName(file.name);
         setReviewed({});
@@ -689,6 +712,8 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
       if (!lines) throw new Error('Faltan las columnas Fecha y Monto/Importe.');
       if (!lines.length) throw new Error(mode === 'debito' ? 'No se encontraron pagos a tarjeta en el archivo.' : 'No se encontraron consumos ni devoluciones en el archivo.');
       setBulkText(lines.join('\n'));
+      setExpensePdfLines(null);
+      setShowExpenseComparison(false);
       setFileName(file.name);
       setReviewed({});
       setConceptOverrides({});
@@ -698,6 +723,24 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
       setError(passwordProblem
         ? 'No se pudo desbloquear el PDF. Revisa la contraseña guardada para esta persona e intenta subirlo otra vez.'
         : (loadError?.message || 'No se pudo leer el archivo XLSX o PDF.'));
+    }
+  };
+
+  const compareExpensePdfFile = async (file) => {
+    if (!file) return;
+    setError('');
+    setLoadingExpensePdf(true);
+    try {
+      const pdfLines = await extractPdfTextLines(file, pdfPassword);
+      setExpensePdfLines(pdfLines);
+      setExpensePdfFileName(file.name);
+      setShowExpenseComparison(true);
+    } catch (loadError) {
+      setError(/password|contrase/i.test(loadError?.message || '')
+        ? 'No se pudo desbloquear el PDF. Revisa la contraseña e inténtalo otra vez.'
+        : (loadError?.message || 'No se pudo leer el PDF para comparar gastos.'));
+    } finally {
+      setLoadingExpensePdf(false);
     }
   };
 
@@ -792,10 +835,10 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
           Patron por linea: <code>concepto | moneda | monto | fecha(dd/mm/yyyy) | nota(opcional)</code>.
           {mode === 'debito' ? ' Se importan solo movimientos de pago a tarjeta.' : ' Los pagos se omiten y las devoluciones se registran como cashback.'}
         </p>
-        <div className="mb-4 max-w-md rounded-xl border border-gray-200 bg-gray-50 p-3">
+        <div className="mb-4 max-w-2xl rounded-xl border border-gray-200 bg-gray-50 p-3">
           <label className="text-sm text-gray-700">
             <span className="mb-1 block font-medium">Contraseña de estados de cuenta de esta persona</span>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 type={showPdfPassword ? 'text' : 'password'}
                 autoComplete="off"
@@ -812,8 +855,19 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
               <button type="button" onClick={() => setShowPdfPassword((value) => !value)} className="rounded border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700 hover:bg-gray-100">
                 {showPdfPassword ? 'Ocultar' : 'Ver / cambiar'}
               </button>
+              {mode === 'debito' && <button type="button" disabled={loadingExpensePdf} onClick={() => {
+                if (expensePdfLines) setShowExpenseComparison((value) => !value);
+                else expensePdfInputRef.current?.click();
+              }} className="rounded border border-indigo-300 bg-white px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">
+                {loadingExpensePdf ? 'Leyendo PDF...' : showExpenseComparison ? 'Ocultar comparación de gastos' : 'Ver y comparar gastos'}
+              </button>}
             </div>
           </label>
+          {mode === 'debito' && <input ref={expensePdfInputRef} type="file" accept=".pdf,application/pdf" aria-label="PDF para comparar gastos" onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            compareExpensePdfFile(file);
+          }} className="hidden" />}
           <div className="mt-1 text-xs text-gray-500">Se guarda en este navegador por persona y puedes cambiarla cuando sea necesario.</div>
         </div>
         <div
@@ -829,6 +883,33 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
           </label>
           {fileName && <span className="text-sm text-gray-600">Archivo: {fileName}</span>}
         </div>
+
+        {mode === 'debito' && showExpenseComparison && <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm">
+          <div className="font-semibold text-indigo-950">Comparación de gastos del PDF</div>
+          <div className="mt-1 text-xs text-indigo-800">{expensePdfFileName}. Se comparan los consumos con gastos de débito y crédito de todas las tarjetas y bancos. Los pagos y devoluciones no se incluyen.</div>
+          {loadingSystemRows ? <div className="mt-2 text-gray-600">Cargando gastos existentes...</div>
+            : systemRowsError ? <div className="mt-2 text-red-700">No se pudieron cargar los gastos existentes para comparar.</div>
+              : expenseComparison ? <>
+                <div className="mt-2 text-indigo-900">Coinciden: {expenseComparison.matched}/{expenseComparison.totalImported} · Sin encontrar: {expenseComparison.missing.length} · Solo en el sistema: {expenseComparison.onlyInSystem.length}</div>
+                <div className="mt-2 max-h-80 overflow-auto rounded-lg border border-indigo-200 bg-white">
+                  <table className="min-w-[650px] w-full text-xs">
+                    <thead className="sticky top-0 bg-indigo-100 text-indigo-950"><tr><th className="p-2 text-left">Gasto del PDF</th><th className="p-2 text-left">Gasto en el sistema</th><th className="p-2 text-left">Resultado</th></tr></thead>
+                    <tbody>
+                      {expenseComparison.pairs.map(({ source, target }) => <tr key={`expense-pdf-${source._lineNumber}`} className="border-t border-gray-100">
+                        <td className="p-2">{source.fecha} · {amountLabel(source.moneda, source.monto)}<span className="block text-gray-500">{source.notas}</span></td>
+                        <td className="p-2">{target ? <>{String(target.fecha).slice(0, 10)} · {amountLabel(target.moneda, target.monto)}<span className="block text-gray-500">{target.notas || target.concepto}</span></> : '—'}</td>
+                        <td className={`p-2 font-medium ${target ? 'text-emerald-700' : 'text-amber-700'}`}>{target ? 'Coincide' : 'No encontrado'}</td>
+                      </tr>)}
+                      {expenseComparison.onlyInSystem.map((saved) => <tr key={`expense-saved-${saved.id}`} className="border-t border-gray-100">
+                        <td className="p-2 text-gray-400">—</td>
+                        <td className="p-2">{String(saved.fecha).slice(0, 10)} · {amountLabel(saved.moneda, saved.monto)}<span className="block text-gray-500">{saved.notas || saved.concepto}</span></td>
+                        <td className="p-2 text-gray-600">Solo en el sistema</td>
+                      </tr>)}
+                    </tbody>
+                  </table>
+                </div>
+              </> : <div className="mt-2 text-gray-600">No se encontraron consumos en este PDF.</div>}
+        </div>}
 
         {error && (
           <div className="mb-3 text-sm whitespace-pre-line text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">

@@ -1,4 +1,4 @@
-jest.mock('pdfjs-dist/webpack', () => ({}));
+jest.mock('pdfjs-dist/webpack', () => ({ getDocument: jest.fn() }));
 jest.mock('../utils/createExpense', () => ({
   createExpenseWithDuplicateCheck: jest.fn(),
   ExpenseDuplicateCancelledError: class ExpenseDuplicateCancelledError extends Error {},
@@ -6,6 +6,7 @@ jest.mock('../utils/createExpense', () => ({
 
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import * as pdfjsLib from 'pdfjs-dist/webpack';
 import { createExpenseWithDuplicateCheck } from '../utils/createExpense';
 import ModalGastoCreditoMasivo, { compareBulkExpenses, debitPaymentBody, parseBulkRows, pdfLinesToBulkText, pdfTextItemsToLines, spreadsheetToBulkLines } from './ModalGastoCreditoMasivo';
 
@@ -23,6 +24,75 @@ test('lee la columna Dólares del PDF Amex aunque el pago termine en signo menos
   expect(payments).toContain('pago_tarjeta | PEN | 564.97 | 23/08/2026');
   expect(payments).toContain('pago_tarjeta | USD | 700 | 23/08/2026');
   expect(pdfLinesToBulkText(lines)).toContain('inversion | USD | 850 | 23/08/2026');
+});
+
+test('Mercado Pago positivo es un consumo y PAGO BANCA MOVIL sigue siendo pago', () => {
+  const lines = [
+    '2026',
+    '25Ago 23Ago MERCADO PAGO 604 CONSUMO 45.00 [PEN]',
+    '25Ago 23Ago MERCADOPAGO 840 CONSUMO 12.50 [USD]',
+    '25Ago 23Ago PAGO BANCA MOVIL PAGO 700.00 [USD]',
+  ];
+  const gastos = pdfLinesToBulkText(lines, 'credito');
+  expect(gastos).toContain('gusto | PEN | 45 | 23/08/2026');
+  expect(gastos).toContain('gusto | USD | 12.5 | 23/08/2026');
+  expect(gastos).not.toContain('700');
+  const pagos = pdfLinesToBulkText(lines, 'debito');
+  expect(pagos).toContain('pago_tarjeta | USD | 700 | 23/08/2026');
+  expect(pagos).not.toContain('MERCADO PAGO');
+  const csv = [
+    'Fecha,Descripcion,Monto,Moneda',
+    '23/08/2026,OTRO COMERCIO,-30.00,PEN',
+    '23/08/2026,MERCADO PAGO,45.00,PEN',
+  ].join('\n');
+  expect(spreadsheetToBulkLines(Buffer.from(csv, 'utf8'), 'movimientos.csv')).toContain('gusto | PEN | 45 | 23/08/2026 | MERCADO PAGO');
+});
+
+test('la vista de gastos compara débito y crédito sin incluir pagos ni ingresos', () => {
+  const imported = [
+    { lineNumber: 1, body: { fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'gusto' } },
+    { lineNumber: 2, body: { fecha: '2026-08-23', moneda: 'USD', monto: 12.5, concepto: 'gusto' } },
+  ];
+  const saved = [
+    { id: 1, fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'gusto', metodoPago: 'debito', tarjeta: 'interbank' },
+    { id: 2, fecha: '2026-08-23', moneda: 'USD', monto: 12.5, concepto: 'gusto', metodoPago: 'credito', tarjeta: 'bcp_amex' },
+    { id: 3, fecha: '2026-08-23', moneda: 'PEN', monto: 700, concepto: 'pago_tarjeta', metodoPago: 'debito' },
+    { id: 4, fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'ingresos', metodoPago: 'debito' },
+  ];
+  const comparison = compareBulkExpenses(imported, saved, '', 'all_gastos');
+  expect(comparison.matched).toBe(2);
+  expect(comparison.candidates.map((row) => row.id).sort()).toEqual([1, 2]);
+});
+
+test('el botón junto a la contraseña abre el PDF y muestra la comparación de gastos', async () => {
+  const originalFetch = global.fetch;
+  const item = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y] });
+  pdfjsLib.getDocument.mockReturnValue({ promise: Promise.resolve({
+    numPages: 1,
+    getPage: async () => ({ getTextContent: async () => ({ items: [
+      item('2026', 45, 620), item('Soles', 471, 603), item('Dólares', 524, 603),
+      item('25Ago', 47, 561), item('23Ago', 92, 561), item('MERCADO PAGO', 136, 561), item('604', 321, 561), item('CONSUMO', 410, 561), item('45.00', 490, 561),
+      item('25Ago', 47, 534), item('23Ago', 92, 534), item('PAGO BANCA MOVIL', 136, 534), item('PAGO', 410, 534), item('700.00-', 545, 534),
+    ] }) }),
+  }) });
+  const saved = [
+    { id: 1, fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'gusto', metodoPago: 'debito', tarjeta: 'interbank' },
+    { id: 2, fecha: '2026-08-23', moneda: 'USD', monto: 700, concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: 'bcp' },
+  ];
+  global.fetch = jest.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/cards') ? [{ type: 'io', label: 'iO' }] : saved }));
+  try {
+    render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ver y comparar gastos' }));
+    const pdfFile = new File(['pdf'], 'estado.pdf', { type: 'application/pdf' });
+    Object.defineProperty(pdfFile, 'arrayBuffer', { value: async () => new ArrayBuffer(1) });
+    fireEvent.change(screen.getByLabelText('PDF para comparar gastos'), { target: { files: [pdfFile] } });
+    expect(await screen.findByText('Coinciden: 1/1 · Sin encontrar: 0 · Solo en el sistema: 0')).toBeInTheDocument();
+    expect(screen.getByText('MERCADO PAGO 604')).toBeInTheDocument();
+    expect(screen.queryByText(/700\.00/)).not.toBeInTheDocument();
+  } finally {
+    global.fetch = originalFetch;
+    pdfjsLib.getDocument.mockReset();
+  }
 });
 
 test('Guardar masivo envía el pago en soles y conserva monto USD y tipo de cambio', async () => {
