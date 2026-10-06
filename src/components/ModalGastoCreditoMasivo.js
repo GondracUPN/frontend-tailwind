@@ -440,11 +440,13 @@ const matchingAmounts = (source, target, exchangeRate, mode) => {
   const targetAmount = Math.abs(Number(target.monto));
   if (normalizeText(source.moneda) === normalizeText(target.moneda)) return Math.abs(sourceAmount - targetAmount) < 0.005;
   if (mode !== 'debito') return false;
-  const rate = validExchangeRate(exchangeRate) || validExchangeRate(target.tasaUsdPen);
+  const savedRate = validExchangeRate(target.tasaUsdPen);
+  const rate = savedRate || validExchangeRate(exchangeRate);
   if (source.moneda === 'USD' && target.moneda === 'PEN') {
     const appliedUsd = validExchangeRate(target.montoUsdAplicado);
+    if (savedRate != null) return Math.abs(sourceAmount - money(targetAmount / savedRate)) < 0.015;
     return (appliedUsd != null && Math.abs(sourceAmount - appliedUsd) < 0.015)
-      || (rate != null && Math.abs(money(sourceAmount * rate) - targetAmount) < 0.015);
+      || (rate != null && Math.abs(sourceAmount - money(targetAmount / rate)) < 0.015);
   }
   if (source.moneda === 'PEN' && target.moneda === 'USD') {
     return rate != null && Math.abs(sourceAmount - money(targetAmount * rate)) < 0.015;
@@ -517,7 +519,7 @@ const CONCEPT_LABELS = {
   transporte: 'Transporte', reinicio: 'Reinicio', cashback: 'Cashback / reembolso',
 };
 
-function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverrides, setConceptOverrides, conceptOptions, mode, exchangeRates }) {
+function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverrides, setConceptOverrides, conceptOptions, mode, exchangeRates, setExchangeRates }) {
   return comparison.displayRows.map((displayRow, index) => {
     const { imported, saved, matched } = displayRow;
     const importedKey = `imported-${displayRow.sourceIndex ?? index}`;
@@ -534,12 +536,22 @@ function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverr
           {imported && <div className="flex items-start gap-2">
             <input aria-label={`Revisar gasto cargado ${index + 1}`} type="checkbox" checked={checked} onClick={(event) => event.stopPropagation()} onChange={(event) => setReviewed((current) => ({ ...current, [importedKey]: event.target.checked }))} className="mt-0.5" />
             <div className={`min-w-0 flex-1 ${acceptedMatch ? 'text-emerald-900' : checked ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
-              <div className="font-medium">{imported.fecha} · {amountLabel(imported.moneda, imported.monto)}</div>
-              {mode === 'debito' && validExchangeRate(exchangeRates[displayRow.sourceIndex]) && (
-                <div className="text-xs">{imported.moneda === 'USD'
-                  ? `Pagado: ${amountLabel('PEN', money(Number(imported.monto) * Number(exchangeRates[displayRow.sourceIndex])))}`
-                  : `Aplicado: ${amountLabel('USD', money(Number(imported.monto) / Number(exchangeRates[displayRow.sourceIndex])))}`}</div>
-              )}
+              <div className="flex flex-wrap items-center gap-2 font-medium">
+                <span>{imported.fecha} · {amountLabel(imported.moneda, imported.monto)}</span>
+                {mode === 'debito' && imported.moneda === 'USD' && (!matched || Object.prototype.hasOwnProperty.call(exchangeRates, displayRow.sourceIndex)) && <button type="button" aria-label={`Tipo de cambio línea ${displayRow.sourceIndex}`} onClick={(event) => {
+                  event.stopPropagation();
+                  setExchangeRates((current) => {
+                    const next = { ...current };
+                    if (Object.prototype.hasOwnProperty.call(next, displayRow.sourceIndex)) delete next[displayRow.sourceIndex];
+                    else next[displayRow.sourceIndex] = '';
+                    return next;
+                  });
+                }} className="rounded border border-indigo-200 px-1.5 py-0.5 text-indigo-700 hover:bg-indigo-50">{Object.prototype.hasOwnProperty.call(exchangeRates, displayRow.sourceIndex) ? 'Quitar TC' : 'Poner TC'}</button>}
+              </div>
+              {mode === 'debito' && imported.moneda === 'USD' && Object.prototype.hasOwnProperty.call(exchangeRates, displayRow.sourceIndex) && <div className="mt-1 flex flex-wrap items-center gap-2" onClick={(event) => event.stopPropagation()}>
+                <input aria-label={`Tipo de cambio para línea ${displayRow.sourceIndex}`} type="number" min="0.0001" step="0.0001" value={exchangeRates[displayRow.sourceIndex]} onChange={(event) => setExchangeRates((current) => ({ ...current, [displayRow.sourceIndex]: event.target.value }))} placeholder="S/ por $" className="w-24 rounded border px-1.5 py-1" />
+                {validExchangeRate(exchangeRates[displayRow.sourceIndex]) && <span>Equivale a {amountLabel('PEN', money(Number(imported.monto) * Number(exchangeRates[displayRow.sourceIndex])))}</span>}
+              </div>}
               <div className={acceptedMatch ? 'text-emerald-700' : 'text-gray-500'}>{imported.notas || ''}</div>
               {!checked && imported.concepto !== 'cashback' && <select aria-label={`Tipo de gasto ${index + 1}`} value={conceptOverrides[displayRow.sourceIndex] || imported.concepto} onClick={(event) => event.stopPropagation()} onChange={(event) => setConceptOverrides((current) => ({ ...current, [displayRow.sourceIndex]: event.target.value }))} className="mt-1 rounded border border-gray-300 bg-white px-1.5 py-1 text-[11px] text-gray-800">
                 {conceptOptions.map((concept) => <option key={concept.value} value={concept.value}>{concept.label}</option>)}
@@ -550,8 +562,8 @@ function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverr
         <td className={`border-l border-gray-100 p-2 ${acceptedMatch ? 'bg-emerald-100' : 'bg-white'}`}>
           {saved && <div className={acceptedMatch ? 'text-emerald-900' : 'text-indigo-800'}>
             <span className="font-medium">{String(saved.fecha).slice(0, 10)} · {amountLabel(saved.moneda, saved.monto)}</span>
-            {mode === 'debito' && saved.moneda === 'PEN' && validExchangeRate(saved.tasaUsdPen) && validExchangeRate(saved.montoUsdAplicado) && (
-              <span className="block text-xs">Aplicado: {amountLabel('USD', saved.montoUsdAplicado)} · TC {Number(saved.tasaUsdPen).toFixed(4)}</span>
+            {mode === 'debito' && saved.moneda === 'PEN' && validExchangeRate(saved.tasaUsdPen) && (
+              <span className="block text-xs">Equivale a {amountLabel('USD', money(Math.abs(Number(saved.monto)) / Number(saved.tasaUsdPen)))} · TC {Number(saved.tasaUsdPen).toFixed(4)}</span>
             )}
             <span className={acceptedMatch ? 'block text-emerald-700' : 'block text-gray-500'}>{saved.notas || ''}</span>
           </div>}
@@ -880,21 +892,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
                         <td className="py-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <span>{amountLabel(r.body.moneda, r.body.monto)}</span>
-                            {mode === 'debito' && <button type="button" aria-label={`Tipo de cambio línea ${r.lineNumber}`} onClick={() => setExchangeRates((current) => {
-                              const next = { ...current };
-                              if (Object.prototype.hasOwnProperty.call(next, r.lineNumber)) delete next[r.lineNumber];
-                              else next[r.lineNumber] = '';
-                              return next;
-                            })} className="rounded border border-indigo-200 px-1.5 py-0.5 text-indigo-700 hover:bg-indigo-50">{Object.prototype.hasOwnProperty.call(exchangeRates, r.lineNumber) ? 'Quitar TC' : 'Poner TC'}</button>}
                           </div>
-                          {mode === 'debito' && Object.prototype.hasOwnProperty.call(exchangeRates, r.lineNumber) && (
-                            <div className="mt-1 flex flex-wrap items-center gap-2">
-                              <input aria-label={`Tipo de cambio para línea ${r.lineNumber}`} type="number" min="0.0001" step="0.0001" value={exchangeRates[r.lineNumber]} onChange={(event) => setExchangeRates((current) => ({ ...current, [r.lineNumber]: event.target.value }))} placeholder="S/ por $" className="w-24 rounded border px-1.5 py-1" />
-                              {validExchangeRate(exchangeRates[r.lineNumber]) && <span>{r.body.moneda === 'USD'
-                                ? `Pagado ${amountLabel('PEN', money(Number(r.body.monto) * Number(exchangeRates[r.lineNumber])))}`
-                                : `Aplicado ${amountLabel('USD', money(Number(r.body.monto) / Number(exchangeRates[r.lineNumber])))}`}</span>}
-                            </div>
-                          )}
                         </td>
                         <td className="py-1">{r.body.fecha}</td>
                         <td className="py-1">{r.body.notas || ''}</td>
@@ -913,7 +911,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = [], exp
               <div className="mt-3 overflow-x-auto rounded-lg border border-indigo-200 bg-white">
                 <table className="min-w-[760px] w-full text-xs">
                   <thead className="bg-indigo-100 text-indigo-950"><tr><th className="w-1/2 p-2 text-left">Movimientos cargados ({comparison.imported.length})</th><th className="w-1/2 border-l border-indigo-200 p-2 text-left">Movimientos en el sistema ({comparison.candidates.length})</th></tr></thead>
-                  <tbody><ExpenseComparisonRows comparison={comparison} reviewed={reviewed} setReviewed={setReviewed} conceptOverrides={conceptOverrides} setConceptOverrides={setConceptOverrides} conceptOptions={conceptOptions} mode={mode} exchangeRates={exchangeRates} /></tbody>
+                  <tbody><ExpenseComparisonRows comparison={comparison} reviewed={reviewed} setReviewed={setReviewed} conceptOverrides={conceptOverrides} setConceptOverrides={setConceptOverrides} conceptOptions={conceptOptions} mode={mode} exchangeRates={exchangeRates} setExchangeRates={setExchangeRates} /></tbody>
                 </table>
               </div>
             </div>

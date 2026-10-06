@@ -20,7 +20,7 @@ test('Guardar masivo envía el pago en soles y conserva monto USD y tipo de camb
     fireEvent.change(screen.getByLabelText('Líneas de pagos'), { target: { value: 'pago_tarjeta | USD | 100 | 05/10/2026 | Banco' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Tipo de cambio línea 1' }));
     fireEvent.change(screen.getByLabelText('Tipo de cambio para línea 1'), { target: { value: '3.75' } });
-    expect(screen.getByText('Pagado S/ 375.00')).toBeInTheDocument();
+    expect(screen.getByText('Equivale a S/ 375.00')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Guardar masivo' }));
     await waitFor(() => expect(createExpenseWithDuplicateCheck).toHaveBeenCalledWith(expect.objectContaining({
       moneda: 'PEN', monto: 375, pagoObjetivo: 'USD', montoUsdAplicado: 100, tipoCambioDia: 3.75,
@@ -49,9 +49,26 @@ test('compara pagos de débito entre dólares y soles solo cuando hay tipo de ca
   expect(compareBulkExpenses(imported, saved, 'io', 'debito', 'bcp').matched).toBe(0);
   expect(compareBulkExpenses(imported, saved, 'io', 'debito', 'bcp', { 1: '3.75' }).pairs[0].target.id).toBe(9);
   expect(compareBulkExpenses(imported, [{ ...saved[0], monto: 380, tasaUsdPen: '3.8', montoUsdAplicado: '100' }], 'io', 'debito', 'bcp').matched).toBe(1);
+  expect(compareBulkExpenses(imported, [{ ...saved[0], tasaUsdPen: '3.75' }], 'io', 'debito', 'bcp').matched).toBe(1);
+  expect(compareBulkExpenses(imported, [{ ...saved[0], tasaUsdPen: '3.8' }], 'io', 'debito', 'bcp', { 1: '3.75' }).matched).toBe(0);
+  expect(compareBulkExpenses(imported, [{ ...saved[0], tasaUsdPen: '3.8', montoUsdAplicado: '100' }], 'io', 'debito', 'bcp').matched).toBe(0);
   const solesImported = [{ ...imported[0], body: { ...imported[0].body, moneda: 'PEN', monto: 375 } }];
   const dollarsSaved = [{ ...saved[0], moneda: 'USD', monto: 100 }];
   expect(compareBulkExpenses(solesImported, dollarsSaved, 'io', 'debito', 'bcp', { 1: '3.75' }).matched).toBe(1);
+});
+
+test('muestra el equivalente USD de un pago en soles del sistema y oculta TC si ya coincide', async () => {
+  const originalFetch = global.fetch;
+  const saved = { id: 9, fecha: '2026-10-05', moneda: 'PEN', monto: 375, tasaUsdPen: '3.75', metodoPago: 'debito', concepto: 'pago_tarjeta', tarjeta: 'bcp', tarjetaPago: 'io' };
+  global.fetch = jest.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/cards') ? [{ type: 'io', label: 'iO' }] : [saved] }));
+  try {
+    render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={jest.fn()} />);
+    fireEvent.change(screen.getByLabelText('Líneas de pagos'), { target: { value: 'pago_tarjeta | USD | 100 | 05/10/2026 | Banco' } });
+    expect(await screen.findByText(/Equivale a \$ 100\.00/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Tipo de cambio línea 1' })).not.toBeInTheDocument();
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 test('lee consumos, omite pagos y conserva devoluciones del estado BCP', () => {

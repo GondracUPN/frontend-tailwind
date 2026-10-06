@@ -32,6 +32,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
   const [tarjeta, setTarjeta] = useState(gasto?.tarjeta || '');
   const [tarjetaPago, setTarjetaPago] = useState(gasto?.tarjetaPago || '');
   const [moneda, setMoneda] = useState(gasto?.moneda || 'PEN');
+  const [tipoCambio, setTipoCambio] = useState(gasto?.tasaUsdPen ? String(Number(gasto.tasaUsdPen)) : '');
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(false);
   const [customConcepts, setCustomConcepts] = useState([]);
@@ -100,6 +101,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
     setTarjeta(gasto.tarjeta || '');
     setTarjetaPago(gasto.tarjetaPago || '');
     setMoneda(gasto.moneda || 'PEN');
+    setTipoCambio(gasto.tasaUsdPen ? String(Number(gasto.tasaUsdPen)) : '');
     setMonto(String(Math.abs(Number(gasto.monto || 0)) || ''));
     setIngresoEn500(Boolean(gasto.cantidad500));
     setCantidad500(gasto.cantidad500 ? String(gasto.cantidad500) : '');
@@ -142,6 +144,11 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
       return setErr('Indica si los depósitos se dieron a ti o a Renato.');
     }
     if (!fecha) return setErr('Selecciona fecha.');
+    const isDebitCardPayment = !isCredito && concepto === 'pago_tarjeta' && moneda === 'PEN';
+    const rate = tipoCambio.trim() ? Number(tipoCambio) : null;
+    if (isDebitCardPayment && (rate != null || gasto.tasaUsdPen != null) && (!Number.isFinite(rate) || rate <= 0)) {
+      return setErr('Ingresa un tipo de cambio válido para este pago.');
+    }
     const token = localStorage.getItem('token');
     if (!token) return setErr('No hay sesión.');
     setSaving(true);
@@ -158,6 +165,11 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
       } else {
         if (tarjeta) body.tarjeta = tarjeta; // banco
         if (concepto === 'pago_tarjeta') body.tarjetaPago = tarjetaPago || null;
+      }
+      if (isDebitCardPayment && rate != null) {
+        body.tipoCambioDia = rate;
+        body.pagoObjetivo = 'USD';
+        body.montoUsdAplicado = Number((n / rate).toFixed(2));
       }
       const res = await fetch(`${API_URL}/gastos/${gasto.id}`, {
         method: 'PATCH',
@@ -208,7 +220,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
               <span className="block text-gray-600 mb-1">Tarjeta</span>
               <select className="w-full border rounded px-3 py-2" value={tarjeta} onChange={(e)=>setTarjeta(e.target.value)} disabled={loadingCards || !cards.length}>
                 {cards.map(c => (
-                  <option key={c.id} value={c.tipo || c.type}>{c.label || c.name || c.tipo || c.type}</option>
+                  <option key={c.id || c.tipo || c.type} value={c.tipo || c.type}>{c.label || c.name || c.tipo || c.type}</option>
                 ))}
               </select>
             </label>
@@ -226,7 +238,7 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
               <span className="block text-gray-600 mb-1">Tarjeta a la que paga</span>
               <select className="w-full border rounded px-3 py-2" value={tarjetaPago} onChange={(e)=>setTarjetaPago(e.target.value)} disabled={loadingCards || !cards.length}>
                 {cards.map(c => (
-                  <option key={c.id} value={c.tipo || c.type}>{c.label || c.name || c.tipo || c.type}</option>
+                  <option key={c.id || c.tipo || c.type} value={c.tipo || c.type}>{c.label || c.name || c.tipo || c.type}</option>
                 ))}
               </select>
             </label>
@@ -244,6 +256,12 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
               <input type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" value={monto} onChange={(e)=>setMonto(e.target.value)} placeholder="0.00" required />
             </label>
           </div>
+
+          {!isCredito && concepto === 'pago_tarjeta' && moneda === 'PEN' && <label className="text-sm">
+            <span className="block text-gray-600 mb-1">Tipo de cambio (S/ por $)</span>
+            <input aria-label="Tipo de cambio (S/ por $)" type="number" min="0.0001" step="0.0001" className="w-full border rounded px-3 py-2" value={tipoCambio} onChange={(event) => setTipoCambio(event.target.value)} placeholder="Opcional" />
+            {Number(tipoCambio) > 0 && Number(monto) > 0 && <span className="block mt-1 text-xs text-gray-600">Equivale a $ {(Number(monto) / Number(tipoCambio)).toFixed(2)}</span>}
+          </label>}
 
           {!isCredito && ['ingreso', 'ingresos'].includes(concepto) && moneda === 'PEN' && (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
