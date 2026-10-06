@@ -271,40 +271,46 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
   }).join('\n');
 };
 
+export const pdfTextItemsToLines = (textItems) => {
+  const groups = new Map();
+  textItems.forEach((item) => {
+    const y = Math.round(Number(item.transform?.[5] || 0) / 3) * 3;
+    if (!groups.has(y)) groups.set(y, []);
+    groups.get(y).push({ x: Number(item.transform?.[4] || 0), text: String(item.str || '') });
+  });
+  const pageHasCurrencyColumns = textItems.some((item) => normalizeText(item.str) === 'soles')
+    && textItems.some((item) => normalizeText(item.str) === 'dolares');
+  const currencyHeaders = pageHasCurrencyColumns
+    ? textItems.filter((item) => ['soles', 'dolares'].includes(normalizeText(item.str)))
+      .map((item) => ({ currency: normalizeText(item.str) === 'dolares' ? 'USD' : 'PEN', x: Number(item.transform?.[4] || 0) }))
+    : [];
+  const lines = [];
+  [...groups.entries()].sort((a, b) => b[0] - a[0]).forEach(([, items]) => {
+    const ordered = items.sort((a, b) => a.x - b.x);
+    let line = ordered.map((item) => item.text).join(' ').replace(/\s+/g, ' ').trim();
+    const looksLikeTransaction = /^\d{1,2}-?(?:ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|SET|OCT|NOV|DIC)\b/i.test(line)
+      || /^\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|20\d{2})\b/.test(line);
+    if (currencyHeaders.length && looksLikeTransaction) {
+      const amountItem = [...ordered].reverse().find((item) => /^[\d,.]+-?$/.test(item.text.trim()));
+      if (amountItem) {
+        const nearest = [...currencyHeaders].sort((a, b) => Math.abs(a.x - amountItem.x) - Math.abs(b.x - amountItem.x))[0];
+        if (nearest) line += ` [${nearest.currency}]`;
+      }
+    }
+    lines.push(line);
+  });
+  return lines.filter(Boolean);
+};
+
 const extractPdfTextLines = async (file, password = '') => {
   const document = await pdfjsLib.getDocument({ data: await file.arrayBuffer(), password: password || undefined }).promise;
   const lines = [];
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
     const page = await document.getPage(pageNumber);
     const content = await page.getTextContent();
-    const groups = new Map();
-    content.items.forEach((item) => {
-      const y = Math.round(Number(item.transform?.[5] || 0) / 3) * 3;
-      if (!groups.has(y)) groups.set(y, []);
-      groups.get(y).push({ x: Number(item.transform?.[4] || 0), text: String(item.str || '') });
-    });
-    const pageHasCurrencyColumns = content.items.some((item) => normalizeText(item.str) === 'soles')
-      && content.items.some((item) => normalizeText(item.str) === 'dolares');
-    const currencyHeaders = pageHasCurrencyColumns
-      ? content.items.filter((item) => ['soles', 'dolares'].includes(normalizeText(item.str)))
-        .map((item) => ({ currency: normalizeText(item.str) === 'dolares' ? 'USD' : 'PEN', x: Number(item.transform?.[4] || 0) }))
-      : [];
-    [...groups.entries()].sort((a, b) => b[0] - a[0]).forEach(([, items]) => {
-      const ordered = items.sort((a, b) => a.x - b.x);
-      let line = ordered.map((item) => item.text).join(' ').replace(/\s+/g, ' ').trim();
-      const looksLikeTransaction = /^\d{1,2}-?(?:ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|SET|OCT|NOV|DIC)\b/i.test(line)
-        || /^\d{1,2}[/-]\d{1,2}[/-](?:\d{2}|20\d{2})\b/.test(line);
-      if (currencyHeaders.length && looksLikeTransaction) {
-        const amountItem = [...ordered].reverse().find((item) => /^[\d,.]+$/.test(item.text.trim()));
-        if (amountItem) {
-          const nearest = [...currencyHeaders].sort((a, b) => Math.abs(a.x - amountItem.x) - Math.abs(b.x - amountItem.x))[0];
-          if (nearest) line += ` [${nearest.currency}]`;
-        }
-      }
-      lines.push(line);
-    });
+    lines.push(...pdfTextItemsToLines(content.items));
   }
-  return lines.filter(Boolean);
+  return lines;
 };
 
 const toIsoDate = (raw) => {
