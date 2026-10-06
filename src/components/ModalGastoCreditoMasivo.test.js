@@ -48,23 +48,39 @@ test('Mercado Pago positivo es un consumo y PAGO BANCA MOVIL sigue siendo pago',
   expect(spreadsheetToBulkLines(Buffer.from(csv, 'utf8'), 'movimientos.csv')).toContain('gusto | PEN | 45 | 23/08/2026 | MERCADO PAGO');
 });
 
-test('la vista de gastos compara débito y crédito sin incluir pagos ni ingresos', () => {
+test('gastos de débito incluye ITF, omite pagos y compara solo con el banco elegido', () => {
+  const pdf = pdfLinesToBulkText([
+    '2026',
+    '25Ago 23Ago MERCADO PAGO 604 CONSUMO 45.00 [PEN]',
+    '25Ago 23Ago ITF POR PAGO TARJETA 0.20 [PEN]',
+    '25Ago 23Ago PAGO BANCA MOVIL PAGO 700.00 [USD]',
+    '25Ago 23Ago DEVOLUCION COMPRA DEVOLUCION 12.00- [PEN]',
+  ], 'debito_gastos');
+  expect(pdf).toContain('gusto | PEN | 45 | 23/08/2026');
+  expect(pdf).toContain('itf | PEN | 0.2 | 23/08/2026');
+  expect(pdf).not.toContain('700');
+  expect(pdf).not.toContain('DEVOLUCION');
+  const parsed = parseBulkRows(pdf, 'debito_gastos');
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows.map((row) => row.body.metodoPago)).toEqual(['debito', 'debito']);
+  expect(parseBulkRows('pago_tarjeta | PEN | 700 | 23/08/2026', 'debito_gastos').rows).toHaveLength(0);
   const imported = [
     { lineNumber: 1, body: { fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'gusto' } },
     { lineNumber: 2, body: { fecha: '2026-08-23', moneda: 'USD', monto: 12.5, concepto: 'gusto' } },
   ];
   const saved = [
-    { id: 1, fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'gusto', metodoPago: 'debito', tarjeta: 'interbank' },
+    { id: 1, fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'gusto', metodoPago: 'debito', tarjeta: 'bcp' },
     { id: 2, fecha: '2026-08-23', moneda: 'USD', monto: 12.5, concepto: 'gusto', metodoPago: 'credito', tarjeta: 'bcp_amex' },
-    { id: 3, fecha: '2026-08-23', moneda: 'PEN', monto: 700, concepto: 'pago_tarjeta', metodoPago: 'debito' },
-    { id: 4, fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'ingresos', metodoPago: 'debito' },
+    { id: 3, fecha: '2026-08-23', moneda: 'PEN', monto: 700, concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: 'bcp' },
+    { id: 4, fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'ingresos', metodoPago: 'debito', tarjeta: 'bcp' },
+    { id: 5, fecha: '2026-08-23', moneda: 'USD', monto: 12.5, concepto: 'itf', metodoPago: 'debito', tarjeta: 'interbank' },
   ];
-  const comparison = compareBulkExpenses(imported, saved, '', 'all_gastos');
-  expect(comparison.matched).toBe(2);
-  expect(comparison.candidates.map((row) => row.id).sort()).toEqual([1, 2]);
+  const comparison = compareBulkExpenses(imported, saved, 'bcp', 'debito_gastos');
+  expect(comparison.matched).toBe(1);
+  expect(comparison.candidates.map((row) => row.id)).toEqual([1]);
 });
 
-test('el botón junto a la contraseña abre el PDF y muestra la comparación de gastos', async () => {
+test('el botón junto a la contraseña permite comparar y guardar gastos de débito', async () => {
   const originalFetch = global.fetch;
   const item = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y] });
   pdfjsLib.getDocument.mockReturnValue({ promise: Promise.resolve({
@@ -72,26 +88,45 @@ test('el botón junto a la contraseña abre el PDF y muestra la comparación de 
     getPage: async () => ({ getTextContent: async () => ({ items: [
       item('2026', 45, 620), item('Soles', 471, 603), item('Dólares', 524, 603),
       item('25Ago', 47, 561), item('23Ago', 92, 561), item('MERCADO PAGO', 136, 561), item('604', 321, 561), item('CONSUMO', 410, 561), item('45.00', 490, 561),
+      item('25Ago', 47, 545), item('23Ago', 92, 545), item('ITF POR PAGO TARJETA', 136, 545), item('0.20', 490, 545),
       item('25Ago', 47, 534), item('23Ago', 92, 534), item('PAGO BANCA MOVIL', 136, 534), item('PAGO', 410, 534), item('700.00-', 545, 534),
     ] }) }),
   }) });
   const saved = [
-    { id: 1, fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'gusto', metodoPago: 'debito', tarjeta: 'interbank' },
+    { id: 1, fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'gusto', metodoPago: 'debito', tarjeta: 'bcp' },
+    { id: 3, fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'gusto', metodoPago: 'credito', tarjeta: 'bcp_amex' },
     { id: 2, fecha: '2026-08-23', moneda: 'USD', monto: 700, concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: 'bcp' },
   ];
-  global.fetch = jest.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/cards') ? [{ type: 'io', label: 'iO' }] : saved }));
+  global.fetch = jest.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/cards') ? [] : saved }));
+  localStorage.setItem('token', 'test-token');
+  createExpenseWithDuplicateCheck.mockResolvedValue({ id: 4 });
   try {
-    render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={jest.fn()} />);
+    const onSaved = jest.fn();
+    const { container } = render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={onSaved} />);
     fireEvent.click(screen.getByRole('button', { name: 'Ver y comparar gastos' }));
+    expect(screen.getByText('Agregar gastos masivos (Débito)')).toBeInTheDocument();
+    expect(screen.getByText('Tarjeta gasto')).toBeInTheDocument();
+    expect(screen.queryByText('Tarjeta pagada en todas las líneas')).not.toBeInTheDocument();
     const pdfFile = new File(['pdf'], 'estado.pdf', { type: 'application/pdf' });
     Object.defineProperty(pdfFile, 'arrayBuffer', { value: async () => new ArrayBuffer(1) });
-    fireEvent.change(screen.getByLabelText('PDF para comparar gastos'), { target: { files: [pdfFile] } });
-    expect(await screen.findByText('Coinciden: 1/1 · Sin encontrar: 0 · Solo en el sistema: 0')).toBeInTheDocument();
-    expect(screen.getByText('MERCADO PAGO 604')).toBeInTheDocument();
-    expect(screen.queryByText(/700\.00/)).not.toBeInTheDocument();
+    fireEvent.change(container.querySelector('input[type="file"]'), { target: { files: [pdfFile] } });
+    expect(await screen.findByText(/Coinciden por fecha y monto: 1\/2/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Tarjeta gasto'), { target: { value: 'bbva' } });
+    expect(screen.getByText(/Coinciden por fecha y monto: 0\/2/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Tarjeta gasto'), { target: { value: 'bcp' } });
+    expect(screen.getByText(/Coinciden por fecha y monto: 1\/2/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Líneas de gastos').value).toContain('itf | PEN | 0.2');
+    expect(screen.getByLabelText('Líneas de gastos').value).not.toContain('pago_tarjeta');
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar masivo' }));
+    await waitFor(() => expect(createExpenseWithDuplicateCheck).toHaveBeenCalledTimes(1));
+    expect(createExpenseWithDuplicateCheck.mock.calls[0][0]).toMatchObject({ concepto: 'itf', metodoPago: 'debito', moneda: 'PEN', monto: 0.2, tarjeta: 'bcp' });
+    expect(createExpenseWithDuplicateCheck.mock.calls[0][0]).not.toHaveProperty('tarjetaPago');
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
   } finally {
     global.fetch = originalFetch;
     pdfjsLib.getDocument.mockReset();
+    createExpenseWithDuplicateCheck.mockReset();
+    localStorage.removeItem('token');
   }
 });
 

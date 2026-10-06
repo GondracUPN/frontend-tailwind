@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api';
 import CloseX from './CloseX';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
@@ -17,6 +17,7 @@ const CREDIT_CONCEPTS = [
   'reinicio',
   'cashback',
 ];
+const DEBIT_EXPENSE_CONCEPTS = ['comida', 'gusto', 'itf', 'retiro_agente', 'gastos_recurrentes', 'transporte', 'pago_envios', 'bolsa'];
 const DEBIT_BANKS = [
   { value: 'bcp', label: 'BCP' },
   { value: 'interbank', label: 'Interbank' },
@@ -41,6 +42,11 @@ const CONCEPT_ALIASES = {
   'cashback reembolso': 'cashback',
   reembolso: 'cashback',
   devolucion: 'cashback',
+  gustos: 'gusto',
+  itf: 'itf',
+  bolsa: 'bolsa',
+  retiro_agente: 'retiro_agente',
+  'retiro agente': 'retiro_agente',
 };
 
 const normalizeText = (value) =>
@@ -68,10 +74,10 @@ const classifyExpenseConcept = (description) => {
   return 'gusto';
 };
 
-const toConceptApi = (raw) => {
+const toConceptApi = (raw, mode = 'credito') => {
   const key = normalizeText(raw);
   const mapped = CONCEPT_ALIASES[key] || key.replace(/\s+/g, '_');
-  return CREDIT_CONCEPTS.includes(mapped) ? mapped : null;
+  return (mode === 'debito_gastos' ? DEBIT_EXPENSE_CONCEPTS : CREDIT_CONCEPTS).includes(mapped) ? mapped : null;
 };
 
 const toMoneda = (raw) => {
@@ -109,10 +115,16 @@ const toSignedAmount = (raw) => {
 };
 
 const isMercadoPagoMerchant = (description) => /\bmercado\s*pago\b/.test(normalizeText(description));
-const isPaymentMovement = (description) => /\bpagos?\b|\bpago[_ -]?tarjeta\b|\bpag\.?\s*tarj\w*\b|\bpagtc\b/
+const isItfMovement = (description) => /\bitf\b|impuesto\s+a\s+las\s+transacciones/.test(normalizeText(description));
+const isPaymentMovement = (description) => !isItfMovement(description) && /\bpagos?\b|\bpago[_ -]?tarjeta\b|\bpag\.?\s*tarj\w*\b|\bpagtc\b/
   .test(normalizeText(description).replace(/\bmercado\s*pago\b/g, 'mercado_pago'));
 const isPaymentOrBalanceMovement = (description) => isPaymentMovement(description) || /\bexceso\b|sdo\.?\s*acre|saldo\s+acre/i.test(normalizeText(description));
 const isRefundMovement = (description) => /reembolso|refund|devolucion|\bdev\.?\s*(?:compra|consumo|tarjeta)\b/.test(normalizeText(description));
+const debitExpenseConcept = (description) => {
+  if (isItfMovement(description)) return 'itf';
+  const concept = classifyExpenseConcept(description);
+  return DEBIT_EXPENSE_CONCEPTS.includes(concept) ? concept : 'gusto';
+};
 
 const matrixToBulkLines = (matrix, mode = 'credito') => {
   const headerIndex = (matrix || []).findIndex((row) => {
@@ -152,7 +164,7 @@ const matrixToBulkLines = (matrix, mode = 'credito') => {
     return [{ row, rawAmount, note, signedAmount: toSignedAmount(rawAmount), explicitCurrency: null }];
   }).filter((entry) => entry.signedAmount && (mode === 'debito'
     ? isPaymentMovement(entry.note)
-    : !isPaymentOrBalanceMovement(entry.note)));
+    : !isPaymentOrBalanceMovement(entry.note) && (mode !== 'debito_gastos' || !isRefundMovement(entry.note))));
 
   // Interbank exporta consumos negativos; otros extractos muestran consumos
   // positivos y pagos/excesos negativos. Tras retirar pagos, el signo que tenga
@@ -172,11 +184,13 @@ const matrixToBulkLines = (matrix, mode = 'credito') => {
     }
     const inferredConcept = classifyExpenseConcept(note);
     const isRefund = inferredConcept === 'cashback';
-    if (!isRefund && Math.sign(signedAmount) !== expenseSign && !isMercadoPagoMerchant(note)) return [];
+    if (!isRefund && Math.sign(signedAmount) !== expenseSign && !isMercadoPagoMerchant(note) && !(mode === 'debito_gastos' && isItfMovement(note))) return [];
     const currency = explicitCurrency || (currencyIndex >= 0
       ? (toMoneda(row[currencyIndex]) || (/US\$|USD|\$/i.test(rawAmount) ? 'USD' : 'PEN'))
       : (/US\$|USD|\$/i.test(rawAmount) ? 'USD' : 'PEN'));
-    const concept = isRefund ? 'cashback' : (conceptIndex >= 0 && toConceptApi(row[conceptIndex]) ? row[conceptIndex] : inferredConcept);
+    const concept = mode === 'debito_gastos'
+      ? (conceptIndex >= 0 && toConceptApi(row[conceptIndex], mode)) || debitExpenseConcept(note)
+      : isRefund ? 'cashback' : (conceptIndex >= 0 && toConceptApi(row[conceptIndex]) ? row[conceptIndex] : inferredConcept);
     return [`${concept} | ${currency} | ${Math.abs(signedAmount)} | ${excelDateToText(row[dateIndex])} | ${note}`];
   });
 };
@@ -213,9 +227,10 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
     if (bcp) {
       const middle = bcp[5].trim();
       const operation = [...middle.matchAll(/\b(CONSUMO|DEVOLUCI[OÓ]N|PAGO)\b/gi)].at(-1)?.[1] || '';
-      const isPayment = isPaymentMovement(middle) || /PAGO/i.test(operation);
+      const isPayment = !isItfMovement(middle) && (isPaymentMovement(middle) || /PAGO/i.test(operation));
       if (mode === 'debito' ? !isPayment : isPayment) return [];
       const isRefund = /DEVOLUCI/i.test(operation) || isRefundMovement(middle);
+      if (mode === 'debito_gastos' && isRefund) return [];
       const description = middle.replace(/\s+\b(CONSUMO|DEVOLUCI[OÓ]N)\b.*$/i, '').trim();
       // El marcador proviene de la columna visual real del PDF y tiene
       // prioridad. El código 840 queda solo como respaldo para PDFs antiguos.
@@ -223,7 +238,8 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
       const date = statementDate(bcp[3], bcp[4], detectedYear);
       const amount = toAmount(bcp[6]);
       if (!date || !amount) return [];
-      return [`${mode === 'debito' ? 'pago_tarjeta' : (isRefund ? 'cashback' : classifyExpenseConcept(description))} | ${currency} | ${amount} | ${date} | ${description.replace(/\|/g, '/')}${isRefund ? ' DEVOLUCION' : ''}`];
+      const concept = mode === 'debito' ? 'pago_tarjeta' : mode === 'debito_gastos' ? debitExpenseConcept(description) : isRefund ? 'cashback' : classifyExpenseConcept(description);
+      return [`${concept} | ${currency} | ${amount} | ${date} | ${description.replace(/\|/g, '/')}${isRefund ? ' DEVOLUCION' : ''}`];
     }
 
     // iO: la moneda se obtiene de la posición de la cifra en la tabla y el
@@ -234,12 +250,14 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
       const isPayment = isPaymentMovement(io[3]);
       const isRefund = isRefundMovement(io[3]);
       if (mode === 'debito' ? !isPayment : (isPayment || (pdfSection === 'credits' && !isRefund))) return [];
-      if (mode === 'credito' && !['purchases', 'installments'].includes(pdfSection) && !isRefund) return [];
+      if (mode === 'debito_gastos' && isRefund) return [];
+      if (mode !== 'debito' && !['purchases', 'installments'].includes(pdfSection) && !isRefund) return [];
       const date = statementDate(io[1], io[2], detectedYear);
       const amount = toAmount(io[4]);
       if (!date || !amount) return [];
       const description = io[3].trim();
-      return [`${mode === 'debito' ? 'pago_tarjeta' : (isRefund ? 'cashback' : classifyExpenseConcept(description))} | ${io[5].toUpperCase()} | ${amount} | ${date} | ${description.replace(/\|/g, '/')}`];
+      const concept = mode === 'debito' ? 'pago_tarjeta' : mode === 'debito_gastos' ? debitExpenseConcept(description) : isRefund ? 'cashback' : classifyExpenseConcept(description);
+      return [`${concept} | ${io[5].toUpperCase()} | ${amount} | ${date} | ${description.replace(/\|/g, '/')}`];
     }
 
     // Banco Falabella/CMR: dos fechas completas, detalle y monto. La palabra
@@ -248,10 +266,12 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
     if (falabella) {
       const description = falabella[3].trim();
       if (mode === 'debito' ? !isPaymentMovement(description) : isPaymentOrBalanceMovement(description)) return [];
+      if (mode === 'debito_gastos' && isRefundMovement(description)) return [];
       const amount = toSignedAmount(falabella[4]);
       if (!amount) return [];
       const currency = /\[(?:USD|DOLARES?)\]|US\$|\bUSD\b/i.test(line) ? 'USD' : 'PEN';
-      return [`${mode === 'debito' ? 'pago_tarjeta' : classifyExpenseConcept(description)} | ${currency} | ${Math.abs(amount)} | ${falabella[1]} | ${description.replace(/\|/g, '/')}`];
+      const concept = mode === 'debito' ? 'pago_tarjeta' : mode === 'debito_gastos' ? debitExpenseConcept(description) : classifyExpenseConcept(description);
+      return [`${concept} | ${currency} | ${Math.abs(amount)} | ${falabella[1]} | ${description.replace(/\|/g, '/')}`];
     }
     const dateMatch = line.match(/\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b/);
     if (!dateMatch) return [];
@@ -263,14 +283,17 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
     const isRefund = classifyExpenseConcept(description) === 'cashback';
     if (!signedAmount) return [];
     if (mode === 'debito' ? !isPaymentMovement(description) : isPaymentOrBalanceMovement(description)) return [];
+    if (mode === 'debito_gastos' && isRefund) return [];
     // Si conocemos la columna visual, el signo deja de ser una señal de
     // moneda o de tipo de movimiento. Algunos bancos muestran consumos en
     // positivo y otros en negativo.
-    if (mode === 'credito' && !visualCurrency && !(signedAmount < 0) && !isRefund
-      && !/\b(?:consumo|compra)\b/.test(normalizeText(description)) && !isMercadoPagoMerchant(description)) return [];
+    if (mode !== 'debito' && !visualCurrency && !(signedAmount < 0) && !isRefund
+      && !/\b(?:consumo|compra)\b/.test(normalizeText(description)) && !isMercadoPagoMerchant(description)
+      && !(mode === 'debito_gastos' && isItfMovement(description))) return [];
     const date = `${String(dateMatch[1]).padStart(2, '0')}/${String(dateMatch[2]).padStart(2, '0')}/${dateMatch[3] || detectedYear}`;
     const currency = visualCurrency || (/US\$|USD|\$/i.test(amountToken || '') && !/S\//i.test(amountToken || '') ? 'USD' : 'PEN');
-    return [`${mode === 'debito' ? 'pago_tarjeta' : classifyExpenseConcept(description)} | ${currency} | ${Math.abs(signedAmount)} | ${date} | ${description.replace(/\|/g, '/')}`];
+    const concept = mode === 'debito' ? 'pago_tarjeta' : mode === 'debito_gastos' ? debitExpenseConcept(description) : classifyExpenseConcept(description);
+    return [`${concept} | ${currency} | ${Math.abs(signedAmount)} | ${date} | ${description.replace(/\|/g, '/')}`];
   }).join('\n');
 };
 
@@ -363,7 +386,7 @@ export const parseBulkRows = (text, mode = 'credito') => {
 
     const inputConcept = mode === 'debito'
       ? (isPaymentMovement(parts[0]) ? 'pago_tarjeta' : null)
-      : toConceptApi(parts[0]);
+      : toConceptApi(parts[0], mode);
     if (!inputConcept) {
       errors.push(`Linea ${idx + 1}: concepto invalido "${parts[0]}".`);
       return;
@@ -388,8 +411,12 @@ export const parseBulkRows = (text, mode = 'credito') => {
     }
 
     const notas = parts[4] ? parts[4].trim() : null;
+    if (mode === 'debito_gastos' && (isPaymentOrBalanceMovement(notas) || isRefundMovement(notas)) && inputConcept !== 'itf') {
+      errors.push(`Linea ${idx + 1}: los pagos y devoluciones no se agregan como gastos de débito.`);
+      return;
+    }
     const concept = mode === 'debito' ? 'pago_tarjeta'
-      : isRefundMovement(notas) ? 'cashback'
+      : mode !== 'debito_gastos' && isRefundMovement(notas) ? 'cashback'
       : inputConcept !== 'cashback' && isTransportExpenseDescription(notas) ? 'transporte'
       : inputConcept;
     if (concept === 'gusto' && !notas) {
@@ -401,7 +428,7 @@ export const parseBulkRows = (text, mode = 'credito') => {
       lineNumber: idx + 1,
       body: {
         concepto: concept,
-        metodoPago: mode,
+        metodoPago: mode === 'debito_gastos' ? 'debito' : mode,
         moneda,
         monto,
         fecha,
@@ -478,10 +505,10 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
   const candidateFrom = new Date(dayValue(from) - oneDay).toISOString().slice(0, 10);
   const candidateTo = new Date(dayValue(to) + oneDay).toISOString().slice(0, 10);
   const normalizedCard = normalizeText(card).replace(/[^a-z0-9]/g, '');
-  const allExpenses = mode === 'all_gastos';
-  const candidates = (savedRows || []).filter((row) => (allExpenses
-    ? ['credito', 'debito'].includes(normalizeText(row.metodoPago))
+  const candidates = (savedRows || []).filter((row) => (mode === 'debito_gastos'
+    ? normalizeText(row.metodoPago) === 'debito'
       && !['pago_tarjeta', 'ingreso', 'ingresos', 'cashback'].includes(normalizeText(row.concepto))
+      && normalizeText(row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard
     : normalizeText(row.metodoPago) === mode
       && (mode !== 'debito' || normalizeText(row.concepto) === 'pago_tarjeta')
       && normalizeText(mode === 'debito' ? row.tarjetaPago : row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard)
@@ -529,6 +556,7 @@ const CONCEPT_LABELS = {
   comida: 'Comida', gusto: 'Gusto', inversion: 'Inversión', pago_envios: 'Pago de envíos',
   deuda_cuotas: 'Deuda en cuotas', gastos_recurrentes: 'Gastos recurrentes', desgravamen: 'Desgravamen',
   transporte: 'Transporte', reinicio: 'Reinicio', cashback: 'Cashback / reembolso',
+  itf: 'ITF', retiro_agente: 'Retiro agente', bolsa: 'Bolsa',
 };
 
 function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverrides, setConceptOverrides, conceptOptions, mode, exchangeRates, setExchangeRates }) {
@@ -604,11 +632,9 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
   const [reviewed, setReviewed] = useState({});
   const [conceptOverrides, setConceptOverrides] = useState({});
   const [exchangeRates, setExchangeRates] = useState({});
-  const [expensePdfLines, setExpensePdfLines] = useState(null);
-  const [expensePdfFileName, setExpensePdfFileName] = useState('');
-  const [showExpenseComparison, setShowExpenseComparison] = useState(false);
-  const [loadingExpensePdf, setLoadingExpensePdf] = useState(false);
-  const expensePdfInputRef = useRef(null);
+  const [debitExpenseMode, setDebitExpenseMode] = useState(false);
+  const activeMode = mode === 'debito' && debitExpenseMode ? 'debito_gastos' : mode;
+  const selectedCard = activeMode === 'debito_gastos' ? banco : tarjeta;
   const currentUser = useMemo(() => {
     try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
   }, []);
@@ -619,15 +645,15 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
   const cardLabel = (c) => c?.label || c?.name || c?.tipo || c?.type || '';
   const cardValue = (c) => c?.type || c?.tipo || c?.label || c?.name || '';
   const conceptOptions = useMemo(() => {
-    if (mode === 'debito') return [{ value: 'pago_tarjeta', label: 'Pago a tarjeta' }];
-    const options = CREDIT_CONCEPTS.map((value) => ({ value, label: CONCEPT_LABELS[value] || value }));
-    (Array.isArray(expenseConcepts) ? expenseConcepts : []).filter((item) => item?.appliesCredit !== false).forEach((item) => {
+    if (activeMode === 'debito') return [{ value: 'pago_tarjeta', label: 'Pago a tarjeta' }];
+    const options = (activeMode === 'debito_gastos' ? DEBIT_EXPENSE_CONCEPTS : CREDIT_CONCEPTS).map((value) => ({ value, label: CONCEPT_LABELS[value] || value }));
+    (Array.isArray(expenseConcepts) ? expenseConcepts : []).filter((item) => activeMode === 'debito_gastos' ? item?.appliesDebit !== false : item?.appliesCredit !== false).forEach((item) => {
       const value = String(item?.value || '').trim();
       if (!value || options.some((option) => option.value === value)) return;
       options.push({ value, label: String(item?.label || value) });
     });
     return options;
-  }, [expenseConcepts, mode]);
+  }, [expenseConcepts, activeMode]);
 
   useEffect(() => {
     let alive = true;
@@ -680,14 +706,8 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
     return () => { alive = false; };
   }, [userId, existingRows]);
 
-  const preview = useMemo(() => parseBulkRows(bulkText, mode), [bulkText, mode]);
-  const comparison = useMemo(() => compareBulkExpenses(preview.rows, systemRows, tarjeta, mode, exchangeRates), [preview.rows, systemRows, tarjeta, mode, exchangeRates]);
-  const expenseRows = useMemo(() => expensePdfLines
-    ? parseBulkRows(pdfLinesToBulkText(expensePdfLines, 'credito'), 'credito').rows.filter((row) => row.body.concepto !== 'cashback')
-    : [], [expensePdfLines]);
-  const expenseComparison = useMemo(() => showExpenseComparison
-    ? compareBulkExpenses(expenseRows, systemRows, '', 'all_gastos')
-    : null, [showExpenseComparison, expenseRows, systemRows]);
+  const preview = useMemo(() => parseBulkRows(bulkText, activeMode), [bulkText, activeMode]);
+  const comparison = useMemo(() => compareBulkExpenses(preview.rows, systemRows, selectedCard, activeMode, exchangeRates), [preview.rows, systemRows, selectedCard, activeMode, exchangeRates]);
 
   const loadFile = async (file) => {
     if (!file) return;
@@ -695,12 +715,8 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
     try {
       if (file.name.toLowerCase().endsWith('.pdf')) {
         const pdfLines = await extractPdfTextLines(file, pdfPassword);
-        const value = pdfLinesToBulkText(pdfLines, mode);
-        if (!value.trim()) throw new Error(mode === 'debito' ? 'No se encontraron pagos a tarjeta en el PDF.' : 'No se encontraron consumos ni devoluciones en el PDF.');
-        if (mode === 'debito') {
-          setExpensePdfLines(pdfLines);
-          setExpensePdfFileName(file.name);
-        }
+        const value = pdfLinesToBulkText(pdfLines, activeMode);
+        if (!value.trim()) throw new Error(activeMode === 'debito' ? 'No se encontraron pagos a tarjeta en el PDF.' : 'No se encontraron gastos en el PDF.');
         setBulkText(value);
         setFileName(file.name);
         setReviewed({});
@@ -708,12 +724,10 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
         setExchangeRates({});
         return;
       }
-      const lines = spreadsheetToBulkLines(await file.arrayBuffer(), file.name, mode);
+      const lines = spreadsheetToBulkLines(await file.arrayBuffer(), file.name, activeMode);
       if (!lines) throw new Error('Faltan las columnas Fecha y Monto/Importe.');
-      if (!lines.length) throw new Error(mode === 'debito' ? 'No se encontraron pagos a tarjeta en el archivo.' : 'No se encontraron consumos ni devoluciones en el archivo.');
+      if (!lines.length) throw new Error(activeMode === 'debito' ? 'No se encontraron pagos a tarjeta en el archivo.' : 'No se encontraron gastos en el archivo.');
       setBulkText(lines.join('\n'));
-      setExpensePdfLines(null);
-      setShowExpenseComparison(false);
       setFileName(file.name);
       setReviewed({});
       setConceptOverrides({});
@@ -726,22 +740,14 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
     }
   };
 
-  const compareExpensePdfFile = async (file) => {
-    if (!file) return;
+  const toggleDebitExpenseMode = () => {
+    setDebitExpenseMode((value) => !value);
+    setBulkText('');
+    setFileName('');
+    setReviewed({});
+    setConceptOverrides({});
+    setExchangeRates({});
     setError('');
-    setLoadingExpensePdf(true);
-    try {
-      const pdfLines = await extractPdfTextLines(file, pdfPassword);
-      setExpensePdfLines(pdfLines);
-      setExpensePdfFileName(file.name);
-      setShowExpenseComparison(true);
-    } catch (loadError) {
-      setError(/password|contrase/i.test(loadError?.message || '')
-        ? 'No se pudo desbloquear el PDF. Revisa la contraseña e inténtalo otra vez.'
-        : (loadError?.message || 'No se pudo leer el PDF para comparar gastos.'));
-    } finally {
-      setLoadingExpensePdf(false);
-    }
   };
 
   const loadWorkbook = (event) => {
@@ -762,21 +768,21 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
     setError('');
     setSuccessMsg('');
 
-    if (!cards.length) return setError('No tienes tarjetas registradas.');
-    if (!tarjeta) return setError('Selecciona una tarjeta.');
-    if (mode === 'debito' && loadingSystemRows) return setError('Espera a que termine de cargar la comparación de pagos.');
-    if (mode === 'debito' && systemRowsError) return setError('No se pudieron cargar los pagos existentes. Cierra y vuelve a abrir para comparar antes de guardar.');
+    if (activeMode !== 'debito_gastos' && !cards.length) return setError('No tienes tarjetas registradas.');
+    if (!selectedCard) return setError('Selecciona una tarjeta o banco.');
+    if (mode === 'debito' && loadingSystemRows) return setError('Espera a que termine de cargar la comparación.');
+    if (mode === 'debito' && systemRowsError) return setError('No se pudieron cargar los movimientos existentes. Cierra y vuelve a abrir para comparar antes de guardar.');
 
     const token = localStorage.getItem('token');
     if (!token) return setError('No hay sesion.');
 
-    const parsed = parseBulkRows(bulkText, mode);
+    const parsed = parseBulkRows(bulkText, activeMode);
     if (!parsed.rows.length) return setError('No hay lineas validas para guardar.');
     if (parsed.errors.length) {
       setError(parsed.errors.slice(0, 8).join('\n'));
       return;
     }
-    const invalidRate = mode === 'debito' && parsed.rows.find((item) =>
+    const invalidRate = activeMode === 'debito' && parsed.rows.find((item) =>
       Object.prototype.hasOwnProperty.call(exchangeRates, item.lineNumber)
       && !validExchangeRate(exchangeRates[item.lineNumber]));
     if (invalidRate) return setError(`Linea ${invalidRate.lineNumber}: ingresa un tipo de cambio válido.`);
@@ -798,9 +804,11 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
       const worker = async () => {
         while (nextIndex < rowsToSave.length) {
           const item = rowsToSave[nextIndex++];
-          const body = mode === 'debito'
+          const body = activeMode === 'debito'
             ? { ...debitPaymentBody(item.body, exchangeRates[item.lineNumber]), concepto: 'pago_tarjeta', tarjeta: banco, tarjetaPago: tarjeta }
-            : { ...item.body, concepto: item.body.concepto === 'cashback' ? 'cashback' : (conceptOverrides[item.lineNumber] || item.body.concepto), tarjeta };
+            : activeMode === 'debito_gastos'
+              ? { ...item.body, concepto: conceptOverrides[item.lineNumber] || item.body.concepto, metodoPago: 'debito', tarjeta: banco }
+              : { ...item.body, concepto: item.body.concepto === 'cashback' ? 'cashback' : (conceptOverrides[item.lineNumber] || item.body.concepto), tarjeta };
           try {
             const row = await createExpenseWithDuplicateCheck(body, { userId, notify: false });
             if (row) created.push(row);
@@ -830,10 +838,10 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
         onClick={(e) => e.stopPropagation()}
       >
         <CloseX onClick={onClose} />
-        <h2 className="text-lg font-semibold mb-2">{mode === 'debito' ? 'Agregar pagos masivos (Débito)' : 'Agregar gastos masivos (Crédito)'}</h2>
+        <h2 className="text-lg font-semibold mb-2">{activeMode === 'debito' ? 'Agregar pagos masivos (Débito)' : activeMode === 'debito_gastos' ? 'Agregar gastos masivos (Débito)' : 'Agregar gastos masivos (Crédito)'}</h2>
         <p className="text-sm text-gray-600 mb-4">
           Patron por linea: <code>concepto | moneda | monto | fecha(dd/mm/yyyy) | nota(opcional)</code>.
-          {mode === 'debito' ? ' Se importan solo movimientos de pago a tarjeta.' : ' Los pagos se omiten y las devoluciones se registran como cashback.'}
+          {activeMode === 'debito' ? ' Se importan solo movimientos de pago a tarjeta.' : activeMode === 'debito_gastos' ? ' Se importan solo gastos de débito, incluido ITF. Los pagos y devoluciones se omiten.' : ' Los pagos se omiten y las devoluciones se registran como cashback.'}
         </p>
         <div className="mb-4 max-w-2xl rounded-xl border border-gray-200 bg-gray-50 p-3">
           <label className="text-sm text-gray-700">
@@ -855,19 +863,11 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
               <button type="button" onClick={() => setShowPdfPassword((value) => !value)} className="rounded border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700 hover:bg-gray-100">
                 {showPdfPassword ? 'Ocultar' : 'Ver / cambiar'}
               </button>
-              {mode === 'debito' && <button type="button" disabled={loadingExpensePdf} onClick={() => {
-                if (expensePdfLines) setShowExpenseComparison((value) => !value);
-                else expensePdfInputRef.current?.click();
-              }} className="rounded border border-indigo-300 bg-white px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">
-                {loadingExpensePdf ? 'Leyendo PDF...' : showExpenseComparison ? 'Ocultar comparación de gastos' : 'Ver y comparar gastos'}
+              {mode === 'debito' && <button type="button" onClick={toggleDebitExpenseMode} className="rounded border border-indigo-300 bg-white px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-50">
+                {debitExpenseMode ? 'Ver y agregar pagos' : 'Ver y comparar gastos'}
               </button>}
             </div>
           </label>
-          {mode === 'debito' && <input ref={expensePdfInputRef} type="file" accept=".pdf,application/pdf" aria-label="PDF para comparar gastos" onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = '';
-            compareExpensePdfFile(file);
-          }} className="hidden" />}
           <div className="mt-1 text-xs text-gray-500">Se guarda en este navegador por persona y puedes cambiarla cuando sea necesario.</div>
         </div>
         <div
@@ -884,33 +884,6 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
           {fileName && <span className="text-sm text-gray-600">Archivo: {fileName}</span>}
         </div>
 
-        {mode === 'debito' && showExpenseComparison && <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm">
-          <div className="font-semibold text-indigo-950">Comparación de gastos del PDF</div>
-          <div className="mt-1 text-xs text-indigo-800">{expensePdfFileName}. Se comparan los consumos con gastos de débito y crédito de todas las tarjetas y bancos. Los pagos y devoluciones no se incluyen.</div>
-          {loadingSystemRows ? <div className="mt-2 text-gray-600">Cargando gastos existentes...</div>
-            : systemRowsError ? <div className="mt-2 text-red-700">No se pudieron cargar los gastos existentes para comparar.</div>
-              : expenseComparison ? <>
-                <div className="mt-2 text-indigo-900">Coinciden: {expenseComparison.matched}/{expenseComparison.totalImported} · Sin encontrar: {expenseComparison.missing.length} · Solo en el sistema: {expenseComparison.onlyInSystem.length}</div>
-                <div className="mt-2 max-h-80 overflow-auto rounded-lg border border-indigo-200 bg-white">
-                  <table className="min-w-[650px] w-full text-xs">
-                    <thead className="sticky top-0 bg-indigo-100 text-indigo-950"><tr><th className="p-2 text-left">Gasto del PDF</th><th className="p-2 text-left">Gasto en el sistema</th><th className="p-2 text-left">Resultado</th></tr></thead>
-                    <tbody>
-                      {expenseComparison.pairs.map(({ source, target }) => <tr key={`expense-pdf-${source._lineNumber}`} className="border-t border-gray-100">
-                        <td className="p-2">{source.fecha} · {amountLabel(source.moneda, source.monto)}<span className="block text-gray-500">{source.notas}</span></td>
-                        <td className="p-2">{target ? <>{String(target.fecha).slice(0, 10)} · {amountLabel(target.moneda, target.monto)}<span className="block text-gray-500">{target.notas || target.concepto}</span></> : '—'}</td>
-                        <td className={`p-2 font-medium ${target ? 'text-emerald-700' : 'text-amber-700'}`}>{target ? 'Coincide' : 'No encontrado'}</td>
-                      </tr>)}
-                      {expenseComparison.onlyInSystem.map((saved) => <tr key={`expense-saved-${saved.id}`} className="border-t border-gray-100">
-                        <td className="p-2 text-gray-400">—</td>
-                        <td className="p-2">{String(saved.fecha).slice(0, 10)} · {amountLabel(saved.moneda, saved.monto)}<span className="block text-gray-500">{saved.notas || saved.concepto}</span></td>
-                        <td className="p-2 text-gray-600">Solo en el sistema</td>
-                      </tr>)}
-                    </tbody>
-                  </table>
-                </div>
-              </> : <div className="mt-2 text-gray-600">No se encontraron consumos en este PDF.</div>}
-        </div>}
-
         {error && (
           <div className="mb-3 text-sm whitespace-pre-line text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
             {error}
@@ -921,10 +894,10 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
             {successMsg}
           </div>
         )}
-        {mode === 'debito' && loadingSystemRows && <div className="mb-3 text-sm text-gray-600">Cargando pagos existentes para comparar...</div>}
-        {mode === 'debito' && systemRowsError && <div className="mb-3 text-sm text-red-700">No se pudieron cargar los pagos existentes. Vuelve a abrir este formulario antes de guardar.</div>}
+        {mode === 'debito' && loadingSystemRows && <div className="mb-3 text-sm text-gray-600">{activeMode === 'debito' ? 'Cargando pagos existentes para comparar...' : 'Cargando gastos existentes para comparar...'}</div>}
+        {mode === 'debito' && systemRowsError && <div className="mb-3 text-sm text-red-700">No se pudieron cargar los movimientos existentes. Vuelve a abrir este formulario antes de guardar.</div>}
 
-        {loadingCards ? (
+        {activeMode === 'debito_gastos' ? null : loadingCards ? (
           <div className="text-sm text-gray-600 mb-3">Cargando tarjetas...</div>
         ) : !cards.length ? (
           <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3">
@@ -934,13 +907,13 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
 
         <form className="grid gap-4" onSubmit={submitBulk}>
           {mode === 'debito' && <label className="text-sm max-w-sm">
-            <span className="block text-gray-600 mb-1">Banco de débito para registrar pagos nuevos</span>
+            <span className="block text-gray-600 mb-1">{activeMode === 'debito_gastos' ? 'Tarjeta gasto' : 'Banco de débito para registrar pagos nuevos'}</span>
             <select className="w-full border rounded px-3 py-2" value={banco} onChange={(event) => setBanco(event.target.value)}>
               {DEBIT_BANKS.map((bank) => <option key={bank.value} value={bank.value}>{bank.label}</option>)}
             </select>
-            <span className="block mt-1 text-xs text-gray-500">La comparación busca pagos existentes en todos los bancos de débito.</span>
+            {activeMode === 'debito' && <span className="block mt-1 text-xs text-gray-500">La comparación busca pagos existentes en todos los bancos de débito.</span>}
           </label>}
-          <label className="text-sm max-w-sm">
+          {activeMode !== 'debito_gastos' && <label className="text-sm max-w-sm">
             <span className="block text-gray-600 mb-1">{mode === 'debito' ? 'Tarjeta pagada en todas las líneas' : 'Tarjeta para todas las líneas'}</span>
             <select
               className="w-full border rounded px-3 py-2"
@@ -952,19 +925,19 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
                 <option key={cardValue(c)} value={cardValue(c)}>{cardLabel(c)}</option>
               ))}
             </select>
-          </label>
+          </label>}
 
           <div className="grid gap-2">
-            <label className="text-sm text-gray-600">{mode === 'debito' ? 'Líneas de pagos' : 'Líneas de gastos'}</label>
+            <label className="text-sm text-gray-600">{activeMode === 'debito' ? 'Líneas de pagos' : 'Líneas de gastos'}</label>
             <textarea
-              aria-label={mode === 'debito' ? 'Líneas de pagos' : 'Líneas de gastos'}
+              aria-label={activeMode === 'debito' ? 'Líneas de pagos' : 'Líneas de gastos'}
               className="w-full min-h-[220px] border rounded px-3 py-2 font-mono text-sm"
               value={bulkText}
               onChange={(e) => { setBulkText(e.target.value); setExchangeRates({}); }}
               placeholder=""
             />
             <div className="text-xs text-gray-500">
-              Conceptos permitidos: {mode === 'debito' ? 'pago_tarjeta' : CREDIT_CONCEPTS.join(', ')}.
+              Conceptos permitidos: {activeMode === 'debito' ? 'pago_tarjeta' : activeMode === 'debito_gastos' ? DEBIT_EXPENSE_CONCEPTS.join(', ') : CREDIT_CONCEPTS.join(', ')}.
             </div>
           </div>
 
@@ -1009,12 +982,12 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
 
           {comparison && (
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm">
-              <div className="font-semibold text-indigo-950">Comparación con {cardLabel(cards.find((card) => cardValue(card) === tarjeta)) || tarjeta}</div>
+              <div className="font-semibold text-indigo-950">Comparación con {activeMode === 'debito_gastos' ? DEBIT_BANKS.find((bank) => bank.value === banco)?.label || banco : cardLabel(cards.find((card) => cardValue(card) === tarjeta)) || tarjeta}</div>
               <div className="mt-1 text-indigo-800">Periodo detectado: {comparison.from} al {comparison.to} · Coinciden por fecha y monto: {comparison.matched}/{comparison.totalImported} · Faltan en el sistema: {comparison.missing.length}</div>
               <div className="mt-3 overflow-x-auto rounded-lg border border-indigo-200 bg-white">
                 <table className="min-w-[760px] w-full text-xs">
                   <thead className="bg-indigo-100 text-indigo-950"><tr><th className="w-1/2 p-2 text-left">Movimientos cargados ({comparison.imported.length})</th><th className="w-1/2 border-l border-indigo-200 p-2 text-left">Movimientos en el sistema ({comparison.candidates.length})</th></tr></thead>
-                  <tbody><ExpenseComparisonRows comparison={comparison} reviewed={reviewed} setReviewed={setReviewed} conceptOverrides={conceptOverrides} setConceptOverrides={setConceptOverrides} conceptOptions={conceptOptions} mode={mode} exchangeRates={exchangeRates} setExchangeRates={setExchangeRates} /></tbody>
+                  <tbody><ExpenseComparisonRows comparison={comparison} reviewed={reviewed} setReviewed={setReviewed} conceptOverrides={conceptOverrides} setConceptOverrides={setConceptOverrides} conceptOptions={conceptOptions} mode={activeMode} exchangeRates={exchangeRates} setExchangeRates={setExchangeRates} /></tbody>
                 </table>
               </div>
             </div>
@@ -1026,7 +999,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
             </button>
             <button
               type="submit"
-              disabled={saving || !cards.length || (mode === 'debito' && (loadingSystemRows || systemRowsError))}
+              disabled={saving || (activeMode !== 'debito_gastos' && !cards.length) || (mode === 'debito' && (loadingSystemRows || systemRowsError))}
               className="px-5 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
             >
               {saving ? 'Guardando...' : 'Guardar masivo'}
