@@ -35,6 +35,23 @@ test('separa las columnas Cargos/Debe y Abonos/Haber de un estado de débito', (
   expect(parseBulkRows(abonos, 'debito_abonos').rows).toHaveLength(2);
 });
 
+test('conserva cargos IO con códigos y nombres del estado BCP', () => {
+  const lines = [
+    '2026',
+    '02AGO 02AGO IO D000075135395 1,774.24 [CARGO]',
+    '02AGO 02AGO IO D000075135395 2,217.80 [CARGO]',
+    '03AGO 03AGO YC-IO*WALTER GONZA 85.00 [CARGO]',
+    '03AGO 03AGO DEPOSITO EFECTIVO 4,100.00 [ABONO]',
+  ];
+  const parsed = parseBulkRows(pdfLinesToBulkText(lines, 'debito_gastos'), 'debito_gastos');
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows.map((row) => [row.body.monto, row.body.notas])).toEqual([
+    [1774.24, 'IO D000075135395'],
+    [2217.8, 'IO D000075135395'],
+    [85, 'YC-IO*WALTER GONZA'],
+  ]);
+});
+
 test('en CSV cada vista usa exclusivamente su columna', () => {
   const csv = [
     'Fecha Proc.,Fecha Valor,Descripcion,Cargos/Debe,Abonos/Haber',
@@ -192,7 +209,7 @@ test('Mercado Pago positivo es un consumo y PAGO BANCA MOVIL sigue siendo pago',
   expect(spreadsheetToBulkLines(Buffer.from(csv, 'utf8'), 'movimientos.csv')).toContain('gusto | PEN | 45 | 23/08/2026 | MERCADO PAGO');
 });
 
-test('gastos de débito incluye ITF, omite pagos y compara solo con el banco elegido', () => {
+test('gastos de débito incluye ITF y compara cargos con egresos de todos los bancos', () => {
   const pdf = pdfLinesToBulkText([
     '2026',
     '25Ago 23Ago MERCADO PAGO 604 CONSUMO 45.00 [PEN]',
@@ -220,8 +237,25 @@ test('gastos de débito incluye ITF, omite pagos y compara solo con el banco ele
     { id: 5, fecha: '2026-08-23', moneda: 'USD', monto: 12.5, concepto: 'itf', metodoPago: 'debito', tarjeta: 'interbank' },
   ];
   const comparison = compareBulkExpenses(imported, saved, 'bcp', 'debito_gastos');
-  expect(comparison.matched).toBe(1);
-  expect(comparison.candidates.map((row) => row.id)).toEqual([1]);
+  expect(comparison.matched).toBe(2);
+  expect(comparison.candidates.map((row) => row.id)).toEqual([5, 1, 3]);
+});
+
+test('cargos IO se cotejan con pagos a tarjeta y otros gastos guardados del período', () => {
+  const parsed = parseBulkRows(pdfLinesToBulkText([
+    '2026',
+    '02AGO 02AGO IO D000075135395 1,774.24 [CARGO]',
+    '03AGO 03AGO YC-IO*WALTER GONZA 85.00 [CARGO]',
+  ], 'debito_gastos'), 'debito_gastos');
+  const saved = [
+    { id: 81, fecha: '2026-08-02', moneda: 'PEN', monto: 1774.24, montoUsdAplicado: 520, concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: 'bcp', tarjetaPago: 'io' },
+    { id: 82, fecha: '2026-08-03', moneda: 'PEN', monto: 85, concepto: 'gusto', metodoPago: 'debito', tarjeta: 'bcp' },
+    { id: 83, fecha: '2026-08-03', moneda: 'PEN', monto: 85, concepto: 'gusto', metodoPago: 'debito', tarjeta: 'bbva' },
+    { id: 84, fecha: '2026-07-01', moneda: 'PEN', monto: 100, concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: 'bcp', tarjetaPago: 'io' },
+  ];
+  const comparison = compareBulkExpenses(parsed.rows, saved, 'bcp', 'debito_gastos');
+  expect(comparison.candidates.map((row) => row.id)).toEqual([81, 82, 83]);
+  expect(comparison.pairs.map((pair) => pair.target?.id)).toEqual([81, 82]);
 });
 
 test('el botón junto a la contraseña permite comparar y guardar gastos de débito', async () => {
@@ -255,15 +289,14 @@ test('el botón junto a la contraseña permite comparar y guardar gastos de déb
     Object.defineProperty(pdfFile, 'arrayBuffer', { value: async () => new ArrayBuffer(1) });
     fireEvent.change(container.querySelector('input[type="file"]'), { target: { files: [pdfFile] } });
     expect(await screen.findByText(/Coinciden por fecha y monto: 1\/2/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Tarjeta gasto'), { target: { value: 'bbva' } });
-    expect(screen.getByText(/Coinciden por fecha y monto: 0\/2/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Tarjeta gasto'), { target: { value: 'bcp' } });
+    fireEvent.change(screen.getByLabelText(/^Tarjeta gasto/), { target: { value: 'bbva' } });
     expect(screen.getByText(/Coinciden por fecha y monto: 1\/2/)).toBeInTheDocument();
+    expect(screen.getByText('Comparación con cargos de todos los bancos de débito')).toBeInTheDocument();
     expect(screen.getByLabelText('Líneas de gastos').value).toContain('itf | PEN | 0.2');
     expect(screen.getByLabelText('Líneas de gastos').value).not.toContain('pago_tarjeta');
     fireEvent.click(screen.getByRole('button', { name: 'Guardar masivo' }));
     await waitFor(() => expect(createExpenseWithDuplicateCheck).toHaveBeenCalledTimes(1));
-    expect(createExpenseWithDuplicateCheck.mock.calls[0][0]).toMatchObject({ concepto: 'itf', metodoPago: 'debito', moneda: 'PEN', monto: 0.2, tarjeta: 'bcp' });
+    expect(createExpenseWithDuplicateCheck.mock.calls[0][0]).toMatchObject({ concepto: 'itf', metodoPago: 'debito', moneda: 'PEN', monto: 0.2, tarjeta: 'bbva' });
     expect(createExpenseWithDuplicateCheck.mock.calls[0][0]).not.toHaveProperty('tarjetaPago');
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   } finally {

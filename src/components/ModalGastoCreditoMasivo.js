@@ -550,8 +550,7 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
           && normalizeText(row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard))
     : mode === 'debito_gastos'
     ? normalizeText(row.metodoPago) === 'debito'
-      && !['pago_tarjeta', 'ingreso', 'ingresos', 'cashback'].includes(normalizeText(row.concepto))
-      && normalizeText(row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard
+      && !['ingreso', 'ingresos', 'cashback'].includes(normalizeText(row.concepto))
     : normalizeText(row.metodoPago) === mode
       && (mode !== 'debito' || normalizeText(row.concepto) === 'pago_tarjeta')
       && normalizeText(mode === 'debito' ? row.tarjetaPago : row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard)
@@ -661,6 +660,7 @@ function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverr
             {mode === 'debito_abonos' && <span className="block text-xs font-semibold">{normalizeText(saved.concepto).replace(/\s+/g, '_') === 'pago_tarjeta'
               ? `Pago a tarjeta ${String(saved.tarjetaPago || '').toUpperCase()} · Banco ${String(saved.tarjeta || '').toUpperCase()}`
               : `Ingreso · Banco ${String(saved.tarjeta || '').toUpperCase()}`}</span>}
+            {mode === 'debito_gastos' && normalizeText(saved.concepto).replace(/\s+/g, '_') === 'pago_tarjeta' && <span className="block text-xs font-semibold">Pago a tarjeta {String(saved.tarjetaPago || '').toUpperCase()} · Banco {String(saved.tarjeta || '').toUpperCase()}</span>}
             {mode === 'debito_abonos' && validExchangeRate(saved.montoUsdAplicado) && <span className="block text-xs text-slate-500">Referencia: {amountLabel('USD', saved.montoUsdAplicado)}</span>}
             {mode === 'debito' && saved.moneda === 'PEN' && validExchangeRate(saved.tasaUsdPen) && (
               <span className="block text-xs">Equivale a {amountLabel('USD', money(Math.abs(Number(saved.monto)) / Number(saved.tasaUsdPen)))} · TC {Number(saved.tasaUsdPen).toFixed(4)}</span>
@@ -991,6 +991,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
               {DEBIT_BANKS.map((bank) => <option key={bank.value} value={bank.value}>{bank.label}</option>)}
             </select>
             {activeMode === 'debito' && <span className="block mt-1 text-xs text-gray-500">La comparación busca pagos existentes en todos los bancos de débito.</span>}
+            {activeMode === 'debito_gastos' && <span className="block mt-1 text-xs text-gray-500">Este banco se usa para guardar gastos nuevos. La comparación incluye cargos de todos los bancos de débito.</span>}
           </label>}
           {(activeMode !== 'debito_gastos' && (activeMode !== 'debito_abonos' || hasAbonoPayments)) && <label className="text-sm max-w-sm">
             <span className="block text-gray-600 mb-1">{activeMode === 'debito_abonos' ? 'Tarjeta pagada en abonos nuevos' : mode === 'debito' ? 'Tarjeta pagada en todas las líneas' : 'Tarjeta para todas las líneas'}</span>
@@ -1061,7 +1062,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
 
           {comparison && (
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm">
-              <div className="font-semibold text-indigo-950">{activeMode === 'debito_abonos' ? 'Abonos del archivo frente a ingresos y todos los pagos a tarjeta del sistema' : `Comparación con ${activeMode === 'debito_gastos' ? DEBIT_BANKS.find((bank) => bank.value === banco)?.label || banco : cardLabel(cards.find((card) => cardValue(card) === tarjeta)) || tarjeta}`}</div>
+              <div className="font-semibold text-indigo-950">{activeMode === 'debito_abonos' ? 'Abonos del archivo frente a ingresos y todos los pagos a tarjeta del sistema' : activeMode === 'debito_gastos' ? 'Comparación con cargos de todos los bancos de débito' : `Comparación con ${cardLabel(cards.find((card) => cardValue(card) === tarjeta)) || tarjeta}`}</div>
               <div className="mt-1 text-indigo-800">Periodo detectado: {comparison.from} al {comparison.to} · Coinciden por fecha y monto: {comparison.matched}/{comparison.totalImported} · Faltan en el sistema: {comparison.missing.length}</div>
               <div className="mt-3 max-h-[60vh] overflow-auto rounded-lg border border-indigo-200 bg-white">
                 <table className="min-w-[760px] w-full text-xs">
