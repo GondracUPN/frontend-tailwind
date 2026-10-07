@@ -50,6 +50,67 @@ test('en CSV cada vista usa exclusivamente su columna', () => {
   ]);
 });
 
+test('un pago en Abonos se compara solo con pagos a tarjeta en soles', () => {
+  const lines = [
+    '2026',
+    '04AGO 04AGO PAGO TARJETA AMEX 500.00 [ABONO]',
+    '04AGO 04AGO ABON PLIN-Kenny 25.00 [ABONO]',
+  ];
+  const imported = parseBulkRows(pdfLinesToBulkText(lines, 'debito_abonos'), 'debito_abonos').rows;
+  expect(imported.map((row) => row.body.concepto)).toEqual(['pago_tarjeta', 'ingreso']);
+  const saved = [
+    { id: 1, fecha: '2026-08-04', moneda: 'PEN', monto: 500, concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: 'bbva', tarjetaPago: 'bcp_amex' },
+    { id: 2, fecha: '2026-08-04', moneda: 'USD', monto: 500, concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: 'bcp', tarjetaPago: 'bcp_amex' },
+    { id: 3, fecha: '2026-08-04', moneda: 'PEN', monto: 25, concepto: 'ingreso', metodoPago: 'debito', tarjeta: 'bcp' },
+  ];
+  const comparison = compareBulkExpenses(imported, saved, 'bcp', 'debito_abonos');
+  expect(comparison.matched).toBe(2);
+  expect(comparison.pairs.map((pair) => pair.target?.id)).toEqual([3, 1]);
+  expect(compareBulkExpenses(imported, saved.filter((row) => row.id !== 1), 'bcp', 'debito_abonos').matched).toBe(1);
+  expect(compareBulkExpenses([{ ...imported[1], body: { ...imported[1].body, monto: 500 } }], [saved[0]], 'bcp', 'debito_abonos').matched).toBe(0);
+});
+
+test('permite marcar una transferencia genérica del abono como pago antes de comparar', async () => {
+  const originalFetch = global.fetch;
+  const saved = { id: 22, fecha: '2026-08-04', moneda: 'PEN', monto: 500, concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: 'bbva', tarjetaPago: 'bcp_amex' };
+  global.fetch = jest.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/cards') ? [{ type: 'bcp_amex', label: 'BCP Amex' }] : [saved] }));
+  try {
+    render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Abonos' }));
+    await waitFor(() => expect(screen.queryByText('Cargando abonos existentes para comparar...')).not.toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('Líneas de abonos'), { target: { value: 'ingreso | PEN | 500 | 04/08/2026 | TRAN.CTAS.TERC.BM' } });
+    expect(screen.getByText(/Coinciden por fecha y monto: 0\/1/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Tipo de abono línea 1'), { target: { value: 'pago_tarjeta' } });
+    expect(screen.getByText(/Coinciden por fecha y monto: 1\/1/)).toBeInTheDocument();
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('guarda un pago nuevo de Abonos como pago a tarjeta en PEN', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/cards') ? [{ type: 'bcp_amex', label: 'BCP Amex' }] : [] }));
+  localStorage.setItem('token', 'test-token');
+  createExpenseWithDuplicateCheck.mockResolvedValue({ id: 44 });
+  try {
+    render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Abonos' }));
+    fireEvent.change(screen.getByLabelText('Líneas de abonos'), { target: { value: 'pago_tarjeta | PEN | 500 | 04/08/2026 | PAGO TARJETA AMEX' } });
+    await screen.findByRole('option', { name: 'BCP Amex' });
+    await waitFor(() => expect(screen.queryByText('Cargando abonos existentes para comparar...')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('Tarjeta pagada en abonos nuevos')).toHaveValue('bcp_amex');
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar masivo' }));
+    await waitFor(() => expect(createExpenseWithDuplicateCheck).toHaveBeenCalledWith(expect.objectContaining({
+      concepto: 'pago_tarjeta', metodoPago: 'debito', moneda: 'PEN', monto: 500,
+      tarjeta: 'bcp', tarjetaPago: 'bcp_amex', pagoObjetivo: 'PEN',
+    }), { userId: 1, notify: false }));
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('token');
+    createExpenseWithDuplicateCheck.mockReset();
+  }
+});
+
 test('la vista Abonos compara ingresos del banco y guarda solo los nuevos', async () => {
   const originalFetch = global.fetch;
   const saved = { id: 12, fecha: '2026-08-01', moneda: 'PEN', monto: 25, concepto: 'ingreso', metodoPago: 'debito', tarjeta: 'bcp', notas: 'ABON PLIN' };
