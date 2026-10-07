@@ -10,6 +10,74 @@ import * as pdfjsLib from 'pdfjs-dist/webpack';
 import { createExpenseWithDuplicateCheck } from '../utils/createExpense';
 import ModalGastoCreditoMasivo, { compareBulkExpenses, debitPaymentBody, parseBulkRows, pdfLinesToBulkText, pdfTextItemsToLines, spreadsheetToBulkLines } from './ModalGastoCreditoMasivo';
 
+test('separa las columnas Cargos/Debe y Abonos/Haber de un estado de débito', () => {
+  const item = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y] });
+  const lines = pdfTextItemsToLines([
+    item('2026', 40, 640),
+    item('CARGOS / DEBE', 425, 610), item('ABONOS / HABER', 620, 610),
+    item('01AGO', 20, 580), item('01AGO', 80, 580), item('PAGO TARJETA BCP', 145, 580), item('3,900.86', 470, 580),
+    item('01AGO', 20, 560), item('01AGO', 80, 560), item('ABON PLIN-Kenny', 145, 560), item('25.00', 660, 560),
+    item('02AGO', 20, 540), item('02AGO', 80, 540), item('IMPUESTO ITF', 145, 540), item('0.35', 470, 540),
+    item('03AGO', 20, 520), item('03AGO', 80, 520), item('DEPOSITO EFECTIVO', 145, 520), item('4,100.00', 660, 520),
+  ]);
+  expect(lines).toContain('01AGO 01AGO PAGO TARJETA BCP 3,900.86 [CARGO]');
+  expect(lines).toContain('01AGO 01AGO ABON PLIN-Kenny 25.00 [ABONO]');
+  const pagos = pdfLinesToBulkText(lines, 'debito');
+  expect(pagos).toContain('pago_tarjeta | PEN | 3900.86 | 01/08/2026');
+  expect(pagos).not.toContain('25');
+  const gastos = pdfLinesToBulkText(lines, 'debito_gastos');
+  expect(gastos).toContain('itf | PEN | 0.35 | 02/08/2026');
+  expect(gastos).not.toContain('25');
+  const abonos = pdfLinesToBulkText(lines, 'debito_abonos');
+  expect(abonos).toContain('ingreso | PEN | 25 | 01/08/2026 | ABON PLIN-Kenny');
+  expect(abonos).toContain('ingreso | PEN | 4100 | 03/08/2026 | DEPOSITO EFECTIVO');
+  expect(abonos).not.toContain('3900.86');
+  expect(parseBulkRows(abonos, 'debito_abonos').rows).toHaveLength(2);
+});
+
+test('en CSV cada vista usa exclusivamente su columna', () => {
+  const csv = [
+    'Fecha Proc.,Fecha Valor,Descripcion,Cargos/Debe,Abonos/Haber',
+    '01/08/2026,01/08/2026,PAGO TARJETA,3900.86,',
+    '01/08/2026,01/08/2026,ABON PLIN,,25.00',
+    '02/08/2026,02/08/2026,DEPOSITO EFECTIVO,,4100.00',
+  ].join('\n');
+  const data = Buffer.from(csv, 'utf8');
+  expect(spreadsheetToBulkLines(data, 'cuenta.csv', 'debito')).toEqual(['pago_tarjeta | PEN | 3900.86 | 01/08/2026 | PAGO TARJETA']);
+  expect(spreadsheetToBulkLines(data, 'cuenta.csv', 'debito_abonos')).toEqual([
+    'ingreso | PEN | 25 | 01/08/2026 | ABON PLIN',
+    'ingreso | PEN | 4100 | 02/08/2026 | DEPOSITO EFECTIVO',
+  ]);
+});
+
+test('la vista Abonos compara ingresos del banco y guarda solo los nuevos', async () => {
+  const originalFetch = global.fetch;
+  const saved = { id: 12, fecha: '2026-08-01', moneda: 'PEN', monto: 25, concepto: 'ingreso', metodoPago: 'debito', tarjeta: 'bcp', notas: 'ABON PLIN' };
+  global.fetch = jest.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/cards') ? [] : [saved] }));
+  localStorage.setItem('token', 'test-token');
+  createExpenseWithDuplicateCheck.mockResolvedValue({ id: 13 });
+  try {
+    const onSaved = jest.fn();
+    render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={onSaved} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Abonos' }));
+    expect(screen.getByLabelText('Banco del abono')).toBeInTheDocument();
+    expect(screen.queryByText('Tarjeta pagada en todas las líneas')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Cargando abonos existentes para comparar...')).not.toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('Líneas de abonos'), { target: { value: 'ingreso | PEN | 25 | 01/08/2026 | ABON PLIN\ningreso | PEN | 4100 | 03/08/2026 | DEPOSITO EFECTIVO' } });
+    expect(screen.getByText(/Coinciden por fecha y monto: 1\/2/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar masivo' }));
+    await waitFor(() => expect(createExpenseWithDuplicateCheck).toHaveBeenCalledTimes(1));
+    expect(createExpenseWithDuplicateCheck).toHaveBeenCalledWith(expect.objectContaining({
+      concepto: 'ingreso', metodoPago: 'debito', tarjeta: 'bcp', moneda: 'PEN', monto: 4100,
+    }), { userId: 1, notify: false });
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('token');
+    createExpenseWithDuplicateCheck.mockReset();
+  }
+});
+
 test('lee la columna Dólares del PDF Amex aunque el pago termine en signo menos', () => {
   const item = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y] });
   const lines = pdfTextItemsToLines([
@@ -103,7 +171,7 @@ test('el botón junto a la contraseña permite comparar y guardar gastos de déb
   try {
     const onSaved = jest.fn();
     const { container } = render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={onSaved} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Ver y comparar gastos' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Gastos (cargos)' }));
     expect(screen.getByText('Agregar gastos masivos (Débito)')).toBeInTheDocument();
     expect(screen.getByText('Tarjeta gasto')).toBeInTheDocument();
     expect(screen.queryByText('Tarjeta pagada en todas las líneas')).not.toBeInTheDocument();
