@@ -6,6 +6,8 @@ export default function ModalAdelantoCreate({ producto, onClose, onSaved }) {
     montoAdelanto: '',
     fechaAdelanto: '',
     montoVenta: '',
+    incomeBank: 'bcp',
+    incomePaymentType: 'direct',
   });
   const [saving, setSaving] = useState(false);
 
@@ -31,6 +33,8 @@ export default function ModalAdelantoCreate({ producto, onClose, onSaved }) {
         montoAdelanto: Number(form.montoAdelanto),
         fechaAdelanto: form.fechaAdelanto,
         montoVenta: Number(form.montoVenta),
+        incomeBank: form.incomeBank,
+        incomePaymentType: form.incomePaymentType,
       };
       const saved = await api.post('/ventas/adelanto', payload);
       onSaved?.(saved);
@@ -85,6 +89,14 @@ export default function ModalAdelantoCreate({ producto, onClose, onSaved }) {
               onChange={(e) => onChange('montoVenta', e.target.value)}
               placeholder="Ej. 2200.00"
             />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block font-medium">Forma de pago
+              <select value={form.incomePaymentType} onChange={(e) => onChange('incomePaymentType', e.target.value)} className="mt-1 w-full border p-2 rounded"><option value="direct">Directo</option><option value="card">Tarjeta</option></select>
+            </label>
+            <label className="block font-medium">Cuenta de destino
+              <select value={form.incomeBank} onChange={(e) => onChange('incomeBank', e.target.value)} className="mt-1 w-full border p-2 rounded"><option value="bcp">BCP</option><option value="interbank">Interbank</option><option value="bbva">BBVA</option></select>
+            </label>
           </div>
         </div>
 

@@ -478,7 +478,7 @@ export default function ModalVenta({
       onClose?.();
     } catch (e) {
       console.error('[ModalVenta] Error al actualizar venta:', e);
-      alert('No se pudo actualizar la venta.');
+      alert(e?.message || 'No se pudo actualizar la venta.');
     } finally {
       setSaving(false);
     }

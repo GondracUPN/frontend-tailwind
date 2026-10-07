@@ -8,6 +8,7 @@ import ModalTarjetas from '../components/ModalTarjetas';
 import ModalCuotasYGastos from '../components/ModalCuotasYGastos';
 import ModalEditarGasto from '../components/ModalEditarGasto';
 import ModalCobroVenta from '../components/ModalCobroVenta';
+import DExtraPanel from '../components/DExtraPanel';
 import ModalEditarEfectivo from '../components/ModalEditarEfectivo';
 import ModalAnalisisGastosMes from '../components/ModalAnalisisGastosMes';
 import ModalCiclosTarjeta from '../components/ModalCiclosTarjeta';
@@ -17,6 +18,7 @@ import { getAnalyticsSummary } from '../services/analytics';
 import { notifyGastosChanged, subscribeGastosChanges } from '../utils/gastosSync';
 import { hideMonthlyExpense } from '../utils/monthlyExpenses';
 import { getPending500 } from '../utils/pending500';
+import { buildExtraDebts } from '../utils/extraDebts';
 
   const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
@@ -34,6 +36,7 @@ const CARD_LABEL = {
   bbva: 'BBVA',
   io: 'IO',
   saga: 'Saga',
+  efectivo: 'Efectivo',
 };
 
 const INVESTMENT_EXCLUDED_CARD_TYPES = new Set(['interbank', 'bbva']);
@@ -160,6 +163,8 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [showCiclosTarjeta, setShowCiclosTarjeta] = useState(false);
   const [showEfec, setShowEfec] = useState(false);
   const [showBankImport, setShowBankImport] = useState(false);
+  const [showDExtra, setShowDExtra] = useState(false);
+  const [activeAdelantos, setActiveAdelantos] = useState([]);
   const [showLinePlanner, setShowLinePlanner] = useState(false);
   const [showCompraBudget, setShowCompraBudget] = useState(false);
   const [compraBudgetLoading, setCompraBudgetLoading] = useState(false);
@@ -203,6 +208,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const targetSellerSlug = selectedUser?.role === 'admin'
     ? 'gonzalo'
     : normalizeSellerSlug(selectedUser?.username || user?.username || '');
+  const extraDebts = useMemo(() => buildExtraDebts(rows, activeAdelantos, targetSellerSlug), [rows, activeAdelantos, targetSellerSlug]);
   const targetOwnerName = sellerLabel(targetSellerSlug)
     || selectedUser?.username
     || user?.username
@@ -469,6 +475,22 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     });
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [token, isAdmin, targetUserId]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    let active = true;
+    fetch(`${API_URL}/ventas/adelantos/ultimos`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((response) => response.ok ? response.json() : [])
+      .then((data) => {
+        if (!active) return;
+        setActiveAdelantos(Array.isArray(data) ? data : []);
+        // La consulta concilia adelantos antiguos; recargar incorpora sus ingresos por fecha.
+        reloadAll({ includeGastos: true, useCache: false, silent: true });
+      })
+      .catch(() => { if (active) setActiveAdelantos([]); });
+    return () => { active = false; };
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [token, targetUserId]);
 
   // Efectivo calculado (PEN)
   const efectivoPenCalc = useMemo(() => {
@@ -896,6 +918,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
               )}
               <button onClick={openDeb} className="w-full sm:w-auto px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 min-h-[44px]">Agregar uno</button>
               <button onClick={() => setShowDebBulk(true)} className="w-full sm:w-auto px-4 py-2 rounded bg-teal-600 text-white hover:bg-teal-700 min-h-[44px]">Importar pagos</button>
+              <button type="button" onClick={() => setShowDExtra(true)} className="w-full sm:w-auto px-4 py-2 rounded border border-amber-300 bg-amber-50 text-amber-900 min-h-[44px]">D.Extra ({extraDebts.length})</button>
             </div>
           </div>
 
@@ -921,12 +944,19 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                     const conceptoCell = g.concepto === 'pago_tarjeta'
                       ? `Pago Tarjeta  ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
                       : displayConcepto(g.concepto, g.metodoPago);
-                    const detalle = g.saleSku || visibleExpenseNotes(g.notas);
+                    const advanceNote = String(g.notas || '').match(/^__SALE_ADVANCE__:\d+:(\d+)$/);
+                    const detalle = advanceNote
+                      ? `Adelanto ${Number(advanceNote[1]) + 1} · ${g.saleSku || 'Venta'}`
+                      : g.saleSku || visibleExpenseNotes(g.notas);
                     const isIncome = isIncomeExpenseConcept(g.concepto, conceptCategories)
                       && normalizeExpenseConcept(g.concepto) !== 'cashback';
                     const displayedAmount = g.salePaymentType ? receivedIncomeAmount(g) : g.monto;
                     const usdEquivalent = getDebitUsdEquivalent(g);
                     const pending = debitPendingBalance(g);
+                    const advanceMatch = String(g.notas || '').match(/^__SALE_ADVANCE__:(\d+):(\d+)$/);
+                    const advanceDebt = advanceMatch ? extraDebts.find((debt) => debt.id === `advance-${advanceMatch[1]}`) : null;
+                    const advanceInfo = advanceMatch ? activeAdelantos.find((advance) => String(advance.id) === advanceMatch[1]) : null;
+                    const showAdvancePending = advanceDebt && Number(advanceMatch?.[2]) === (advanceInfo?.cuotas?.length || 1) - 1;
                     return (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
                         <td className="p-2 align-top">{g.fecha}</td>
@@ -945,6 +975,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                               {pending.label}: {fmtMoney('PEN', pending.amount)} pendiente
                             </div>
                           )}
+                          {showAdvancePending && <div className="mt-0.5 text-[11px] leading-tight text-amber-700">Saldo de venta: {fmtMoney('PEN', advanceDebt.pending)} pendiente</div>}
                           {pending && pending.amount === 0 && (
                             <div className="mt-0.5 text-[11px] font-semibold leading-tight text-emerald-700">
                               ✓ {pending.label === 'Deuda' ? 'Deuda pagada' : 'x500 completo'}
@@ -1091,6 +1122,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       </div>
 
       {/* Modales */}
+      {showDExtra && <DExtraPanel debts={extraDebts} onClose={() => setShowDExtra(false)} onCollect={(row) => { setShowDExtra(false); setCollectingSale(row); }} />}
       {showBankImport && (
         <ModalImportarOperacionBancaria
           userId={targetUserId}

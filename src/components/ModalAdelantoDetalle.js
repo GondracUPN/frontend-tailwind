@@ -13,6 +13,8 @@ export default function ModalAdelantoDetalle({
   const [mostrarNuevaCuota, setMostrarNuevaCuota] = useState(false);
   const [fechaCuota, setFechaCuota] = useState('');
   const [montoCuota, setMontoCuota] = useState('');
+  const [incomeBank, setIncomeBank] = useState('bcp');
+  const [incomePaymentType, setIncomePaymentType] = useState('direct');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -51,6 +53,8 @@ export default function ModalAdelantoDetalle({
       const saved = await api.post(`/ventas/adelanto/${adelanto.id}/cuotas`, {
         fechaCuota,
         montoCuota: monto,
+        incomeBank,
+        incomePaymentType,
       });
       setFechaCuota('');
       setMontoCuota('');
@@ -103,7 +107,7 @@ export default function ModalAdelantoDetalle({
               >
                 <div>
                   <span className="font-medium">Adelanto {index + 1}</span>
-                  <span className="text-gray-500 ml-2">{cuota.fecha || '-'}</span>
+                  <span className="text-gray-500 ml-2">{cuota.fecha || '-'} · {cuota.tipoPago === 'card' ? 'Tarjeta' : 'Directo'} · {(cuota.banco || 'bcp').toUpperCase()}</span>
                 </div>
                 <span className="font-semibold">S/ {fmt(cuota.monto)}</span>
               </div>
@@ -145,6 +149,10 @@ export default function ModalAdelantoDetalle({
                   disabled={saving}
                 />
               </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+              <label className="text-sm font-medium">Forma de pago<select value={incomePaymentType} onChange={(event) => setIncomePaymentType(event.target.value)} className="mt-1 w-full rounded border bg-white p-2"><option value="direct">Directo</option><option value="card">Tarjeta</option></select></label>
+              <label className="text-sm font-medium">Cuenta de destino<select value={incomeBank} onChange={(event) => setIncomeBank(event.target.value)} className="mt-1 w-full rounded border bg-white p-2"><option value="bcp">BCP</option><option value="interbank">Interbank</option><option value="bbva">BBVA</option></select></label>
             </div>
             {error && <p className="text-sm text-red-700 mt-3" role="alert">{error}</p>}
             <div className="flex justify-end gap-2 mt-3">

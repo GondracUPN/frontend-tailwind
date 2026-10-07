@@ -113,18 +113,33 @@ test('un pago en Abonos se compara solo con pagos a tarjeta en soles', () => {
   expect(compareBulkExpenses([{ ...imported[1], body: { ...imported[1].body, monto: 500 } }], [saved[0]], 'bcp', 'debito_abonos').matched).toBe(0);
 });
 
-test('muestra todos los pagos a tarjeta del sistema aunque estén fuera del período del archivo', () => {
+test('limita los pagos del sistema al período del archivo con un día de margen', () => {
   const imported = parseBulkRows('ingreso | PEN | 25 | 01/08/2026 | ABON PLIN', 'debito_abonos').rows;
   const payment = {
     id: 81, fecha: '2026-07-10', moneda: 'PEN', monto: 1774.24, montoUsdAplicado: 520,
     concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: 'bcp', tarjetaPago: 'io',
   };
   const comparison = compareBulkExpenses(imported, [payment], 'bcp', 'debito_abonos');
-  expect(comparison.candidates).toContainEqual(payment);
-  expect(comparison.displayRows).toEqual(expect.arrayContaining([expect.objectContaining({ imported: null, saved: payment })]));
+  expect(comparison.candidates).not.toContainEqual(payment);
   expect(comparison.matched).toBe(0);
   const matchingFile = parseBulkRows('pago_tarjeta | PEN | 1774.24 | 11/07/2026 | TRAN.CTAS.TERC.BM', 'debito_abonos').rows;
   expect(compareBulkExpenses(matchingFile, [payment], 'bcp', 'debito_abonos').pairs[0].target.id).toBe(81);
+});
+
+test('omite transferencias internas Interbank y BBVA de los abonos y cargos importados', () => {
+  const lines = [
+    'ingreso | PEN | 500 | 30/09/2026 | TRANSF.BCO.INTERBA * 123',
+    'ingreso | PEN | 250 | 30/09/2026 | TRANSF.BCO.BBVA * 456',
+    'ingreso | PEN | 100 | 30/09/2026 | TRANSF.DALE',
+  ].join('\n');
+  expect(parseBulkRows(lines, 'debito_abonos').rows.map((row) => row.body.monto)).toEqual([100]);
+});
+
+test('compara solo cobros recibidos de ventas por tarjeta y x500', () => {
+  const imported = parseBulkRows('ingreso | PEN | 200 | 04/09/2026 | PAGO PARCIAL', 'debito_abonos').rows;
+  const saleIncome = { id: 9, fecha: '2026-09-01', moneda: 'PEN', monto: 500, concepto: 'ingreso', metodoPago: 'debito', tarjeta: 'bcp', salePaymentType: 'card', saleReceivedAmount: 200, salePaymentHistory: [{ amount: 200, paidAt: '2026-09-04' }] };
+  expect(compareBulkExpenses(imported, [saleIncome], 'bcp', 'debito_abonos').matched).toBe(1);
+  expect(compareBulkExpenses(imported, [{ ...saleIncome, saleReceivedAmount: 0, salePaymentHistory: [] }], 'bcp', 'debito_abonos').matched).toBe(0);
 });
 
 test('permite marcar una transferencia genérica del abono como pago antes de comparar', async () => {

@@ -35,15 +35,15 @@ test('permite confirmar varias ventas del catálogo simultáneamente', async () 
   render(<CatalogSalesPending />);
 
   const confirmButtons = await screen.findAllByRole('button', { name: 'Confirmar venta' });
-  fireEvent.change(screen.getByLabelText('Forma de cobro para SKU-1'), { target: { value: 'card' } });
-  fireEvent.change(screen.getByLabelText('Forma de cobro para SKU-2'), { target: { value: 'debt' } });
-  expect(screen.getAllByText(/Ingreso inicial: S\/ 0.00/)).toHaveLength(2);
+  fireEvent.change(screen.getByLabelText('Tarjeta de crédito para SKU-1'), { target: { value: '60' } });
+  fireEvent.change(screen.getByLabelText('Efectivo para SKU-1'), { target: { value: '40' } });
+  fireEvent.change(screen.getByLabelText('x500 para SKU-2'), { target: { value: '200' } });
   fireEvent.click(confirmButtons[0]);
   fireEvent.click(confirmButtons[1]);
 
   expect(api.post).toHaveBeenCalledTimes(2);
-  expect(api.post).toHaveBeenNthCalledWith(1, '/integrations/catalog-sales/1/confirm', { exchangeRate: 3.7, incomeBank: 'bcp', paymentType: 'card' });
-  expect(api.post).toHaveBeenNthCalledWith(2, '/integrations/catalog-sales/2/confirm', { exchangeRate: 3.8, incomeBank: 'bcp', paymentType: 'debt' });
+  expect(api.post).toHaveBeenNthCalledWith(1, '/integrations/catalog-sales/1/confirm', { exchangeRate: 3.7, incomeBank: 'bcp', incomeParts: [{ type: 'card', amount: 60 }, { type: 'cash', amount: 40 }] });
+  expect(api.post).toHaveBeenNthCalledWith(2, '/integrations/catalog-sales/2/confirm', { exchangeRate: 3.8, incomeBank: 'bcp', incomeParts: [{ type: 'debt', amount: 200 }] });
   expect(screen.getAllByRole('button', { name: 'Procesando...' })).toHaveLength(2);
 
   first.resolve({});
@@ -73,10 +73,33 @@ test('permite confirmar una venta con cobro directo', async () => {
   api.post.mockResolvedValue({});
   jest.spyOn(window, 'confirm').mockReturnValue(true);
   render(<CatalogSalesPending />);
-  await screen.findByLabelText('Forma de cobro para MS-4');
-  fireEvent.change(screen.getByLabelText('Forma de cobro para MS-4'), { target: { value: 'direct' } });
+  await screen.findByLabelText('Pago directo para MS-4');
+  fireEvent.change(screen.getByLabelText('Pago directo para MS-4'), { target: { value: '900' } });
   fireEvent.click(screen.getByRole('button', { name: 'Confirmar venta' }));
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/integrations/catalog-sales/4/confirm', {
-    exchangeRate: 3.7, incomeBank: 'bcp', paymentType: 'direct',
+    exchangeRate: 3.7, incomeBank: 'bcp', incomeParts: [{ type: 'direct', amount: 900 }],
   }));
+});
+
+test('registra una venta que nunca pasó a catálogo con pago mixto', async () => {
+  api.get.mockImplementation((path) => {
+    if (path.endsWith('/pending')) return Promise.resolve([]);
+    if (path === '/productos') return Promise.resolve([{ id: 7, codigoInventario: 77, nombre: 'iPhone', stockActual: 1, catalogoEnviado: false, vendedor: 'Gonzalo' }]);
+    if (path.startsWith('/ventas/ultimas')) return Promise.resolve([]);
+    return Promise.resolve({});
+  });
+  api.post.mockResolvedValue({ id: 99 });
+  jest.spyOn(window, 'confirm').mockReturnValue(true);
+  render(<CatalogSalesPending />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Venta que no pasó a catálogo' }));
+  await screen.findByRole('option', { name: /77/ });
+  fireEvent.change(screen.getByLabelText('Producto sin catálogo'), { target: { value: '7' } });
+  fireEvent.change(screen.getByLabelText('Fecha de venta manual'), { target: { value: '2026-10-07' } });
+  fireEvent.change(screen.getByLabelText('Precio de venta manual'), { target: { value: '1000' } });
+  fireEvent.change(screen.getByLabelText('Pago directo para venta manual'), { target: { value: '300' } });
+  fireEvent.change(screen.getByLabelText('Efectivo para venta manual'), { target: { value: '700' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar venta' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({
+    productoId: 7, precioVenta: 1000, incomeSku: 'MS-77', incomeParts: [{ type: 'direct', amount: 300 }, { type: 'cash', amount: 700 }],
+  })));
 });

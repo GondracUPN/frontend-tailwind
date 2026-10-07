@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../api';
 import { notifySalesChanged } from '../utils/salesSync';
-import { formatPending500, getPending500 } from '../utils/pending500';
 
 const eventLabel = (event) => event.eventType === 'sale.cancelled' ? 'Anulación' : 'Venta';
 const statusLabel = (status) => ({
@@ -10,6 +9,30 @@ const statusLabel = (status) => ({
   failed: 'Requiere revisión',
 }[status] || status);
 const DEBIT_CARD_LABEL = { bcp: 'BCP', interbank: 'Interbank', bbva: 'BBVA' };
+const PAYMENT_LABELS = { direct: 'Pago directo', card: 'Tarjeta de crédito', debt: 'x500', cash: 'Efectivo' };
+const PAYMENT_TYPES = Object.keys(PAYMENT_LABELS);
+const toCents = (value) => Math.round(Number(value || 0) * 100);
+const selectedParts = (values) => PAYMENT_TYPES.filter((type) => String(values?.[type] ?? '') !== '')
+  .map((type) => ({ type, amount: Number(values[type]) }));
+const validParts = (parts, total) => parts.length > 0
+  && parts.every((part) => Number.isFinite(part.amount) && part.amount > 0 && Math.abs(toCents(part.amount) / 100 - part.amount) < 0.000001)
+  && parts.reduce((sum, part) => sum + toCents(part.amount), 0) === toCents(total);
+
+function PaymentParts({ sku, values, onChange, total }) {
+  const parts = selectedParts(values);
+  const allocated = parts.reduce((sum, part) => sum + (Number.isFinite(part.amount) ? toCents(part.amount) : 0), 0);
+  return <div className="min-w-44 space-y-1">
+    {PAYMENT_TYPES.map((type) => <label key={type} className="flex items-center justify-between gap-2 text-xs">
+      <span>{PAYMENT_LABELS[type]}</span>
+      <input aria-label={`${PAYMENT_LABELS[type]} para ${sku}`} type="number" min="0" step="0.01" placeholder="S/ 0.00"
+        value={values?.[type] ?? ''} onChange={(event) => onChange(type, event.target.value)}
+        className="w-24 rounded border border-amber-300 px-2 py-1 text-right" />
+    </label>)}
+    <p className={`text-xs ${allocated === toCents(total) ? 'text-emerald-700' : 'text-amber-800'}`}>
+      Asignado: S/ {(allocated / 100).toFixed(2)} de S/ {Number(total || 0).toFixed(2)}
+    </p>
+  </div>;
+}
 
 export default function CatalogSalesPending() {
   const [items, setItems] = useState([]);
@@ -23,7 +46,13 @@ export default function CatalogSalesPending() {
   const [exchangeRates, setExchangeRates] = useState({});
   const [paymentOptions, setPaymentOptions] = useState({});
   const [incomeBanks, setIncomeBanks] = useState({});
-  const [paymentTypes, setPaymentTypes] = useState({});
+  const [payments, setPayments] = useState({});
+  const [showManual, setShowManual] = useState(false);
+  const [manualProducts, setManualProducts] = useState([]);
+  const [manualLoading, setManualLoading] = useState(false);
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manual, setManual] = useState({ productId: '', seller: '', amount: '', exchangeRate: '3.7', soldAt: '', incomeBank: 'bcp' });
+  const [manualPayments, setManualPayments] = useState({});
 
   const refresh = useCallback(async () => {
     try {
@@ -95,17 +124,17 @@ export default function CatalogSalesPending() {
     const isCancellation = event.eventType === 'sale.cancelled';
     const exchangeRate = Number(exchangeRates[event.id]);
     const incomeBank = incomeBanks[event.id];
-    const paymentType = paymentTypes[event.id];
+    const incomeParts = selectedParts(payments[event.id]);
     if (action === 'confirm' && !isCancellation && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
       alert('Ingresa un tipo de cambio válido.');
       return;
     }
-    if (action === 'confirm' && !isCancellation && !incomeBank) {
+    if (action === 'confirm' && !isCancellation && incomeParts.some((part) => part.type !== 'cash') && !incomeBank) {
       alert('Selecciona la tarjeta de débito donde se recibió el pago.');
       return;
     }
-    if (action === 'confirm' && !isCancellation && !paymentType) {
-      alert('Selecciona pago con tarjeta o deuda.');
+    if (action === 'confirm' && !isCancellation && !validParts(incomeParts, event.amount)) {
+      alert('Distribuye el precio completo entre las formas de cobro seleccionadas.');
       return;
     }
     const message = action === 'confirm'
@@ -118,7 +147,7 @@ export default function CatalogSalesPending() {
     try {
       await api.post(
         `/integrations/catalog-sales/${event.id}/${action}`,
-        action === 'confirm' && !isCancellation ? { exchangeRate, incomeBank, paymentType } : {},
+        action === 'confirm' && !isCancellation ? { exchangeRate, incomeBank, incomeParts } : {},
       );
       await refresh();
       notifySalesChanged({ source: 'catalog-sync', action, sku: event.sku });
@@ -154,7 +183,65 @@ export default function CatalogSalesPending() {
     }, 800));
   };
 
-  if (!loading && !items.length && !error) return null;
+  const openManual = async () => {
+    setShowManual(true);
+    setManualLoading(true);
+    try {
+      const products = await api.get('/productos');
+      const productList = Array.isArray(products) ? products : (Array.isArray(products?.items) ? products.items : []);
+      const available = productList.filter((product) => !product.catalogoEnviado && Number(product.stockActual ?? 1) > 0);
+      const ids = available.map((product) => product.id);
+      const sales = ids.length ? await api.get(`/ventas/ultimas?ids=${ids.join(',')}`) : [];
+      const soldIds = new Set((Array.isArray(sales) ? sales : []).map((sale) => Number(sale.productoId)));
+      setManualProducts(available.filter((product) => String(product.tipo || '').toLowerCase() === 'accesorios' || !soldIds.has(Number(product.id))));
+    } catch (err) {
+      setError(err?.message || 'No se pudieron cargar los productos.');
+    } finally {
+      setManualLoading(false);
+    }
+  };
+
+  const saveManual = async (event) => {
+    event.preventDefault();
+    const product = manualProducts.find((item) => String(item.id) === manual.productId);
+    const amount = Number(manual.amount);
+    const exchangeRate = Number(manual.exchangeRate);
+    const incomeParts = selectedParts(manualPayments);
+    if (!product || !manual.seller || !manual.soldAt || !Number.isFinite(amount) || amount <= 0 || !Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+      setError('Completa el producto, vendedor, fecha, precio y tipo de cambio de la venta.');
+      return;
+    }
+    if (!validParts(incomeParts, amount)) {
+      setError('Distribuye el precio completo entre las formas de cobro seleccionadas.');
+      return;
+    }
+    if (incomeParts.some((part) => part.type !== 'cash') && !manual.incomeBank) {
+      setError('Selecciona la cuenta de débito para el cobro.');
+      return;
+    }
+    if (!window.confirm(`¿Registrar la venta de ${product.codigoInventario || product.id} por S/ ${amount.toFixed(2)}?`)) return;
+    setManualSaving(true);
+    setError('');
+    try {
+      await api.post('/ventas', {
+        productoId: product.id, fechaVenta: manual.soldAt, precioVenta: amount, tipoCambio: exchangeRate,
+        vendedor: manual.seller, incomeBank: manual.incomeBank, incomeParts,
+        incomeSku: `MS-${product.codigoInventario || product.id}`,
+      });
+      setShowManual(false);
+      setManualPayments({});
+      setManual({ productId: '', seller: '', amount: '', exchangeRate: '3.7', soldAt: '', incomeBank: 'bcp' });
+      notifySalesChanged({ source: 'manual-catalog-sale', action: 'create', productoId: product.id });
+      window.dispatchEvent(new Event('productos-updated'));
+      await refresh();
+    } catch (err) {
+      setError(err?.message || 'No se pudo registrar la venta.');
+    } finally {
+      setManualSaving(false);
+    }
+  };
+
+
 
   return (
     <section className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
@@ -163,10 +250,45 @@ export default function CatalogSalesPending() {
           <h3 className="text-lg font-semibold text-amber-950">Ventas recibidas del catálogo</h3>
           <p className="text-sm text-amber-800">Nada se registra ni se anula en Servicios hasta que lo confirmes aquí.</p>
         </div>
-        <button type="button" onClick={refresh} className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 transition active:translate-y-px active:scale-[0.98] active:bg-amber-100">
-          Actualizar
-        </button>
+        <div className="flex gap-2">
+          <button type="button" onClick={openManual} className="rounded-lg bg-amber-700 px-3 py-2 text-sm font-medium text-white">Venta que no pasó a catálogo</button>
+          <button type="button" onClick={refresh} className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 transition active:translate-y-px active:scale-[0.98] active:bg-amber-100">Actualizar</button>
+        </div>
       </div>
+
+      {showManual && <form onSubmit={saveManual} className="mt-4 space-y-3 rounded-xl border border-amber-300 bg-white p-4">
+        <div className="flex items-center justify-between"><h4 className="font-semibold">Registrar venta sin catálogo</h4><button type="button" onClick={() => setShowManual(false)}>Cerrar</button></div>
+        {manualLoading ? <p>Cargando productos...</p> : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="text-sm">Producto
+            <select aria-label="Producto sin catálogo" value={manual.productId} onChange={(event) => {
+              const product = manualProducts.find((item) => String(item.id) === event.target.value);
+              setManual((current) => ({ ...current, productId: event.target.value, seller: product?.vendedor || '' }));
+            }} className="mt-1 w-full rounded border p-2" required>
+              <option value="">Seleccionar</option>
+              {manualProducts.map((product) => <option key={product.id} value={product.id}>{product.codigoInventario || product.id} · {product.nombre || product.modelo || product.tipo || 'Producto'}</option>)}
+            </select>
+          </label>
+          <label className="text-sm">Vendedor
+            <select aria-label="Vendedor de venta manual" value={manual.seller} onChange={(event) => setManual((current) => ({ ...current, seller: event.target.value }))} className="mt-1 w-full rounded border p-2" required>
+              <option value="">Seleccionar</option>
+              {manual.seller && !['Gonzalo', 'Renato', 'Ambos'].includes(manual.seller) && <option value={manual.seller}>{manual.seller}</option>}
+              <option value="Gonzalo">Gonzalo</option><option value="Renato">Renato</option><option value="Ambos">Ambos</option>
+            </select>
+          </label>
+          <label className="text-sm">Fecha de venta<input aria-label="Fecha de venta manual" type="date" value={manual.soldAt} onChange={(event) => setManual((current) => ({ ...current, soldAt: event.target.value }))} className="mt-1 w-full rounded border p-2" required /></label>
+          <label className="text-sm">Precio de venta S/<input aria-label="Precio de venta manual" type="number" min="0.01" step="0.01" value={manual.amount} onChange={(event) => setManual((current) => ({ ...current, amount: event.target.value }))} className="mt-1 w-full rounded border p-2" required /></label>
+          <label className="text-sm">Tipo de cambio<input aria-label="Tipo de cambio manual" type="number" min="0.0001" step="0.0001" value={manual.exchangeRate} onChange={(event) => setManual((current) => ({ ...current, exchangeRate: event.target.value }))} className="mt-1 w-full rounded border p-2" required /></label>
+        </div>}
+        <div className="flex flex-wrap gap-4">
+          <PaymentParts sku="venta manual" values={manualPayments} total={manual.amount} onChange={(type, value) => setManualPayments((current) => ({ ...current, [type]: value }))} />
+          <label className="text-sm">Cuenta de débito para pagos sin efectivo
+            <select aria-label="Cuenta de débito para venta manual" value={manual.incomeBank} onChange={(event) => setManual((current) => ({ ...current, incomeBank: event.target.value }))} className="mt-1 block rounded border p-2">
+              {Object.entries(DEBIT_CARD_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+        </div>
+        <button type="submit" disabled={manualSaving || manualLoading} className="rounded bg-emerald-700 px-4 py-2 font-medium text-white disabled:opacity-50">{manualSaving ? 'Registrando...' : 'Registrar venta'}</button>
+      </form>}
 
       {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
       {loading ? (
@@ -196,8 +318,8 @@ export default function CatalogSalesPending() {
                   </td>
                   <td className="p-3 font-medium">{eventLabel(event)}</td>
                   <td className="p-3">{event.sku}</td>
-                  <td className="p-3">S/ {Number(event.amount).toFixed(2)}{paymentTypes[event.id] === 'debt' && <div className="text-xs text-amber-800">Ingreso inicial: S/ 0.00 · x500: 0 · {formatPending500(getPending500(event.amount, 0))}</div>}{paymentTypes[event.id] === 'card' && <div className="text-xs text-amber-800">Ingreso inicial: S/ 0.00 · Deuda: S/ {Number(event.amount).toFixed(2)}</div>}{paymentTypes[event.id] === 'direct' && <div className="text-xs text-emerald-700">Ingreso completo en cuenta</div>}</td>
-                  <td className="p-3">{event.eventType === 'sale.created' ? <select aria-label={`Forma de cobro para ${event.sku}`} value={paymentTypes[event.id] || ''} onChange={(e) => setPaymentTypes((current) => ({ ...current, [event.id]: e.target.value }))} className="rounded-lg border border-amber-300 bg-white px-2 py-1.5"><option value="">Seleccionar</option><option value="direct">Directo</option><option value="card">Pago con tarjeta</option><option value="debt">Deuda x500</option></select> : '-'}</td>
+                  <td className="p-3">S/ {Number(event.amount).toFixed(2)}</td>
+                  <td className="p-3">{event.eventType === 'sale.created' ? <PaymentParts sku={event.sku} values={payments[event.id]} total={event.amount} onChange={(type, value) => setPayments((current) => ({ ...current, [event.id]: { ...current[event.id], [type]: value } }))} /> : '-'}</td>
                   <td className="p-3">
                     {event.eventType === 'sale.created' ? (
                       <input

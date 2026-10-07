@@ -57,6 +57,8 @@ const normalizeText = (value) =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ');
 
+const ignoredInternalTransfer = (description) => /^transf\.\s*bco\.\s*(?:interba|bbva)/i.test(String(description || '').trim());
+
 const isTransportExpenseDescription = (description) => {
   const text = normalizeText(description);
   return /\brides?\b/.test(text) || /\buber\b(?![\s*._-]*(?:eats|one)\b)/.test(text);
@@ -161,6 +163,7 @@ const matrixToBulkLines = (matrix, mode = 'credito') => {
     const note = (mode === 'debito' && conceptIndex >= 0
       ? `${String(row?.[conceptIndex] || '')} ${noteText}`.trim()
       : noteText).replace(/\|/g, '/');
+    if (ignoredInternalTransfer(note)) return [];
     if (cargoIndex >= 0 || abonoIndex >= 0) {
       const index = mode === 'debito_abonos' ? abonoIndex : cargoIndex;
       if (index < 0) return [];
@@ -453,6 +456,7 @@ export const parseBulkRows = (text, mode = 'credito') => {
     }
 
     const notas = parts[4] ? parts[4].trim() : null;
+    if (['debito_abonos', 'debito_gastos'].includes(mode) && ignoredInternalTransfer(notas)) return;
     if (mode === 'debito_gastos' && isRefundMovement(notas) && inputConcept !== 'itf') {
       errors.push(`Linea ${idx + 1}: las devoluciones no se agregan como cargos de débito.`);
       return;
@@ -548,7 +552,18 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
   const candidateTo = new Date(dayValue(to) + oneDay).toISOString().slice(0, 10);
   const normalizedCard = normalizeText(card).replace(/[^a-z0-9]/g, '');
   const isSavedCardPayment = (row) => normalizeText(row.concepto).replace(/\s+/g, '_') === 'pago_tarjeta';
-  const candidates = (savedRows || []).filter((row) => (mode === 'debito_abonos'
+  const savedMovements = mode === 'debito_abonos' ? (savedRows || []).flatMap((row) => {
+    if (!['card', 'debt'].includes(row.salePaymentType)) return [row];
+    const history = Array.isArray(row.salePaymentHistory) ? row.salePaymentHistory : [];
+    if (history.length) return history.filter((payment) => Number(payment.amount) > 0).map((payment, index) => ({
+      ...row, id: `${row.id}-pago-${index}`, monto: payment.amount, fecha: payment.paidAt,
+      notas: `${row.saleSku || row.notas || ''} · cobro ${index + 1}`,
+    }));
+    return Number(row.saleReceivedAmount) > 0
+      ? [{ ...row, monto: row.saleReceivedAmount, fecha: row.salePaidAt || row.fecha }]
+      : [];
+  }) : (savedRows || []);
+  const candidates = savedMovements.filter((row) => !(['debito_abonos', 'debito_gastos'].includes(mode) && ignoredInternalTransfer(row.notas)) && (mode === 'debito_abonos'
     ? normalizeText(row.metodoPago) === 'debito'
       && normalizeText(row.moneda) === 'pen'
       && (isSavedCardPayment(row)
@@ -560,8 +575,8 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
     : normalizeText(row.metodoPago) === mode
       && (mode !== 'debito' || normalizeText(row.concepto) === 'pago_tarjeta')
       && normalizeText(mode === 'debito' ? row.tarjetaPago : row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard)
-    && ((mode === 'debito_abonos' && isSavedCardPayment(row))
-      || (String(row.fecha || '').slice(0, 10) >= candidateFrom && String(row.fecha || '').slice(0, 10) <= candidateTo)))
+    && String(row.fecha || '').slice(0, 10) >= candidateFrom
+    && String(row.fecha || '').slice(0, 10) <= candidateTo)
     .sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')) || Number(a.monto || 0) - Number(b.monto || 0));
   const used = new Set();
   const pairs = imported.map((source, sourceIndex) => {
@@ -574,7 +589,7 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
             : ['ingreso', 'ingresos'].includes(normalizeText(target.concepto)))))
         && (source.concepto !== 'cashback' || normalizeText(target.concepto) === 'cashback')
         && matchingAmounts(source, target, exchangeRates[source._lineNumber], mode)
-        && Math.abs(dayValue(target.fecha) - dayValue(source.fecha)) <= (mode === 'debito_abonos' && source.concepto === 'pago_tarjeta' ? 3 * oneDay : oneDay))
+        && Math.abs(dayValue(target.fecha) - dayValue(source.fecha)) <= oneDay)
       .sort((a, b) => (mode === 'debito_gastos'
         ? Number(isSavedCardPayment(a.target) !== (source.concepto === 'pago_tarjeta')) - Number(isSavedCardPayment(b.target) !== (source.concepto === 'pago_tarjeta'))
         : 0) || Math.abs(dayValue(a.target.fecha) - dayValue(source.fecha)) - Math.abs(dayValue(b.target.fecha) - dayValue(source.fecha)));
@@ -942,7 +957,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
         <h2 className="text-lg font-semibold mb-2">{activeMode === 'debito' ? 'Agregar pagos masivos (Débito)' : activeMode === 'debito_abonos' ? 'Agregar abonos masivos (Débito)' : activeMode === 'debito_gastos' ? 'Agregar gastos masivos (Débito)' : 'Agregar gastos masivos (Crédito)'}</h2>
         <p className="text-sm text-gray-600 mb-4">
           Patron por linea: <code>concepto | moneda | monto | fecha(dd/mm/yyyy) | nota(opcional)</code>.
-          {activeMode === 'debito' ? ' Se importan pagos a tarjeta de Cargos/Debe.' : activeMode === 'debito_abonos' ? ' Se importan movimientos de Abonos/Haber en soles. Los pagos a tarjeta se comparan con los pagos existentes; los demás, con ingresos.' : activeMode === 'debito_gastos' ? ' Se importan todos los cargos positivos de Cargos/Debe, incluidos ITF y pagos a tarjeta. Las devoluciones se omiten.' : ' Los pagos se omiten y las devoluciones se registran como cashback.'}
+          {activeMode === 'debito' ? ' Se importan pagos a tarjeta de Cargos/Debe.' : activeMode === 'debito_abonos' ? ' Se importan movimientos de Abonos/Haber en soles. Se comparan solo cobros recibidos dentro de las fechas del archivo, con un día de margen.' : activeMode === 'debito_gastos' ? ' Se importan todos los cargos positivos de Cargos/Debe, incluidos ITF y pagos a tarjeta. Las devoluciones se omiten.' : ' Los pagos se omiten y las devoluciones se registran como cashback.'}
         </p>
         <div className="mb-4 max-w-2xl rounded-xl border border-gray-200 bg-gray-50 p-3">
           <label className="text-sm text-gray-700">
@@ -1088,7 +1103,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
 
           {comparison && (
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm">
-              <div className="font-semibold text-indigo-950">{activeMode === 'debito_abonos' ? 'Abonos del archivo frente a ingresos y todos los pagos a tarjeta del sistema' : activeMode === 'debito_gastos' ? 'Comparación con cargos de todos los bancos de débito' : `Comparación con ${cardLabel(cards.find((card) => cardValue(card) === tarjeta)) || tarjeta}`}</div>
+              <div className="font-semibold text-indigo-950">{activeMode === 'debito_abonos' ? 'Abonos frente a ingresos y pagos recibidos del período' : activeMode === 'debito_gastos' ? 'Comparación con cargos de todos los bancos de débito' : `Comparación con ${cardLabel(cards.find((card) => cardValue(card) === tarjeta)) || tarjeta}`}</div>
               <div className="mt-1 text-indigo-800">Periodo detectado: {comparison.from} al {comparison.to} · Coinciden por fecha y monto: {comparison.matched}/{comparison.totalImported} · Faltan en el sistema: {comparison.missing.length}</div>
               <div className="mt-3 max-h-[60vh] overflow-auto rounded-lg border border-indigo-200 bg-white">
                 <table className="min-w-[760px] w-full text-xs">

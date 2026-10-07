@@ -59,13 +59,15 @@ test('agrega un nuevo adelanto y actualiza el total y el saldo restante', async 
     expect(api.post).toHaveBeenCalledWith('/ventas/adelanto/4/cuotas', {
       fechaCuota: '2026-06-10',
       montoCuota: 700,
+      incomeBank: 'bcp',
+      incomePaymentType: 'direct',
     });
   });
 
   expect(await screen.findByText('S/ 1200.00')).toBeInTheDocument();
   expect(screen.getByText('S/ 800.00')).toBeInTheDocument();
   expect(screen.getByText('Adelanto 2')).toBeInTheDocument();
-  expect(screen.getByText('2026-06-10')).toBeInTheDocument();
+  expect(screen.getByText(/2026-06-10/)).toBeInTheDocument();
 });
 
 test('no permite que un nuevo adelanto supere el saldo pendiente', () => {
