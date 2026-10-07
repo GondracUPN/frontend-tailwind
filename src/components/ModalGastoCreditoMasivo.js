@@ -340,8 +340,12 @@ export const pdfTextItemsToLines = (textItems) => {
     ? textItems.filter((item) => ['soles', 'dolares'].includes(normalizeText(item.str)))
       .map((item) => ({ currency: normalizeText(item.str) === 'dolares' ? 'USD' : 'PEN', x: Number(item.transform?.[4] || 0) }))
     : [];
-  const sideHeaders = textItems.filter((item) => /\bcargos?\b|\bdebe\b|\babonos?\b|\bhaber\b/i.test(normalizeText(item.str)))
+  const sideHeaderCandidates = textItems.filter((item) => /\bcargos?\b|\bdebe\b|\babonos?\b|\bhaber\b/i.test(normalizeText(item.str)))
     .map((item) => ({ side: /abono|haber/i.test(item.str) ? 'ABONO' : 'CARGO', x: Number(item.transform?.[4] || 0) }));
+  // Una mención aislada como "Cuenta de cargo" no es una columna de movimientos.
+  const sideHeaders = sideHeaderCandidates.some((item) => item.side === 'CARGO')
+    && sideHeaderCandidates.some((item) => item.side === 'ABONO')
+    ? sideHeaderCandidates : [];
   const lines = [];
   [...groups.entries()].sort((a, b) => b[0] - a[0]).forEach(([, items]) => {
     const ordered = items.sort((a, b) => a.x - b.x);

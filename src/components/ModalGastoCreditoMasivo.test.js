@@ -228,6 +228,24 @@ test('lee la columna Dólares del PDF Amex aunque el pago termine en signo menos
   expect(pdfLinesToBulkText(lines)).toContain('inversion | USD | 850 | 23/08/2026');
 });
 
+test('lee los consumos de todas las páginas Amex aunque el resumen diga Cuenta de cargo', () => {
+  const item = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y] });
+  const firstPage = pdfTextItemsToLines([
+    item('24/08/26 22/09/26', 45, 762), item('Cuenta de cargo', 411, 706),
+    item('Soles', 471, 603), item('Dólares', 524, 603),
+    item('25Ago', 47, 501), item('23Ago', 92, 501), item('PAYPAL *EBAY US 840', 136, 501), item('CONSUMO', 410, 501), item('850.00', 545, 501),
+    item('04Set', 47, 321), item('03Set', 92, 321), item('PAYPAL *EBAY US 840', 136, 321), item('CONSUMO', 410, 321), item('500.00', 545, 321),
+  ]);
+  const secondPage = pdfTextItemsToLines([
+    item('Soles', 471, 684), item('Dólares', 524, 684),
+    item('21Set', 47, 516), item('19Set', 92, 516), item('PAYPAL *EBAY US 840', 136, 516), item('CONSUMO', 410, 516), item('269.99', 545, 516),
+  ]);
+  expect(firstPage.every((line) => !line.includes('[CARGO]'))).toBe(true);
+  const parsed = parseBulkRows(pdfLinesToBulkText([...firstPage, ...secondPage]));
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows.map((row) => row.body.fecha)).toEqual(['2026-08-23', '2026-09-03', '2026-09-19']);
+});
+
 test('Mercado Pago positivo es un consumo y PAGO BANCA MOVIL sigue siendo pago', () => {
   const lines = [
     '2026',
