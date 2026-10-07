@@ -70,6 +70,20 @@ test('un pago en Abonos se compara solo con pagos a tarjeta en soles', () => {
   expect(compareBulkExpenses([{ ...imported[1], body: { ...imported[1].body, monto: 500 } }], [saved[0]], 'bcp', 'debito_abonos').matched).toBe(0);
 });
 
+test('muestra todos los pagos a tarjeta del sistema aunque estén fuera del período del archivo', () => {
+  const imported = parseBulkRows('ingreso | PEN | 25 | 01/08/2026 | ABON PLIN', 'debito_abonos').rows;
+  const payment = {
+    id: 81, fecha: '2026-07-10', moneda: 'PEN', monto: 1774.24, montoUsdAplicado: 520,
+    concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: 'bcp', tarjetaPago: 'io',
+  };
+  const comparison = compareBulkExpenses(imported, [payment], 'bcp', 'debito_abonos');
+  expect(comparison.candidates).toContainEqual(payment);
+  expect(comparison.displayRows).toEqual(expect.arrayContaining([expect.objectContaining({ imported: null, saved: payment })]));
+  expect(comparison.matched).toBe(0);
+  const matchingFile = parseBulkRows('pago_tarjeta | PEN | 1774.24 | 11/07/2026 | TRAN.CTAS.TERC.BM', 'debito_abonos').rows;
+  expect(compareBulkExpenses(matchingFile, [payment], 'bcp', 'debito_abonos').pairs[0].target.id).toBe(81);
+});
+
 test('permite marcar una transferencia genérica del abono como pago antes de comparar', async () => {
   const originalFetch = global.fetch;
   const saved = { id: 22, fecha: '2026-08-04', moneda: 'PEN', monto: 500, concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: 'bbva', tarjetaPago: 'bcp_amex' };
@@ -80,6 +94,7 @@ test('permite marcar una transferencia genérica del abono como pago antes de co
     await waitFor(() => expect(screen.queryByText('Cargando abonos existentes para comparar...')).not.toBeInTheDocument());
     fireEvent.change(screen.getByLabelText('Líneas de abonos'), { target: { value: 'ingreso | PEN | 500 | 04/08/2026 | TRAN.CTAS.TERC.BM' } });
     expect(screen.getByText(/Coinciden por fecha y monto: 0\/1/)).toBeInTheDocument();
+    expect(screen.getByText(/Pago a tarjeta BCP_AMEX · Banco BBVA/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Tipo de abono línea 1'), { target: { value: 'pago_tarjeta' } });
     expect(screen.getByText(/Coinciden por fecha y monto: 1\/1/)).toBeInTheDocument();
   } finally {

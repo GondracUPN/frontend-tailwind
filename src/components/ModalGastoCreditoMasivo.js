@@ -541,10 +541,11 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
   const candidateFrom = new Date(dayValue(from) - oneDay).toISOString().slice(0, 10);
   const candidateTo = new Date(dayValue(to) + oneDay).toISOString().slice(0, 10);
   const normalizedCard = normalizeText(card).replace(/[^a-z0-9]/g, '');
+  const isSavedCardPayment = (row) => normalizeText(row.concepto).replace(/\s+/g, '_') === 'pago_tarjeta';
   const candidates = (savedRows || []).filter((row) => (mode === 'debito_abonos'
     ? normalizeText(row.metodoPago) === 'debito'
-      && row.moneda === 'PEN'
-      && (normalizeText(row.concepto) === 'pago_tarjeta'
+      && normalizeText(row.moneda) === 'pen'
+      && (isSavedCardPayment(row)
         || (['ingreso', 'ingresos'].includes(normalizeText(row.concepto))
           && normalizeText(row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard))
     : mode === 'debito_gastos'
@@ -554,7 +555,8 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
     : normalizeText(row.metodoPago) === mode
       && (mode !== 'debito' || normalizeText(row.concepto) === 'pago_tarjeta')
       && normalizeText(mode === 'debito' ? row.tarjetaPago : row.tarjeta).replace(/[^a-z0-9]/g, '') === normalizedCard)
-    && String(row.fecha || '').slice(0, 10) >= candidateFrom && String(row.fecha || '').slice(0, 10) <= candidateTo)
+    && ((mode === 'debito_abonos' && isSavedCardPayment(row))
+      || (String(row.fecha || '').slice(0, 10) >= candidateFrom && String(row.fecha || '').slice(0, 10) <= candidateTo)))
     .sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')) || Number(a.monto || 0) - Number(b.monto || 0));
   const used = new Set();
   const pairs = imported.map((source, sourceIndex) => {
@@ -562,11 +564,11 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
       .filter(({ target, candidateIndex }) => !used.has(candidateIndex)
         && (mode !== 'debito_abonos' || (source.moneda === 'PEN'
           && (source.concepto === 'pago_tarjeta'
-            ? normalizeText(target.concepto) === 'pago_tarjeta'
+            ? isSavedCardPayment(target)
             : ['ingreso', 'ingresos'].includes(normalizeText(target.concepto)))))
         && (source.concepto !== 'cashback' || normalizeText(target.concepto) === 'cashback')
         && matchingAmounts(source, target, exchangeRates[source._lineNumber], mode)
-        && Math.abs(dayValue(target.fecha) - dayValue(source.fecha)) <= oneDay)
+        && Math.abs(dayValue(target.fecha) - dayValue(source.fecha)) <= (mode === 'debito_abonos' && source.concepto === 'pago_tarjeta' ? 3 * oneDay : oneDay))
       .sort((a, b) => Math.abs(dayValue(a.target.fecha) - dayValue(source.fecha)) - Math.abs(dayValue(b.target.fecha) - dayValue(source.fecha)));
     const index = matchingIndexes[0]?.candidateIndex ?? -1;
     if (index >= 0) used.add(index);
@@ -574,6 +576,13 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
   });
   const missing = pairs.filter((pair) => !pair.target).map((pair) => pair.source);
   const remaining = candidates.filter((_, index) => !used.has(index));
+  if (mode === 'debito_abonos') {
+    const displayRows = [
+      ...pairs.map((pair) => ({ imported: pair.source, saved: pair.target, matched: Boolean(pair.target), sourceIndex: pair.sourceIndex })),
+      ...remaining.map((saved) => ({ imported: null, saved, matched: false, sourceIndex: null })),
+    ];
+    return { from, to, totalImported: imported.length, matched: used.size, missing, pairs, displayRows, imported, candidates, onlyInSystem: remaining };
+  }
   const importedDates = [...new Set(imported.map((row) => row.fecha))].sort();
   const systemGroups = new Map(importedDates.map((date) => [date, []]));
   candidates.forEach((saved) => {
@@ -649,7 +658,10 @@ function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverr
         <td className={`border-l border-gray-100 p-2 ${acceptedMatch ? 'bg-emerald-100' : 'bg-white'}`}>
           {saved && <div className={acceptedMatch ? 'text-emerald-900' : 'text-indigo-800'}>
             <span className="font-medium">{String(saved.fecha).slice(0, 10)} · {amountLabel(saved.moneda, saved.monto)}</span>
-            {mode === 'debito_abonos' && <span className="block text-xs font-semibold">{normalizeText(saved.concepto) === 'pago_tarjeta' ? 'Pago a tarjeta' : 'Ingreso'}</span>}
+            {mode === 'debito_abonos' && <span className="block text-xs font-semibold">{normalizeText(saved.concepto).replace(/\s+/g, '_') === 'pago_tarjeta'
+              ? `Pago a tarjeta ${String(saved.tarjetaPago || '').toUpperCase()} · Banco ${String(saved.tarjeta || '').toUpperCase()}`
+              : `Ingreso · Banco ${String(saved.tarjeta || '').toUpperCase()}`}</span>}
+            {mode === 'debito_abonos' && validExchangeRate(saved.montoUsdAplicado) && <span className="block text-xs text-slate-500">Referencia: {amountLabel('USD', saved.montoUsdAplicado)}</span>}
             {mode === 'debito' && saved.moneda === 'PEN' && validExchangeRate(saved.tasaUsdPen) && (
               <span className="block text-xs">Equivale a {amountLabel('USD', money(Math.abs(Number(saved.monto)) / Number(saved.tasaUsdPen)))} · TC {Number(saved.tasaUsdPen).toFixed(4)}</span>
             )}
@@ -1049,9 +1061,9 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
 
           {comparison && (
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm">
-              <div className="font-semibold text-indigo-950">Comparación con {['debito_gastos', 'debito_abonos'].includes(activeMode) ? DEBIT_BANKS.find((bank) => bank.value === banco)?.label || banco : cardLabel(cards.find((card) => cardValue(card) === tarjeta)) || tarjeta}</div>
+              <div className="font-semibold text-indigo-950">{activeMode === 'debito_abonos' ? 'Abonos del archivo frente a ingresos y todos los pagos a tarjeta del sistema' : `Comparación con ${activeMode === 'debito_gastos' ? DEBIT_BANKS.find((bank) => bank.value === banco)?.label || banco : cardLabel(cards.find((card) => cardValue(card) === tarjeta)) || tarjeta}`}</div>
               <div className="mt-1 text-indigo-800">Periodo detectado: {comparison.from} al {comparison.to} · Coinciden por fecha y monto: {comparison.matched}/{comparison.totalImported} · Faltan en el sistema: {comparison.missing.length}</div>
-              <div className="mt-3 overflow-x-auto rounded-lg border border-indigo-200 bg-white">
+              <div className="mt-3 max-h-[60vh] overflow-auto rounded-lg border border-indigo-200 bg-white">
                 <table className="min-w-[760px] w-full text-xs">
                   <thead className="bg-indigo-100 text-indigo-950"><tr><th className="w-1/2 p-2 text-left">Movimientos cargados ({comparison.imported.length})</th><th className="w-1/2 border-l border-indigo-200 p-2 text-left">Movimientos en el sistema ({comparison.candidates.length})</th></tr></thead>
                   <tbody><ExpenseComparisonRows comparison={comparison} reviewed={reviewed} setReviewed={setReviewed} conceptOverrides={conceptOverrides} setConceptOverrides={setConceptOverrides} conceptOptions={conceptOptions} mode={activeMode} exchangeRates={exchangeRates} setExchangeRates={setExchangeRates} /></tbody>
