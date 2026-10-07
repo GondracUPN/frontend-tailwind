@@ -26,6 +26,7 @@ test('separa las columnas Cargos/Debe y Abonos/Haber de un estado de débito', (
   expect(pagos).toContain('pago_tarjeta | PEN | 3900.86 | 01/08/2026');
   expect(pagos).not.toContain('25');
   const gastos = pdfLinesToBulkText(lines, 'debito_gastos');
+  expect(gastos).toContain('pago_tarjeta | PEN | 3900.86 | 01/08/2026');
   expect(gastos).toContain('itf | PEN | 0.35 | 02/08/2026');
   expect(gastos).not.toContain('25');
   const abonos = pdfLinesToBulkText(lines, 'debito_abonos');
@@ -52,6 +53,30 @@ test('conserva cargos IO con códigos y nombres del estado BCP', () => {
   ]);
 });
 
+test('el formato BCP de ahorros conserva todos los cargos con importe, incluidos pagos a tarjeta y Yape', () => {
+  const item = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y] });
+  const lines = pdfTextItemsToLines([
+    item('01/08/26', 399, 666),
+    item('CARGOS / DEBE', 343, 630), item('ABONOS / HABER', 485, 630),
+    item('02AGO', 37, 543), item('02AGO', 80, 543), item('IO D000075135395', 123, 543), item('1,774.24', 368, 543),
+    item('07AGO', 37, 387), item('07AGO', 80, 387), item('PAG.T.PROP.AMEX.BM', 123, 387), item('3,635.15', 368, 387),
+    item('19AGO', 37, 431), item('19AGO', 80, 431), item('Pago YAPE a 000000', 123, 431), item('17.25', 390, 431),
+    item('20AGO', 37, 522), item('20AGO', 80, 522), item('IMPUESTO ITF', 123, 522), item('0.60', 397, 522),
+    item('20AGO', 37, 510), item('20AGO', 80, 510), item('DEPOSITO EFECTIVO', 123, 510), item('4,100.00', 505, 510),
+    item('31AGO', 37, 477), item('31AGO', 80, 477), item('MANT. CUENTA AGO26', 123, 477), item('0.00', 397, 477),
+  ]);
+  const parsed = parseBulkRows(pdfLinesToBulkText(lines, 'debito_gastos'), 'debito_gastos');
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows.map((row) => [row.body.fecha, row.body.concepto, row.body.monto]).sort((a, b) => a[0].localeCompare(b[0]))).toEqual([
+    ['2026-08-02', 'gusto', 1774.24],
+    ['2026-08-07', 'pago_tarjeta', 3635.15],
+    ['2026-08-19', 'gusto', 17.25],
+    ['2026-08-20', 'itf', 0.6],
+  ]);
+  const payment = { id: 44, fecha: '2026-08-07', moneda: 'PEN', monto: 3635.15, concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: 'bbva', tarjetaPago: 'bcp_amex' };
+  expect(compareBulkExpenses(parsed.rows, [payment], 'bcp', 'debito_gastos').pairs.find((pair) => pair.source.concepto === 'pago_tarjeta')?.target?.id).toBe(44);
+});
+
 test('en CSV cada vista usa exclusivamente su columna', () => {
   const csv = [
     'Fecha Proc.,Fecha Valor,Descripcion,Cargos/Debe,Abonos/Haber',
@@ -61,6 +86,7 @@ test('en CSV cada vista usa exclusivamente su columna', () => {
   ].join('\n');
   const data = Buffer.from(csv, 'utf8');
   expect(spreadsheetToBulkLines(data, 'cuenta.csv', 'debito')).toEqual(['pago_tarjeta | PEN | 3900.86 | 01/08/2026 | PAGO TARJETA']);
+  expect(spreadsheetToBulkLines(data, 'cuenta.csv', 'debito_gastos')).toEqual(['pago_tarjeta | PEN | 3900.86 | 01/08/2026 | PAGO TARJETA']);
   expect(spreadsheetToBulkLines(data, 'cuenta.csv', 'debito_abonos')).toEqual([
     'ingreso | PEN | 25 | 01/08/2026 | ABON PLIN',
     'ingreso | PEN | 4100 | 02/08/2026 | DEPOSITO EFECTIVO',
@@ -224,7 +250,7 @@ test('gastos de débito incluye ITF y compara cargos con egresos de todos los ba
   const parsed = parseBulkRows(pdf, 'debito_gastos');
   expect(parsed.errors).toEqual([]);
   expect(parsed.rows.map((row) => row.body.metodoPago)).toEqual(['debito', 'debito']);
-  expect(parseBulkRows('pago_tarjeta | PEN | 700 | 23/08/2026', 'debito_gastos').rows).toHaveLength(0);
+  expect(parseBulkRows('pago_tarjeta | PEN | 700 | 23/08/2026', 'debito_gastos').rows).toHaveLength(1);
   const imported = [
     { lineNumber: 1, body: { fecha: '2026-08-23', moneda: 'PEN', monto: 45, concepto: 'gusto' } },
     { lineNumber: 2, body: { fecha: '2026-08-23', moneda: 'USD', monto: 12.5, concepto: 'gusto' } },
@@ -302,6 +328,30 @@ test('el botón junto a la contraseña permite comparar y guardar gastos de déb
   } finally {
     global.fetch = originalFetch;
     pdfjsLib.getDocument.mockReset();
+    createExpenseWithDuplicateCheck.mockReset();
+    localStorage.removeItem('token');
+  }
+});
+
+test('guarda un cargo de pago a tarjeta con el banco de origen y la tarjeta pagada', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/cards') ? [{ type: 'bcp_amex', label: 'BCP Amex' }] : [] }));
+  localStorage.setItem('token', 'test-token');
+  createExpenseWithDuplicateCheck.mockResolvedValue({ id: 98 });
+  try {
+    render(<ModalGastoCreditoMasivo mode="debito" userId={1} onClose={jest.fn()} onSaved={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Gastos (cargos)' }));
+    fireEvent.change(screen.getByLabelText(/^Tarjeta gasto/), { target: { value: 'bbva' } });
+    fireEvent.change(screen.getByLabelText('Líneas de gastos'), { target: { value: 'pago_tarjeta | PEN | 3635.15 | 07/08/2026 | PAG.T.PROP.AMEX.BM' } });
+    await waitFor(() => expect(screen.getByLabelText('Tarjeta pagada línea 1')).toHaveValue('bcp_amex'));
+    await waitFor(() => expect(screen.queryByText('Cargando gastos existentes para comparar...')).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar masivo' }));
+    await waitFor(() => expect(createExpenseWithDuplicateCheck).toHaveBeenCalledWith(expect.objectContaining({
+      concepto: 'pago_tarjeta', metodoPago: 'debito', moneda: 'PEN', monto: 3635.15,
+      tarjeta: 'bbva', tarjetaPago: 'bcp_amex', pagoObjetivo: 'PEN',
+    }), expect.anything()));
+  } finally {
+    global.fetch = originalFetch;
     createExpenseWithDuplicateCheck.mockReset();
     localStorage.removeItem('token');
   }

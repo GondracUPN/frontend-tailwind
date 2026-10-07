@@ -17,7 +17,7 @@ const CREDIT_CONCEPTS = [
   'reinicio',
   'cashback',
 ];
-const DEBIT_EXPENSE_CONCEPTS = ['comida', 'gusto', 'itf', 'retiro_agente', 'gastos_recurrentes', 'transporte', 'pago_envios', 'bolsa'];
+const DEBIT_EXPENSE_CONCEPTS = ['comida', 'gusto', 'itf', 'retiro_agente', 'gastos_recurrentes', 'transporte', 'pago_envios', 'bolsa', 'pago_tarjeta'];
 const DEBIT_BANKS = [
   { value: 'bcp', label: 'BCP' },
   { value: 'interbank', label: 'Interbank' },
@@ -118,6 +118,8 @@ const isMercadoPagoMerchant = (description) => /\bmercado\s*pago\b/.test(normali
 const isItfMovement = (description) => /\bitf\b|impuesto\s+a\s+las\s+transacciones/.test(normalizeText(description));
 const isPaymentMovement = (description) => !isItfMovement(description) && /\bpagos?\b|\bpago[_ -]?tarjeta\b|\bpag\.?\s*tarj\w*\b|\bpagtc\b|\bpag\.?\s*t\.?\s*prop\b/
   .test(normalizeText(description).replace(/\bmercado\s*pago\b/g, 'mercado_pago'));
+const isCardPaymentMovement = (description) => /\bpago\s+(?:de\s+)?tarjeta\b|\bpago[_ -]?tarjeta\b|\bpag\.?\s*tarj\w*\b|\bpagtc\b|\bpag\.?\s*t\.?\s*prop\b/
+  .test(normalizeText(description));
 const abonoConcept = (description) => isPaymentMovement(description) ? 'pago_tarjeta' : 'ingreso';
 const isPaymentOrBalanceMovement = (description) => isPaymentMovement(description) || /\bexceso\b|sdo\.?\s*acre|saldo\s+acre/i.test(normalizeText(description));
 const isRefundMovement = (description) => /reembolso|refund|devolucion|\bdev\.?\s*(?:compra|consumo|tarjeta)\b/.test(normalizeText(description));
@@ -125,6 +127,7 @@ const movementSide = (description) => /\[ABONO\]/i.test(description) ? 'abono' :
 const cleanMovementNote = (description) => String(description || '').replace(/\s*\[(?:ABONO|CARGO)\]\s*/gi, ' ').trim();
 const debitExpenseConcept = (description) => {
   if (isItfMovement(description)) return 'itf';
+  if (isCardPaymentMovement(description)) return 'pago_tarjeta';
   const concept = classifyExpenseConcept(description);
   return DEBIT_EXPENSE_CONCEPTS.includes(concept) ? concept : 'gusto';
 };
@@ -176,7 +179,9 @@ const matrixToBulkLines = (matrix, mode = 'credito') => {
     return [{ row, rawAmount, note, signedAmount: toSignedAmount(rawAmount), explicitCurrency: null }];
   }).filter((entry) => entry.signedAmount && (mode === 'debito_abonos' ? true : mode === 'debito'
     ? isPaymentMovement(entry.note)
-    : !isPaymentOrBalanceMovement(entry.note) && (mode !== 'debito_gastos' || !isRefundMovement(entry.note))));
+    : mode === 'debito_gastos'
+      ? !/\bexceso\b|sdo\.?\s*acre|saldo\s+acre/i.test(normalizeText(entry.note)) && !isRefundMovement(entry.note)
+      : !isPaymentOrBalanceMovement(entry.note)));
 
   // Interbank exporta consumos negativos; otros extractos muestran consumos
   // positivos y pagos/excesos negativos. Tras retirar pagos, el signo que tenga
@@ -200,7 +205,7 @@ const matrixToBulkLines = (matrix, mode = 'credito') => {
     }
     const inferredConcept = classifyExpenseConcept(note);
     const isRefund = inferredConcept === 'cashback';
-    if (!isRefund && Math.sign(signedAmount) !== expenseSign && !isMercadoPagoMerchant(note) && !(mode === 'debito_gastos' && isItfMovement(note))) return [];
+    if (!isRefund && !(mode === 'debito_gastos' && cargoIndex >= 0) && Math.sign(signedAmount) !== expenseSign && !isMercadoPagoMerchant(note) && !(mode === 'debito_gastos' && isItfMovement(note))) return [];
     const currency = explicitCurrency || (currencyIndex >= 0
       ? (toMoneda(row[currencyIndex]) || (/US\$|USD|\$/i.test(rawAmount) ? 'USD' : 'PEN'))
       : (/US\$|USD|\$/i.test(rawAmount) ? 'USD' : 'PEN'));
@@ -249,7 +254,7 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
       const middle = bcp[5].trim();
       const operation = [...middle.matchAll(/\b(CONSUMO|DEVOLUCI[OÓ]N|PAGO)\b/gi)].at(-1)?.[1] || '';
       const isPayment = !isItfMovement(middle) && (isPaymentMovement(middle) || /PAGO/i.test(operation));
-      if (mode === 'debito' ? !isPayment : mode === 'debito_abonos' ? false : isPayment) return [];
+      if (mode === 'debito' ? !isPayment : mode === 'debito_abonos' ? false : mode === 'debito_gastos' ? isPayment && side !== 'cargo' : isPayment) return [];
       const isRefund = /DEVOLUCI/i.test(operation) || isRefundMovement(middle);
       if (mode === 'debito_gastos' && isRefund) return [];
       const description = middle.replace(/\s+\b(CONSUMO|DEVOLUCI[OÓ]N)\b.*$/i, '').trim();
@@ -270,7 +275,7 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
     if (io) {
       const isPayment = isPaymentMovement(io[3]);
       const isRefund = isRefundMovement(io[3]);
-      if (mode === 'debito' ? !isPayment : mode === 'debito_abonos' ? false : (isPayment || (pdfSection === 'credits' && !isRefund))) return [];
+      if (mode === 'debito' ? !isPayment : mode === 'debito_abonos' ? false : mode === 'debito_gastos' ? pdfSection === 'credits' && !isRefund : (isPayment || (pdfSection === 'credits' && !isRefund))) return [];
       if (mode === 'debito_gastos' && isRefund) return [];
       if (!['debito', 'debito_abonos'].includes(mode) && !['purchases', 'installments'].includes(pdfSection) && !isRefund) return [];
       const date = statementDate(io[1], io[2], detectedYear);
@@ -286,7 +291,7 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
     const falabella = cleanLine.match(/^\s*(\d{1,2}\/\d{1,2}\/20\d{2})\s+(\d{1,2}\/\d{1,2}\/20\d{2})\s+(.+?)\s+(-?[\d,.]+)\s*$/i);
     if (falabella) {
       const description = falabella[3].trim();
-      if (mode === 'debito' ? !isPaymentMovement(description) : mode === 'debito_abonos' ? false : isPaymentOrBalanceMovement(description)) return [];
+      if (mode === 'debito' ? !isPaymentMovement(description) : mode === 'debito_abonos' || mode === 'debito_gastos' ? false : isPaymentOrBalanceMovement(description)) return [];
       if (mode === 'debito_gastos' && isRefundMovement(description)) return [];
       const amount = toSignedAmount(falabella[4]);
       if (!amount) return [];
@@ -303,13 +308,14 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
     const description = cleanLine.replace(dateMatch[0], ' ').replace(amountToken || '', ' ').replace(/\[(?:PEN|USD)\]\s*$/i, '').replace(/\s+/g, ' ').trim();
     const isRefund = classifyExpenseConcept(description) === 'cashback';
     if (!signedAmount) return [];
-    if (mode === 'debito' ? !isPaymentMovement(description) : mode === 'debito_abonos' ? false : isPaymentOrBalanceMovement(description)) return [];
+    if (mode === 'debito' ? !isPaymentMovement(description) : mode === 'debito_abonos' || mode === 'debito_gastos' ? false : isPaymentOrBalanceMovement(description)) return [];
     if (mode === 'debito_gastos' && isRefund) return [];
     // Si conocemos la columna visual, el signo deja de ser una señal de
     // moneda o de tipo de movimiento. Algunos bancos muestran consumos en
     // positivo y otros en negativo.
     if (!['debito', 'debito_abonos'].includes(mode) && !visualCurrency && !(signedAmount < 0) && !isRefund
       && !/\b(?:consumo|compra)\b/.test(normalizeText(description)) && !isMercadoPagoMerchant(description)
+      && !(mode === 'debito_gastos' && side === 'cargo')
       && !(mode === 'debito_gastos' && isItfMovement(description))) return [];
     const date = `${String(dateMatch[1]).padStart(2, '0')}/${String(dateMatch[2]).padStart(2, '0')}/${dateMatch[3] || detectedYear}`;
     const currency = visualCurrency || (/US\$|USD|\$/i.test(amountToken || '') && !/S\//i.test(amountToken || '') ? 'USD' : 'PEN');
@@ -447,8 +453,8 @@ export const parseBulkRows = (text, mode = 'credito') => {
     }
 
     const notas = parts[4] ? parts[4].trim() : null;
-    if (mode === 'debito_gastos' && (isPaymentOrBalanceMovement(notas) || isRefundMovement(notas)) && inputConcept !== 'itf') {
-      errors.push(`Linea ${idx + 1}: los pagos y devoluciones no se agregan como gastos de débito.`);
+    if (mode === 'debito_gastos' && isRefundMovement(notas) && inputConcept !== 'itf') {
+      errors.push(`Linea ${idx + 1}: las devoluciones no se agregan como cargos de débito.`);
       return;
     }
     const concept = mode === 'debito_abonos' ? inputConcept : mode === 'debito' ? 'pago_tarjeta'
@@ -561,6 +567,7 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
   const pairs = imported.map((source, sourceIndex) => {
     const matchingIndexes = candidates.map((target, candidateIndex) => ({ target, candidateIndex }))
       .filter(({ target, candidateIndex }) => !used.has(candidateIndex)
+        && (mode !== 'debito_gastos' || source.concepto !== 'pago_tarjeta' || isSavedCardPayment(target))
         && (mode !== 'debito_abonos' || (source.moneda === 'PEN'
           && (source.concepto === 'pago_tarjeta'
             ? isSavedCardPayment(target)
@@ -568,7 +575,9 @@ export const compareBulkExpenses = (importedRows, savedRows, card, mode = 'credi
         && (source.concepto !== 'cashback' || normalizeText(target.concepto) === 'cashback')
         && matchingAmounts(source, target, exchangeRates[source._lineNumber], mode)
         && Math.abs(dayValue(target.fecha) - dayValue(source.fecha)) <= (mode === 'debito_abonos' && source.concepto === 'pago_tarjeta' ? 3 * oneDay : oneDay))
-      .sort((a, b) => Math.abs(dayValue(a.target.fecha) - dayValue(source.fecha)) - Math.abs(dayValue(b.target.fecha) - dayValue(source.fecha)));
+      .sort((a, b) => (mode === 'debito_gastos'
+        ? Number(isSavedCardPayment(a.target) !== (source.concepto === 'pago_tarjeta')) - Number(isSavedCardPayment(b.target) !== (source.concepto === 'pago_tarjeta'))
+        : 0) || Math.abs(dayValue(a.target.fecha) - dayValue(source.fecha)) - Math.abs(dayValue(b.target.fecha) - dayValue(source.fecha)));
     const index = matchingIndexes[0]?.candidateIndex ?? -1;
     if (index >= 0) used.add(index);
     return { source, sourceIndex: source._lineNumber, target: index >= 0 ? candidates[index] : null };
@@ -610,7 +619,7 @@ const CONCEPT_LABELS = {
   comida: 'Comida', gusto: 'Gusto', inversion: 'Inversión', pago_envios: 'Pago de envíos',
   deuda_cuotas: 'Deuda en cuotas', gastos_recurrentes: 'Gastos recurrentes', desgravamen: 'Desgravamen',
   transporte: 'Transporte', reinicio: 'Reinicio', cashback: 'Cashback / reembolso',
-  itf: 'ITF', retiro_agente: 'Retiro agente', bolsa: 'Bolsa',
+  itf: 'ITF', retiro_agente: 'Retiro agente', bolsa: 'Bolsa', pago_tarjeta: 'Pago a tarjeta',
 };
 
 function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverrides, setConceptOverrides, conceptOptions, mode, exchangeRates, setExchangeRates }) {
@@ -675,6 +684,14 @@ function ExpenseComparisonRows({ comparison, reviewed, setReviewed, conceptOverr
 
 const EMPTY_ROWS = [];
 
+const suggestedPaymentCard = (note, cards) => {
+  const description = normalizeText(note);
+  const kind = /\bamex\b/.test(description) ? 'amex' : /\bvisa\b/.test(description) ? 'visa' : null;
+  if (!kind) return '';
+  const matches = cards.filter((card) => normalizeText([card.type, card.tipo, card.label, card.name].filter(Boolean).join(' ')).includes(kind));
+  return matches.length === 1 ? (matches[0].type || matches[0].tipo || matches[0].label || matches[0].name || '') : '';
+};
+
 export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_ROWS, expenseConcepts = [], mode = 'credito', onClose, onSaved }) {
   const [cards, setCards] = useState([]);
   const [systemRows, setSystemRows] = useState(existingRows);
@@ -691,6 +708,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
   const [draggingFile, setDraggingFile] = useState(false);
   const [reviewed, setReviewed] = useState({});
   const [conceptOverrides, setConceptOverrides] = useState({});
+  const [paymentCards, setPaymentCards] = useState({});
   const [exchangeRates, setExchangeRates] = useState({});
   const [debitView, setDebitView] = useState('pagos');
   const activeMode = mode === 'debito' ? (debitView === 'gastos' ? 'debito_gastos' : debitView === 'abonos' ? 'debito_abonos' : 'debito') : mode;
@@ -768,7 +786,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
   }, [userId, existingRows]);
 
   const preview = useMemo(() => parseBulkRows(bulkText, activeMode), [bulkText, activeMode]);
-  const effectiveRows = useMemo(() => activeMode === 'debito_abonos'
+  const effectiveRows = useMemo(() => ['debito_abonos', 'debito_gastos'].includes(activeMode)
     ? preview.rows.map((row) => ({ ...row, body: { ...row.body, concepto: conceptOverrides[row.lineNumber] || row.body.concepto } }))
     : preview.rows, [preview.rows, activeMode, conceptOverrides]);
   const hasAbonoPayments = activeMode === 'debito_abonos' && effectiveRows.some((row) => row.body.concepto === 'pago_tarjeta');
@@ -786,6 +804,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
         setFileName(file.name);
         setReviewed({});
         setConceptOverrides({});
+        setPaymentCards({});
         setExchangeRates({});
         return;
       }
@@ -796,6 +815,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
       setFileName(file.name);
       setReviewed({});
       setConceptOverrides({});
+      setPaymentCards({});
       setExchangeRates({});
     } catch (loadError) {
       const passwordProblem = loadError?.name === 'PasswordException' || /password|contrase/i.test(loadError?.message || '');
@@ -811,6 +831,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
     setFileName('');
     setReviewed({});
     setConceptOverrides({});
+    setPaymentCards({});
     setExchangeRates({});
     setError('');
   };
@@ -847,7 +868,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
       setError(parsed.errors.slice(0, 8).join('\n'));
       return;
     }
-    const rows = activeMode === 'debito_abonos'
+    const rows = ['debito_abonos', 'debito_gastos'].includes(activeMode)
       ? parsed.rows.map((row) => ({ ...row, body: { ...row.body, concepto: conceptOverrides[row.lineNumber] || row.body.concepto } }))
       : parsed.rows;
     if (activeMode === 'debito_abonos' && rows.some((row) => row.body.concepto === 'pago_tarjeta') && !tarjeta) {
@@ -862,6 +883,9 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
       .map((pair) => pair.source._lineNumber));
     const rowsToSave = rows.filter((item) => !matchedLines.has(item.lineNumber) && !reviewed[`imported-${item.lineNumber}`]);
     if (!rowsToSave.length) return setError('No hay gastos pendientes sin marcar para guardar.');
+    const missingPaymentCard = activeMode === 'debito_gastos' && rowsToSave.find((item) => item.body.concepto === 'pago_tarjeta'
+      && !(paymentCards[item.lineNumber] || suggestedPaymentCard(item.body.notas, cards)));
+    if (missingPaymentCard) return setError(`Línea ${missingPaymentCard.lineNumber}: selecciona la tarjeta pagada antes de guardar este cargo.`);
 
     setSaving(true);
     onClose?.();
@@ -882,7 +906,9 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
                 ? { ...debitPaymentBody(item.body), concepto: 'pago_tarjeta', metodoPago: 'debito', tarjeta: banco, tarjetaPago: tarjeta }
                 : { ...item.body, concepto: 'ingreso', metodoPago: 'debito', tarjeta: banco }
             : activeMode === 'debito_gastos'
-              ? { ...item.body, concepto: conceptOverrides[item.lineNumber] || item.body.concepto, metodoPago: 'debito', tarjeta: banco }
+              ? item.body.concepto === 'pago_tarjeta'
+                ? { ...debitPaymentBody(item.body), metodoPago: 'debito', tarjeta: banco, tarjetaPago: paymentCards[item.lineNumber] || suggestedPaymentCard(item.body.notas, cards) }
+                : { ...item.body, metodoPago: 'debito', tarjeta: banco }
               : { ...item.body, concepto: item.body.concepto === 'cashback' ? 'cashback' : (conceptOverrides[item.lineNumber] || item.body.concepto), tarjeta };
           try {
             const row = await createExpenseWithDuplicateCheck(body, { userId, notify: false });
@@ -916,7 +942,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
         <h2 className="text-lg font-semibold mb-2">{activeMode === 'debito' ? 'Agregar pagos masivos (Débito)' : activeMode === 'debito_abonos' ? 'Agregar abonos masivos (Débito)' : activeMode === 'debito_gastos' ? 'Agregar gastos masivos (Débito)' : 'Agregar gastos masivos (Crédito)'}</h2>
         <p className="text-sm text-gray-600 mb-4">
           Patron por linea: <code>concepto | moneda | monto | fecha(dd/mm/yyyy) | nota(opcional)</code>.
-          {activeMode === 'debito' ? ' Se importan pagos a tarjeta de Cargos/Debe.' : activeMode === 'debito_abonos' ? ' Se importan movimientos de Abonos/Haber en soles. Los pagos a tarjeta se comparan con los pagos existentes; los demás, con ingresos.' : activeMode === 'debito_gastos' ? ' Se importan solo gastos de Cargos/Debe, incluido ITF. Los pagos y devoluciones se omiten.' : ' Los pagos se omiten y las devoluciones se registran como cashback.'}
+          {activeMode === 'debito' ? ' Se importan pagos a tarjeta de Cargos/Debe.' : activeMode === 'debito_abonos' ? ' Se importan movimientos de Abonos/Haber en soles. Los pagos a tarjeta se comparan con los pagos existentes; los demás, con ingresos.' : activeMode === 'debito_gastos' ? ' Se importan todos los cargos positivos de Cargos/Debe, incluidos ITF y pagos a tarjeta. Las devoluciones se omiten.' : ' Los pagos se omiten y las devoluciones se registran como cashback.'}
         </p>
         <div className="mb-4 max-w-2xl rounded-xl border border-gray-200 bg-gray-50 p-3">
           <label className="text-sm text-gray-700">
@@ -1013,7 +1039,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
               aria-label={activeMode === 'debito' ? 'Líneas de pagos' : activeMode === 'debito_abonos' ? 'Líneas de abonos' : 'Líneas de gastos'}
               className="w-full min-h-[220px] border rounded px-3 py-2 font-mono text-sm"
               value={bulkText}
-              onChange={(e) => { setBulkText(e.target.value); setConceptOverrides({}); setExchangeRates({}); }}
+              onChange={(e) => { setBulkText(e.target.value); setConceptOverrides({}); setPaymentCards({}); setExchangeRates({}); }}
               placeholder=""
             />
             <div className="text-xs text-gray-500">
@@ -1043,7 +1069,7 @@ export default function ModalGastoCreditoMasivo({ userId, existingRows = EMPTY_R
                     {effectiveRows.map((r) => (
                       <tr key={`preview-${r.lineNumber}`} className="border-t">
                         <td className="py-1">{r.lineNumber}</td>
-                        <td className="py-1">{activeMode === 'debito_abonos' ? <select aria-label={`Tipo de abono línea ${r.lineNumber}`} value={r.body.concepto} onChange={(event) => setConceptOverrides((current) => ({ ...current, [r.lineNumber]: event.target.value }))} className="max-w-32 rounded border px-1 py-0.5"><option value="ingreso">Ingreso</option><option value="pago_tarjeta">Pago a tarjeta</option></select> : r.body.concepto}</td>
+                        <td className="py-1">{activeMode === 'debito_abonos' ? <select aria-label={`Tipo de abono línea ${r.lineNumber}`} value={r.body.concepto} onChange={(event) => setConceptOverrides((current) => ({ ...current, [r.lineNumber]: event.target.value }))} className="max-w-32 rounded border px-1 py-0.5"><option value="ingreso">Ingreso</option><option value="pago_tarjeta">Pago a tarjeta</option></select> : r.body.concepto}{activeMode === 'debito_gastos' && r.body.concepto === 'pago_tarjeta' && <select aria-label={`Tarjeta pagada línea ${r.lineNumber}`} value={paymentCards[r.lineNumber] || suggestedPaymentCard(r.body.notas, cards)} onChange={(event) => setPaymentCards((current) => ({ ...current, [r.lineNumber]: event.target.value }))} className="mt-1 block max-w-36 rounded border px-1 py-0.5"><option value="">Elegir tarjeta pagada</option>{cards.map((card) => <option key={cardValue(card)} value={cardValue(card)}>{cardLabel(card)}</option>)}</select>}</td>
                         <td className="py-1">{r.body.moneda}</td>
                         <td className="py-1">
                           <div className="flex flex-wrap items-center gap-2">
