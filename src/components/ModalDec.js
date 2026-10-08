@@ -1663,6 +1663,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const [linkedItemNames, setLinkedItemNames] = useState({});
   const [linkedItemLinks, setLinkedItemLinks] = useState({});
   const [groupLinkedAsSame, setGroupLinkedAsSame] = useState(false);
+  const [sameLinkedIds, setSameLinkedIds] = useState([]);
   const [deliveryMode, setDeliveryMode] = useState("tomorrow");
   const [deliveredOn, setDeliveredOn] = useState("");
   const [customDeliveryText, setCustomDeliveryText] = useState("");
@@ -1733,6 +1734,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setShippingSvc("Standard Shipping");
     setCasilleroKey("Renato");
     setGroupLinkedAsSame(false);
+    setSameLinkedIds([]);
     setLinkedImages({});
     setLinkedItemLinks({});
     setManualLinkedLines([]);
@@ -1832,6 +1834,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       setLinkedItemNames({});
       setLinkedItemLinks({});
       setGroupLinkedAsSame(false);
+      setSameLinkedIds([]);
       setLinkedImages({});
       setManualLinkedLines([]);
       return;
@@ -1860,6 +1863,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     setLinkedItemNames({});
     setLinkedItemLinks({});
     setGroupLinkedAsSame(false);
+    setSameLinkedIds([]);
     setLinkedImages({});
     setManualMainDecRef("");
     setQty(1);
@@ -2029,6 +2033,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     () => linkedGroup.filter((p) => p?.id !== productoSel?.id),
     [linkedGroup, productoSel]
   );
+  const sameLinkedIdSet = useMemo(() => new Set(sameLinkedIds.map(String)), [sameLinkedIds]);
 
   const linkedItems = useMemo(() => {
     if (!productoSel) return null;
@@ -2131,7 +2136,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       }))
       .filter((line) => line.name);
     const group = linkedGroup.length > 1 ? linkedGroup : [productoSel];
-    if (mainQty === 1 && !extras.length) return null;
+    if (mainQty === 1 && !extras.length && !groupLinkedAsSame) return null;
 
     const productRef = (p) => {
       const normalPrice = Number(pickValorProducto(p)) || 0;
@@ -2139,20 +2144,35 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
     };
     let productLines;
     if (groupLinkedAsSame && group.length > 1) {
-      const totalRef = group.reduce((sum, p) => sum + productRef(p), 0);
-      const groupedQty = Math.max(mainQty, group.length);
+      const sameGroup = [productoSel, ...group.filter((p) => p?.id !== productoSel?.id && sameLinkedIdSet.has(String(p?.id)))];
+      const distinctProducts = group.filter((p) => p?.id !== productoSel?.id && !sameLinkedIdSet.has(String(p?.id)));
+      const totalRef = sameGroup.reduce((sum, p) => sum + productRef(p), 0);
+      const groupedQty = Math.max(mainQty, sameGroup.length);
       productLines = [{
         qty: groupedQty,
         name: itemName || buildCoreName(productoSel),
-        ref: group.length ? totalRef / group.length : productRef(productoSel),
+        ref: sameGroup.length ? totalRef / sameGroup.length : productRef(productoSel),
         shippingSvc,
         productId: productoSel?.id ?? null,
         grouped: true,
-        groupedIds: group.map((p) => p?.id).filter(Boolean),
+        groupedIds: sameGroup.map((p) => p?.id).filter(Boolean),
         linkHref: itemLinkHref,
         imageSmall,
         imageLarge,
-      }];
+      }, ...distinctProducts.map((p) => {
+        const linkedImage = linkedImages[p.id];
+        const hasCustomLinkedHref = Object.prototype.hasOwnProperty.call(linkedItemLinks, p?.id);
+        return {
+          qty: 1,
+          name: linkedItemNames[p.id] || randomNames[p.id]?.full || buildCoreName(p),
+          ref: productRef(p),
+          shippingSvc,
+          productId: p?.id ?? null,
+          linkHref: hasCustomLinkedHref ? linkedItemLinks[p.id] : resolveProductHref(p),
+          imageSmall: linkedImage?.small || DEFAULT_IMAGE_SRC,
+          imageLarge: linkedImage?.large || DEFAULT_IMAGE_SRC,
+        };
+      })];
     } else {
       productLines = group.map((p) => {
         const isMain = Number(p?.id) === Number(productoSel?.id);
@@ -2190,7 +2210,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
       [...productLines, ...extraLines],
       Number(price) || Number(pickDec(productoSel)) || 0,
     );
-  }, [store, productoSel, qty, manualLinkedLines, linkedGroup, groupLinkedAsSame, itemName, itemLinkHref, shippingSvc, linkedImages, linkedItemLinks, linkedItemNames, randomNames, imageSmall, imageLarge, price]);
+  }, [store, productoSel, qty, manualLinkedLines, linkedGroup, groupLinkedAsSame, sameLinkedIdSet, itemName, itemLinkHref, shippingSvc, linkedImages, linkedItemLinks, linkedItemNames, randomNames, imageSmall, imageLarge, price]);
 
   const ebaySelectedItemsWithExtras = useMemo(() => {
     if (store !== "ebay" || !productoSel || manualLinkedLines.length === 0) return null;
@@ -2275,16 +2295,9 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
   const showManualItemsEditor = store === "ebay" || store === "amazon" || !productoSel;
   const manualNeedsDecRef = store === "ebay" || store === "amazon" || manualHasMultiple;
   const amazonAdditionalImageTargets = useMemo(() => {
-    if (store !== "amazon" || groupLinkedAsSame) {
-      return store === "amazon"
-        ? manualLinkedLines.map((line, idx) => ({
-            id: line.id,
-            name: String(line?.name || "").trim() || `Producto extra ${idx + 2}`,
-          }))
-        : [];
-    }
+    if (store !== "amazon") return [];
     return [
-      ...linkedGroupOthers.map((p) => ({
+      ...linkedGroupOthers.filter((p) => !groupLinkedAsSame || !sameLinkedIdSet.has(String(p.id))).map((p) => ({
         id: p.id,
         name: linkedItemNames[p.id] || randomNames[p.id]?.full || buildCoreName(p),
       })),
@@ -2293,7 +2306,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
         name: String(line?.name || "").trim() || `Producto extra ${idx + 2}`,
       })),
     ];
-  }, [store, groupLinkedAsSame, linkedGroupOthers, linkedItemNames, randomNames, manualLinkedLines]);
+  }, [store, groupLinkedAsSame, sameLinkedIdSet, linkedGroupOthers, linkedItemNames, randomNames, manualLinkedLines]);
   const deliveryHeadline = useMemo(
     () => deliveryHeadlineFor(deliveryMode, deliveredOn, customDeliveryText),
     [deliveryMode, deliveredOn, customDeliveryText]
@@ -3079,7 +3092,10 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                   {store === "amazon" && linkedGroup.length > 1 ? (
                     <button
                       type="button"
-                      onClick={() => setGroupLinkedAsSame((prev) => !prev)}
+                      onClick={() => {
+                        if (!groupLinkedAsSame) setSameLinkedIds(linkedGroupOthers.map((p) => String(p.id)));
+                        setGroupLinkedAsSame((prev) => !prev);
+                      }}
                       className={`px-3 h-10 rounded-lg text-xs border transition ${
                         groupLinkedAsSame
                           ? "bg-emerald-600 text-white border-emerald-600"
@@ -3161,17 +3177,41 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
             </div>
           ) : null}
 
-          {linkedGroup.length > 1 && !groupLinkedAsSame ? (
-            <div className="grid sm:grid-cols-2 gap-3">
+          {linkedGroup.length > 1 && (store === "amazon" || !groupLinkedAsSame) ? (
+            <div className="space-y-2">
+              {store === "amazon" && groupLinkedAsSame ? (
+                <p className="text-xs text-emerald-800">
+                  Cantidad de productos iguales: {Math.max(Math.floor(Number(qty) || 1), 1 + linkedGroupOthers.filter((p) => sameLinkedIdSet.has(String(p.id))).length)}. Desmarca los productos distintos para editar su nombre, link e imagen por separado.
+                </p>
+              ) : null}
+              <div className="grid sm:grid-cols-2 gap-3">
               {linkedGroupOthers.map((p) => {
                 const value = linkedItemNames[p.id] || randomNames[p.id]?.full || buildCoreName(p);
+                const isSame = store === "amazon" && groupLinkedAsSame && sameLinkedIdSet.has(String(p.id));
                 const linkValue = Object.prototype.hasOwnProperty.call(linkedItemLinks, p.id)
                   ? (linkedItemLinks[p.id] || "")
                   : resolveProductHref(p);
                 return (
-                  <label key={p.id} className="text-[11px] text-gray-600">
-                    <span className="block mb-1">Item name vinculado #{p.id}</span>
+                  <div key={p.id} className="rounded-lg border border-gray-200 bg-white p-3 text-[11px] text-gray-600">
+                    {store === "amazon" && groupLinkedAsSame ? (
+                      <label className="mb-2 flex items-center gap-2 text-xs font-medium text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={isSame}
+                          onChange={(e) => setSameLinkedIds((prev) => e.target.checked
+                            ? [...prev, String(p.id)]
+                            : prev.filter((id) => id !== String(p.id)))}
+                          aria-label={`Mismo producto vinculado #${p.id}`}
+                        />
+                        Igual al producto principal #{p.id}
+                      </label>
+                    ) : null}
+                    {isSame ? (
+                      <div className="text-xs text-emerald-700">Se incluye en la cantidad del producto principal.</div>
+                    ) : (
                     <div className="space-y-2">
+                      <label className="block">
+                        <span className="block mb-1">Item name vinculado #{p.id}</span>
                       <input
                         className="input text-xs py-1.5 w-full"
                         value={value}
@@ -3179,6 +3219,7 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                           setLinkedItemNames((prev) => ({ ...prev, [p.id]: e.target.value }))
                         }
                       />
+                      </label>
                       <div>
                         <button
                           type="button"
@@ -3197,12 +3238,15 @@ export default function ModalDec({ onClose, productos: productosProp, loading: l
                             setLinkedItemLinks((prev) => ({ ...prev, [p.id]: e.target.value }))
                           }
                           placeholder="https://www.amazon.com/dp/..."
+                          aria-label={`Link producto vinculado #${p.id}`}
                         />
                       ) : null}
                     </div>
-                  </label>
+                    )}
+                  </div>
                 );
               })}
+              </div>
             </div>
           ) : null}
 

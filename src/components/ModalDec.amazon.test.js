@@ -166,3 +166,31 @@ test('el editor Amazon permite aumentar cantidad y agregar otro producto con pre
   });
   expect(screen.getByText('Imagen por producto extra')).toBeInTheDocument();
 });
+
+test('Amazon agrupa solo dos productos iguales y conserva enlaces de los otros dos', async () => {
+  const productos = [
+    { id: 10, tipo: 'iphone', envioGrupoId: 77, estado: 'comprado_en_camino', detalle: { numero: '15', modelo: 'Pro', almacenamiento: '256' }, valor: { valorDec: 100, valorProducto: 100 } },
+    { id: 11, tipo: 'iphone', envioGrupoId: 77, estado: 'comprado_en_camino', detalle: { numero: '15', modelo: 'Pro', almacenamiento: '256' }, valor: { valorDec: 0, valorProducto: 100 } },
+    { id: 12, tipo: 'ipad', envioGrupoId: 77, estado: 'comprado_en_camino', detalle: { numero: '10' }, valor: { valorDec: 0, valorProducto: 80 } },
+    { id: 13, tipo: 'macbook', envioGrupoId: 77, estado: 'comprado_en_camino', detalle: { modelo: 'Air' }, valor: { valorDec: 0, valorProducto: 120 } },
+  ];
+  render(<ModalDec productos={productos} onClose={jest.fn()} />);
+  await waitFor(() => expect(api.get).toHaveBeenCalled());
+  fireEvent.change(screen.getAllByLabelText('Tienda')[0], { target: { value: 'amazon' } });
+  const selector = screen.getAllByRole('option', { name: 'iPhone 15 Pro 256 GB' })[0].parentElement;
+  fireEvent.change(selector, { target: { value: '10' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Mismo producto' }));
+  fireEvent.click(screen.getByLabelText('Mismo producto vinculado #12'));
+  fireEvent.click(screen.getByLabelText('Mismo producto vinculado #13'));
+  fireEvent.change(screen.getByLabelText('Link producto vinculado #12'), { target: { value: 'https://www.amazon.com/dp/IPAD' } });
+  fireEvent.change(screen.getByLabelText('Link producto vinculado #13'), { target: { value: 'https://www.amazon.com/dp/MAC' } });
+
+  await waitFor(() => {
+    const html = document.getElementById('dec-html-ta').value;
+    expect((html.match(/data-component="itemImage"/g) || [])).toHaveLength(3);
+    expect(html).toContain('<div class="od-item-view-qty"><span>2</span></div>');
+    expect(html).toContain('href="https://www.amazon.com/dp/IPAD"');
+    expect(html).toContain('href="https://www.amazon.com/dp/MAC"');
+  });
+  expect(screen.getAllByText('Imagen por producto extra')).toHaveLength(1);
+});
