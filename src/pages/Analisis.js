@@ -1507,10 +1507,12 @@ const gananciasResumen = useMemo(() => {
  const rows = ventasMargenHistoryRows;
  const byMonth = new Map(rows.map((m) => [String(m?.month || '').slice(0, 7), m]));
  const gastosByMonth = new Map();
+ const comprasByMonth = new Map();
  ventasMargenHistoryPurchases.forEach((purchase) => {
  const month = String(purchase?.fechaCompra || '').slice(0, 7);
  if (!/^\d{4}-\d{2}$/.test(month)) return;
  gastosByMonth.set(month, (gastosByMonth.get(month) || 0) + (Number(purchase?.costoTotal || 0) || 0));
+ comprasByMonth.set(month, (comprasByMonth.get(month) || 0) + 1);
  });
  const today = new Date();
  const months = [];
@@ -1525,7 +1527,7 @@ const gananciasResumen = useMemo(() => {
  end = `${selectedYear}-${String(lastMonth).padStart(2, '0')}`;
  }
  } else {
- const validMonths = Array.from(byMonth.keys()).filter((month) => /^\d{4}-\d{2}$/.test(month)).sort();
+ const validMonths = [...byMonth.keys(), ...comprasByMonth.keys()].filter((month) => /^\d{4}-\d{2}$/.test(month)).sort();
  start = validMonths[0] || '';
  end = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
  }
@@ -1536,6 +1538,7 @@ const gananciasResumen = useMemo(() => {
  const source = byMonth.get(key) || {};
  months.push({
  month: key,
+ compras: comprasByMonth.get(key) || 0,
  ventas: Number(source?.ventas ?? source?.cantidad ?? source?.count ?? 0) || 0,
  gastos: Number(gastosByMonth.get(key) || 0) || 0,
  ingresos: Number(source?.ingresos || 0) || 0,
@@ -1584,7 +1587,7 @@ const gananciasResumen = useMemo(() => {
  ventasMargenHistoryRows.forEach((row) => {
  const year = String(row?.month || '').slice(0, 4);
  if (!/^\d{4}$/.test(year)) return;
- const current = byYear.get(year) || { year, ventas: 0, gastos: 0, ingresos: 0, ganancia: 0 };
+ const current = byYear.get(year) || { year, compras: 0, ventas: 0, gastos: 0, ingresos: 0, ganancia: 0 };
  current.ventas += Number(row?.ventas ?? row?.cantidad ?? row?.count ?? 0) || 0;
  current.ingresos += Number(row?.ingresos || 0) || 0;
  current.ganancia += Number(row?.ganancia || 0) || 0;
@@ -1593,13 +1596,15 @@ const gananciasResumen = useMemo(() => {
  ventasMargenHistoryPurchases.forEach((purchase) => {
  const year = String(purchase?.fechaCompra || '').slice(0, 4);
  if (!/^\d{4}$/.test(year)) return;
- const current = byYear.get(year) || { year, ventas: 0, gastos: 0, ingresos: 0, ganancia: 0 };
+ const current = byYear.get(year) || { year, compras: 0, ventas: 0, gastos: 0, ingresos: 0, ganancia: 0 };
+ current.compras += 1;
  current.gastos += Number(purchase?.costoTotal || 0) || 0;
  byYear.set(year, current);
  });
  return Array.from(byYear.values())
  .map((row) => ({
  ...row,
+ compras: Number(row.compras || 0),
  ventas: Number(row.ventas || 0),
  gastos: +Number(row.gastos || 0).toFixed(2),
  ingresos: +Number(row.ingresos || 0).toFixed(2),
@@ -3299,6 +3304,7 @@ Activo
 
 
  <th className="py-1">Mes</th>
+ <th className="py-1">Compras</th>
 
 
 
@@ -3351,6 +3357,7 @@ Activo
 
 
 
+ <td className="py-1">{Number(m.compras || 0)}</td>
  <td className="py-1">{Number(m.ventas || 0)}</td>
 
  <td className="py-1"><Currency v={m.gastos} /></td>
@@ -3435,6 +3442,7 @@ Activo
  <thead>
  <tr className="text-left text-gray-500">
  <th className="py-1">Año</th>
+ <th className="py-1">Compras</th>
  <th className="py-1">Ventas</th>
  <th className="py-1">Gastos</th>
  <th className="py-1">Ingresos</th>
@@ -3453,6 +3461,7 @@ Activo
  return (
  <tr key={row.year} className="border-t">
  <td className="py-1">{row.year}</td>
+ <td className="py-1">{Number(row.compras || 0)}</td>
  <td className="py-1">{Number(row.ventas || 0)}</td>
  <td className="py-1"><Currency v={row.gastos} /></td>
  <td className="py-1"><Currency v={row.ingresos} /></td>
@@ -3467,7 +3476,7 @@ Activo
  );
  })}
  {ventasMargenYearRows.length === 0 && (
- <tr className="border-t"><td className="py-3 text-slate-500" colSpan={7}>No hay ventas anuales registradas.</td></tr>
+ <tr className="border-t"><td className="py-3 text-slate-500" colSpan={8}>No hay ventas anuales registradas.</td></tr>
  )}
  </tbody>
  </table>
