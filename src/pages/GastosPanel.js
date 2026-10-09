@@ -8,6 +8,7 @@ import ModalTarjetas from '../components/ModalTarjetas';
 import ModalCuotasYGastos from '../components/ModalCuotasYGastos';
 import ModalEditarGasto from '../components/ModalEditarGasto';
 import ModalCobroVenta from '../components/ModalCobroVenta';
+import ModalEditarVentaIngreso from '../components/ModalEditarVentaIngreso';
 import DExtraPanel from '../components/DExtraPanel';
 import ModalEditarEfectivo from '../components/ModalEditarEfectivo';
 import ModalAnalisisGastosMes from '../components/ModalAnalisisGastosMes';
@@ -16,6 +17,7 @@ import ModalImportarOperacionBancaria from '../components/ModalImportarOperacion
 import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept, normalizeExpenseConcept, visibleExpenseNotes } from '../utils/expenseConcepts';
 import { getAnalyticsSummary } from '../services/analytics';
 import { notifyGastosChanged, subscribeGastosChanges } from '../utils/gastosSync';
+import { notifySalesChanged } from '../utils/salesSync';
 import { hideMonthlyExpense } from '../utils/monthlyExpenses';
 import { getPending500 } from '../utils/pending500';
 import { buildExtraDebts } from '../utils/extraDebts';
@@ -178,6 +180,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [linePlannerAmount, setLinePlannerAmount] = useState('');
   const [editingGasto, setEditingGasto] = useState(null);
   const [collectingSale, setCollectingSale] = useState(null);
+  const [editingSaleId, setEditingSaleId] = useState(null);
   const [debitConceptFilter, setDebitConceptFilter] = useState('all');
   const [debitPaymentCardFilter, setDebitPaymentCardFilter] = useState('all');
   const [creditCardFilter, setCreditCardFilter] = useState('all');
@@ -731,6 +734,18 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     }
   };
 
+  const onDeleteLinkedSale = async (g) => {
+    if (!g.saleId || !window.confirm(`Eliminar la venta ${g.saleSku || `#${g.saleId}`} y todos sus ingresos vinculados?`)) return;
+    try {
+      const res = await fetch(`${API_URL}/ventas/${g.saleId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error(await res.text());
+      await reloadAll({ includeGastos: true, useCache: false, silent: true });
+      notifyGastosChanged({ action: 'sale-delete', userId: targetUserId, ventaId: g.saleId });
+      notifySalesChanged({ source: 'gastos', action: 'delete', ventaId: g.saleId });
+      window.dispatchEvent(new Event('productos-updated'));
+    } catch (err) { alert(err.message || 'No se pudo eliminar la venta.'); }
+  };
+
   const compraBudgetCalc = useMemo(() => {
     if (!compraBudget) return null;
     const tc = Number(compraBudgetTc);
@@ -983,7 +998,15 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                           )}
                         </td>
                         <td className="p-2 align-top">
-                          {['card', 'debt'].includes(g.salePaymentType) ? <button type="button" onClick={() => setCollectingSale(g)} className="rounded border border-amber-300 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50">{pending?.amount === 0 ? 'Ver pagos' : 'Cobrar'}</button> : g.itfIngresoId || g.salePaymentType ? <span className="text-xs text-gray-500">Automático</span> : (
+                          {g.saleId ? <div className="flex items-center gap-1">
+                            {['card', 'debt'].includes(g.salePaymentType) && <button type="button" onClick={() => setCollectingSale(g)} className="rounded border border-amber-300 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50">{pending?.amount === 0 ? 'Ver pagos' : 'Cobrar'}</button>}
+                            <button type="button" title="Editar venta e ingresos" aria-label={`Editar venta ${g.saleSku || g.saleId}`} onClick={() => setEditingSaleId(g.saleId)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M16.862 3.487a1.5 1.5 0 0 1 2.121 2.121l-10.02 10.02a4.5 4.5 0 0 1-1.757 1.07l-3.042.912a.75.75 0 0 1-.928-.928l.912-3.042a4.5 4.5 0 0 1 1.07-1.757l10.02-10.02Zm-2.12-.001L5.62 12.608a6 6 0 0 0-1.427 2.243l-.912 3.042a2.25 2.25 0 0 0 2.784 2.784l3.042-.912a6 6 0 0 0 2.243-1.427l9.121-9.121-6.433-6.433Z" /></svg>
+                            </button>
+                            <button type="button" title="Borrar venta e ingresos" aria-label={`Eliminar venta ${g.saleSku || g.saleId}`} onClick={() => onDeleteLinkedSale(g)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-red-600 hover:bg-red-50">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M9 3.75A2.25 2.25 0 0 1 11.25 1.5h1.5A2.25 2.25 0 0 1 15 3.75V4.5h3.75a.75.75 0 0 1 0 1.5H5.25a.75.75 0 0 1 0-1.5H9v-.75ZM6.75 7.5h10.5l-.63 11.34a2.25 2.25 0 0 1-2.245 2.11H9.625a2.25 2.25 0 0 1-2.244-2.11L6.75 7.5Z" /></svg>
+                            </button>
+                          </div> : g.itfIngresoId || g.salePaymentType ? <span className="text-xs text-gray-500">Automático</span> : (
                           <div className="flex items-center gap-2">
                             <button type="button" title="Editar" onClick={() => openEdit(g)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">
                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M16.862 3.487a1.5 1.5 0 0 1 2.121 2.121l-10.02 10.02a4.5 4.5 0 0 1-1.757 1.07l-3.042.912a.75.75 0 0 1-.928-.928l.912-3.042a4.5 4.5 0 0 1 1.07-1.757l10.02-10.02Zm-2.12-.001L5.62 12.608a6 6 0 0 0-1.427 2.243l-.912 3.042a2.25 2.25 0 0 0 2.784 2.784l3.042-.912a6 6 0 0 0 2.243-1.427l9.121-9.121-6.433-6.433Z" /></svg>
@@ -1328,6 +1351,14 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
           onSaved={onEdited}
         />
       )}
+      {editingSaleId && <ModalEditarVentaIngreso saleId={editingSaleId} onClose={() => setEditingSaleId(null)} onSaved={() => {
+        const saleId = editingSaleId;
+        setEditingSaleId(null);
+        reloadAll({ includeGastos: true, useCache: false, silent: true });
+        notifyGastosChanged({ action: 'sale-edit', userId: targetUserId, ventaId: saleId });
+        notifySalesChanged({ source: 'gastos', action: 'update', ventaId: saleId });
+        window.dispatchEvent(new Event('productos-updated'));
+      }} />}
       {collectingSale && (
         <ModalCobroVenta
           key={`${collectingSale.id}:${collectingSale.saleReceivedAmount}:${collectingSale.saleExchangeRate || ''}`}
