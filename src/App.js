@@ -31,6 +31,7 @@ const Servicios = lazy(() => import('./pages/Servicios'));
 const Calculadora = lazy(() => import('./pages/Calculadora'));
 const Ganancias = lazy(() => import('./pages/Ganancias'));
 const Analisis = lazy(() => import('./pages/Analisis'));
+const Proyeccion = lazy(() => import('./pages/Proyeccion'));
 const GastosIndex = lazy(() => import('./pages/GastosIndex'));
 const AnalisisGastos = lazy(() => import('./pages/AnalisisGastos'));
 const PresupuestoGastos = lazy(() => import('./pages/PresupuestoGastos'));
@@ -401,6 +402,7 @@ const SIDEBAR_NAV = [
   { id: 'productos', label: 'Productos', icon: FiBox },
   { id: 'inventario', label: 'Inventario', icon: FiArchive },
   { id: 'analisis', label: 'Analisis', icon: FiActivity },
+  { id: 'proyeccion', label: 'Proyección', icon: FiBarChart2 },
   { id: 'calculadora', label: 'Calculadora', icon: FiHash },
   { id: 'ganancias', label: 'Ganancias', icon: FiDollarSign },
   { id: 'gastos', label: 'Gastos', icon: FiPieChart },
@@ -1250,6 +1252,8 @@ function App() {
         return <GastosIndex setVista={navigateTo} />;
       case 'analisis':
         return <Analisis setVista={navigateTo} analisisBack={analisisBack} />;
+      case 'proyeccion':
+        return <Proyeccion setVista={navigateTo} />;
       case 'analisisGastos':
         return <AnalisisGastos setVista={navigateTo} />;
       case 'presupuestoGastos':

@@ -623,6 +623,7 @@ const [isStale, setIsStale] = useState(false);
  const [yearlyError, setYearlyError] = useState('');
  const [salesHistoryData, setSalesHistoryData] = useState(null);
  const [salesHistoryError, setSalesHistoryError] = useState('');
+ const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
  const [sunatFx, setSunatFx] = useState({ buy: TC_FIJO, sell: TC_FIJO, date: null, fallback: true, reason: '', authMode: null });
  const [sunatFxError, setSunatFxError] = useState('');
  const [pedidoData, setPedidoData] = useState(null);
@@ -1116,6 +1117,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  useEffect(() => {
  const reloadFresh = () => {
  invalidateAnalyticsCache();
+ setHistoryRefreshKey((current) => current + 1);
  load();
  loadPedido();
  };
@@ -1135,6 +1137,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  useEffect(() => {
  let alive = true;
  setSalesHistoryError('');
+ setSalesHistoryData(null);
  getAnalyticsSummary(sellerFilter ? { vendedor: sellerFilter } : {})
  .then((res) => {
  if (alive) setSalesHistoryData(res);
@@ -1143,7 +1146,7 @@ const renderCurvaChart = (costSeries, saleSeries) => {
  if (alive) setSalesHistoryError(e?.message || 'No se pudo cargar el historial de ventas.');
  });
  return () => { alive = false; };
- }, [sellerFilter]);
+ }, [sellerFilter, historyRefreshKey]);
 
  useEffect(() => {
  if (tab !== 'ganancias') return;
@@ -1557,6 +1560,7 @@ const gananciasResumen = useMemo(() => {
  const today = new Date();
  const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
  const rows = ventasMargenRows.filter((row) => String(row?.month || '') !== currentMonth);
+ const comprasTotal = rows.reduce((s, m) => s + (Number(m?.compras || 0) || 0), 0);
  const ventasTotal = rows.reduce((s, m) => s + (Number(m?.ventas || 0) || 0), 0);
  const gastoTotal = rows.reduce((s, m) => s + (Number(m?.gastos || 0) || 0), 0);
  const ingresoTotal = rows.reduce((s, m) => s + (Number(m?.ingresos || 0) || 0), 0);
@@ -1572,6 +1576,7 @@ const gananciasResumen = useMemo(() => {
  });
  const marginCount = margins.length;
  return {
+ compras: rows.length ? +(comprasTotal / rows.length).toFixed(2) : 0,
  ventas: rows.length ? +(ventasTotal / rows.length).toFixed(2) : 0,
  gasto: rows.length ? +(gastoTotal / rows.length).toFixed(2) : 0,
  ingreso: rows.length ? +(ingresoTotal / rows.length).toFixed(2) : 0,
@@ -1615,6 +1620,7 @@ const gananciasResumen = useMemo(() => {
 
  const ventasMargenYearPromedios = useMemo(() => {
  const rows = ventasMargenYearRows;
+ const totalCompras = rows.reduce((sum, row) => sum + Number(row.compras || 0), 0);
  const totalVentas = rows.reduce((sum, row) => sum + Number(row.ventas || 0), 0);
  const totalGastos = rows.reduce((sum, row) => sum + Number(row.gastos || 0), 0);
  const totalIngresos = rows.reduce((sum, row) => sum + Number(row.ingresos || 0), 0);
@@ -1629,6 +1635,7 @@ const gananciasResumen = useMemo(() => {
  };
  });
  return {
+ compras: rows.length ? +(totalCompras / rows.length).toFixed(2) : 0,
  ventas: rows.length ? +(totalVentas / rows.length).toFixed(2) : 0,
  gasto: rows.length ? +(totalGastos / rows.length).toFixed(2) : 0,
  ingreso: rows.length ? +(totalIngresos / rows.length).toFixed(2) : 0,
@@ -3262,7 +3269,11 @@ Activo
  Promedio calculado sobre {ventasMargenPromedios.meses} {ventasMargenPromedios.meses === 1 ? 'mes culminado' : 'meses culminados'}{ventasMargenYear ? ' del año seleccionado' : ' de todo el historial'}. El mes en curso no se incluye en los promedios.
  </div>
  </div>
- <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-5 lg:min-w-[820px]">
+ <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-3 xl:grid-cols-6 xl:min-w-[900px]">
+ <div>
+ <div className="font-medium text-slate-500">Compras promedio</div>
+ <div className="mt-1 text-sm font-semibold text-slate-900">{ventasMargenPromedios.compras.toFixed(2)}</div>
+ </div>
  <div>
  <div className="font-medium text-slate-500">Ventas promedio</div>
  <div className="mt-1 text-sm font-semibold text-slate-900">{ventasMargenPromedios.ventas.toFixed(2)}</div>
@@ -3405,7 +3416,11 @@ Activo
  Registro anual completo y promedio de {ventasMargenYearPromedios.years} {ventasMargenYearPromedios.years === 1 ? 'año registrado' : 'años registrados'}.
  </div>
  </div>
- <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-5 lg:min-w-[820px]">
+ <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-3 xl:grid-cols-6 xl:min-w-[900px]">
+ <div>
+ <div className="font-medium text-slate-500">Compras promedio anual</div>
+ <div className="mt-1 text-sm font-semibold text-slate-900">{ventasMargenYearPromedios.compras.toFixed(2)}</div>
+ </div>
  <div>
  <div className="font-medium text-slate-500">Ventas promedio anual</div>
  <div className="mt-1 text-sm font-semibold text-slate-900">{ventasMargenYearPromedios.ventas.toFixed(2)}</div>
