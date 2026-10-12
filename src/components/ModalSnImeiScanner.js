@@ -196,7 +196,7 @@ const parseManualIdentifier = (value) => {
   const clean = cleanSerial(value);
   if (!clean) return null;
   if (/^\d{15}$/.test(clean)) return { type: 'imei', label: 'IMEI manual', value: clean };
-  if (/^[A-Z0-9]{10,12}$/.test(clean) && /[A-Z]/.test(clean) && /\d/.test(clean)) return { type: 'sn', label: 'SN manual', value: clean };
+  if (/^[A-Z0-9]{10,12}$/.test(clean) && /[A-Z]/.test(clean)) return { type: 'sn', label: 'SN manual', value: clean };
   return null;
 };
 
