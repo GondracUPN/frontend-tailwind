@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 
 const TIPO_CAMBIO = 3.7;
-const REAL_EXPENSES_START = '2026-06-01';
 
 const CARD_LABEL = {
   interbank: 'Interbank',
@@ -200,18 +199,18 @@ const getPaymentAllocation = (g) => {
     return TIPO_CAMBIO;
   })();
   const explicitUsd = g?.pagoObjetivo === 'USD';
-  const targetUsd = explicitUsd || hasUsdApplied || g?.moneda === 'USD';
-  const paidPen = g?.moneda === 'USD' ? amount * tc : amount;
+  const explicitPen = g?.pagoObjetivo === 'PEN';
+  const targetUsd = explicitUsd || hasUsdApplied || g?.moneda === 'USD' || !explicitPen;
 
   if (targetUsd) {
     const amountUsd = g?.moneda === 'USD'
       ? amount
       : (hasUsdApplied ? usdApplied : amount / tc);
-    return { currency: 'USD', amount: Number.isFinite(amountUsd) ? amountUsd : 0, paidPen };
+    return { currency: 'USD', amount: Number.isFinite(amountUsd) ? amountUsd : 0 };
   }
 
   const amountPen = g?.moneda === 'USD' ? amount * tc : amount;
-  return { currency: 'PEN', amount: Number.isFinite(amountPen) ? amountPen : 0, paidPen };
+  return { currency: 'PEN', amount: Number.isFinite(amountPen) ? amountPen : 0 };
 };
 
 const isCardPayment = (g) =>
@@ -234,12 +233,10 @@ const monthsBetween = (from, to) => {
 };
 
 export const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear, selectedMonth }) => {
-  const realRows = rows.filter((g) => String(g.fecha || '').slice(0, 10) >= REAL_EXPENSES_START);
-  const realCreditRows = creditRows.filter((g) => String(g.fecha || '').slice(0, 10) >= REAL_EXPENSES_START);
-  const dates = realRows.map((g) => parseYmd(g.fecha)).filter(Boolean);
+  const dates = rows.map((g) => parseYmd(g.fecha)).filter(Boolean);
   const minDate = dates.length ? new Date(Math.min(...dates.map((d) => d.getTime()))) : makeDate(selectedYear, selectedMonth, 1);
   const startMonth = addMonths(minDate.getFullYear(), minDate.getMonth() + 1, -2);
-  const longestInstallmentPlan = realCreditRows.reduce(
+  const longestInstallmentPlan = creditRows.reduce(
     (max, row) => Math.max(max, Math.max(1, Math.floor(Number(row.cuotasMeses) || 1))),
     1,
   );
@@ -273,7 +270,7 @@ export const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear,
       .filter(Boolean)
       .sort((a, b) => a.cycle.due.getTime() - b.cycle.due.getTime());
 
-    realCreditRows
+    creditRows
       .filter((g) => normalizeCard(g.tarjeta) === normalizeCard(card))
       .filter((g) => !(cardCycleKey(card) === 'io' && isCardCashback(g)))
       .forEach((g) => {
@@ -312,7 +309,7 @@ export const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear,
       cycle.pendingPen = cycle.totals.totalPen;
     });
 
-    const payments = realRows
+    const payments = rows
       .filter((g) => (
         (isCardPayment(g) && normalizeCard(g.tarjetaPago) === normalizeCard(card))
         || (
@@ -327,28 +324,33 @@ export const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear,
           date: parseYmd(g.fecha) || makeDate(1900, 1, 1),
           ...allocation,
           amount: isCardCashback(g) ? Math.abs(allocation.amount) : allocation.amount,
-          paidPen: isCardCashback(g) ? Math.abs(allocation.paidPen) : allocation.paidPen,
         };
       })
-      .filter((p) => p.amount > 0);
+      .filter((p) => p.amount > 0)
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
 
     payments.forEach((payment) => {
-      const cycle = cycles.find((item) => item.year === payment.date.getFullYear() && item.month === payment.date.getMonth() + 1);
-      if (!cycle) return;
-      const paidKey = payment.currency === 'USD' ? 'paidUsdAmount' : 'paidPenAmount';
-      cycle[paidKey] += payment.amount;
-      cycle.paidPen += payment.paidPen;
+      let remaining = payment.amount;
+      for (const cycle of cycles) {
+        if (remaining <= 0) break;
+        const pendingKey = payment.currency === 'USD' ? 'pendingUsdAmount' : 'pendingPenAmount';
+        const paidKey = payment.currency === 'USD' ? 'paidUsdAmount' : 'paidPenAmount';
+        if (cycle[pendingKey] <= 0) continue;
+        const applied = Math.min(cycle[pendingKey], remaining);
+        cycle[paidKey] += applied;
+        cycle[pendingKey] -= applied;
+        remaining -= applied;
+      }
     });
 
     cycles.forEach((cycle) => {
-      cycle.pendingPenAmount = Math.max(0, cycle.totals.pen - cycle.paidPenAmount);
-      cycle.pendingUsdAmount = Math.max(0, cycle.totals.usd - cycle.paidUsdAmount);
+      const paidPen = cycle.paidPenAmount + cycle.paidUsdAmount * TIPO_CAMBIO;
       const pendingPen = cycle.pendingPenAmount + cycle.pendingUsdAmount * TIPO_CAMBIO;
       allByKey.set(`${card}:${cycle.ym}`, {
         ...cycle,
         paidPenAmount: +cycle.paidPenAmount.toFixed(2),
         paidUsdAmount: +cycle.paidUsdAmount.toFixed(2),
-        paidPen: +cycle.paidPen.toFixed(2),
+        paidPen: +paidPen.toFixed(2),
         pendingPenAmount: +Math.max(0, cycle.pendingPenAmount).toFixed(2),
         pendingUsdAmount: +Math.max(0, cycle.pendingUsdAmount).toFixed(2),
         pendingPen: +Math.max(0, pendingPen).toFixed(2),
@@ -481,7 +483,7 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
         <div className="flex items-start justify-between gap-3 border-b px-5 py-4">
           <div>
             <h3 className="text-xl font-semibold">Pagos por ciclo de facturacion</h3>
-            <p className="text-sm text-gray-600">Consumos desde junio de 2026; pagos registrados en el mes en que se hicieron.</p>
+            <p className="text-sm text-gray-600">Calcula lo usado segun el periodo de compras y la fecha limite de pago.</p>
           </div>
           <button className="text-gray-500 hover:text-gray-800" onClick={onClose}>x</button>
         </div>
