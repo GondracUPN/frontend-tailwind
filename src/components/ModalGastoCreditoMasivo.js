@@ -58,6 +58,7 @@ const normalizeText = (value) =>
     .replace(/\s+/g, ' ');
 
 const isMonthlyInstallmentMovement = (value) => /\bcuota[\s._-]+del[\s._-]+mes\b/.test(normalizeText(value));
+const isInstallmentPlanDetailsHeader = (value) => /^detalle\s+(?:de(?:l)?\s+)?plan\s+(?:de\s+)?cuotas\s+(?:en\s+)?soles\b/.test(normalizeText(value));
 
 const ignoredInternalTransfer = (description) => /^transf\.\s*bco\.\s*(?:interba|bbva)/i.test(String(description || '').trim());
 
@@ -160,7 +161,9 @@ const matrixToBulkLines = (matrix, mode = 'credito') => {
   if (mode === 'debito_abonos' && abonoIndex < 0) return null;
   if (dateIndex < 0 || (amountIndex < 0 && penAmountIndex < 0 && usdAmountIndex < 0 && cargoIndex < 0 && abonoIndex < 0)) return null;
 
-  const entries = matrix.slice(headerIndex + 1).flatMap((row) => {
+  const dataRows = matrix.slice(headerIndex + 1);
+  const planIndex = mode === 'credito' ? dataRows.findIndex((row) => (row || []).some(isInstallmentPlanDetailsHeader)) : -1;
+  const entries = (planIndex < 0 ? dataRows : dataRows.slice(0, planIndex)).flatMap((row) => {
     if (mode === 'credito' && (row || []).some(isMonthlyInstallmentMovement)) return [];
     const noteText = noteIndex >= 0 ? String(row?.[noteIndex] || '') : '';
     const note = (mode === 'debito' && conceptIndex >= 0
@@ -243,8 +246,13 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
   const detectedYear = allText.match(/\b(20\d{2})\b/)?.[1]
     || (allText.match(/\b\d{1,2}\/\d{1,2}\/(\d{2})\b/)?.[1] ? `20${allText.match(/\b\d{1,2}\/\d{1,2}\/(\d{2})\b/)[1]}` : String(new Date().getFullYear()));
   let pdfSection = '';
+  let inInstallmentPlanDetails = false;
   return lines.flatMap((line) => {
     const normalizedLine = normalizeText(line);
+    if (mode === 'credito' && isInstallmentPlanDetailsHeader(normalizedLine)) {
+      inInstallmentPlanDetails = true;
+    }
+    if (inInstallmentPlanDetails) return [];
     if (mode === 'credito' && isMonthlyInstallmentMovement(normalizedLine)) return [];
     if (/^abonos$/.test(normalizedLine)) { pdfSection = 'credits'; return []; }
     if (/^consumos directos/.test(normalizedLine)) { pdfSection = 'purchases'; return []; }
@@ -418,6 +426,8 @@ export const parseBulkRows = (text, mode = 'credito') => {
       // El validador normal mostrará las líneas que no tengan un formato válido.
     }
   }
+  const planIndex = mode === 'credito' ? lines.findIndex(isInstallmentPlanDetailsHeader) : -1;
+  if (planIndex >= 0) lines = lines.slice(0, planIndex);
   const rows = [];
   const errors = [];
 

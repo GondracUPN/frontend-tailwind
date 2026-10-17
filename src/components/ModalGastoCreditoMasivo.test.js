@@ -39,6 +39,40 @@ test('omite CUOTA DEL MES al importar gastos de crédito desde PDF, CSV y XLSX',
   expect(parseBulkRows('gusto | PEN | 99 | 12/08/2026 | CUOTA DEL MES\ngusto | PEN | 45 | 13/08/2026 | COMPRA EN TIENDA').rows).toHaveLength(1);
 });
 
+test('omite todo lo que sigue a Detalle Plan Cuotas Soles en el PDF de crédito', () => {
+  const parsed = parseBulkRows(pdfLinesToBulkText([
+    '2026',
+    'Consumos directos',
+    '12-AGO COMPRA EN TIENDA 45.00 [PEN]',
+    'DETALLE PLAN CUOTAS SOLES',
+    '13-AGO COMPRA YA REGISTRADA 80.00 [PEN]',
+    'Consumos directos',
+    '14-AGO OTRA COMPRA DUPLICADA 120.00 [PEN]',
+  ]));
+
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows.map((row) => row.body.monto)).toEqual([45]);
+});
+
+test('detiene CSV, XLSX y texto pegado al llegar a Detalle Plan Cuotas Soles', () => {
+  const matrix = [
+    ['Fecha', 'Descripcion', 'Monto', 'Moneda'],
+    ['12/08/2026', 'COMPRA EN TIENDA', 45, 'PEN'],
+    ['', 'DETALLE PLAN CUOTAS SOLES', '', ''],
+    ['13/08/2026', 'CUOTA DE COMPRA ANTERIOR', 80, 'PEN'],
+  ];
+  const csv = Buffer.from(matrix.map((row) => row.join(',')).join('\n'), 'utf8');
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(matrix), 'Movimientos');
+  const xlsx = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  for (const [data, name] of [[csv, 'movimientos.csv'], [xlsx, 'movimientos.xlsx']]) {
+    const lines = spreadsheetToBulkLines(data, name);
+    expect(parseBulkRows(lines.join('\n')).rows.map((row) => row.body.monto)).toEqual([45]);
+  }
+  const pasted = 'gusto | PEN | 45 | 12/08/2026 | COMPRA EN TIENDA\nDETALLE PLAN CUOTAS SOLES\ngusto | PEN | 80 | 13/08/2026 | CUOTA DE COMPRA ANTERIOR';
+  expect(parseBulkRows(pasted).rows.map((row) => row.body.monto)).toEqual([45]);
+});
+
 test('separa las columnas Cargos/Debe y Abonos/Haber de un estado de débito', () => {
   const item = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y] });
   const lines = pdfTextItemsToLines([
