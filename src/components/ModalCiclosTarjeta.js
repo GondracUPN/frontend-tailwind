@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { API_URL } from '../api';
 
 const TIPO_CAMBIO = 3.7;
 
@@ -275,7 +276,13 @@ export const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear,
       .filter((g) => !(cardCycleKey(card) === 'io' && isCardCashback(g)))
       .forEach((g) => {
         const purchaseDate = parseYmd(g.fecha);
-        const baseCycleIndex = cycles.findIndex((cycle) => isDateInCycle(purchaseDate, cycle.cycle));
+        // Si el usuario decidio a que facturacion entra la compra, manda sobre la fecha.
+        const overrideIndex = g.cicloOverride
+          ? cycles.findIndex((cycle) => cycle.ym === g.cicloOverride)
+          : -1;
+        const baseCycleIndex = overrideIndex >= 0
+          ? overrideIndex
+          : cycles.findIndex((cycle) => isDateInCycle(purchaseDate, cycle.cycle));
         if (baseCycleIndex < 0) return;
         const installmentCount = Math.max(1, Math.floor(Number(g.cuotasMeses) || 1));
         const amounts = installmentAmounts(g.monto, installmentCount);
@@ -368,9 +375,57 @@ const monthLabel = (value) => {
 
 const cycleDisplayEnd = (cycle) => cycle?.endExclusive ? addDays(cycle.end, -1) : cycle?.end;
 
-export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
+// Compras de una tarjeta cerca de los limites del ciclo del mes de pago elegido:
+// un dia antes del inicio, el inicio, un dia antes del cierre, el cierre y el dia
+// siguiente al cierre. Tambien las que el usuario ya movio a/desde este ciclo.
+export const findBoundaryPurchases = ({ creditRows, card, year, month }) => {
+  const cycle = getCycle(card, year, month);
+  if (!cycle) return [];
+  const ym = `${year}-${pad(month)}`;
+  const displayEnd = cycleDisplayEnd(cycle);
+  const boundaryDays = new Map([
+    [ymd(addDays(cycle.start, -1)), 'Dia antes del inicio'],
+    [ymd(cycle.start), 'Primer dia'],
+    [ymd(addDays(displayEnd, -1)), 'Dia antes del cierre'],
+    [ymd(displayEnd), 'Ultimo dia'],
+    [ymd(addDays(displayEnd, 1)), 'Dia despues del cierre'],
+  ]);
+  return creditRows
+    .filter((g) => normalizeCard(g.tarjeta) === normalizeCard(card))
+    .filter((g) => !(cardCycleKey(card) === 'io' && isCardCashback(g)))
+    .map((g) => {
+      const date = parseYmd(g.fecha);
+      return date ? { row: g, date, boundary: boundaryDays.get(ymd(date)) } : null;
+    })
+    .filter((item) => item && (item.boundary || item.row.cicloOverride === ym))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+};
+
+export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose, onRowUpdated }) {
   const now = new Date();
   const [month, setMonth] = useState(`${now.getFullYear()}-${pad(now.getMonth() + 1)}`);
+  const [savingId, setSavingId] = useState(null);
+  const [overrideError, setOverrideError] = useState('');
+
+  const saveCicloOverride = async (row, value) => {
+    setSavingId(row.id);
+    setOverrideError('');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/gastos/${row.id}/ciclo`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ cicloOverride: value || null }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const updated = await res.json();
+      onRowUpdated?.(updated);
+    } catch (e) {
+      setOverrideError('No se pudo guardar la facturacion de la compra.');
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   const creditRows = useMemo(
     () => rows.filter((g) => g.metodoPago === 'credito'),
@@ -398,6 +453,21 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
       selectedMonth: m,
     });
   }, [rows, creditRows, cardKeys, month]);
+
+  const boundaryPurchases = useMemo(() => {
+    const [year, m] = month.split('-').map(Number);
+    if (!year || !m) return [];
+    return cardKeys.flatMap((card) => findBoundaryPurchases({ creditRows, card, year, month: m })
+      .map((item) => ({ ...item, card })));
+  }, [cardKeys, creditRows, month]);
+
+  const cycleOptionsFor = (card) => {
+    const [year, m] = month.split('-').map(Number);
+    return [-1, 0, 1]
+      .map((delta) => addMonths(year, m, delta))
+      .filter(({ year: y, month: mm }) => getCycle(card, y, mm))
+      .map(({ year: y, month: mm }) => `${y}-${pad(mm)}`);
+  };
 
   const selectedRows = useMemo(() => {
     const [year, m] = month.split('-').map(Number);
@@ -580,6 +650,63 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose }) {
               </table>
             </div>
           </div>
+
+          <details className="rounded-xl border bg-white">
+            <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-gray-800">
+              Compras en dias limite del ciclo ({boundaryPurchases.length})
+            </summary>
+            <div className="border-t">
+              <p className="px-4 py-2 text-xs text-gray-500">
+                Algunos bancos toman las compras del primer o ultimo dia (o el dia anterior) en otra facturacion.
+                Elige a que mes de pago entra cada compra; "Segun fecha" usa el periodo de compras normal.
+              </p>
+              {overrideError && <p className="px-4 pb-2 text-xs text-red-600">{overrideError}</p>}
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead className="bg-gray-50 text-left text-gray-600">
+                    <tr>
+                      <th className="p-2">Fecha</th>
+                      <th className="p-2">Tarjeta</th>
+                      <th className="p-2">Limite</th>
+                      <th className="p-2">Detalle</th>
+                      <th className="p-2 text-right">Monto</th>
+                      <th className="p-2">Entra en</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {boundaryPurchases.map(({ row, date, boundary, card }) => (
+                      <tr key={`${card}-${row.id}`} className="border-t">
+                        <td className="p-2">{ymd(date)}</td>
+                        <td className="p-2">{CARD_LABEL[card] || card}</td>
+                        <td className="p-2 text-gray-600">{boundary || 'Movida manualmente'}</td>
+                        <td className="p-2">{row.notas || row.concepto}</td>
+                        <td className="p-2 text-right">
+                          {row.moneda === 'USD' ? fmtUsd(row.monto) : fmtPen(row.monto)}
+                        </td>
+                        <td className="p-2">
+                          <select
+                            aria-label={`Facturacion de la compra ${row.id}`}
+                            className="rounded border px-2 py-1 text-sm"
+                            value={row.cicloOverride || ''}
+                            disabled={savingId === row.id || !row.id}
+                            onChange={(e) => saveCicloOverride(row, e.target.value)}
+                          >
+                            <option value="">Segun fecha</option>
+                            {cycleOptionsFor(card).map((ym) => (
+                              <option key={ym} value={ym}>Pago de {monthLabel(ym)}</option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                    {boundaryPurchases.length === 0 && (
+                      <tr><td className="p-3 text-gray-500" colSpan={6}>No hay compras en los dias limite de este ciclo.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </details>
 
           <div>
             <div className="mb-2 text-sm font-semibold text-gray-800">Proximos meses</div>

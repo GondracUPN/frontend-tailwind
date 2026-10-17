@@ -1391,6 +1391,11 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         <ModalCiclosTarjeta
           rows={rows}
           cards={cardsSummary}
+          onRowUpdated={(updated) => {
+            if (!updated?.id) return;
+            setRows((current) => sortRows([updated, ...current.filter((row) => row.id !== updated.id)]));
+            reloadAll({ includeGastos: true, useCache: false, silent: true });
+          }}
           onClose={() => setShowCiclosTarjeta(false)}
         />
       )}

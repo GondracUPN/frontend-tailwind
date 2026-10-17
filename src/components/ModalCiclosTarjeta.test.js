@@ -1,4 +1,4 @@
-import { buildAllocatedCycles } from './ModalCiclosTarjeta';
+import { buildAllocatedCycles, findBoundaryPurchases } from './ModalCiclosTarjeta';
 
 describe('ModalCiclosTarjeta', () => {
   it('aplica la devolucion al ciclo correspondiente a su propia fecha', () => {
@@ -115,6 +115,31 @@ describe('ModalCiclosTarjeta', () => {
 
     expect(cycles.get('bcp_visa:2026-08').totals.pen).toBe(0);
     expect(cycles.get('bcp_visa:2026-09').totals.pen).toBe(120);
+  });
+
+  it('respeta la facturacion elegida para una compra en dia limite', () => {
+    const rows = [
+      { id: 20, concepto: 'gusto', metodoPago: 'credito', moneda: 'PEN', monto: '50.00', fecha: '2026-08-25', tarjeta: 'interbank' },
+      { id: 21, concepto: 'gusto', metodoPago: 'credito', moneda: 'PEN', monto: '70.00', fecha: '2026-08-26', tarjeta: 'interbank', cicloOverride: '2026-10' },
+    ];
+
+    const cycles = buildAllocatedCycles({
+      rows,
+      creditRows: rows,
+      cardKeys: ['interbank'],
+      selectedYear: 2026,
+      selectedMonth: 9,
+    });
+
+    // Interbank septiembre: 2026-07-25 al 2026-08-26. La compra del 26 se movio a octubre.
+    expect(cycles.get('interbank:2026-09').totals.pen).toBe(50);
+    expect(cycles.get('interbank:2026-10').totals.pen).toBe(70);
+
+    const boundary = findBoundaryPurchases({ creditRows: rows, card: 'interbank', year: 2026, month: 9 });
+    expect(boundary.map((item) => [item.row.id, item.boundary])).toEqual([
+      [20, 'Dia antes del cierre'],
+      [21, 'Ultimo dia'],
+    ]);
   });
 
   it('distribuye una compra en cuotas entre las facturaciones siguientes', () => {
