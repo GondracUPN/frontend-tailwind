@@ -8,7 +8,36 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import * as pdfjsLib from 'pdfjs-dist/webpack';
 import { createExpenseWithDuplicateCheck } from '../utils/createExpense';
+import * as XLSX from 'xlsx';
 import ModalGastoCreditoMasivo, { compareBulkExpenses, debitPaymentBody, parseBulkRows, pdfLinesToBulkText, pdfTextItemsToLines, spreadsheetToBulkLines } from './ModalGastoCreditoMasivo';
+
+test('omite CUOTA DEL MES al importar gastos de crédito desde PDF, CSV y XLSX', () => {
+  const pdf = pdfLinesToBulkText([
+    '2026',
+    'Consumos en cuotas',
+    '12-AGO CUOTA DEL MES 99.00 [PEN]',
+    '13-AGO COMPRA EN TIENDA 45.00 [PEN]',
+    '14Ago 14Ago CUOTA DEL MES CONSUMO 80.00 [PEN]',
+  ]);
+  expect(pdf).not.toMatch(/cuota del mes/i);
+  expect(parseBulkRows(pdf).rows.map((row) => row.body.monto)).toEqual([45]);
+
+  const matrix = [
+    ['Fecha', 'Descripcion', 'Monto', 'Moneda'],
+    ['12/08/2026', 'CUOTA DEL MES', 99, 'PEN'],
+    ['13/08/2026', 'COMPRA EN TIENDA', 45, 'PEN'],
+  ];
+  const csv = Buffer.from(matrix.map((row) => row.join(',')).join('\n'), 'utf8');
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(matrix), 'Movimientos');
+  const xlsx = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  for (const [data, name] of [[csv, 'movimientos.csv'], [xlsx, 'movimientos.xlsx']]) {
+    const lines = spreadsheetToBulkLines(data, name);
+    expect(lines).toHaveLength(1);
+    expect(parseBulkRows(lines.join('\n')).rows.map((row) => row.body.monto)).toEqual([45]);
+  }
+  expect(parseBulkRows('gusto | PEN | 99 | 12/08/2026 | CUOTA DEL MES\ngusto | PEN | 45 | 13/08/2026 | COMPRA EN TIENDA').rows).toHaveLength(1);
+});
 
 test('separa las columnas Cargos/Debe y Abonos/Haber de un estado de débito', () => {
   const item = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y] });

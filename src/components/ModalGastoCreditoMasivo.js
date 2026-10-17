@@ -57,6 +57,8 @@ const normalizeText = (value) =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ');
 
+const isMonthlyInstallmentMovement = (value) => /\bcuota[\s._-]+del[\s._-]+mes\b/.test(normalizeText(value));
+
 const ignoredInternalTransfer = (description) => /^transf\.\s*bco\.\s*(?:interba|bbva)/i.test(String(description || '').trim());
 
 const isTransportExpenseDescription = (description) => {
@@ -159,6 +161,7 @@ const matrixToBulkLines = (matrix, mode = 'credito') => {
   if (dateIndex < 0 || (amountIndex < 0 && penAmountIndex < 0 && usdAmountIndex < 0 && cargoIndex < 0 && abonoIndex < 0)) return null;
 
   const entries = matrix.slice(headerIndex + 1).flatMap((row) => {
+    if (mode === 'credito' && (row || []).some(isMonthlyInstallmentMovement)) return [];
     const noteText = noteIndex >= 0 ? String(row?.[noteIndex] || '') : '';
     const note = (mode === 'debito' && conceptIndex >= 0
       ? `${String(row?.[conceptIndex] || '')} ${noteText}`.trim()
@@ -242,6 +245,7 @@ export const pdfLinesToBulkText = (lines, mode = 'credito') => {
   let pdfSection = '';
   return lines.flatMap((line) => {
     const normalizedLine = normalizeText(line);
+    if (mode === 'credito' && isMonthlyInstallmentMovement(normalizedLine)) return [];
     if (/^abonos$/.test(normalizedLine)) { pdfSection = 'credits'; return []; }
     if (/^consumos directos/.test(normalizedLine)) { pdfSection = 'purchases'; return []; }
     if (/^consumos en cuotas/.test(normalizedLine)) { pdfSection = 'installments'; return []; }
@@ -420,6 +424,7 @@ export const parseBulkRows = (text, mode = 'credito') => {
   lines.forEach((lineRaw, idx) => {
     const line = String(lineRaw || '').trim();
     if (!line) return;
+    if (mode === 'credito' && isMonthlyInstallmentMovement(line)) return;
 
     const parts = line.split('|').map((x) => String(x || '').trim());
     if (parts.length < 4 || parts.length > 5) {
