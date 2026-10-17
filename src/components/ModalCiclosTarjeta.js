@@ -273,7 +273,7 @@ export const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear,
 
     creditRows
       .filter((g) => normalizeCard(g.tarjeta) === normalizeCard(card))
-      .filter((g) => !(cardCycleKey(card) === 'io' && isCardCashback(g)))
+      .filter((g) => !(cardCycleKey(card) === 'io' && isCardCashback(g) && !g.cicloOverride))
       .forEach((g) => {
         const purchaseDate = parseYmd(g.fecha);
         // Si el usuario decidio a que facturacion entra la compra, manda sobre la fecha.
@@ -322,6 +322,7 @@ export const buildAllocatedCycles = ({ rows, creditRows, cardKeys, selectedYear,
         || (
           cardCycleKey(card) === 'io'
           && isCardCashback(g)
+          && !g.cicloOverride
           && normalizeCard(g.tarjeta) === normalizeCard(card)
         )
       ))
@@ -375,6 +376,45 @@ const monthLabel = (value) => {
 
 const cycleDisplayEnd = (cycle) => cycle?.endExclusive ? addDays(cycle.end, -1) : cycle?.end;
 
+const cycleMonthForDate = (card, date) => {
+  if (!date) return null;
+  for (const delta of [-1, 0, 1, 2, 3]) {
+    const { year, month } = addMonths(date.getFullYear(), date.getMonth() + 1, delta);
+    const cycle = getCycle(card, year, month);
+    if (cycle && isDateInCycle(date, cycle)) return `${year}-${pad(month)}`;
+  }
+  return null;
+};
+
+export const cycleOptionsForMovement = ({ card, year, month, row, boundary }) => {
+  const selected = addMonths(year, month, 0);
+  const current = `${selected.year}-${pad(selected.month)}`;
+  const dateCycle = cycleMonthForDate(card, parseYmd(row?.fecha));
+  let months;
+  if (isCardCashback(row)) {
+    if (!dateCycle) return [];
+    const [cashbackYear, cashbackMonth] = dateCycle.split('-').map(Number);
+    const next = addMonths(cashbackYear, cashbackMonth, 1);
+    months = [dateCycle, `${next.year}-${pad(next.month)}`];
+  } else if (boundary === 'Dia antes del inicio' || boundary === 'Primer dia') {
+    const previous = addMonths(year, month, -1);
+    months = [`${previous.year}-${pad(previous.month)}`, current];
+  } else if (boundary) {
+    const next = addMonths(year, month, 1);
+    months = [current, `${next.year}-${pad(next.month)}`];
+  } else if (dateCycle) {
+    const [baseYear, baseMonth] = dateCycle.split('-').map(Number);
+    const next = addMonths(baseYear, baseMonth, 1);
+    months = [dateCycle, `${next.year}-${pad(next.month)}`];
+  } else {
+    months = [current];
+  }
+  return months.filter((ym) => {
+    const [targetYear, targetMonth] = ym.split('-').map(Number);
+    return getCycle(card, targetYear, targetMonth);
+  });
+};
+
 // Compras de una tarjeta cerca de los limites del ciclo del mes de pago elegido:
 // un dia antes del inicio, el inicio, un dia antes del cierre, el cierre y el dia
 // siguiente al cierre. Tambien las que el usuario ya movio a/desde este ciclo.
@@ -392,12 +432,11 @@ export const findBoundaryPurchases = ({ creditRows, card, year, month }) => {
   ]);
   return creditRows
     .filter((g) => normalizeCard(g.tarjeta) === normalizeCard(card))
-    .filter((g) => !(cardCycleKey(card) === 'io' && isCardCashback(g)))
     .map((g) => {
       const date = parseYmd(g.fecha);
-      return date ? { row: g, date, boundary: boundaryDays.get(ymd(date)) } : null;
+      return date ? { row: g, date, boundary: boundaryDays.get(ymd(date)), dateCycle: cycleMonthForDate(card, date) } : null;
     })
-    .filter((item) => item && (item.boundary || item.row.cicloOverride === ym))
+    .filter((item) => item && (item.boundary || item.row.cicloOverride === ym || (isCardCashback(item.row) && item.dateCycle === ym)))
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 };
 
@@ -460,14 +499,6 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose, onR
     return cardKeys.flatMap((card) => findBoundaryPurchases({ creditRows, card, year, month: m })
       .map((item) => ({ ...item, card })));
   }, [cardKeys, creditRows, month]);
-
-  const cycleOptionsFor = (card) => {
-    const [year, m] = month.split('-').map(Number);
-    return [-1, 0, 1]
-      .map((delta) => addMonths(year, m, delta))
-      .filter(({ year: y, month: mm }) => getCycle(card, y, mm))
-      .map(({ year: y, month: mm }) => `${y}-${pad(mm)}`);
-  };
 
   const selectedRows = useMemo(() => {
     const [year, m] = month.split('-').map(Number);
@@ -653,12 +684,12 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose, onR
 
           <details className="rounded-xl border bg-white">
             <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-gray-800">
-              Compras en dias limite del ciclo ({boundaryPurchases.length})
+              Compras en dias limite y cashback ({boundaryPurchases.length})
             </summary>
             <div className="border-t">
               <p className="px-4 py-2 text-xs text-gray-500">
-                Algunos bancos toman las compras del primer o ultimo dia (o el dia anterior) en otra facturacion.
-                Elige a que mes de pago entra cada compra; "Segun fecha" usa el periodo de compras normal.
+                Elige el ciclo de las compras en dias limite y del cashback. "Segun fecha" usa el periodo normal;
+                en IO conserva la distribucion automatica de la deuda.
               </p>
               {overrideError && <p className="px-4 pb-2 text-xs text-red-600">{overrideError}</p>}
               <div className="overflow-x-auto">
@@ -678,21 +709,21 @@ export default function ModalCiclosTarjeta({ rows = [], cards = [], onClose, onR
                       <tr key={`${card}-${row.id}`} className="border-t">
                         <td className="p-2">{ymd(date)}</td>
                         <td className="p-2">{CARD_LABEL[card] || card}</td>
-                        <td className="p-2 text-gray-600">{boundary || 'Movida manualmente'}</td>
+                        <td className="p-2 text-gray-600">{isCardCashback(row) ? 'Cashback' : boundary || 'Movida manualmente'}</td>
                         <td className="p-2">{row.notas || row.concepto}</td>
                         <td className="p-2 text-right">
                           {row.moneda === 'USD' ? fmtUsd(row.monto) : fmtPen(row.monto)}
                         </td>
                         <td className="p-2">
                           <select
-                            aria-label={`Facturacion de la compra ${row.id}`}
+                            aria-label={`Facturacion de ${isCardCashback(row) ? 'cashback' : 'la compra'} ${row.id}`}
                             className="rounded border px-2 py-1 text-sm"
                             value={row.cicloOverride || ''}
                             disabled={savingId === row.id || !row.id}
                             onChange={(e) => saveCicloOverride(row, e.target.value)}
                           >
                             <option value="">Segun fecha</option>
-                            {cycleOptionsFor(card).map((ym) => (
+                            {cycleOptionsForMovement({ card, year: Number(month.slice(0, 4)), month: Number(month.slice(5, 7)), row, boundary }).map((ym) => (
                               <option key={ym} value={ym}>Pago de {monthLabel(ym)}</option>
                             ))}
                           </select>
