@@ -1,6 +1,7 @@
 // src/pages/Productos.js
 import React, { Suspense, lazy, useState, useEffect, useCallback, useRef } from 'react';
 import api from '../api';  // cliente fetch centralizado
+import { notifyGastosChanged } from '../utils/gastosSync';
 import ResumenCasilleros from '../components/ResumenCasilleros';
 import { FiFileText } from 'react-icons/fi';
 import { formatAppleWatchName } from '../utils/productName';
@@ -432,6 +433,22 @@ export default function Productos({ setVista, setAnalisisBack }) {
       return next;
     });
     setAdelantoActivo(adelanto);
+  };
+
+  const handleAdelantoCancelado = async () => {
+    if (!adelantoActivo?.id || !window.confirm('¿Cancelar esta venta con adelanto? Se eliminarán los adelantos y sus ingresos registrados.')) return;
+    try {
+      await api.del(`/ventas/adelanto/${adelantoActivo.id}`);
+      const next = { ...adelantosRef.current, [adelantoActivo.productoId]: null };
+      adelantosRef.current = next;
+      setAdelantosMap(next);
+      writeCache(productosRef.current, ventasRef.current, resumenRef.current, next);
+      notifyGastosChanged({ action: 'sale-advance-cancelled', productoId: adelantoActivo.productoId });
+      fetchResumen({ refresh: true });
+      cerrarAdelanto();
+    } catch (error) {
+      alert(error?.message || 'No se pudo cancelar la venta con adelanto.');
+    }
   };
 
   const handleAdelantoCompleto = (ventaGuardada, productoId) => {
@@ -4400,6 +4417,7 @@ const confirmAction = async () => {
             adelanto={adelantoActivo}
             onClose={cerrarAdelanto}
             onSaved={handleAdelantoCuotaSaved}
+            onCancelar={handleAdelantoCancelado}
             onCompletar={() => abrirAdelantoCompletar(adelantoProducto, adelantoActivo)}
           />
         )}
@@ -4409,6 +4427,7 @@ const confirmAction = async () => {
             adelanto={adelantoActivo}
             onClose={cerrarAdelanto}
             onSaved={(venta) => handleAdelantoCompleto(venta, adelantoProducto?.id)}
+            onCancelar={handleAdelantoCancelado}
           />
         )}
         {modalModo === 'calc' && (

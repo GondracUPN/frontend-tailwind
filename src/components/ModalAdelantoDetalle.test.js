@@ -87,3 +87,11 @@ test('no permite que un nuevo adelanto supere el saldo pendiente', () => {
   );
   expect(api.post).not.toHaveBeenCalled();
 });
+
+test('muestra la cancelación de la venta con adelanto', () => {
+  const onCancelar = jest.fn();
+  render(<ModalAdelantoDetalle adelanto={inicial} producto={{ id: 9 }} onCancelar={onCancelar} />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Cancelar venta' }));
+  expect(onCancelar).toHaveBeenCalledTimes(1);
+});

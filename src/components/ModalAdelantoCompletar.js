@@ -3,7 +3,7 @@ import api from '../api';
 import { notifyGastosChanged } from '../utils/gastosSync';
 import { notifySalesChanged } from '../utils/salesSync';
 
-export default function ModalAdelantoCompletar({ adelanto, producto, onClose, onSaved }) {
+export default function ModalAdelantoCompletar({ adelanto, producto, onClose, onSaved, onCancelar }) {
   const [fechaVenta, setFechaVenta] = useState('');
   const [tipoCambio, setTipoCambio] = useState('');
   const [incomeBank, setIncomeBank] = useState('bcp');
@@ -100,6 +100,14 @@ export default function ModalAdelantoCompletar({ adelanto, producto, onClose, on
           ].map(([type, label]) => <label key={type}>{label}<input aria-label={`${label} del saldo`} type="number" min="0" step="0.01" value={paymentParts[type] || ''} onChange={(event) => setPaymentParts((current) => ({ ...current, [type]: event.target.value }))} className="mt-1 w-full rounded border p-2" /></label>)}</div>}
         </div>}
         <div className="flex items-center justify-end gap-2 pt-4">
+          <button
+            type="button"
+            className="mr-auto border border-red-300 text-red-700 px-4 py-2 rounded hover:bg-red-50 disabled:opacity-60"
+            onClick={onCancelar}
+            disabled={saving}
+          >
+            Cancelar venta
+          </button>
           <button
             className="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300"
             onClick={onClose}

@@ -8,6 +8,7 @@ export default function ModalAdelantoDetalle({
   producto,
   onClose,
   onCompletar,
+  onCancelar,
   onSaved,
 }) {
   const [mostrarNuevaCuota, setMostrarNuevaCuota] = useState(false);
@@ -179,6 +180,14 @@ export default function ModalAdelantoDetalle({
         )}
 
         <div className="flex flex-wrap items-center justify-end gap-2 pt-5">
+          <button
+            type="button"
+            className="mr-auto border border-red-300 text-red-700 px-4 py-2 rounded hover:bg-red-50"
+            onClick={onCancelar}
+            disabled={saving}
+          >
+            Cancelar venta
+          </button>
           <button
             type="button"
             className="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300"
