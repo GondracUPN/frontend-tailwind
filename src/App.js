@@ -1312,7 +1312,7 @@ function App() {
     );
   };
 
-  const renderNavItem = ({ id, label, icon: Icon }) => {
+  const renderNavItem = ({ id, label, icon: Icon, compact = false }) => {
     const active = vista === id;
     return (
       <button
@@ -1323,13 +1323,13 @@ function App() {
         onClick={() => navigateTo(id)}
         onMouseEnter={id === 'productos' ? loadProductosPage : (id === 'inventario' ? loadInventarioPage : undefined)}
         onFocus={id === 'productos' ? loadProductosPage : (id === 'inventario' ? loadInventarioPage : undefined)}
-        className={`group flex h-11 w-full items-center justify-start gap-3 rounded-lg px-3 text-sm font-medium transition ${
+        className={`group flex w-full items-center justify-start rounded-lg font-medium transition ${compact ? 'h-10 gap-2 px-2 text-xs' : 'h-11 gap-3 px-3 text-sm'} ${
           active
             ? 'bg-slate-900 text-white shadow-sm'
             : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
         }`}
       >
-        <Icon className={`h-5 w-5 shrink-0 ${active ? 'text-white' : 'text-slate-500 group-hover:text-slate-800'}`} />
+        <Icon className={`${compact ? 'h-4 w-4' : 'h-5 w-5'} shrink-0 ${active ? 'text-white' : 'text-slate-500 group-hover:text-slate-800'}`} />
         <span className="truncate">{label}</span>
       </button>
     );
@@ -1409,26 +1409,10 @@ function App() {
   );
 
   const renderCalcuRapidaPanel = () => (
-    <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="flex items-start gap-2.5">
-        <div className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white shadow-sm">
-          <FiHash className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-semibold text-slate-950">Calcu Rapida</h2>
-          <p className="mt-1 truncate text-xs text-slate-500">Compras con DEC 90</p>
-        </div>
-      </div>
-      <button
-        type="button"
-        className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-        onClick={openCalcuRapida}
-        title="Abrir calculadora rapida"
-      >
-        <FiHash className="h-4 w-4" />
-        <span>Calcular compra</span>
-      </button>
-    </section>
+    <button type="button" onClick={openCalcuRapida} title="Abrir calculadora rapida" aria-label="Calcular compra" className="ux-quick-calc">
+      <FiHash className="h-5 w-5 shrink-0" />
+      <span><strong>Calcular compra</strong><small>Calculadora rápida · DEC 90</small></span>
+    </button>
   );
 
   return (
@@ -1482,20 +1466,27 @@ function App() {
             </button>
           </div>
 
+          <details className="ux-sidebar-shortcuts" open>
+            <summary>Accesos rápidos</summary>
+            <div className="ux-shortcut-content">
+              {renderEshopexSidebarPanel()}
+              {renderCalcuRapidaPanel()}
+              <nav aria-label="Herramientas del panel" className="grid grid-cols-2 gap-2">
+                {['calculadora', 'ebay'].map(id => renderNavItem({ ...SIDEBAR_NAV.find(item => item.id === id), compact: true }))}
+              </nav>
+            </div>
+          </details>
           <nav aria-label="Navegación principal" className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
             <div className="flex flex-col gap-1 pb-4">
               {renderNavItem(SIDEBAR_NAV.find(item => item.id === 'home'))}
-              {[['Operaciones', ['productos', 'inventario']], ['Finanzas', ['ganancias', 'gastos', 'analisis', 'proyeccion']], ['Herramientas', ['calculadora', 'ebay']], ['Administración', ['servicios']]].map(([group, ids]) => (
+              {[['Operaciones', ['productos', 'inventario']], ['Finanzas', ['ganancias', 'gastos', 'analisis', 'proyeccion']], ['Administración', ['servicios']]].map(([group, ids]) => (
                 <div key={group}>
                   <div className="ux-nav-label">{group}</div>
                   <div className="space-y-1">{ids.map(id => renderNavItem(SIDEBAR_NAV.find(item => item.id === id)))}</div>
                   {group === 'Finanzas' && <div className="mt-1 space-y-1">{SIDEBAR_SECONDARY_NAV.map(renderNavItem)}</div>}
                 </div>
               ))}
-              <details className="ux-nav-tools" open>
-                <summary>Accesos rápidos</summary>
-                <div>{renderEshopexSidebarPanel()}{renderCalcuRapidaPanel()}</div>
-              </details>
+
             </div>
           </nav>
         </aside>

@@ -115,3 +115,7 @@ Las capturas, mediciones y galería están en `E:\ventas\macsomenos\servicios\re
 La búsqueda de Productos en teléfono pasa aproximadamente de 1868 px a 588 px desde el inicio; el listado, de 2536 px a 965 px. Mediciones con la página al inicio, sin filtros y el menú oculto. La barra de desplazamiento reserva 15 px del ancho emulado.
 
 Esta entrega termina en la Fase 1 solicitada. El rediseño específico de Inventario, Gastos, Análisis, Calculadora, Servicios, Inicio y las familias de modales queda para las fases 2 y 3, después de revisar esta versión. Esos módulos conservan su contenido y reciben únicamente la navegación/cabecera compartida.
+
+### Ajuste del panel rápido
+
+Los accesos a Eshopex, Calcular compra, Calculadora y eBay se colocaron inmediatamente debajo de la identidad del sistema, en un bloque plegable independiente del desplazamiento de los módulos. La calculadora rápida se compactó en una sola acción. Comprobado visualmente en escritorio y teléfono; pruebas de App y build aprobados.
