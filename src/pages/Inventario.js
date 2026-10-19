@@ -63,6 +63,7 @@ const EMPTY_FORM = {
   primerPrecioSoles: '',
   ultimoPrecioSoles: '',
   nombreAccesorio: '',
+  compradorAccesorio: '',
   precioCompra: '',
   monedaCompra: 'USD',
   costoEnvioAccesorio: '',
@@ -70,6 +71,7 @@ const EMPTY_FORM = {
 };
 
 const EMPTY_SIMPLE_ACCESSORY = {
+  comprador: '',
   nombre: '',
   precioCompra: '',
   monedaCompra: 'PEN',
@@ -252,6 +254,7 @@ const toForm = (entry) => {
     primerPrecioSoles: ficha.primerPrecioSoles ?? '',
     ultimoPrecioSoles: ficha.ultimoPrecioSoles ?? '',
     nombreAccesorio: entry?.producto?.detalle?.modelo || '',
+    compradorAccesorio: entry?.producto?.vendedor || '',
     precioCompra: entry?.producto?.valor?.valorProducto ?? '',
     monedaCompra: entry?.producto?.valor?.monedaCompra || 'USD',
     costoEnvioAccesorio: entry?.producto?.valor?.costoEnvio ?? '',
@@ -269,11 +272,11 @@ export const groupInventoryEntries = (rawEntries) => {
       result.push(entry);
       return;
     }
-    const key = String(Number(producto.codigoInventario || producto.id));
+    const key = `${Number(producto.codigoInventario || producto.id)}:${text(producto.vendedor).toLowerCase()}`;
     accessoryGroups.set(key, [...(accessoryGroups.get(key) || []), entry]);
   });
 
-  accessoryGroups.forEach((group, key) => {
+  accessoryGroups.forEach((group) => {
     const ranked = [...group].sort((a, b) => {
       const photoDiff = Number(Boolean(b?.ficha?.fotoUrl)) - Number(Boolean(a?.ficha?.fotoUrl));
       if (photoDiff) return photoDiff;
@@ -293,7 +296,7 @@ export const groupInventoryEntries = (rawEntries) => {
       } : null,
       producto: {
         ...representative.producto,
-        codigoInventario: Number(key),
+        codigoInventario: Number(representative.producto.codigoInventario || representative.producto.id),
         stockInicial: group.reduce((sum, item) => sum + Math.max(0, Number(item?.producto?.stockInicial || 0)), 0),
         stockActual: group.reduce((sum, item) => sum + Math.max(0, Number(item?.producto?.stockActual || 0)), 0),
         __inventoryGroup: group.length > 1,
@@ -637,6 +640,7 @@ export default function Inventario({ setVista }) {
     const costoEnvio = simpleAccessory.tieneEnvio ? Number(simpleAccessory.costoEnvio) : 0;
     const precioVenta = simpleAccessory.precioVenta === '' ? null : Number(simpleAccessory.precioVenta);
     if (!nombre) return setSimpleAccessoryError('El nombre del producto es obligatorio.');
+    if (!simpleAccessory.comprador) return setSimpleAccessoryError('Selecciona quién compró el accesorio.');
     if (!Number.isFinite(precioCompra) || precioCompra < 0) return setSimpleAccessoryError('Ingresa un precio de compra válido.');
     if (!Number.isInteger(cantidad) || cantidad < 1) return setSimpleAccessoryError('La cantidad debe ser al menos 1.');
     if (!Number.isFinite(costoEnvio) || costoEnvio < 0) return setSimpleAccessoryError('Ingresa un costo de envío válido.');
@@ -649,6 +653,7 @@ export default function Inventario({ setVista }) {
         tipo: 'accesorios',
         estado: 'nuevo',
         soloInventario: true,
+        vendedor: simpleAccessory.comprador,
         cantidad,
         detalle: { modelo: nombre, modelosCompatibles: simpleAccessory.modelosCompatibles },
         valor: {
@@ -808,6 +813,7 @@ export default function Inventario({ setVista }) {
         if (!Number.isFinite(shippingCost) || shippingCost < 0) throw new Error('El costo de envío no es válido.');
         const currentValue = editing.producto.valor || {};
         updatedProduct = await api.patch(`/productos/${id}`, {
+          vendedor: form.compradorAccesorio || null,
           detalle: {
             modelo: text(form.nombreAccesorio),
             modelosCompatibles: form.modelosCompatibles,
@@ -1177,6 +1183,7 @@ export default function Inventario({ setVista }) {
                       </span>
                     </div>
 
+                    {accessoryStock && <p className="mt-3 text-xs font-medium text-indigo-800">Comprado por: {text(producto.vendedor).toLowerCase() === 'ambos' ? 'Ambos (50/50)' : (producto.vendedor || 'Sin asignar')}</p>}
                     {accessoryStock ? (
                       <div className="mt-3 grid grid-cols-[1fr_1.35fr] gap-2 border-y border-slate-100 py-2">
                         <label className={`flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg border px-2 text-xs font-semibold transition active:scale-[0.98] ${ficha?.enAlmacen ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
@@ -1248,6 +1255,11 @@ export default function Inventario({ setVista }) {
                 }} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" placeholder="Ej. Case para iPhone 16 Pro" />
                 <datalist id="simple-accessory-names">{ACCESSORY_MODEL_GROUPS.flatMap((group) => group.models).map((item) => <option key={accessoryModelName(item)} value={accessoryModelName(item)} />)}</datalist>
               </label>
+              <label className="text-sm font-medium text-slate-700">Comprado por *
+                <select required value={simpleAccessory.comprador} onChange={(event) => setSimpleAccessory((current) => ({ ...current, comprador: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
+                  <option value="">Seleccionar comprador</option><option value="Gonzalo">Gonzalo</option><option value="Renato">Renato</option><option value="ambos">Ambos (50/50)</option>
+                </select>
+              </label>
               <label className="text-sm font-medium text-slate-700">Precio de compra por unidad *
                 <div className="mt-1 flex"><select value={simpleAccessory.monedaCompra} onChange={(event) => setSimpleAccessory((current) => ({ ...current, monedaCompra: event.target.value }))} className="h-11 rounded-l-xl border border-r-0 border-slate-200 bg-slate-50 px-2 font-semibold"><option value="PEN">S/</option><option value="USD">$</option></select><input required type="number" min="0" step="0.01" value={simpleAccessory.precioCompra} onChange={(event) => setSimpleAccessory((current) => ({ ...current, precioCompra: event.target.value }))} className="h-11 min-w-0 flex-1 rounded-r-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></div>
               </label>
@@ -1281,6 +1293,11 @@ export default function Inventario({ setVista }) {
               {accessoryEditing && (
                 <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 lg:col-span-2">
                   <h3 className="text-base font-semibold text-slate-950">Stock del accesorio</h3>
+                  <label className="block text-sm font-medium text-slate-700">Comprado por
+                    <select value={form.compradorAccesorio} onChange={(event) => setForm((current) => ({ ...current, compradorAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
+                      <option value="">Sin asignar</option><option value="Gonzalo">Gonzalo</option><option value="Renato">Renato</option><option value="ambos">Ambos (50/50)</option>
+                    </select>
+                  </label>
                   <p className="mt-1 text-sm text-slate-600">Este tipo usa almacén, cantidad y una sola foto principal; no requiere caja, SN, IMEI ni sesión de fotos.</p>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <label className="flex min-h-14 items-center justify-between rounded-xl bg-white px-4 text-sm font-medium text-slate-700 ring-1 ring-slate-200">En almacén<input type="checkbox" checked={Boolean(form.enAlmacen)} onChange={(event) => setForm((current) => ({ ...current, enAlmacen: event.target.checked }))} className="h-7 w-7" /></label>
@@ -1544,7 +1561,7 @@ export default function Inventario({ setVista }) {
                   <FiUser className="h-5 w-5 shrink-0" /><span><strong className="block">Poner cliente</strong><span className={`text-xs ${selling.step === 'client' ? 'text-blue-50' : ''}`}>Ingresar número, lugar y precio para copiar el mensaje.</span></span>
                 </button>
                 <button type="button" onClick={() => setSelling((current) => ({ ...current, step: 'sale' }))} className={`flex min-h-16 items-center gap-3 rounded-xl border px-4 text-left transition ${selling.step === 'sale' ? 'border-emerald-600 bg-emerald-600 text-white shadow-md' : 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'}`}>
-                  <FiDollarSign className="h-5 w-5 shrink-0" /><span><strong className="block">Realizar venta</strong><span className={`text-xs ${selling.step === 'sale' ? 'text-emerald-50' : ''}`}>Registrar fecha, tipo de cambio y precio vendido.</span></span>
+                  <FiDollarSign className="h-5 w-5 shrink-0" /><span><strong className="block">Realizar venta</strong><span className={`text-xs ${selling.step === 'sale' ? 'text-emerald-50' : ''}`}>{selling.entry.producto.tipo === 'accesorios' ? 'Registrar fecha, comprador y precio vendido.' : 'Registrar fecha, tipo de cambio y precio vendido.'}</span></span>
                 </button>
               </div>
               <button type="button" onClick={() => setSelling(null)} className="mt-4 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:hidden">

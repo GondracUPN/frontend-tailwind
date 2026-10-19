@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import Ganancias from './Ganancias';
 import api from '../api';
 import { formatDisplayMoney } from '../components/ui/VisualUI';
@@ -45,4 +45,21 @@ test('diferencia un error de consulta de un resultado de cero ventas', async () 
   expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar las ventas');
   expect(screen.getByText('Ventas totales')).not.toBeVisible();
   log.mockRestore();
+});
+
+test('suma solo la utilidad mensual de accesorios para cada comprador y divide ambos al 50%', async () => {
+  const year = new Date().getFullYear();
+  const make = (id, vendedor, ganancia, month) => ({ id, vendedor, ganancia, precioVenta: 1000, fechaVenta: year + '-' + month + '-12', producto: { id, tipo: 'accesorios', detalle: { modelo: 'Cable' } } });
+  api.get.mockResolvedValue([make(1, 'Gonzalo', 40, '01'), make(2, 'ambos', 60, '01'), make(3, 'Renato', 15, '02')]);
+  render(<Ganancias setVista={jest.fn()} />);
+  const gonzalo = await screen.findByLabelText('Ganancia mensual de accesorios de Gonzalo');
+  const renato = screen.getByLabelText('Ganancia mensual de accesorios de Renato');
+  expect(gonzalo).toHaveTextContent('S/ 70.00');
+  expect(renato).toHaveTextContent('S/ 30.00');
+  expect(renato).toHaveTextContent('S/ 15.00');
+  expect(gonzalo).not.toHaveTextContent('1,000');
+  expect(within(gonzalo.parentElement).getByText('Neta').parentElement).toHaveTextContent('70.00');
+  fireEvent.change(within(gonzalo.parentElement).getByLabelText('Mes'), { target: { value: '2' } });
+  expect(screen.queryByLabelText('Ganancia mensual de accesorios de Gonzalo')).not.toBeInTheDocument();
+  expect(renato).toHaveTextContent('S/ 30.00');
 });

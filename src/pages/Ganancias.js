@@ -1,3 +1,4 @@
+import { accessoryMonthlyProfit } from '../utils/accessorySales';
 // src/pages/Ganancias.js
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActionButton, PageHeader, StatCard, LoadingState, ErrorState, formatDisplayMoney } from '../components/ui/VisualUI';
@@ -506,68 +507,10 @@ function ColVendedor({
     }
   };
 
-  return (
-    <div className="bg-white border rounded-2xl shadow-sm p-5">
-      {/* Cabecera vendedor + botones */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-        <div>
-          <div className="text-sm text-gray-500">Vendedor</div>
-          <div className="text-xl font-semibold">{titulo}</div>
-        </div>
-        <div className="flex w-full sm:w-auto gap-2">
-          <button
-            onClick={onSunat}
-            className="w-full sm:w-auto bg-amber-600 text-white px-4 py-2 rounded-xl hover:bg-amber-700"
-          >
-            Calcular Sunat
-          </button>
-        </div>
-      </div>
-
-      {/* KPIs por vendedor + Filtros */}
-      <div className="ux-profit-summary mb-4">
-        <div className="ux-profit-stats">
-          <Kpi titulo="Ventas" valor={totales.cantidad} />
-          <Kpi titulo="Bruta" valor={fmtSoles(totales.brutaSoles)} />
-          <Kpi titulo="Neta" valor={fmtSoles(totales.netaSoles)} />
-        </div>
-
-        <div className="ux-profit-filters">
-          <div>
-            <label className="block text-sm text-gray-600 mb-1" htmlFor={`profit-${sellerSlug}-month`}>Mes</label>
-            <select id={`profit-${sellerSlug}-month`}
-              className="border rounded px-3 py-2 w-full sm:w-auto"
-              value={mes}
-              onChange={e => setMes(e.target.value)}
-            >
-              <option value="">Todos</option>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
-                <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm text-gray-600 mb-1" htmlFor={`profit-${sellerSlug}-year`}>Año</label>
-            <input id={`profit-${sellerSlug}-year`}
-              type="number"
-              className="border rounded px-3 py-2 w-full sm:w-28"
-              placeholder="YYYY"
-              value={anio}
-              onChange={e => setAnio(e.target.value)}
-            />
-          </div>
-          <div className="flex items-end">
-            <button
-              className="w-full sm:w-auto px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
-              onClick={() => { setMes(''); setAnio(currentYear); }}
-            >
-              Limpiar
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Tabla de ventas del vendedor (sin Precio DEC) */}
+  const accessorySales = ventas.filter(isAccessorySale);
+  const equipmentSales = ventas.filter((sale) => !isAccessorySale(sale));
+  const monthlyAccessoryProfit = accessoryMonthlyProfit(accessorySales);
+  const renderSalesTable = (rows) => (
       <div className="ux-table-wrap max-h-[60vh]" tabIndex={0} role="region" aria-label="Ventas del vendedor; tabla desplazable">
         <table className="ux-profit-table w-full text-left text-sm">
           <thead className="bg-gray-100 sticky top-0">
@@ -583,14 +526,14 @@ function ColVendedor({
             </tr>
           </thead>
           <tbody>
-            {ventas.length === 0 ? (
+            {rows.length === 0 ? (
               <tr>
                 <td className="p-3 text-sm text-gray-500" colSpan={8}>
                   Sin ventas en este rango.
                 </td>
               </tr>
             ) : (
-              ventas.map(v => {
+              rows.map(v => {
                 const p = v.producto || {};
                 const val = p.valor || {};
                 const share = Number(v.__share ?? 1);
@@ -654,6 +597,84 @@ function ColVendedor({
           </tbody>
         </table>
       </div>
+  );
+
+  return (
+    <div className="bg-white border rounded-2xl shadow-sm p-5">
+      {/* Cabecera vendedor + botones */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+        <div>
+          <div className="text-sm text-gray-500">Vendedor</div>
+          <div className="text-xl font-semibold">{titulo}</div>
+        </div>
+        <div className="flex w-full sm:w-auto gap-2">
+          <button
+            onClick={onSunat}
+            className="w-full sm:w-auto bg-amber-600 text-white px-4 py-2 rounded-xl hover:bg-amber-700"
+          >
+            Calcular Sunat
+          </button>
+        </div>
+      </div>
+
+      {/* KPIs por vendedor + Filtros */}
+      <div className="ux-profit-summary mb-4">
+        <div className="ux-profit-stats">
+          <Kpi titulo="Ventas" valor={totales.cantidad} />
+          <Kpi titulo="Bruta" valor={fmtSoles(totales.brutaSoles)} />
+          <Kpi titulo="Neta" valor={fmtSoles(totales.netaSoles)} />
+        </div>
+
+        <div className="ux-profit-filters">
+          <div>
+            <label className="block text-sm text-gray-600 mb-1" htmlFor={`profit-${sellerSlug}-month`}>Mes</label>
+            <select id={`profit-${sellerSlug}-month`}
+              className="border rounded px-3 py-2 w-full sm:w-auto"
+              value={mes}
+              onChange={e => setMes(e.target.value)}
+            >
+              <option value="">Todos</option>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
+                <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1" htmlFor={`profit-${sellerSlug}-year`}>Año</label>
+            <input id={`profit-${sellerSlug}-year`}
+              type="number"
+              className="border rounded px-3 py-2 w-full sm:w-28"
+              placeholder="YYYY"
+              value={anio}
+              onChange={e => setAnio(e.target.value)}
+            />
+          </div>
+          <div className="flex items-end">
+            <button
+              className="w-full sm:w-auto px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
+              onClick={() => { setMes(''); setAnio(currentYear); }}
+            >
+              Limpiar
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabla de ventas del vendedor (sin Precio DEC) */}
+      {monthlyAccessoryProfit.length > 0 && (
+        <section className="mb-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4" aria-label={`Ganancia mensual de accesorios de ${titulo}`}>
+          <h3 className="font-semibold text-indigo-950">Ganancia neta de accesorios por mes</h3>
+          <p className="mt-1 text-xs text-indigo-800">Incluida en la ganancia neta de {titulo}. Las compras de ambos se reparten al 50%.</p>
+          <dl className="mt-3 space-y-2">
+            {monthlyAccessoryProfit.map(([month, profit]) => <div key={month} className="flex justify-between gap-4 rounded-lg bg-white px-3 py-2"><dt>{month.slice(5)}/{month.slice(0, 4)}</dt><dd className="font-semibold ux-money">{fmtSoles(profit)}</dd></div>)}
+          </dl>
+        </section>
+      )}
+      {renderSalesTable(equipmentSales)}
+      {accessorySales.length > 0 && <details className="mt-4">
+        <summary className="cursor-pointer rounded-lg bg-slate-50 p-3 font-medium">Detalle de ventas de accesorios ({accessorySales.length})</summary>
+        {renderSalesTable(accessorySales)}
+      </details>}
 
       {editingVenta && (
         <ModalVenta

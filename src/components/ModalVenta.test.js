@@ -215,7 +215,7 @@ test('permite escoger el lote inicial de un accesorio agrupado', async () => {
     { id: 11, stockInicial: 2, stockActual: 2, valor: { fechaCompra: '2026-06-01', costoTotal: 40 } },
     { id: 22, stockInicial: 2, stockActual: 2, valor: { fechaCompra: '2026-07-01', costoTotal: 60 } },
   ];
-  render(<ModalVenta producto={{ id: 11, tipo: 'accesorios', stockActual: 4, __lots: lots }} onSaved={jest.fn()} onClose={jest.fn()} />);
+  render(<ModalVenta producto={{ id: 11, tipo: 'accesorios', vendedor: 'Gonzalo', stockActual: 4, __lots: lots }} onSaved={jest.fn()} onClose={jest.fn()} />);
 
   fireEvent.change(screen.getByLabelText('Lote del que se vende primero'), { target: { value: '22' } });
   fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.7' } });
@@ -224,4 +224,43 @@ test('permite escoger el lote inicial de un accesorio agrupado', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
 
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({ loteInicialId: 22 })));
+});
+
+ test.each(['Gonzalo', 'Renato', 'ambos'])('vende accesorios en soles de %s sin solicitar cambio', async (vendedor) => {
+  api.get.mockResolvedValue({ ventas: [] });
+  api.post.mockResolvedValue({ id: 92, vendedor });
+  render(<ModalVenta producto={{ id: 51, tipo: 'accesorios', vendedor, stockInicial: 5, stockActual: 5, valor: { monedaCompra: 'PEN', costoTotal: 50 } }} onSaved={jest.fn()} onClose={jest.fn()} />);
+  expect(screen.queryByText('Tipo de cambio', { exact: true })).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Comprado por')).toHaveValue(vendedor);
+  fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '30' } });
+  const date = document.querySelector('input[type="date"]');
+  fireEvent.change(date, { target: { value: '2026-10-19' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({ tipoCambio: 1, vendedor, precioVenta: 30 })));
+});
+
+test('solicita cambio si la cantidad cruza de un lote en soles a uno en dólares', async () => {
+  api.get.mockResolvedValue({ ventas: [] });
+  const lots = [
+    { id: 61, stockActual: 2, valor: { monedaCompra: 'PEN', fechaCompra: '2026-01-01' } },
+    { id: 62, stockActual: 5, valor: { monedaCompra: 'USD', fechaCompra: '2026-02-01' } },
+  ];
+  render(<ModalVenta producto={{ id: 61, tipo: 'accesorios', vendedor: 'Renato', stockActual: 7, __lots: lots }} onClose={jest.fn()} />);
+  expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Cantidad'), { target: { value: '3' } });
+  expect(screen.getByLabelText('Tipo de cambio')).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Cantidad'), { target: { value: '1' } });
+  expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Lote del que se vende primero'), { target: { value: '62' } });
+  expect(screen.getByLabelText('Tipo de cambio')).toBeVisible();
+});
+
+test('edita una venta de accesorio en soles aunque el lote ya esté agotado', async () => {
+  api.patch.mockResolvedValue({ id: 95, vendedor: 'Renato', precioVenta: 35 });
+  render(<ModalVenta producto={{ id: 70, tipo: 'accesorios', vendedor: 'Renato', stockActual: 0, valor: { monedaCompra: 'PEN' } }} venta={{ id: 95, vendedor: 'Renato', cantidad: 1, tipoCambio: 1, fechaVenta: '2026-10-19', precioVenta: 30, ganancia: 10 }} onSaved={jest.fn()} onClose={jest.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Editar', exact: true }));
+  expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '35' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/ventas/95', expect.objectContaining({ tipoCambio: 1, precioVenta: 35 })));
 });

@@ -3,6 +3,7 @@ import api from '../api';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
 import { notifyGastosChanged } from '../utils/gastosSync';
 import { notifySalesChanged } from '../utils/salesSync';
+import { accessoryLotDate, consumedAccessoryLots } from '../utils/accessorySales';
 
 const normalizeSeller = (value) =>
   value == null ? '' : String(value).trim().toLowerCase();
@@ -87,7 +88,7 @@ export default function ModalVenta({
 
   const effectiveSeller = form.vendedor || resolvedSaleSeller(venta?.vendedor, producto?.vendedor, presetVendedor);
   const sellerSlug = normalizeSeller(effectiveSeller);
-  const sellerLabel = formatSeller(effectiveSeller) || 'Sin vendedor asignado';
+  const sellerLabel = formatSeller(effectiveSeller) || 'Sin asignar';
   const isReadOnly = Boolean(venta) && !editMode;
   const isSplitVenta = Boolean(
     venta &&
@@ -101,8 +102,18 @@ export default function ModalVenta({
   const accessoryCreate = !venta && isAccessory;
   const accessoryLots = (Array.isArray(producto?.__lots) && producto.__lots.length ? producto.__lots : [producto])
     .filter((lot) => lot?.id && Number(lot.stockActual || 0) > 0)
-    .sort((a, b) => String(a?.valor?.fechaCompra || '').localeCompare(String(b?.valor?.fechaCompra || '')) || Number(a.id) - Number(b.id));
+    .sort((a, b) => accessoryLotDate(a) - accessoryLotDate(b) || Number(a.id) - Number(b.id));
   const selectedLot = accessoryLots.find((lot) => String(lot.id) === form.loteInicialId) || accessoryLots[0];
+  const consumedLots = consumedAccessoryLots(accessoryLots, selectedLot?.id, form.cantidad);
+  // Old lots without a currency were purchased in USD.
+  const requiresExchangeRate = !isAccessory || (venta
+    ? (venta.distribucionStock?.length
+      ? venta.distribucionStock.some((part) => {
+        const lot = (producto.__lots || [producto]).find((item) => Number(item.id) === Number(part.productoId));
+        return String(lot?.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN';
+      })
+      : String(producto.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN')
+    : consumedLots.some(({ lot }) => String(lot.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN'));
 
   useEffect(() => {
     const initialSeller = resolvedSaleSeller(venta?.vendedor, producto?.vendedor, presetVendedor);
@@ -176,7 +187,11 @@ export default function ModalVenta({
   };
 
   const validate = () => {
-    if (String(producto?.tipo).toLowerCase() === 'accesorios') {
+    if (isAccessory && !['gonzalo', 'renato', 'ambos'].includes(sellerSlug)) {
+      alert('Selecciona quién compró el accesorio para asignar su ganancia.');
+      return false;
+    }
+    if (accessoryCreate) {
       const quantity = Number(form.cantidad);
       if (!Number.isInteger(quantity) || quantity < 1 || quantity > Number(producto.stockActual || 0)) {
         alert(`Ingresa una cantidad entre 1 y ${producto.stockActual || 0}.`);
@@ -187,15 +202,15 @@ export default function ModalVenta({
       if (
         !form.fechaVenta ||
         !form.precioVenta ||
-        !form.tipoCambioGonzalo ||
-        !form.tipoCambioRenato
+        (requiresExchangeRate && (!Number.isFinite(Number(form.tipoCambioGonzalo)) || Number(form.tipoCambioGonzalo) <= 0 ||
+          !Number.isFinite(Number(form.tipoCambioRenato)) || Number(form.tipoCambioRenato) <= 0))
       ) {
         alert('Completa Fecha de venta, Precio de venta y tipo de cambio para ambos.');
         return false;
       }
       return true;
     }
-    if (!form.tipoCambio || !form.fechaVenta || !form.precioVenta) {
+    if ((requiresExchangeRate && (!Number.isFinite(Number(form.tipoCambio)) || Number(form.tipoCambio) <= 0)) || !form.fechaVenta || !form.precioVenta) {
       alert('Completa Tipo de cambio, Fecha de venta y Precio de venta.');
       return false;
     }
@@ -367,15 +382,15 @@ export default function ModalVenta({
       }
 
       if (splitModeActive) {
-        const tcG = Number(form.tipoCambioGonzalo);
-        const tcR = Number(form.tipoCambioRenato);
+        const tcG = requiresExchangeRate ? Number(form.tipoCambioGonzalo) : 1;
+        const tcR = requiresExchangeRate ? Number(form.tipoCambioRenato) : 1;
         const avg = (tcG + tcR) / 2;
         body.tipoCambio = Number(avg.toFixed(4));
         body.tipoCambioGonzalo = tcG;
         body.tipoCambioRenato = tcR;
         body.vendedor = 'ambos';
       } else {
-        body.tipoCambio = Number(form.tipoCambio);
+        body.tipoCambio = requiresExchangeRate ? Number(form.tipoCambio) : 1;
         const seller = String(form.pedidoCliente || '').trim() ? pedidoSeller(form.pedidoCliente) : form.vendedor?.trim();
         if (seller) {
           body.vendedor = seller;
@@ -452,15 +467,15 @@ export default function ModalVenta({
       };
 
       if (splitModeActive) {
-        const tcG = Number(form.tipoCambioGonzalo || form.tipoCambio || 0);
-        const tcR = Number(form.tipoCambioRenato || form.tipoCambio || 0);
+        const tcG = requiresExchangeRate ? Number(form.tipoCambioGonzalo || form.tipoCambio || 0) : 1;
+        const tcR = requiresExchangeRate ? Number(form.tipoCambioRenato || form.tipoCambio || 0) : 1;
         const avg = (tcG + tcR) / 2;
         payload.tipoCambio = Number(avg.toFixed(4));
         payload.tipoCambioGonzalo = tcG;
         payload.tipoCambioRenato = tcR;
         payload.vendedor = 'ambos';
       } else {
-        payload.tipoCambio = Number(form.tipoCambio);
+        payload.tipoCambio = requiresExchangeRate ? Number(form.tipoCambio) : 1;
         payload.vendedor = String(form.pedidoCliente || '').trim() ? pedidoSeller(form.pedidoCliente) : (form.vendedor?.trim() || null);
       }
 
@@ -503,7 +518,7 @@ export default function ModalVenta({
     return Number.isFinite(n) && n > 0 ? n : null;
   };
   const baseTc =
-    toPositiveNumber(form.tipoCambio) ?? toPositiveNumber(venta?.tipoCambio) ?? 0;
+    requiresExchangeRate ? (toPositiveNumber(form.tipoCambio) ?? toPositiveNumber(venta?.tipoCambio) ?? 0) : 1;
   const tcG =
     toPositiveNumber(form.tipoCambioGonzalo) ??
     toPositiveNumber(venta?.tipoCambioGonzalo) ??
@@ -514,8 +529,13 @@ export default function ModalVenta({
     baseTc;
 
   const calcSplit = (tc) => {
-    if (!tc) return null;
-    const costo = (valorUsd / 2) * tc + envioSoles / 2;
+    if (!tc && !isAccessory) return null;
+    const costo = isAccessory
+      ? (venta ? Number(venta.costoVendido ?? (Number(venta.precioVenta) - Number(venta.ganancia)))
+        : consumedLots.reduce((total, { lot, quantity }) => total + quantity *
+          Number(lot.valor?.costoTotalProrrateado ?? lot.valor?.costoTotal ?? lot.valor?.valorSoles ?? 0) /
+          Math.max(1, Number(lot.stockInicial || 1)), 0)) / 2
+      : (valorUsd / 2) * tc + envioSoles / 2;
     const ganancia = mitadVentaSoles - costo;
     const porcentaje = costo > 0 ? (ganancia / costo) * 100 : 0;
     return { costo, ganancia, porcentaje };
@@ -581,7 +601,7 @@ export default function ModalVenta({
       <div className="border rounded-lg divide-y">
         <div className="p-3 space-y-2">
           <div className="font-semibold">Gonzalo</div>
-          <div>
+          {requiresExchangeRate && <div>
             <label className="block text-sm font-medium mb-1">Tipo de cambio</label>
             <input
               type="number"
@@ -590,14 +610,14 @@ export default function ModalVenta({
               value={form.tipoCambioGonzalo}
               onChange={(e) => onChange('tipoCambioGonzalo', e.target.value)}
             />
-          </div>
+          </div>}
           <div className="text-xs text-gray-600">
             Costo: S/ {splitG ? fmtMoney(splitG.costo) : '--'} | Ganancia: S/ {splitG ? fmtMoney(splitG.ganancia) : '--'} | %: {splitG ? fmtPct(splitG.porcentaje) : '--'}
           </div>
         </div>
         <div className="p-3 space-y-2">
           <div className="font-semibold">Renato</div>
-          <div>
+          {requiresExchangeRate && <div>
             <label className="block text-sm font-medium mb-1">Tipo de cambio</label>
             <input
               type="number"
@@ -606,7 +626,7 @@ export default function ModalVenta({
               value={form.tipoCambioRenato}
               onChange={(e) => onChange('tipoCambioRenato', e.target.value)}
             />
-          </div>
+          </div>}
           <div className="text-xs text-gray-600">
             Costo: S/ {splitR ? fmtMoney(splitR.costo) : '--'} | Ganancia: S/ {splitR ? fmtMoney(splitR.ganancia) : '--'} | %: {splitR ? fmtPct(splitR.porcentaje) : '--'}
           </div>
@@ -618,7 +638,7 @@ export default function ModalVenta({
   const renderSingleFields = () => (
     <>
       {accessoryLotPicker}
-      <div>
+      {requiresExchangeRate && <div>
         <label htmlFor="venta-tipo-cambio" className="block font-medium mb-1">Tipo de cambio</label>
         <input
           id="venta-tipo-cambio"
@@ -628,7 +648,7 @@ export default function ModalVenta({
           value={form.tipoCambio}
           onChange={(e) => onChange('tipoCambio', e.target.value)}
         />
-      </div>
+      </div>}
       <div>
         <label htmlFor="venta-fecha" className="block font-medium mb-1">Fecha de venta</label>
         <input
@@ -687,28 +707,27 @@ export default function ModalVenta({
       label: pedidoSeller(client),
     })),
   ];
-  const sellerSelectValue = sellerOptions.some((opt) => opt.value === form.vendedor)
-    ? form.vendedor
-    : '';
+  const sellerSelectValue = sellerOptions.find((opt) => normalizeSeller(opt.value) === normalizeSeller(form.vendedor))?.value || '';
   const renderSellerField = () => (
     <div className="rounded-lg border p-3 bg-gray-50 space-y-3">
       <div>
-        <label htmlFor="venta-vendedor" className="block font-medium mb-1">Vendedor</label>
+        <label htmlFor="venta-vendedor" className="block font-medium mb-1">{isAccessory ? 'Comprado por' : 'Vendedor'}</label>
         <select
           id="venta-vendedor"
           className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           value={sellerSelectValue}
           onChange={(e) => onSellerChange(e.target.value)}
-          disabled={isReadOnly}
+          disabled={isReadOnly || (accessoryCreate && Boolean(producto.vendedor))}
         >
-          {sellerOptions.map((opt) => (
+          {sellerOptions.filter((opt) => !isAccessory || !opt.value || ['gonzalo', 'renato', 'ambos'].includes(normalizeSeller(opt.value))).map((opt) => (
             <option key={opt.label} value={opt.value}>
-              {opt.label}
+              {isAccessory && !opt.value ? 'Seleccionar comprador' : opt.label}
             </option>
           ))}
         </select>
+        {accessoryCreate && producto.vendedor && <p className="mt-1 text-xs text-gray-600">La ganancia corresponde al comprador. Puedes corregirlo en Editar stock.</p>}
       </div>
-      <div>
+      {!isAccessory && <div>
         <label htmlFor="venta-cliente-pedido" className="block text-sm font-medium mb-1">Otro cliente a pedido</label>
         <input
           id="venta-cliente-pedido"
@@ -719,7 +738,7 @@ export default function ModalVenta({
           placeholder="Nombre del cliente"
           disabled={isReadOnly}
         />
-      </div>
+      </div>}
     </div>
   );
 
@@ -735,7 +754,7 @@ export default function ModalVenta({
             <div className="rounded-lg bg-emerald-50 p-3 text-emerald-800"><span className="block text-xs">Ingreso total</span><strong className="text-lg">{summaryMoney(accessorySummary?.ventaBruta)}</strong></div>
             <div className="rounded-lg bg-indigo-50 p-3 text-indigo-800"><span className="block text-xs">Ganancia general</span><strong className="text-lg">{summaryMoney(accessorySummary?.gananciaNeta)}</strong></div>
           </div>
-          <p className="mt-3 text-xs text-slate-600">Tipo de cambio promedio: <strong>{accessorySummary?.tipoCambioPromedio != null ? Number(accessorySummary.tipoCambioPromedio).toFixed(4) : '--'}</strong></p>
+          {requiresExchangeRate && <p className="mt-3 text-xs text-slate-600">Tipo de cambio promedio: <strong>{accessorySummary?.tipoCambioPromedio != null ? Number(accessorySummary.tipoCambioPromedio).toFixed(4) : '--'}</strong></p>}
           <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
             {(accessorySummary?.ventas || []).map((item) => (
               <div key={item.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
@@ -771,10 +790,10 @@ export default function ModalVenta({
         </div>
 
         <div className="rounded-lg border bg-gray-50 px-3 py-2 text-sm text-gray-700 mb-4">
-          Vendedor del producto: <span className="font-medium">{sellerLabel}</span>
+          {isAccessory ? 'Comprado por' : 'Vendedor del producto'}: <span className="font-medium">{sellerLabel}</span>
         </div>
 
-        {!venta && !sellerSlug && (
+        {!venta && !sellerSlug && !isAccessory && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 mb-4">
             Este producto no tiene vendedor asignado. Puedes registrar la venta, pero no aparecerá en ganancias por vendedor hasta asignarlo en el producto.
           </div>
@@ -815,7 +834,7 @@ export default function ModalVenta({
                 <div className="border rounded-lg divide-y">
                   <div className="p-3 space-y-1">
                     <div className="font-semibold">Gonzalo</div>
-                    <div className="text-sm text-gray-700">Tipo de cambio: {fmtTc(tcG)}</div>
+                    {requiresExchangeRate && <div className="text-sm text-gray-700">Tipo de cambio: {fmtTc(tcG)}</div>}
                     <div className="text-xs text-gray-600">Venta: S/ {fmtMoney(mitadVentaSoles)}</div>
                     <div className="text-xs text-gray-600">
                       Costo: S/ {splitG ? fmtMoney(splitG.costo) : '--'} | Ganancia: S/ {splitG ? fmtMoney(splitG.ganancia) : '--'} | %: {splitG ? fmtPct(splitG.porcentaje) : '--'}
@@ -823,7 +842,7 @@ export default function ModalVenta({
                   </div>
                   <div className="p-3 space-y-1">
                     <div className="font-semibold">Renato</div>
-                    <div className="text-sm text-gray-700">Tipo de cambio: {fmtTc(tcR)}</div>
+                    {requiresExchangeRate && <div className="text-sm text-gray-700">Tipo de cambio: {fmtTc(tcR)}</div>}
                     <div className="text-xs text-gray-600">Venta: S/ {fmtMoney(mitadVentaSoles)}</div>
                     <div className="text-xs text-gray-600">
                       Costo: S/ {splitR ? fmtMoney(splitR.costo) : '--'} | Ganancia: S/ {splitR ? fmtMoney(splitR.ganancia) : '--'} | %: {splitR ? fmtPct(splitR.porcentaje) : '--'}
@@ -833,10 +852,10 @@ export default function ModalVenta({
               </>
             ) : (
               <>
-                <div>
+                {requiresExchangeRate && <div>
                   <span className="font-medium">Tipo de cambio: </span>
                   <span className="text-gray-700">{Number(venta.tipoCambio).toFixed(4)}</span>
-                </div>
+                </div>}
                 <div>
                   <span className="font-medium">Precio de venta (S/): </span>
                   <span className="text-gray-700">{Number(venta.precioVenta).toFixed(2)}</span>

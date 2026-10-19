@@ -83,11 +83,12 @@ test('crea el accesorio simple como compra exclusiva de Inventario', async () =>
   fireEvent.click(await screen.findByRole('button', { name: 'Agregar accesorio simple' }));
   const dialog = screen.getByRole('dialog', { name: 'Agregar accesorio simple' });
   fireEvent.change(within(dialog).getByPlaceholderText('Ej. Case para iPhone 16 Pro'), { target: { value: 'Cable USB-C' } });
+  fireEvent.change(within(dialog).getByLabelText('Comprado por *'), { target: { value: 'Renato' } });
   fireEvent.change(within(dialog).getByLabelText('Precio de compra por unidad *'), { target: { value: '15' } });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Agregar accesorio' }));
 
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/productos', expect.objectContaining({
-    tipo: 'accesorios', soloInventario: true,
+    tipo: 'accesorios', soloInventario: true, vendedor: 'Renato',
   })));
 });
 
@@ -115,11 +116,12 @@ test('guarda ambos precios de un accesorio simple sin enviar el id interno de de
   fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Editar stock' }));
   const dialog = screen.getByRole('dialog', { name: 'Completar ficha de inventario' });
+  fireEvent.change(within(dialog).getByLabelText('Comprado por'), { target: { value: 'ambos' } });
   fireEvent.change(within(dialog).getByLabelText('Precio de venta (S/)'), { target: { value: '35.50' } });
   fireEvent.change(within(dialog).getByLabelText('Precio mínimo (S/)'), { target: { value: '29.90' } });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar ficha' }));
   await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/inventario/503', expect.objectContaining({ primerPrecioSoles: 35.5, ultimoPrecioSoles: 29.9 })));
-  expect(api.patch).toHaveBeenCalledWith('/productos/503', expect.objectContaining({ detalle: { modelo: 'Cable USB-C', modelosCompatibles: ['iPhone 15'] } }));
+  expect(api.patch).toHaveBeenCalledWith('/productos/503', expect.objectContaining({ vendedor: 'ambos', detalle: { modelo: 'Cable USB-C', modelosCompatibles: ['iPhone 15'] } }));
   await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Completar ficha de inventario' })).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Editar stock' }));
   expect(screen.getByLabelText('Precio de venta (S/)')).toHaveValue(35.5);
@@ -760,4 +762,11 @@ test('detecta todos los identificadores y mantiene la lupa mientras se corrigen'
   fireEvent.click(screen.getByRole('button', { name: 'Quitar imagen temporal' }));
   expect(screen.queryByRole('img', { name: 'Revisión ampliada para SN e IMEI' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Detectar SN / IMEI' })).toBeDisabled();
+});
+
+test('no mezcla stock del mismo accesorio comprado por personas distintas', () => {
+  const rows = ['Gonzalo', 'Renato', 'ambos'].map((vendedor, index) => ({ producto: { id: index + 1, codigoInventario: 1, tipo: 'accesorios', vendedor, stockInicial: 3, stockActual: 2 } }));
+  const groups = groupInventoryEntries(rows);
+  expect(groups).toHaveLength(3);
+  expect(groups.map(row => row.producto.stockActual)).toEqual([2, 2, 2]);
 });
