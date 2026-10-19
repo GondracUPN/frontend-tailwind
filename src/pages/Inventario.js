@@ -809,7 +809,6 @@ export default function Inventario({ setVista }) {
         const currentValue = editing.producto.valor || {};
         updatedProduct = await api.patch(`/productos/${id}`, {
           detalle: {
-            ...(editing.producto.detalle || {}),
             modelo: text(form.nombreAccesorio),
             modelosCompatibles: form.modelosCompatibles,
           },
@@ -1506,11 +1505,12 @@ export default function Inventario({ setVista }) {
 
                 <label className="block text-xs font-medium text-slate-600">Observaciones<textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} rows="4" placeholder="Golpes, rayones, pruebas realizadas, piezas faltantes u otros datos..." className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-slate-400" /></label>
 
-                {notice && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{notice}</div>}
+
               </div>
             </div>
 
-            <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:flex sm:justify-end sm:px-5 sm:py-4">
+            <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:flex sm:flex-wrap sm:justify-end sm:px-5 sm:py-4">
+              {notice && <div role="alert" className="col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:basis-full">{notice}</div>}
               <button type="button" onClick={copyProductData} className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 sm:col-span-1">
                 {copied ? <><FiCheck /> Copiado</> : <><FiCopy /> Copiar datos</>}
               </button>
