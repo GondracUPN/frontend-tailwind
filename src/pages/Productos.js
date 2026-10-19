@@ -1,5 +1,6 @@
 // src/pages/Productos.js
 import React, { Suspense, lazy, useState, useEffect, useCallback, useRef } from 'react';
+import { ActionButton, PageHeader, StatCard, Disclosure, LoadingState, ErrorState, formatDisplayMoney } from '../components/ui/VisualUI';
 import api from '../api';  // cliente fetch centralizado
 import { notifyGastosChanged } from '../utils/gastosSync';
 import ResumenCasilleros from '../components/ResumenCasilleros';
@@ -2698,8 +2699,8 @@ const confirmAction = async () => {
   // Suma global de valorProducto ($), costoEnvio (S/), costoTotal (S/), total vendido (S/), y ganancia (S/)
   const totals = React.useMemo(() => {
     if (resumen) {
-      const fmtS = (n) => `S/ ${Number(n).toFixed(2)}`;
-      const fmtU = (n) => `$ ${Number(n).toFixed(2)}`;
+      const fmtS = (n) => formatDisplayMoney(n);
+      const fmtU = (n) => formatDisplayMoney(n, 'USD');
       const toNum = (v) => Number(v ?? 0) || 0;
       return {
         totalGastadoUSD: fmtU(toNum(resumen.totalGastadoUsd)),
@@ -2751,8 +2752,8 @@ const confirmAction = async () => {
     }
 
     // Helpers de formato
-    const fmtSoles = (n) => `S/ ${Number(n).toFixed(2)}`;
-    const fmtUSD = (n) => `$ ${Number(n).toFixed(2)}`;
+    const fmtSoles = (n) => formatDisplayMoney(n);
+    const fmtUSD = (n) => formatDisplayMoney(n, 'USD');
 
     return {
       totalGastadoUSD: fmtUSD(totalGastadoUSD),
@@ -2767,82 +2768,27 @@ const confirmAction = async () => {
 
 
   return (
-    <div className="productos-modals-uniformes min-h-screen px-4 py-6 sm:px-6 lg:px-8 bg-macGray text-macDark">
-      {/* Header */}
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8">
-        <h2 className="text-3xl font-semibold">Gesti&oacute;n de Productos</h2>
-        <button onClick={() => setVista('home')} className="w-full sm:w-auto px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100">
-          &larr; Volver
-        </button>
-      </header>
-
-      <CatalogSalesPending />
-
-      {/* Resumen de conteos */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Totales</div>
-          <div className="text-2xl font-semibold">{stats.total}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Sin tracking</div>
-          <div className="text-2xl font-semibold">{stats.sinTracking}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">En camino US</div>
-          <div className="text-2xl font-semibold">{stats.enCamino}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">En Eshopex</div>
-          <div className="text-2xl font-semibold">{stats.enEshopex}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Disponible</div>
-          <div className="text-2xl font-semibold">{stats.disponible}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Vendido</div>
-          <div className="text-2xl font-semibold">{stats.vendido}</div>
-        </div>
-      </div>{/* Panel de casilleros */}
-      <ResumenCasilleros productos={productosConPersonal} onCasilleroClick={abrirCasillero} />
-
-      {/* Totales de montos */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total gastado ($)</div>
-          <div className="text-2xl font-semibold">{totals.totalGastadoUSD}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total env&iacute;o (S/)</div>
-          <div className="text-2xl font-semibold">{totals.totalEnvioSoles}</div>
-        </div> {/* ? cierre agregado aquf */}
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total DEC ($)</div>
-          <div className="text-2xl font-semibold">{totals.totalDecUSD}</div>
-        </div>
-
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total costo (S/)</div>
-          <div className="text-2xl font-semibold">{totals.totalCostoSoles}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total venta (S/)</div>
-          <div className="text-2xl font-semibold">{totals.totalVentaSoles}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Ganancia total (S/)</div>
-          <div className="text-2xl font-semibold">{totals.gananciaSoles}</div>
-        </div>
+    <div className="productos-modals-uniformes ux-page min-h-screen bg-macGray text-macDark">
+      <PageHeader title="Productos" eyebrow="Operaciones" description="Compras, disponibilidad y seguimiento de tus equipos."
+        actions={<>
+          <ActionButton onClick={() => setVista('home')}>← Inicio</ActionButton>
+          <a className="ux-button" href="#product-context">Casilleros y resumen</a>
+          <ActionButton variant="primary" onClick={abrirCrear} disabled={selectMode}>+ Agregar producto</ActionButton>
+        </>} />
+      <div className="ux-stats" aria-label="Resumen de productos">
+        {[
+          ['Total', stats.total, 'neutral'], ['Disponibles', stats.disponible, 'positive'],
+          ['En camino US', stats.enCamino, 'neutral'], ['En Eshopex', stats.enEshopex, 'attention'],
+          ['Sin tracking', stats.sinTracking, 'attention'], ['Vendidos', stats.vendido, 'neutral'],
+        ].map(([title, value, tone]) => <StatCard key={title} title={title} value={value} tone={tone} loading={cargando && !productos.length} />)}
       </div>
-
       {/* Botonera: Agregar / Importar recojo / Recojo masivo */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+      <div className="ux-product-filterbar">
         {!selectMode ? (
           <>
             {/* Filtro a la izquierda */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap w-full">
-              <div className="border rounded-lg px-3 py-2 bg-white shadow-sm w-full sm:w-auto">
+            <div className="ux-product-filters" role="group" aria-label="Buscar y filtrar productos">
+              <div className="ux-product-state-filters">
                 <div className="text-xs text-gray-500 mb-1">Mostrar</div>
                 <label className="flex items-center gap-2 text-sm">
                   <input
@@ -2891,13 +2837,15 @@ const confirmAction = async () => {
                 </label>
               </div>
 
+              <label className="ux-product-search"><span>Buscar por código o tracking</span>
               <input
                 type="text"
-                className="border rounded px-2 py-1 w-full sm:w-60"
+                aria-label="Buscar por código o tracking"
                 placeholder="Buscar Code o tracking (MS-123, MS123 o 123)"
                 value={trackingQuery}
                 onChange={(e) => setTrackingQuery(e.target.value)}
               />
+              </label>
 
 
 
@@ -3008,8 +2956,9 @@ const confirmAction = async () => {
               )}
             </div>
 
+            <Disclosure title="Herramientas de productos" description="Recojo, adelantos, fotos, documentos y otras operaciones">
             {/* Acciones a la derecha */}
-            <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-start sm:justify-end">
+            <div className="ux-product-tools">
               {/* Analisis a la izquierda, con m\u00e1s separaci\u00f3n del siguiente */}
               <button
                 onClick={() => { setAnalisisBack('productos'); setVista('analisis'); }}
@@ -3024,12 +2973,6 @@ const confirmAction = async () => {
                 title="Selecciona 1 producto no vendido para registrar la venta"
               >
                 Adelantar venta
-              </button>
-              <button
-                onClick={abrirCrear}
-                className="w-full sm:w-auto bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700"
-              >
-                Agregar Producto
               </button>
               <button
                 onClick={startRecojo}
@@ -3103,6 +3046,8 @@ const confirmAction = async () => {
                 </button>
               )}
             </div>
+
+            </Disclosure>
           </>
         ) : (
           // ??? tu bloque existente de seleccifn (pickup/whatsapp) se mantiene igual
@@ -3149,19 +3094,19 @@ const confirmAction = async () => {
 
 
       {/* Cargando / Error */}
-      {cargando && <p>Cargando productos...</p>}
-      {error && <p className="text-red-500">{error}</p>}
+      {cargando && <LoadingState>Cargando productos…</LoadingState>}
+      {error && <ErrorState>{error}</ErrorState>}
 
       {/* Tabla */}
       {!cargando && !error && (
         displayedProductos.length > 0 ? (
-          <div className="overflow-x-auto -mx-4 sm:mx-0">
+          <div className="ux-table-wrap ux-product-table-region" tabIndex={0} role="region" aria-label="Listado de productos; desplaza horizontalmente para ver todas las columnas">
             <table className="min-w-[1080px] w-full text-left border text-xs sm:text-sm">
               <thead className="bg-gray-100">
                 <tr>
                   {selectMode && <th className="p-2">Sel.</th>}
                   <th className="p-2">Code</th>
-                  <th className="p-2">Tipo</th>
+                  <th className="p-2">Producto y características</th>
                   <th className="p-2">Estado</th>
                   <th className="p-2 text-center">Accesorios</th>
                   <th className="p-2">Valor $</th>
@@ -3238,29 +3183,22 @@ const confirmAction = async () => {
 
 
 
-                    <td className="p-2 font-mono font-semibold text-gray-800 select-all">
-                      {displayProductCode(p) ?? '-'}
+                    <td className="p-2 font-mono font-semibold text-gray-800 select-all whitespace-nowrap">
+                      MS-{displayProductCode(p) ?? '-'}
                     </td>
                     <td className="p-2">
                       <button
                         onClick={(e) => { e.stopPropagation(); if (!guardando) abrirDetalle(p); }}
-                        className={`rounded bg-gray-200 px-2 py-1 hover:bg-gray-300 ${String(p.tipo).toLowerCase() === 'accesorios' ? 'text-center' : 'text-left'} ${guardando ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        className={`ux-product-name ${guardando ? 'opacity-60 cursor-not-allowed' : ''}`}
                         disabled={guardando}
                       >
-                        {guardando ? 'Guardando...' : String(p.tipo).toLowerCase() === 'accesorios' ? (
-                          <>
-                            <span className="block">{accessoryTypeLabel(p)}</span>
-                            <span className="mt-0.5 block whitespace-nowrap text-[11px] font-semibold text-indigo-700">
-                              {Number(p.stockActual || 0)} U
-                            </span>
-                          </>
-                        ) : (normalizeProductType(p.tipo) === 'watch'
-                          ? 'Watch'
-                          : (PRODUCT_TYPE_LABELS[normalizeProductType(p.tipo)] || p.tipo))}
+                        {guardando ? 'Guardando…' : buildNombreProducto(p)}
+                        <small>{[p.detalle?.almacenamiento, p.detalle?.ram ? p.detalle.ram + ' RAM' : ''].filter(Boolean).join(' · ')}</small>
+                        {String(p.tipo).toLowerCase() === 'accesorios' && <small>{accessoryTypeLabel(p)} · {Number(p.stockActual || 0)} unidades</small>}
                       </button>
 
                     </td>
-                    <td className="p-2">{p.estado}</td>
+                    <td className="p-2"><span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{PRODUCT_STATE_LABELS[p.estado] || p.estado}</span></td>
                     <td className="w-32 max-w-32 p-2 text-center align-middle">
                       {mainAccessories.length ? (
                         <div className="flex min-h-10 flex-wrap items-center justify-center gap-1.5 leading-4">
@@ -3272,14 +3210,14 @@ const confirmAction = async () => {
                         </div>
                       ) : '-'}
                     </td>
-                    <td className="p-2">{v.valorProducto != null ? `$ ${v.valorProducto}` : '-'}</td>
-                    <td className="p-2">{fmtSoles(v.valorSoles)}</td>
-                    <td className="p-2">{fmtSoles(v.costoEnvio)}</td>
-                    <td className="p-2">{fmtSoles(v.costoTotal)}</td>
+                    <td className="p-2 ux-money">{v.valorProducto != null ? formatDisplayMoney(v.valorProducto, 'USD') : '-'}</td>
+                    <td className="p-2 ux-money">{v.valorSoles == null ? '—' : formatDisplayMoney(v.valorSoles)}</td>
+                    <td className="p-2 ux-money">{v.costoEnvio == null ? '—' : formatDisplayMoney(v.costoEnvio)}</td>
+                    <td className="p-2 ux-money">{v.costoTotal == null ? '—' : formatDisplayMoney(v.costoTotal)}</td>
                     <td className="p-2">
                       <button
                         onClick={(e) => { e.stopPropagation(); abrirCalculadora(p); }}
-                        className="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
+                        className="ux-button"
                         title="Calcular precio de venta"
                       >
                         Calcular precio venta
@@ -3367,7 +3305,7 @@ const confirmAction = async () => {
                           <button
                             onClick={(e) => { if (!puedeVer) return; e.stopPropagation(); abrirFotos(p); }}
                             disabled={!puedeVer}
-                            className={`${puedeVer ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-300 text-gray-600 cursor-not-allowed'} px-2 py-1 rounded`}
+                            className={`ux-button ${puedeVer ? '' : 'opacity-50 cursor-not-allowed'}`}
                             title={puedeVer ? 'Ver fotos Eshopex' : 'Fotos no disponibles para este estado'}
                           >
                             Ver foto
@@ -3394,7 +3332,7 @@ const confirmAction = async () => {
 
                         if ((accessoryAvailable || recogido) && (accessoryAvailable || !venta) && !adelanto) {
                           text = accessoryAvailable ? `Vender (${p.stockActual})` : 'Disponible';
-                          className = 'bg-yellow-500 text-white hover:bg-yellow-600';
+                          className = 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100';
                           disabled = false;
                         }
                         if (adelanto && !venta) {
@@ -3404,7 +3342,7 @@ const confirmAction = async () => {
                         }
                         if (venta) {
                           text = 'Vendido';
-                          className = 'bg-green-600 text-white hover:bg-green-700';
+                          className = 'bg-slate-100 text-slate-700 hover:bg-slate-200';
                           disabled = false;
                         }
 
@@ -3436,13 +3374,13 @@ const confirmAction = async () => {
                     <td className="p-2 space-x-1">
                       <button
                         onClick={(e) => { e.stopPropagation(); abrirCostos(p); }}
-                        className="bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
+                        className="ux-button"
                       >
                         Editar Costos
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                        className="bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
+                        className="ux-button ux-button--danger"
                       >
                         Borrar
                       </button>
@@ -3472,6 +3410,22 @@ const confirmAction = async () => {
       )}
 
       
+      <div id="product-context" className="ux-secondary-panels" style={{ scrollMarginTop: 80 }}>
+        <Disclosure title="Casilleros y disponibilidad DEC" description="Consulta los límites y abre el detalle de cada casillero.">
+          <ResumenCasilleros productos={productosConPersonal} onCasilleroClick={abrirCasillero} />
+        </Disclosure>
+        <Disclosure title="Resumen económico" description="Compras, envío, DEC, ventas y ganancia acumulada.">
+          <div className="ux-financial-stats">
+            {[
+              ['Total comprado · USD', totals.totalGastadoUSD], ['Total envío · PEN', totals.totalEnvioSoles],
+              ['Total DEC · USD', totals.totalDecUSD], ['Total costo · PEN', totals.totalCostoSoles],
+              ['Total venta · PEN', totals.totalVentaSoles], ['Ganancia total · PEN', totals.gananciaSoles],
+            ].map(([title, value]) => <StatCard key={title} title={title} value={value} loading={cargando && !productos.length} />)}
+          </div>
+        </Disclosure>
+        <Disclosure title="Ventas recibidas del catálogo" description="Revisa las operaciones antes de confirmarlas en Servicios."><CatalogSalesPending /></Disclosure>
+      </div>
+
             {recojoOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-start sm:items-center justify-center z-50 overflow-y-auto p-2 sm:p-4">
           <div className="bg-white w-full max-w-4xl rounded-xl shadow-lg p-4 sm:p-6 relative max-h-[95dvh] sm:max-h-[92dvh] overflow-hidden flex flex-col">

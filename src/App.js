@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useState, useEffect, useMemo } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useMemo, useRef } from 'react';
 import Home from './pages/Home';
 import api, { API_URL } from './api';
 import { normalizeProductLookupUrl } from './utils/productUrl';
@@ -417,6 +417,8 @@ const SIDEBAR_SECONDARY_NAV = [
 
 function App() {
   // Leer la última vista guardada; si no hay, usa 'home'
+  const menuButtonRef = useRef(null);
+  const sidebarRef = useRef(null);
   const [vista, setVista] = useState('home');
   const [analisisBack, setAnalisisBack] = useState('home');
   const [keptVistas, setKeptVistas] = useState(() => ({ home: Date.now() }));
@@ -457,6 +459,7 @@ function App() {
   }));
   const [sidebarHidden, setSidebarHidden] = useState(() => {
     try {
+      if (window.matchMedia?.('(max-width: 1023px)')?.matches) return true;
       const saved = localStorage.getItem(SIDEBAR_HIDDEN_KEY);
       if (saved === '1') return true;
       if (saved === '0') return false;
@@ -465,6 +468,7 @@ function App() {
       return false;
     }
   });
+  const [isCompactNavigation, setIsCompactNavigation] = useState(() => !!window.matchMedia?.('(max-width: 1023px)')?.matches);
   const [keepAliveEnabled, setKeepAliveEnabled] = useState(getKeepAliveEnabled);
 
   useEffect(() => {
@@ -587,7 +591,12 @@ function App() {
   }, [sidebarHidden]);
 
   useEffect(() => {
-    const onChange = () => setKeepAliveEnabled(getKeepAliveEnabled());
+    const onChange = () => {
+      setKeepAliveEnabled(getKeepAliveEnabled());
+      const compact = !!window.matchMedia?.('(max-width: 1023px)')?.matches;
+      setIsCompactNavigation(compact);
+      if (compact) setSidebarHidden(true);
+    };
     onChange();
     try {
       const media = window.matchMedia('(min-width: 1024px)');
@@ -1232,6 +1241,26 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    if (sidebarHidden || !isCompactNavigation) return undefined;
+    const previousFocus = document.activeElement;
+    const sidebarNode = sidebarRef.current;
+    sidebarNode?.querySelector('button')?.focus();
+    const onKey = (event) => {
+      if (event.key === 'Escape') { setSidebarHidden(true); menuButtonRef.current?.focus(); }
+      if (event.key === 'Tab') {
+        const focusables = [...(sidebarNode?.querySelectorAll('button, a[href], summary, input, select, [tabindex="0"]') || [])].filter(el => el.getClientRects().length && !el.disabled);
+        const first = focusables[0], last = focusables[focusables.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    const oldOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', onKey);
+    return () => { document.body.style.overflow = oldOverflow; document.removeEventListener('keydown', onKey); if (sidebarNode?.contains(document.activeElement)) previousFocus?.focus?.(); };
+  }, [sidebarHidden, isCompactNavigation]);
+
   const renderVistaContent = (id) => {
     switch (id) {
       case 'home':
@@ -1404,19 +1433,14 @@ function App() {
 
   return (
     <>
-      <div className="min-h-screen bg-macGray">
-        <button
-          type="button"
-          className={`fixed left-3 top-3 z-50 inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition-[opacity,transform,background-color] duration-300 ease-out hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 motion-reduce:transition-none ${
-            sidebarHidden ? 'scale-100 opacity-100' : 'pointer-events-none scale-90 opacity-0'
-          }`}
-          onClick={() => setSidebarHidden(false)}
-          aria-label="Mostrar menu"
-          title="Mostrar menu"
-          tabIndex={sidebarHidden ? 0 : -1}
-        >
-          <FiMenu className="h-5 w-5" />
-        </button>
+      <div className="ux-shell min-h-screen bg-macGray">
+        <header className={`ux-appbar ${sidebarHidden ? '' : 'ux-appbar--desktop-hidden'}`}>
+          <button ref={menuButtonRef} type="button" className="ux-button !p-2 !min-h-11 !min-w-11" onClick={() => setSidebarHidden(false)} aria-label="Mostrar menu" aria-expanded={!sidebarHidden} aria-controls="app-navigation">
+            <FiMenu className="h-5 w-5" />
+          </button>
+          <img src={APP_LOGO_URL} alt="" className="h-8 w-8 object-contain" />
+          <div className="ux-appbar-title">MacServicios<small>{[...SIDEBAR_NAV, ...SIDEBAR_SECONDARY_NAV].find(item => item.id === vista)?.label || 'Inicio'}</small></div>
+        </header>
 
         <button
           type="button"
@@ -1428,7 +1452,7 @@ function App() {
           tabIndex={sidebarHidden ? -1 : 0}
         />
 
-        <aside
+        <aside id="app-navigation" ref={sidebarRef} inert={sidebarHidden ? true : undefined}
           className={`fixed inset-y-0 left-0 z-50 flex w-72 max-w-[calc(100vw-1rem)] flex-col border-r border-slate-200 bg-white/95 px-4 py-4 shadow-sm backdrop-blur will-change-transform transition-[transform,box-shadow] motion-reduce:transition-none lg:w-64 ${
             sidebarHidden
               ? '-translate-x-[105%] shadow-none duration-200 ease-in'
@@ -1458,25 +1482,25 @@ function App() {
             </button>
           </div>
 
-          <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+          <nav aria-label="Navegación principal" className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
             <div className="flex flex-col gap-1 pb-4">
-              {SIDEBAR_NAV.map(renderNavItem)}
-
-              <div className="my-3 h-px shrink-0 bg-slate-200" />
-              {renderEshopexSidebarPanel()}
-              <div className="mt-3" />
-              {renderCalcuRapidaPanel()}
-
-              <div className="my-3 h-px shrink-0 bg-slate-200" />
-              <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                Herramientas
-              </div>
-              {SIDEBAR_SECONDARY_NAV.map(renderNavItem)}
+              {renderNavItem(SIDEBAR_NAV.find(item => item.id === 'home'))}
+              {[['Operaciones', ['productos', 'inventario']], ['Finanzas', ['ganancias', 'gastos', 'analisis', 'proyeccion']], ['Herramientas', ['calculadora', 'ebay']], ['Administración', ['servicios']]].map(([group, ids]) => (
+                <div key={group}>
+                  <div className="ux-nav-label">{group}</div>
+                  <div className="space-y-1">{ids.map(id => renderNavItem(SIDEBAR_NAV.find(item => item.id === id)))}</div>
+                  {group === 'Finanzas' && <div className="mt-1 space-y-1">{SIDEBAR_SECONDARY_NAV.map(renderNavItem)}</div>}
+                </div>
+              ))}
+              <details className="ux-nav-tools" open>
+                <summary>Accesos rápidos</summary>
+                <div>{renderEshopexSidebarPanel()}{renderCalcuRapidaPanel()}</div>
+              </details>
             </div>
           </nav>
         </aside>
 
-        <main className={`min-h-screen transition-[padding] duration-300 ease-out motion-reduce:transition-none ${sidebarHidden ? 'pl-0' : 'lg:pl-64'}`}>
+        <main className={`min-h-screen min-w-0 pt-16 transition-[padding] duration-300 ease-out motion-reduce:transition-none ${sidebarHidden ? 'pl-0' : 'lg:pl-64 lg:pt-0'}`}>
           {renderVista()}
         </main>
       </div>

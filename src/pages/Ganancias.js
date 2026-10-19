@@ -1,5 +1,6 @@
 // src/pages/Ganancias.js
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActionButton, PageHeader, StatCard, LoadingState, ErrorState, formatDisplayMoney } from '../components/ui/VisualUI';
 import api from '../api';
 import ModalVenta from '../components/ModalVenta';
 import { formatProfitProductName } from '../utils/productName';
@@ -7,10 +8,8 @@ import { formatProfitProductName } from '../utils/productName';
 /* =========================
    Helpers
    ========================= */
-const fmtSoles = (n) =>
-  n != null && n !== '' ? `S/ ${Number(n).toFixed(2)}` : 'S/ 0.00';
-const fmtUSD = (n) =>
-  n != null && n !== '' ? `$ ${Number(n).toFixed(2)}` : '$ 0.00';
+const fmtSoles = (n) => formatDisplayMoney(n ?? 0);
+const fmtUSD = (n) => formatDisplayMoney(n ?? 0, 'USD');
 
 const normalizeVendedor = (value) =>
   (value == null ? '' : String(value)).trim().toLowerCase();
@@ -173,6 +172,7 @@ function totales(ventasArr, seller) {
 export default function Ganancias({ setVista }) {
   const [ventas, setVentas] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const currentYear = String(new Date().getFullYear());
 
@@ -192,6 +192,7 @@ export default function Ganancias({ setVista }) {
   // Carga TODAS las ventas
   const fetchVentas = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
+    setLoadError('');
     try {
       const data = await api.get('/ventas'); // idealmente con producto + valor
       const list = (Array.isArray(data) ? data : []).map(normalizeAccessorySale);
@@ -204,6 +205,7 @@ export default function Ganancias({ setVista }) {
       writeCache(list);
     } catch (e) {
       console.error('[Ganancias] Error cargando ventas:', e);
+      setLoadError('No se pudieron cargar las ventas. Intenta actualizar la página.');
       if (!silent) setVentas([]);
     } finally {
       if (!silent) setLoading(false);
@@ -307,31 +309,25 @@ export default function Ganancias({ setVista }) {
   const ventasSinVendedor = useMemo(() => ventasPorSeller.sin, [ventasPorSeller.sin]);
 
   return (
-    <div className="min-h-screen px-4 py-6 sm:px-6 lg:px-8 bg-macGray text-macDark">
-      {/* Header */}
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
-        <h2 className="text-3xl font-semibold">Ganancias</h2>
-        <button
-          onClick={() => setVista && setVista('home')}
-          className="w-full sm:w-auto px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
-        >
-          &larr; Volver
-        </button>
-      </header>
-
+    <div className="ux-page min-h-screen bg-macGray text-macDark">
+      <PageHeader title="Ganancias" eyebrow="Finanzas" description="Resultados comerciales y detalle de ventas por vendedor."
+        actions={<ActionButton onClick={() => setVista && setVista('home')}>← Inicio</ActionButton>} />
+      {loading && <LoadingState>Cargando ventas…</LoadingState>}
+      {loadError && <ErrorState>{loadError}</ErrorState>}
+      <div aria-busy={loading} hidden={loading || (!!loadError && !ventas.length)}>
       {/* Resumen Global */}
       <div className="bg-white border rounded-2xl shadow-sm p-5 mb-6">
-        <div className="flex flex-col lg:flex-row items-start lg:items-end lg:justify-between gap-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full lg:w-auto">
+        <div className="ux-profit-summary">
+          <div className="ux-profit-stats">
             <Kpi titulo="Ventas totales" valor={totalesGlobales.cantidad} />
             <Kpi titulo="Ganancia bruta total" valor={fmtSoles(totalesGlobales.brutaSoles)} />
             <Kpi titulo="Ganancia neta total" valor={fmtSoles(totalesGlobales.netaSoles)} />
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+          <div className="ux-profit-filters">
             <div>
-              <label className="block text-sm text-gray-600 mb-1">Mes (global)</label>
-              <select
+              <label className="block text-sm text-gray-600 mb-1" htmlFor="profit-global-month">Mes (global)</label>
+              <select id="profit-global-month"
                 className="border rounded px-3 py-2 w-full sm:w-auto"
                 value={mesGlobal}
                 onChange={e => setMesGlobal(e.target.value)}
@@ -343,8 +339,8 @@ export default function Ganancias({ setVista }) {
               </select>
             </div>
             <div>
-              <label className="block text-sm text-gray-600 mb-1">Anio (global)</label>
-              <input
+              <label className="block text-sm text-gray-600 mb-1" htmlFor="profit-global-year">Año (global)</label>
+              <input id="profit-global-year"
                 type="number"
                 className="border rounded px-3 py-2 w-full sm:w-28"
                 placeholder="YYYY"
@@ -385,7 +381,7 @@ export default function Ganancias({ setVista }) {
           <div className="text-sm text-gray-500">Sin ventas pendientes de asignar.</div>
         ) : (
           <div className="overflow-x-auto border rounded max-h-[60vh]">
-            <table className="min-w-[1080px] w-full table-fixed text-left text-sm">
+            <table className="ux-profit-table w-full text-left text-sm">
               <thead className="bg-gray-100 sticky top-0">
                 <tr>
                   <th className="w-[220px] p-2">Nombre</th>
@@ -409,12 +405,12 @@ export default function Ganancias({ setVista }) {
                   return (
                     <tr key={v.id} className="border-t">
                       <td className="p-2 align-top"><span style={nameCellStyle} title={nombreProducto(p)}>{nombreProducto(p) || '--'}</span></td>
-                      <td className="p-2">{fmtSoles(costoTotal)}</td>
+                      <td className="p-2 ux-money">{fmtSoles(costoTotal)}</td>
                       <td className="p-2">
                       {val.fechaCompra ? formatDateLocal(val.fechaCompra) : '--'}
                       </td>
-                      <td className="p-2">{fmtSoles(precioVenta)}</td>
-                      <td className="p-2">{fmtSoles(ganancia)}</td>
+                      <td className="p-2 ux-money">{fmtSoles(precioVenta)}</td>
+                      <td className="p-2 ux-money">{fmtSoles(ganancia)}</td>
                       <td className="p-2">{isFinite(pct) ? `${pct.toFixed(2)}%` : '--'}</td>
                       <td className="p-2">
                       {v.fechaVenta ? formatDateLocal(v.fechaVenta) : '--'}
@@ -432,7 +428,7 @@ export default function Ganancias({ setVista }) {
       </div>
 
       {/* Dos columnas: Gonzalo y Renato */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="ux-seller-grid">
         <ColVendedor
           titulo="Gonzalo"
           ventas={ventasGonzaloFiltradas}
@@ -457,7 +453,7 @@ export default function Ganancias({ setVista }) {
         />
       </div>
 
-      {loading && <p className="mt-4 text-gray-500">Cargando ventas...</p>}
+      </div>
 
       {/* Modal: Sunat */}
       {sellerSunat && (
@@ -475,12 +471,7 @@ export default function Ganancias({ setVista }) {
    Subcomponentes visuales
    ========================= */
 function Kpi({ titulo, valor }) {
-  return (
-    <div className="bg-white border rounded-xl p-4 shadow-sm">
-      <div className="text-sm text-gray-500">{titulo}</div>
-      <div className="text-2xl font-semibold">{valor}</div>
-    </div>
-  );
+  return <StatCard title={titulo} value={valor} />;
 }
 
 function ColVendedor({
@@ -534,17 +525,17 @@ function ColVendedor({
       </div>
 
       {/* KPIs por vendedor + Filtros */}
-      <div className="flex flex-col lg:flex-row items-start lg:items-end lg:justify-between gap-4 mb-3">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full lg:w-auto">
+      <div className="ux-profit-summary mb-4">
+        <div className="ux-profit-stats">
           <Kpi titulo="Ventas" valor={totales.cantidad} />
           <Kpi titulo="Bruta" valor={fmtSoles(totales.brutaSoles)} />
           <Kpi titulo="Neta" valor={fmtSoles(totales.netaSoles)} />
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+        <div className="ux-profit-filters">
           <div>
-            <label className="block text-sm text-gray-600 mb-1">Mes</label>
-            <select
+            <label className="block text-sm text-gray-600 mb-1" htmlFor={`profit-${sellerSlug}-month`}>Mes</label>
+            <select id={`profit-${sellerSlug}-month`}
               className="border rounded px-3 py-2 w-full sm:w-auto"
               value={mes}
               onChange={e => setMes(e.target.value)}
@@ -556,8 +547,8 @@ function ColVendedor({
             </select>
           </div>
           <div>
-            <label className="block text-sm text-gray-600 mb-1">Anio</label>
-            <input
+            <label className="block text-sm text-gray-600 mb-1" htmlFor={`profit-${sellerSlug}-year`}>Año</label>
+            <input id={`profit-${sellerSlug}-year`}
               type="number"
               className="border rounded px-3 py-2 w-full sm:w-28"
               placeholder="YYYY"
@@ -577,8 +568,8 @@ function ColVendedor({
       </div>
 
       {/* Tabla de ventas del vendedor (sin Precio DEC) */}
-      <div className="overflow-x-auto max-h-[60vh] border rounded">
-        <table className="min-w-[1080px] w-full table-fixed text-left text-sm">
+      <div className="ux-table-wrap max-h-[60vh]" tabIndex={0} role="region" aria-label="Ventas del vendedor; tabla desplazable">
+        <table className="ux-profit-table w-full text-left text-sm">
           <thead className="bg-gray-100 sticky top-0">
             <tr>
               <th className="w-[220px] p-2">Nombre</th>
@@ -627,12 +618,12 @@ function ColVendedor({
                         )}
                       </div>
                     </td>
-                    <td className="p-2">{fmtSoles(costoMostrar)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(costoMostrar)}</td>
                     <td className="p-2">
                       {val.fechaCompra ? formatDateLocal(val.fechaCompra) : '--'}
                     </td>
-                    <td className="p-2">{fmtSoles(precioMostrar)}</td>
-                    <td className="p-2">{fmtSoles(gananciaMostrar)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(precioMostrar)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(gananciaMostrar)}</td>
                     <td className="p-2">{isFinite(pctMostrar) ? `${pctMostrar.toFixed(2)}%` : '--'}</td>
                     <td className="p-2">
                       {v.fechaVenta ? formatDateLocal(v.fechaVenta) : '--'}
@@ -830,8 +821,8 @@ function ModalSunat({ seller, onClose, ventas }) {
         {filas.length === 0 ? (
           <p>No hay ventas en ese rango.</p>
         ) : (
-          <div className="overflow-x-auto max-h-[60vh] border rounded">
-            <table className="min-w-[1080px] w-full table-fixed text-left text-sm">
+          <div className="ux-table-wrap max-h-[60vh]" tabIndex={0} role="region" aria-label="Ventas del vendedor; tabla desplazable">
+            <table className="ux-profit-table w-full text-left text-sm">
               <thead className="bg-gray-100 sticky top-0">
                 <tr>
                   <th className="w-[220px] p-2">Nombre</th>
@@ -857,12 +848,12 @@ function ModalSunat({ seller, onClose, ventas }) {
                         )}
                       </div>
                     </td>
-                    <td className="p-2">{fmtUSD(f.valorDecUSD)}</td>
-                    <td className="p-2">{fmtSoles(f.decSoles)}</td>
-                    <td className="p-2">{fmtSoles(f.envioSoles)}</td>
-                    <td className="p-2">{fmtSoles(f.ventaSoles)}</td>
-                    <td className="p-2">{fmtSoles(f.costoBase)}</td>
-                    <td className="p-2">{fmtSoles(f.gananciaNeta)}</td>
+                    <td className="p-2 ux-money">{fmtUSD(f.valorDecUSD)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(f.decSoles)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(f.envioSoles)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(f.ventaSoles)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(f.costoBase)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(f.gananciaNeta)}</td>
                     <td className="p-2">
                       {f.fechaVenta ? formatDateLocal(f.fechaVenta) : '--'}
                     </td>
