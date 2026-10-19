@@ -200,14 +200,14 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
               <span className="font-semibold">{fmtSoles(costoTotalBase)}</span>
             </p>
           </div>
-          <button
+          {!(isAccessory && producto?.soloInventario) && <button
             type="button"
             onClick={toggleHistory}
             aria-expanded={historyOpen}
             className="mb-4 shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
             {historyOpen ? 'Ocultar vendidos ←' : 'Últimos vendidos →'}
-          </button>
+          </button>}
         </div>
 
         <div className={historyOpen ? 'grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(19rem,0.8fr)]' : ''}>

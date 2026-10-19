@@ -84,7 +84,7 @@ function ProfitSummaryCard({
       <div className="text-xs text-gray-500">{title}</div>
       <div className="grid grid-cols-2 gap-3 mt-2">
         <div>
-          <div className="text-xs text-gray-500">Normal</div>
+          <div className="text-xs text-gray-500">Bruta</div>
           <div className="text-lg font-semibold">{formatCurrency(normal)}</div>
           <div className="text-xs text-gray-500">Anterior: {formatCurrency(normalPrev)}</div>
           <div className={`text-xs font-medium mt-1 ${trendN.cls}`}>
@@ -92,7 +92,7 @@ function ProfitSummaryCard({
           </div>
         </div>
         <div>
-          <div className="text-xs text-gray-500">Real</div>
+          <div className="text-xs text-gray-500" title="Ventas registradas menos compras registradas; no es utilidad ni flujo de caja completo.">Ventas − compras*</div>
           <div className="text-lg font-semibold">{formatCurrency(real)}</div>
           <div className="text-xs text-gray-500">Anterior: {formatCurrency(realPrev)}</div>
           <div className={`text-xs font-medium mt-1 ${trendR.cls}`}>
@@ -246,14 +246,14 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
           deltaPct={delta.incomePct}
         />
         <SummaryCard
-          title="Costos"
+          title="Costo de vendidos"
           current={formatCurrency(current.cost)}
           previous={formatCurrency(previous.cost)}
           deltaAbs={delta.costAbs}
           deltaPct={delta.costPct}
         />
         <ProfitSummaryCard
-          title="Ganancia"
+          title="Ganancia bruta / movimiento de compras*"
           normal={current.profit}
           normalPrev={previous.profit}
           normalDeltaAbs={delta.profitAbs}
@@ -292,6 +292,7 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
         ) : null}
       </div>
 
+      <p className="mb-3 text-xs text-amber-700">* Ventas menos compras refleja movimiento registrado. No representa utilidad neta ni flujo de caja real.</p>
       <div className="bg-gray-50 rounded-lg p-3 mb-4">
         <div className="text-xs text-gray-500 mb-2">Insights</div>
         <ul className="space-y-1 text-sm text-gray-700">
@@ -341,7 +342,7 @@ export default function ProfitComparison({ from, to, filters, mode = 'month', on
                 <td className="py-2 px-3">{formatDelta(delta.profitPct, '%')}</td>
               </tr>
               <tr className="border-t">
-                <td className="py-2 px-3">Ganancia real</td>
+                <td className="py-2 px-3">Ventas menos compras*</td>
                 <td className="py-2 px-3">{formatCurrency(realProfitCurr)}</td>
                 <td className="py-2 px-3">{formatCurrency(realProfitPrev)}</td>
                 <td className="py-2 px-3">{formatDelta(realProfitAbs)}</td>

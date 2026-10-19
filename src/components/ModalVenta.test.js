@@ -207,3 +207,21 @@ test('para accesorios recibe el precio total, calcula el unitario y muestra el r
     tipoCambio: 3.75,
   })));
 });
+
+test('permite escoger el lote inicial de un accesorio agrupado', async () => {
+  api.get.mockResolvedValueOnce({ ventas: [] });
+  api.post.mockResolvedValueOnce({ id: 91, precioVenta: 80, cantidad: 1, ganancia: 50 });
+  const lots = [
+    { id: 11, stockInicial: 2, stockActual: 2, valor: { fechaCompra: '2026-06-01', costoTotal: 40 } },
+    { id: 22, stockInicial: 2, stockActual: 2, valor: { fechaCompra: '2026-07-01', costoTotal: 60 } },
+  ];
+  render(<ModalVenta producto={{ id: 11, tipo: 'accesorios', stockActual: 4, __lots: lots }} onSaved={jest.fn()} onClose={jest.fn()} />);
+
+  fireEvent.change(screen.getByLabelText('Lote del que se vende primero'), { target: { value: '22' } });
+  fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.7' } });
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-08-14' } });
+  fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '80' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({ loteInicialId: 22 })));
+});

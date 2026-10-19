@@ -1,21 +1,16 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Line } from 'react-chartjs-2';
 import './chartSetup';
 import ChartShell from './ChartShell';
 import useProfitData from './useProfitData';
 import { formatCurrency, formatPercent } from './format';
-import { mockRows } from './profitMocks';
 
 export default function MarginByMonth({ from, to, filters }) {
-  const [showMock, setShowMock] = useState(false);
   const groupBy = 'month';
   const { data, loading, error, retry } = useProfitData({ ...filters, from, to, groupBy });
 
   const rows = useMemo(() => (Array.isArray(data?.rows) ? data.rows : []), [data]);
-  const displayRows = useMemo(
-    () => (rows.length ? rows : (showMock ? mockRows(groupBy) : [])),
-    [rows, showMock, groupBy],
-  );
+  const displayRows = rows;
   const labels = useMemo(() => displayRows.map((r) => r.period), [displayRows]);
   const utilidad = useMemo(
     () => displayRows.map((r) => (r.income > 0 ? (r.profit / r.income) * 100 : 0)),
@@ -95,8 +90,6 @@ export default function MarginByMonth({ from, to, filters }) {
       error={error}
       empty={!loading && !error && displayRows.length === 0}
       onRetry={retry}
-      onShowMock={() => setShowMock(true)}
-      showMock={showMock}
     >
       <div className="h-64">
         <Line data={chartData} options={options} />

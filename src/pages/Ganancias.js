@@ -67,9 +67,10 @@ const shareForSeller = (venta, seller) => {
 
 const getValorUsd = (venta) => Number(venta?.producto?.valor?.valorProducto ?? 0);
 const isAccessorySale = (venta) => String(venta?.producto?.tipo || '').trim().toLowerCase() === 'accesorios';
-const normalizeAccessorySale = (venta) => (
-  isAccessorySale(venta) ? { ...venta, ganancia: 0, porcentajeGanancia: 0 } : venta
-);
+const normalizeAccessorySale = (venta) => venta;
+const saleCost = (venta) => isAccessorySale(venta)
+  ? Number(venta?.costoVendido ?? (Number(venta?.precioVenta || 0) - Number(venta?.ganancia || 0)))
+  : Number(venta?.producto?.valor?.costoTotal ?? 0);
 const getEnvioSoles = (venta) =>
   Number(
     venta?.producto?.valor?.costoEnvioProrrateado ??
@@ -86,7 +87,10 @@ const getTipoCambioSplit = (venta, seller) => {
 
 const splitMetrics = (venta, seller) => {
   if (isAccessorySale(venta)) {
-    return { ingreso: Number(venta?.precioVenta ?? 0) / 2, costo: 0, ganancia: 0, pct: 0 };
+    const ingreso = Number(venta?.precioVenta ?? 0) / 2;
+    const costo = saleCost(venta) / 2;
+    const ganancia = ingreso - costo;
+    return { ingreso, costo, ganancia, pct: costo > 0 ? ganancia / costo * 100 : 0 };
   }
   const valorUsd = getValorUsd(venta);
   const envio = getEnvioSoles(venta);
@@ -398,7 +402,7 @@ export default function Ganancias({ setVista }) {
                 {ventasSinVendedor.map((v) => {
                   const p = v.producto || {};
                   const val = p.valor || {};
-                  const costoTotal = Number(val.costoTotal ?? 0);
+                  const costoTotal = saleCost(v);
                   const precioVenta = Number(v.precioVenta ?? 0);
                   const ganancia = Number(v.ganancia ?? (precioVenta - costoTotal));
                   const pct = costoTotal > 0 ? (ganancia / costoTotal) * 100 : 0;
@@ -599,7 +603,7 @@ function ColVendedor({
                 const p = v.producto || {};
                 const val = p.valor || {};
                 const share = Number(v.__share ?? 1);
-                const costoTotal = Number(val.costoTotal ?? 0);
+                const costoTotal = saleCost(v);
                 const precioVenta = Number(v.precioVenta ?? 0);
                 const gananciaBase = Number(v.ganancia ?? (precioVenta - costoTotal));
                 const split = v.__split;
@@ -722,8 +726,8 @@ function ModalSunat({ seller, onClose, ventas }) {
       const ventaSoles = ventaSolesBase * share;
       const decSoles = valorDecUSD * tipoCambio;
       const accessorySale = isAccessorySale(v);
-      const costoBase = accessorySale ? 0 : decSoles + envioSoles;
-      const gananciaNeta = accessorySale ? 0 : ventaSoles - costoBase;
+      const costoBase = accessorySale ? saleCost(v) * share : decSoles + envioSoles;
+      const gananciaNeta = ventaSoles - costoBase;
 
       return {
         id: v.id,

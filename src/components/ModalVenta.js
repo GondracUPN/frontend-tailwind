@@ -82,6 +82,7 @@ export default function ModalVenta({
     pedidoCliente: '',
     cantidad: '1',
     modalidad: 'unidad',
+    loteInicialId: '',
   });
 
   const effectiveSeller = form.vendedor || resolvedSaleSeller(venta?.vendedor, producto?.vendedor, presetVendedor);
@@ -98,6 +99,10 @@ export default function ModalVenta({
   const splitModeActive = venta ? isSplitVenta : isSplitCreate;
   const isAccessory = String(producto?.tipo || '').toLowerCase() === 'accesorios';
   const accessoryCreate = !venta && isAccessory;
+  const accessoryLots = (Array.isArray(producto?.__lots) && producto.__lots.length ? producto.__lots : [producto])
+    .filter((lot) => lot?.id && Number(lot.stockActual || 0) > 0)
+    .sort((a, b) => String(a?.valor?.fechaCompra || '').localeCompare(String(b?.valor?.fechaCompra || '')) || Number(a.id) - Number(b.id));
+  const selectedLot = accessoryLots.find((lot) => String(lot.id) === form.loteInicialId) || accessoryLots[0];
 
   useEffect(() => {
     const initialSeller = resolvedSaleSeller(venta?.vendedor, producto?.vendedor, presetVendedor);
@@ -114,6 +119,7 @@ export default function ModalVenta({
         pedidoCliente: pedidoClientFromSeller(initialSeller),
         cantidad: String(venta.cantidad || 1),
         modalidad: venta.modalidad || 'unidad',
+        loteInicialId: '',
       });
       return;
     }
@@ -128,6 +134,7 @@ export default function ModalVenta({
       pedidoCliente: pedidoClientFromSeller(initialSeller),
       cantidad: '1',
       modalidad: 'unidad',
+      loteInicialId: '',
     });
   }, [venta, producto?.id, producto?.vendedor, presetVendedor, allowVendedorOnCreate]);
 
@@ -356,6 +363,7 @@ export default function ModalVenta({
         const cantidad = Number(form.cantidad);
         body.cantidad = cantidad;
         body.modalidad = cantidad > 1 ? 'mayor' : 'unidad';
+        body.loteInicialId = Number(selectedLot?.id || producto.id);
       }
 
       if (splitModeActive) {
@@ -528,8 +536,19 @@ export default function ModalVenta({
     ? accessoryTotalPrice / accessoryQuantity
     : null;
 
+  const accessoryLotPicker = accessoryCreate && (
+    <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+      <label htmlFor="venta-lote-inicial" className="block text-sm font-medium mb-1">Lote del que se vende primero</label>
+      <select id="venta-lote-inicial" className="w-full rounded border bg-white p-2" value={selectedLot?.id || ''} onChange={(e) => onChange('loteInicialId', e.target.value)}>
+        {accessoryLots.map((lot) => <option key={lot.id} value={lot.id}>{`Lote ${lot.id} | compra ${String(lot.valor?.fechaCompra || '').slice(0, 10) || 'sin fecha'} | ${lot.stockActual} disponibles | costo S/ ${(Number(lot.valor?.costoTotalProrrateado ?? lot.valor?.costoTotal ?? lot.valor?.valorSoles ?? 0) / Math.max(1, Number(lot.stockInicial || 1))).toFixed(2)} c/u`}</option>)}
+      </select>
+      <p className="mt-1 text-xs text-indigo-800">Si la cantidad supera este lote, se completa con los otros lotes por fecha de compra.</p>
+    </div>
+  );
+
   const renderSplitFields = () => (
     <>
+      {accessoryLotPicker}
       {accessoryCreate && (
         <div>
           <label htmlFor="venta-cantidad" className="block font-medium mb-1">Cantidad</label>
@@ -598,6 +617,7 @@ export default function ModalVenta({
 
   const renderSingleFields = () => (
     <>
+      {accessoryLotPicker}
       <div>
         <label htmlFor="venta-tipo-cambio" className="block font-medium mb-1">Tipo de cambio</label>
         <input
@@ -635,7 +655,7 @@ export default function ModalVenta({
           <div><label htmlFor="venta-cantidad" className="block text-sm font-medium mb-1">Cantidad</label><input id="venta-cantidad" type="number" min="1" max={producto.stockActual || 0} step="1" className="w-full border p-2 rounded bg-white" value={form.cantidad} onChange={(e) => onChange('cantidad', e.target.value)} /></div>
           <div><label htmlFor="venta-precio" className="block text-sm font-medium mb-1">Precio total de venta (S/)</label><input id="venta-precio" type="number" min="0" step="0.01" className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value={form.precioVenta} onChange={(e) => onChange('precioVenta', e.target.value)} /></div>
           <div className="col-span-2 rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-indigo-900">Precio por unidad: <strong>{accessoryUnitPrice == null ? 'S/ --' : `S/ ${accessoryUnitPrice.toFixed(2)}`}</strong></div>
-          <div className="col-span-2 text-xs text-indigo-800">Stock disponible: {producto.stockActual || 0}. El sistema descontarÃ¡ primero las unidades del lote mÃ¡s antiguo.</div>
+          <div className="col-span-2 text-xs text-indigo-800">Stock disponible: {producto.stockActual || 0}.</div>
         </div>
       )}
       {!venta && saleExpenseOwner(form.vendedor || producto?.vendedor || presetVendedor) && (

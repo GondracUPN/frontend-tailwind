@@ -30,11 +30,13 @@ import parseSnImeiIds from '../utils/snImeiOcr';
 import IncludedAccessories, { normalizeIncludedAccessories } from '../components/IncludedAccessories';
 import { formatAppleWatchName } from '../utils/productName';
 import { ACCESSORY_MODEL_GROUPS, accessoryCompatibility, accessoryModelName } from '../utils/accessoryModels';
+import { sesionFinanciera } from '../services/finanzas';
 
 const ModalFacu = lazy(() => import('../components/ModalFacu'));
 const ModalCalculadora = lazy(() => import('../components/ModalCalculadora'));
 const ModalVenta = lazy(() => import('../components/ModalVenta'));
 const ModalVentaMensaje = lazy(() => import('../components/ModalVentaMensaje'));
+const VentaRapidaModal = lazy(() => import('../components/finanzas/VentaRapidaModal'));
 
 const INVENTARIO_TIPO_CAMBIO = 3.7;
 const roundUp10 = (value) => Math.ceil(Number(value || 0) / 10) * 10;
@@ -354,6 +356,7 @@ export default function Inventario({ setVista }) {
   const [entries, setEntries] = useState(() => initialCache?.entries || []);
   const [loading, setLoading] = useState(() => !initialCache?.entries?.length);
   const [error, setError] = useState('');
+  const [ventaRapidaOpen, setVentaRapidaOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('todos');
   const [sortOrder, setSortOrder] = useState('newest');
@@ -1018,8 +1021,18 @@ export default function Inventario({ setVista }) {
             <button type="button" onClick={load} disabled={loading} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60">
               <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
             </button>
+            {sesionFinanciera().esAdmin && (
+              <button type="button" onClick={() => setVentaRapidaOpen(true)} className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:col-span-1">
+                Venta rápida de accesorios
+              </button>
+            )}
           </div>
         </header>
+        {ventaRapidaOpen && (
+          <Suspense fallback={null}>
+            <VentaRapidaModal onClose={() => setVentaRapidaOpen(false)} onSaved={() => load()} />
+          </Suspense>
+        )}
 
         <section className="mb-5 grid grid-cols-2 gap-2.5 sm:mb-6 sm:gap-3 lg:grid-cols-8">
           {[

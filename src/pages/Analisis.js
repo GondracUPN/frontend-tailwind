@@ -6,6 +6,8 @@ import ProfitTimeSeries from '../components/analytics/ProfitTimeSeries';
 import IncomeCostProfitChart from '../components/analytics/IncomeCostProfitChart';
 import MarginByMonth from '../components/analytics/MarginByMonth';
 import ProfitComparison from '../components/analytics/ProfitComparison';
+import FinancialDashboard from '../components/analytics/FinancialDashboard';
+import FinanzasPanel from '../components/finanzas/FinanzasPanel';
 import { getAnalyticsSummary, getPedidoSalesSummary, getSunatExchangeRate, invalidateAnalyticsCache } from '../services/analytics';
 
 import { TC_FIJO } from '../utils/tipoCambio';
@@ -593,7 +595,7 @@ const [isStale, setIsStale] = useState(false);
 
 
 
- const [tab, setTab] = useState('economico'); // 'economico' | 'sunat' | 'productos' | 'ganancias' | 'pedido'
+ const [tab, setTab] = useState('resumen'); // 'resumen' | 'economico' | 'sunat' | 'productos' | 'ganancias' | 'pedido'
 
 
 
@@ -1366,12 +1368,9 @@ const gananciasResumen = useMemo(() => {
  const promedioGananciaMensualNormal = mesesConGanancia ? +(totalGanancia / mesesConGanancia).toFixed(2) : null;
  const promedioGananciaMensual = mesesConMovimiento ? +(totalGananciaReal / mesesConMovimiento).toFixed(2) : null;
  const promedioGastoMensual = mesesConGasto ? +(totalGastos / mesesConGasto).toFixed(2) : null;
- const promedioUtilidad = mesesConGanancia
- ? +(rows.filter((x) => x.ingresos !== 0 || x.ganancia !== 0).reduce((s, x) => s + (Number(x.utilidad) || 0), 0) / mesesConGanancia).toFixed(2)
- : null;
- const promedioMarkup = mesesConGanancia
- ? +(rows.filter((x) => x.ingresos !== 0 || x.ganancia !== 0).reduce((s, x) => s + (Number(x.markup) || 0), 0) / mesesConGanancia).toFixed(2)
- : null;
+ const promedioUtilidad = totalIngresos > 0 ? +((totalGanancia / totalIngresos) * 100).toFixed(2) : null;
+ const costoVendidoTotal = totalIngresos - totalGanancia;
+ const promedioMarkup = costoVendidoTotal > 0 ? +((totalGanancia / costoVendidoTotal) * 100).toFixed(2) : null;
  const selectedMonthKey = dateMode === 'month' ? (appliedDates.from || '') : '';
  const mesSeleccionado = selectedMonthKey ? rows.find((x) => x.month === selectedMonthKey) || null : null;
 
@@ -1776,16 +1775,19 @@ const gananciasResumen = useMemo(() => {
 
 
  <div className="flex flex-wrap gap-2 mb-3">
+ <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='resumen'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('resumen')}>Resumen general</button>
  <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='economico'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('economico')}>Analisis economico</button>
  <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='sunat'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('sunat')}>Analisis Sunat</button>
  <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='productos'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('productos')}>Analisis de productos</button>
  <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='ganancias'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('ganancias')}>Analisis de ganancias</button>
  <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='pedido'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('pedido')}>Ventas a pedido</button>
+ <button className={`w-full sm:w-auto px-3 py-1.5 rounded border text-sm ${tab==='finanzas'?'bg-gray-900 text-white':'bg-white hover:bg-gray-50'}`} onClick={()=>setTab('finanzas')}>Finanzas y cobros</button>
  </div>
+ {tab === 'finanzas' && <FinanzasPanel />}
 
 
 
- <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+ <div className={`${tab === 'finanzas' ? 'hidden ' : ''}flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6`}>
 
 
 
@@ -1793,7 +1795,7 @@ const gananciasResumen = useMemo(() => {
 
 
 
- <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+ <div className={`${tab === 'finanzas' ? 'hidden ' : ''}flex flex-wrap items-center gap-2 w-full sm:w-auto`}>
 
 
 
@@ -1942,7 +1944,7 @@ const gananciasResumen = useMemo(() => {
 
 
 
- <div className="text-xs text-gray-500 mb-2">Actualizado {new Date(lastUpdated).toLocaleString()} {isStale ? '(actualizando...)' : ''}</div>
+ <div className={`${tab === 'finanzas' ? 'hidden ' : ''}text-xs text-gray-500 mb-2`}>Actualizado {new Date(lastUpdated).toLocaleString()} {isStale ? '(actualizando...)' : ''}</div>
 
 
 
@@ -2092,6 +2094,8 @@ const gananciasResumen = useMemo(() => {
 
 
 
+
+ {(tab === 'resumen' || tab === 'economico' || tab === 'ganancias') && <FinancialDashboard view={tab} from={profitRange.from} to={profitRange.to} filters={profitFilters} />}
 
  {tab === 'economico' && (
  <div className="flex flex-col">
@@ -3557,9 +3561,9 @@ Activo
  </div>
  <div className="scale-[0.98] origin-top-left">
  <Card
- title={`Gastos ${yearKey}`}
+ title={`Compras ${yearKey}`}
  value={valueWithAvg(totalGastos, promedioGastoMensual)}
- sub={<span>Meses con gasto: {mesesConGasto}</span>}
+ sub={<span>Meses con compras: {mesesConGasto}</span>}
  />
  </div>
  <div className="scale-[0.98] origin-top-left">
@@ -3591,12 +3595,12 @@ Activo
  </div>
  <div className="scale-[0.98] origin-top-left">
  <Card
- title={monthKey ? `Gastos ${monthKey}` : (isGeneral ? 'Gastos totales' : 'Promedio gasto mensual')}
+ title={monthKey ? `Compras ${monthKey}` : (isGeneral ? 'Compras totales' : 'Promedio compras mensuales')}
  value={monthKey ? <Currency v={monthGastos} /> : valueWithAvg(totalGastos, promedioGastoMensual)}
  sub={
  monthKey
  ? <span>Total comprado en el mes.</span>
- : <span>{mesesConGasto} meses con gasto{isGeneral ? '' : ` en ${yearKey}` }.</span>
+ : <span>{mesesConGasto} meses con compras{isGeneral ? '' : ` en ${yearKey}` }.</span>
  }
  />
  </div>
