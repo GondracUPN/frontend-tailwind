@@ -1,5 +1,7 @@
+import VentaResolutionModal from '../components/VentaResolutionModal';
 import React, { useEffect, useMemo, useState } from 'react';
-import { API_URL } from '../api';
+import api, { API_URL } from '../api';
+import EditarIngresoVenta from '../components/ventas/EditarIngresoVenta';
 
 import ModalGastoDebito from '../components/ModalGastoDebito';
 import ModalGastoCredito from '../components/ModalGastoCredito';
@@ -9,6 +11,7 @@ import ModalCuotasYGastos from '../components/ModalCuotasYGastos';
 import ModalEditarGasto from '../components/ModalEditarGasto';
 import ModalCobroVenta from '../components/ModalCobroVenta';
 import ModalEditarVentaIngreso from '../components/ModalEditarVentaIngreso';
+import PanelVentaCuotas from '../components/ventas/PanelVentaCuotas';
 import DExtraPanel from '../components/DExtraPanel';
 import ModalEditarEfectivo from '../components/ModalEditarEfectivo';
 import ModalAnalisisGastosMes from '../components/ModalAnalisisGastosMes';
@@ -75,6 +78,52 @@ export const debitPendingBalance = (gasto) => {
   }
   return null;
 };
+
+// Una reserva con varios pagos se muestra como una sola venta: lo cobrado hasta hoy y, debajo, lo que falta.
+export const groupAdvanceRows = (rows, advanceDetails = {}, extraDebts = []) => {
+  const advanceIdOf = (row) => String(row.notas || '').match(/^__SALE_ADVANCE__:(\d+):\d+$/)?.[1] || null;
+  const saleToAdvance = new Map();
+  rows.forEach((row) => {
+    const id = advanceIdOf(row);
+    const ventaId = id && (advanceDetails[id]?.ventaId || row.saleId);
+    if (ventaId) saleToAdvance.set(Number(ventaId), id);
+  });
+  const groups = new Map();
+  const output = [];
+  rows.forEach((row) => {
+    const id = advanceIdOf(row) || (row.saleId && saleToAdvance.get(Number(row.saleId))) || null;
+    if (!id) { output.push(row); return; }
+    if (!groups.has(id)) {
+      const group = { adelantoId: Number(id), rows: [] };
+      groups.set(id, group);
+      output.push({ ...row, id: `advance-${id}`, __advanceGroup: group });
+    }
+    groups.get(id).rows.push(row);
+  });
+  return output.map((row) => {
+    const group = row.__advanceGroup;
+    if (!group) return row;
+    const detail = advanceDetails[group.adelantoId];
+    const openDebt = extraDebts.find((debt) => debt.id === `advance-${group.adelantoId}`);
+    const creditRows = group.rows.filter((item) => ['card', 'debt'].includes(item.salePaymentType));
+    const creditPending = creditRows.reduce((sum, item) => sum + Number(debitPendingBalance(item)?.amount || 0), 0);
+    const banks = [...new Set(group.rows.map((item) => item.tarjeta).filter(Boolean))];
+    return {
+      ...row,
+      saleSku: group.rows.find((item) => item.saleSku)?.saleSku || detail?.producto?.codigo || row.saleSku,
+      saleId: group.rows.find((item) => item.saleId)?.saleId || null,
+      tarjeta: banks.length === 1 ? banks[0] : 'Varias',
+      __advanceGroup: {
+        ...group,
+        received: group.rows.reduce((sum, item) => sum + Number(receivedIncomeAmount(item) || 0), 0),
+        pending: openDebt ? Number(openDebt.pending || 0) : creditPending,
+        collectRow: openDebt ? null : creditRows.find((item) => Number(debitPendingBalance(item)?.amount || 0) > 0) || null,
+        open: Boolean(openDebt),
+      },
+    };
+  });
+};
+
 
 const fmtSignedMoney = (moneda, monto, sign) => {
   const n = Math.abs(Number(monto));
@@ -146,6 +195,7 @@ const sellerLabel = (slug) => {
 
 export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [rows, setRows] = useState([]);
+  const [returnSaleId, setReturnSaleId] = useState(null);
   const [cardsSummary, setCardsSummary] = useState([]);
   const [wallet, setWallet] = useState({ efectivoPen: 0, efectivoUsd: 0 });
   const [expenseConcepts, setExpenseConcepts] = useState([]);
@@ -181,6 +231,16 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [editingGasto, setEditingGasto] = useState(null);
   const [collectingSale, setCollectingSale] = useState(null);
   const [editingSaleId, setEditingSaleId] = useState(null);
+  const [editingAdvance, setEditingAdvance] = useState(null);
+  const [advanceDetails, setAdvanceDetails] = useState({});
+  useEffect(() => {
+    let current = true;
+    const ids = [...new Set(rows.map((row) => String(row.notas || '').match(/^__SALE_ADVANCE__:(\d+):/)?.[1]).filter(Boolean))];
+    Promise.all(ids.map(async (id) => {
+      try { return [id, await api.get(`/ventas/adelanto/${id}`)]; } catch { return [id, null]; }
+    })).then((entries) => { if (current) setAdvanceDetails(Object.fromEntries(entries)); });
+    return () => { current = false; };
+  }, [rows]);
   const [debitConceptFilter, setDebitConceptFilter] = useState('all');
   const [debitPaymentCardFilter, setDebitPaymentCardFilter] = useState('all');
   const [creditCardFilter, setCreditCardFilter] = useState('all');
@@ -632,6 +692,8 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     });
   }, [debitRows, debitConceptFilter, debitPaymentCardFilter]);
 
+  const debitDisplayRows = useMemo(() => groupAdvanceRows(debitRowsFiltered, advanceDetails, extraDebts), [debitRowsFiltered, advanceDetails, extraDebts]);
+
   const creditRowsFiltered = useMemo(() => {
     return creditRows.filter((g) => {
       const card = g.tarjeta || g.tarjetaPago || 'N/A';
@@ -734,17 +796,15 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     }
   };
 
-  const onDeleteLinkedSale = async (g) => {
-    if (!g.saleId || !window.confirm(`Eliminar la venta ${g.saleSku || `#${g.saleId}`} y todos sus ingresos vinculados?`)) return;
-    try {
-      const res = await fetch(`${API_URL}/ventas/${g.saleId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error(await res.text());
-      await reloadAll({ includeGastos: true, useCache: false, silent: true });
-      notifyGastosChanged({ action: 'sale-delete', userId: targetUserId, ventaId: g.saleId });
-      notifySalesChanged({ source: 'gastos', action: 'delete', ventaId: g.saleId });
-      window.dispatchEvent(new Event('productos-updated'));
-    } catch (err) { alert(err.message || 'No se pudo eliminar la venta.'); }
+  const onSalePaymentSaved = (updated) => {
+    if (updated?.id) {
+      setRows((current) => sortRows([updated, ...current.filter((row) => row.id !== updated.id)]));
+    }
+    reloadAll({ includeGastos: true, useCache: false, silent: true });
+    notifySalesChanged({ action: 'sale-payment', userId: targetUserId });
   };
+
+  const onDeleteLinkedSale = (g) => { if (g.saleId) setReturnSaleId(g.saleId); };
 
   const compraBudgetCalc = useMemo(() => {
     if (!compraBudget) return null;
@@ -811,6 +871,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
 
   return (
     <div className="grid gap-6 gastos-panel">
+      {returnSaleId && <VentaResolutionModal ventaId={returnSaleId} onClose={() => setReturnSaleId(null)} onSaved={() => { setReturnSaleId(null); reloadAll({ includeGastos: true, useCache: false, silent: true }); }} />}
 
       {/* Cabecera */}
       <div className="bg-white rounded-2xl ring-1 ring-gray-200 shadow-sm p-6">
@@ -955,23 +1016,28 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {debitRowsFiltered.map((g) => {
+                  {debitDisplayRows.map((g) => {
+                    const advanceGroup = g.__advanceGroup;
                     const conceptoCell = g.concepto === 'pago_tarjeta'
                       ? `Pago Tarjeta  ${CARD_LABEL[g.tarjetaPago] || g.tarjetaPago || '-'}`
                       : displayConcepto(g.concepto, g.metodoPago);
                     const advanceNote = String(g.notas || '').match(/^__SALE_ADVANCE__:\d+:(\d+)$/);
-                    const detalle = advanceNote
-                      ? `Adelanto ${Number(advanceNote[1]) + 1} · ${g.saleSku || 'Venta'}`
+                    const advanceId = String(g.notas || '').match(/^__SALE_ADVANCE__:(\d+):/);
+                    const advanceTotal = advanceDetails[advanceId?.[1]]?.pagos?.filter((payment) => payment.origen !== 'cierre').length;
+                    const detalle = advanceGroup
+                      ? g.saleSku || 'Venta'
+                      : advanceNote
+                      ? `Adelanto ${Number(advanceNote[1]) + 1}${advanceTotal ? ' de ' + advanceTotal : ''} · ${g.saleSku || 'Venta'}`
                       : g.saleSku || visibleExpenseNotes(g.notas);
                     const isIncome = isIncomeExpenseConcept(g.concepto, conceptCategories)
                       && normalizeExpenseConcept(g.concepto) !== 'cashback';
-                    const displayedAmount = g.salePaymentType ? receivedIncomeAmount(g) : g.monto;
-                    const usdEquivalent = getDebitUsdEquivalent(g);
-                    const pending = debitPendingBalance(g);
+                    const displayedAmount = advanceGroup ? advanceGroup.received : g.salePaymentType ? receivedIncomeAmount(g) : g.monto;
+                    const usdEquivalent = advanceGroup ? null : getDebitUsdEquivalent(g);
+                    const pending = advanceGroup ? null : debitPendingBalance(g);
                     const advanceMatch = String(g.notas || '').match(/^__SALE_ADVANCE__:(\d+):(\d+)$/);
                     const advanceDebt = advanceMatch ? extraDebts.find((debt) => debt.id === `advance-${advanceMatch[1]}`) : null;
                     const advanceInfo = advanceMatch ? activeAdelantos.find((advance) => String(advance.id) === advanceMatch[1]) : null;
-                    const showAdvancePending = advanceDebt && Number(advanceMatch?.[2]) === (advanceInfo?.cuotas?.length || 1) - 1;
+                    const showAdvancePending = !advanceGroup && advanceDebt && Number(advanceMatch?.[2]) === (advanceInfo?.cuotas?.length || 1) - 1;
                     return (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
                         <td className="p-2 align-top">{g.fecha}</td>
@@ -990,7 +1056,9 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                               {pending.label}: {fmtMoney('PEN', pending.amount)} pendiente
                             </div>
                           )}
-                          {showAdvancePending && <div className="mt-0.5 text-[11px] leading-tight text-amber-700">Saldo de venta: {fmtMoney('PEN', advanceDebt.pending)} pendiente</div>}
+                          {advanceGroup && advanceGroup.pending > 0 && <div className="mt-0.5 text-[11px] leading-tight text-amber-700">Deuda: {fmtMoney('PEN', advanceGroup.pending)} pendiente</div>}
+                          {advanceGroup && advanceGroup.pending === 0 && <div className="mt-0.5 text-[11px] font-semibold leading-tight text-emerald-700">✓ Venta pagada</div>}
+                          {showAdvancePending && <div className="mt-0.5 text-[11px] leading-tight text-amber-700">Falta {fmtMoney('PEN', advanceDebt.pending)}</div>}
                           {pending && pending.amount === 0 && (
                             <div className="mt-0.5 text-[11px] font-semibold leading-tight text-emerald-700">
                               ✓ {pending.label === 'Deuda' ? 'Deuda pagada' : 'x500 completo'}
@@ -998,15 +1066,25 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                           )}
                         </td>
                         <td className="p-2 align-top">
-                          {g.saleId ? <div className="flex items-center gap-1">
-                            {['card', 'debt'].includes(g.salePaymentType) && <button type="button" onClick={() => setCollectingSale(g)} className="rounded border border-amber-300 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50">{pending?.amount === 0 ? 'Ver pagos' : 'Cobrar'}</button>}
-                            <button type="button" title="Editar venta e ingresos" aria-label={`Editar venta ${g.saleSku || g.saleId}`} onClick={() => setEditingSaleId(g.saleId)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">
+                          {advanceGroup ? <div className="flex items-center gap-1">
+                            {advanceGroup.pending > 0 && <button type="button" title="Cobrar" aria-label={`Cobrar ${g.saleSku || 'la venta'}`}
+                              onClick={() => (advanceGroup.collectRow ? setCollectingSale(advanceGroup.collectRow) : setEditingAdvance({ id: advanceGroup.adelantoId, iniciarPago: true }))}
+                              className="inline-flex w-7 h-7 items-center justify-center rounded border border-emerald-300 text-sm font-semibold text-emerald-700 hover:bg-emerald-50">$</button>}
+                            <button type="button" title="Editar pagos" aria-label={`Editar pagos de ${g.saleSku || 'la venta'}`} onClick={() => setEditingAdvance({ id: advanceGroup.adelantoId })} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">
                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M16.862 3.487a1.5 1.5 0 0 1 2.121 2.121l-10.02 10.02a4.5 4.5 0 0 1-1.757 1.07l-3.042.912a.75.75 0 0 1-.928-.928l.912-3.042a4.5 4.5 0 0 1 1.07-1.757l10.02-10.02Zm-2.12-.001L5.62 12.608a6 6 0 0 0-1.427 2.243l-.912 3.042a2.25 2.25 0 0 0 2.784 2.784l3.042-.912a6 6 0 0 0 2.243-1.427l9.121-9.121-6.433-6.433Z" /></svg>
                             </button>
-                            <button type="button" title="Borrar venta e ingresos" aria-label={`Eliminar venta ${g.saleSku || g.saleId}`} onClick={() => onDeleteLinkedSale(g)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-red-600 hover:bg-red-50">
+                            {g.saleId && <button type="button" title="Devolver o corregir venta" aria-label={`Devolver venta ${g.saleSku || g.saleId}`} onClick={() => onDeleteLinkedSale(g)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-red-600 hover:bg-red-50">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M9 3.75A2.25 2.25 0 0 1 11.25 1.5h1.5A2.25 2.25 0 0 1 15 3.75V4.5h3.75a.75.75 0 0 1 0 1.5H5.25a.75.75 0 0 1 0-1.5H9v-.75ZM6.75 7.5h10.5l-.63 11.34a2.25 2.25 0 0 1-2.245 2.11H9.625a2.25 2.25 0 0 1-2.244-2.11L6.75 7.5Z" /></svg>
+                            </button>}
+                          </div> : g.saleId ? <div className="flex items-center gap-1">
+                            {['card', 'debt'].includes(g.salePaymentType) && <button type="button" onClick={() => setCollectingSale(g)} title={pending?.amount === 0 ? 'Ver pagos' : 'Cobrar'} aria-label={`${pending?.amount === 0 ? 'Ver pagos de' : 'Cobrar'} ${g.saleSku || `venta ${g.saleId}`}`} className={`inline-flex w-7 h-7 items-center justify-center rounded border text-sm font-semibold ${pending?.amount === 0 ? 'border-gray-300 text-gray-500 hover:bg-gray-100' : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'}`}>$</button>}
+                            <EditarIngresoVenta ingreso={g} onAdvance={setEditingAdvance} onSale={setEditingSaleId} />
+                            <button type="button" title="Devolver o corregir venta" aria-label={`Devolver venta ${g.saleSku || g.saleId}`} onClick={() => onDeleteLinkedSale(g)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-red-600 hover:bg-red-50">
                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M9 3.75A2.25 2.25 0 0 1 11.25 1.5h1.5A2.25 2.25 0 0 1 15 3.75V4.5h3.75a.75.75 0 0 1 0 1.5H5.25a.75.75 0 0 1 0-1.5H9v-.75ZM6.75 7.5h10.5l-.63 11.34a2.25 2.25 0 0 1-2.245 2.11H9.625a2.25 2.25 0 0 1-2.244-2.11L6.75 7.5Z" /></svg>
                             </button>
-                          </div> : g.itfIngresoId || g.salePaymentType ? <span className="text-xs text-gray-500">Automático</span> : (
+                          </div> : advanceMatch ? (
+                            <EditarIngresoVenta ingreso={g} onAdvance={setEditingAdvance} onSale={setEditingSaleId} />
+                          ) : g.itfIngresoId || g.salePaymentType ? <span className="text-xs text-gray-500">Automático</span> : (
                           <div className="flex items-center gap-2">
                             <button type="button" title="Editar" onClick={() => openEdit(g)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-gray-600 hover:bg-gray-100">
                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M16.862 3.487a1.5 1.5 0 0 1 2.121 2.121l-10.02 10.02a4.5 4.5 0 0 1-1.757 1.07l-3.042.912a.75.75 0 0 1-.928-.928l.912-3.042a4.5 4.5 0 0 1 1.07-1.757l10.02-10.02Zm-2.12-.001L5.62 12.608a6 6 0 0 0-1.427 2.243l-.912 3.042a2.25 2.25 0 0 0 2.784 2.784l3.042-.912a6 6 0 0 0 2.243-1.427l9.121-9.121-6.433-6.433Z" /></svg>
@@ -1020,7 +1098,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                       </tr>
                     );
                   })}
-                  {debitRowsFiltered.length === 0 && (
+                  {debitDisplayRows.length === 0 && (
                     <tr>
                       <td className="p-3 text-gray-500" colSpan={6}>No hay gastos de debito con esos filtros.</td>
                     </tr>
@@ -1145,7 +1223,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       </div>
 
       {/* Modales */}
-      {showDExtra && <DExtraPanel debts={extraDebts} onClose={() => setShowDExtra(false)} onCollect={(row) => { setShowDExtra(false); setCollectingSale(row); }} />}
+      {showDExtra && <DExtraPanel onAdvance={(id) => setEditingAdvance({ id, iniciarPago: true })} debts={extraDebts} onClose={() => setShowDExtra(false)} onCollected={onSalePaymentSaved} />}
       {showBankImport && (
         <ModalImportarOperacionBancaria
           userId={targetUserId}
@@ -1359,18 +1437,24 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         notifySalesChanged({ source: 'gastos', action: 'update', ventaId: saleId });
         window.dispatchEvent(new Event('productos-updated'));
       }} />}
+      {editingAdvance && <PanelVentaCuotas adelantoId={editingAdvance.id} initialIndex={editingAdvance.index} iniciarPago={editingAdvance.iniciarPago} onClose={() => setEditingAdvance(null)} onChanged={(saved) => {
+        setAdvanceDetails((current) => ({ ...current, [saved.id]: saved }));
+        setActiveAdelantos((current) => saved?.ventaId || saved?.canceladoAt
+          ? current.filter((item) => item.id !== saved.id)
+          : current.map((item) => item.id === saved?.id ? saved : item));
+        reloadAll({ includeGastos: true, useCache: false, silent: true });
+        notifyGastosChanged({ action: 'advance-edit', userId: targetUserId, adelantoId: saved?.id });
+        if (saved?.ventaId) notifySalesChanged({ source: 'gastos', action: 'update', ventaId: saved.ventaId });
+        window.dispatchEvent(new Event('productos-updated'));
+      }} />}
       {collectingSale && (
         <ModalCobroVenta
           key={`${collectingSale.id}:${collectingSale.saleReceivedAmount}:${collectingSale.saleExchangeRate || ''}`}
           gasto={collectingSale}
           onClose={() => setCollectingSale(null)}
           onSaved={(updated) => {
-            if (updated?.id) {
-              setRows((current) => sortRows([updated, ...current.filter((row) => row.id !== updated.id)]));
-            }
             setCollectingSale(null);
-            reloadAll({ includeGastos: true, useCache: false, silent: true });
-            notifyGastosChanged({ action: 'sale-payment', userId: targetUserId });
+            onSalePaymentSaved(updated);
           }}
         />
       )}

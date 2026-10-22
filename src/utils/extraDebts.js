@@ -56,7 +56,7 @@ export function buildExtraDebts(rows = [], advances = [], owner = '') {
       ...unmatchedDirect,
     ];
     debts.push({
-      id: `advance-${advance.id}`, title: `Adelanto · ${advance.producto?.codigoInventario || advance.productoId}`,
+      adelantoId: advance.id, id: `advance-${advance.id}`, title: `Adelanto · ${advance.producto?.codigoInventario || advance.productoId}`,
       total: total / 100, received: received / 100, pending: (total - received) / 100,
       startedAt: dateText(advance.fechaAdelanto), history: history.sort((a, b) => a.date.localeCompare(b.date)),
       kinds: ['advance'], collectionRows: advanceRows.filter((row) => row.salePaymentType === 'card' && cents(row.monto) > cents(row.saleReceivedAmount)),

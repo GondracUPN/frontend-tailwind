@@ -1,6 +1,6 @@
 jest.mock('pdfjs-dist/webpack', () => ({ getDocument: jest.fn() }));
 
-import { buildCreditExpensesText, debitPendingBalance, receivedIncomeAmount } from './GastosPanel';
+import { buildCreditExpensesText, debitPendingBalance, groupAdvanceRows, receivedIncomeAmount } from './GastosPanel';
 
 test('muestra solo el saldo faltante de deuda y x500 en Débito', () => {
   expect(debitPendingBalance({ salePaymentType: 'card', monto: 2200, saleReceivedAmount: 600 })).toEqual({ label: 'Deuda', amount: 1600 });
@@ -34,4 +34,19 @@ test('genera texto copiable de gastos de crédito con rango y totales por moneda
   expect(text).toContain('Total PEN: S/ 35.00');
   expect(text).toContain('Total USD: $ 500.00');
   expect(text).toContain('Movimientos: 3');
+});
+
+test('muestra una reserva con varios pagos como una sola venta con lo cobrado y la deuda', () => {
+  const pago = (id, index, fecha, monto) => ({ id, fecha, monto, concepto: 'ingreso', tarjeta: 'bcp', notas: `__SALE_ADVANCE__:20:${index}`, saleSku: 'MS-498', salePaymentType: 'direct', saleReceivedAmount: monto });
+  const otro = { id: 9, fecha: '2026-10-05', monto: 50, concepto: 'ingreso', notas: null };
+  const rows = [pago(3, 2, '2026-10-12', 300), otro, pago(2, 1, '2026-10-03', 200), pago(1, 0, '2026-10-01', 500)];
+  const grouped = groupAdvanceRows(rows, {}, [{ id: 'advance-20', pending: 800 }]);
+  expect(grouped.map((row) => row.id)).toEqual(['advance-20', 9]);
+  expect(grouped[0]).toMatchObject({ fecha: '2026-10-12', saleSku: 'MS-498', __advanceGroup: { adelantoId: 20, received: 1000, pending: 800, open: true } });
+
+  // Ya vendida: entra también el cobro del saldo y la deuda sale de la tarjeta pendiente.
+  const cierre = { id: 4, fecha: '2026-10-15', monto: 1800, concepto: 'ingreso', tarjeta: 'interbank', notas: '__SALE_INCOME__:498:77:card', saleId: 77, saleSku: 'MS-498', salePaymentType: 'card', saleReceivedAmount: 1000 };
+  const vendida = groupAdvanceRows([cierre, ...rows.map((row) => (row.notas ? { ...row, saleId: 77 } : row))], {}, []);
+  expect(vendida).toHaveLength(2);
+  expect(vendida[0]).toMatchObject({ saleId: 77, tarjeta: 'Varias', __advanceGroup: { received: 2000, pending: 800, open: false, collectRow: expect.objectContaining({ id: 4 }) } });
 });

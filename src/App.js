@@ -1,5 +1,8 @@
-import React, { Suspense, lazy, useState, useEffect, useMemo } from 'react';
+import { notifySalesChanged } from './utils/salesSync';
+import React, { Suspense, lazy, useState, useEffect, useMemo, useRef } from 'react';
 import Home from './pages/Home';
+import LoginGastos from './pages/LoginGastos';
+import SaleResultNotice from './components/SaleResultNotice';
 import api, { API_URL } from './api';
 import { normalizeProductLookupUrl } from './utils/productUrl';
 import { formatAppleWatchName } from './utils/productName';
@@ -415,8 +418,10 @@ const SIDEBAR_SECONDARY_NAV = [
   { id: 'presupuestoGastos', label: 'Presupuesto', icon: FiGrid },
 ];
 
-function App() {
+function AuthenticatedApp() {
   // Leer la última vista guardada; si no hay, usa 'home'
+  const menuButtonRef = useRef(null);
+  const sidebarRef = useRef(null);
   const [vista, setVista] = useState('home');
   const [analisisBack, setAnalisisBack] = useState('home');
   const [keptVistas, setKeptVistas] = useState(() => ({ home: Date.now() }));
@@ -457,6 +462,7 @@ function App() {
   }));
   const [sidebarHidden, setSidebarHidden] = useState(() => {
     try {
+      if (window.matchMedia?.('(max-width: 1023px)')?.matches) return true;
       const saved = localStorage.getItem(SIDEBAR_HIDDEN_KEY);
       if (saved === '1') return true;
       if (saved === '0') return false;
@@ -465,6 +471,7 @@ function App() {
       return false;
     }
   });
+  const [isCompactNavigation, setIsCompactNavigation] = useState(() => !!window.matchMedia?.('(max-width: 1023px)')?.matches);
   const [keepAliveEnabled, setKeepAliveEnabled] = useState(getKeepAliveEnabled);
 
   useEffect(() => {
@@ -587,7 +594,12 @@ function App() {
   }, [sidebarHidden]);
 
   useEffect(() => {
-    const onChange = () => setKeepAliveEnabled(getKeepAliveEnabled());
+    const onChange = () => {
+      setKeepAliveEnabled(getKeepAliveEnabled());
+      const compact = !!window.matchMedia?.('(max-width: 1023px)')?.matches;
+      setIsCompactNavigation(compact);
+      if (compact) setSidebarHidden(true);
+    };
     onChange();
     try {
       const media = window.matchMedia('(min-width: 1024px)');
@@ -1232,6 +1244,26 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    if (sidebarHidden || !isCompactNavigation) return undefined;
+    const previousFocus = document.activeElement;
+    const sidebarNode = sidebarRef.current;
+    sidebarNode?.querySelector('button')?.focus();
+    const onKey = (event) => {
+      if (event.key === 'Escape') { setSidebarHidden(true); menuButtonRef.current?.focus(); }
+      if (event.key === 'Tab') {
+        const focusables = [...(sidebarNode?.querySelectorAll('button, a[href], summary, input, select, [tabindex="0"]') || [])].filter(el => el.getClientRects().length && !el.disabled);
+        const first = focusables[0], last = focusables[focusables.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    const oldOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', onKey);
+    return () => { document.body.style.overflow = oldOverflow; document.removeEventListener('keydown', onKey); if (sidebarNode?.contains(document.activeElement)) previousFocus?.focus?.(); };
+  }, [sidebarHidden, isCompactNavigation]);
+
   const renderVistaContent = (id) => {
     switch (id) {
       case 'home':
@@ -1283,7 +1315,7 @@ function App() {
     );
   };
 
-  const renderNavItem = ({ id, label, icon: Icon }) => {
+  const renderNavItem = ({ id, label, icon: Icon, compact = false }) => {
     const active = vista === id;
     return (
       <button
@@ -1294,13 +1326,13 @@ function App() {
         onClick={() => navigateTo(id)}
         onMouseEnter={id === 'productos' ? loadProductosPage : (id === 'inventario' ? loadInventarioPage : undefined)}
         onFocus={id === 'productos' ? loadProductosPage : (id === 'inventario' ? loadInventarioPage : undefined)}
-        className={`group flex h-11 w-full items-center justify-start gap-3 rounded-lg px-3 text-sm font-medium transition ${
+        className={`group flex w-full items-center justify-start rounded-lg font-medium transition ${compact ? 'h-10 gap-2 px-2 text-xs' : 'h-11 gap-3 px-3 text-sm'} ${
           active
             ? 'bg-slate-900 text-white shadow-sm'
             : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
         }`}
       >
-        <Icon className={`h-5 w-5 shrink-0 ${active ? 'text-white' : 'text-slate-500 group-hover:text-slate-800'}`} />
+        <Icon className={`${compact ? 'h-4 w-4' : 'h-5 w-5'} shrink-0 ${active ? 'text-white' : 'text-slate-500 group-hover:text-slate-800'}`} />
         <span className="truncate">{label}</span>
       </button>
     );
@@ -1380,43 +1412,22 @@ function App() {
   );
 
   const renderCalcuRapidaPanel = () => (
-    <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="flex items-start gap-2.5">
-        <div className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white shadow-sm">
-          <FiHash className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-semibold text-slate-950">Calcu Rapida</h2>
-          <p className="mt-1 truncate text-xs text-slate-500">Compras con DEC 90</p>
-        </div>
-      </div>
-      <button
-        type="button"
-        className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-        onClick={openCalcuRapida}
-        title="Abrir calculadora rapida"
-      >
-        <FiHash className="h-4 w-4" />
-        <span>Calcular compra</span>
-      </button>
-    </section>
+    <button type="button" onClick={openCalcuRapida} title="Abrir calculadora rapida" aria-label="Calcular compra" className="ux-quick-calc">
+      <FiHash className="h-5 w-5 shrink-0" />
+      <span><strong>Calcular compra</strong><small>Calculadora rápida · DEC 90</small></span>
+    </button>
   );
 
   return (
     <>
-      <div className="min-h-screen bg-macGray">
-        <button
-          type="button"
-          className={`fixed left-3 top-3 z-50 inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition-[opacity,transform,background-color] duration-300 ease-out hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 motion-reduce:transition-none ${
-            sidebarHidden ? 'scale-100 opacity-100' : 'pointer-events-none scale-90 opacity-0'
-          }`}
-          onClick={() => setSidebarHidden(false)}
-          aria-label="Mostrar menu"
-          title="Mostrar menu"
-          tabIndex={sidebarHidden ? 0 : -1}
-        >
-          <FiMenu className="h-5 w-5" />
-        </button>
+      <div className="ux-shell min-h-screen bg-macGray">
+        <header className={`ux-appbar ${sidebarHidden ? '' : 'ux-appbar--desktop-hidden'}`}>
+          <button ref={menuButtonRef} type="button" className="ux-button !p-2 !min-h-11 !min-w-11" onClick={() => setSidebarHidden(false)} aria-label="Mostrar menu" aria-expanded={!sidebarHidden} aria-controls="app-navigation">
+            <FiMenu className="h-5 w-5" />
+          </button>
+          <img src={APP_LOGO_URL} alt="" className="h-8 w-8 object-contain" />
+          <div className="ux-appbar-title">MacServicios<small>{[...SIDEBAR_NAV, ...SIDEBAR_SECONDARY_NAV].find(item => item.id === vista)?.label || 'Inicio'}</small></div>
+        </header>
 
         <button
           type="button"
@@ -1428,7 +1439,7 @@ function App() {
           tabIndex={sidebarHidden ? -1 : 0}
         />
 
-        <aside
+        <aside id="app-navigation" ref={sidebarRef} inert={sidebarHidden ? true : undefined}
           className={`fixed inset-y-0 left-0 z-50 flex w-72 max-w-[calc(100vw-1rem)] flex-col border-r border-slate-200 bg-white/95 px-4 py-4 shadow-sm backdrop-blur will-change-transform transition-[transform,box-shadow] motion-reduce:transition-none lg:w-64 ${
             sidebarHidden
               ? '-translate-x-[105%] shadow-none duration-200 ease-in'
@@ -1458,25 +1469,32 @@ function App() {
             </button>
           </div>
 
-          <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
-            <div className="flex flex-col gap-1 pb-4">
-              {SIDEBAR_NAV.map(renderNavItem)}
-
-              <div className="my-3 h-px shrink-0 bg-slate-200" />
+          <details className="ux-sidebar-shortcuts" open>
+            <summary>Accesos rápidos</summary>
+            <div className="ux-shortcut-content">
               {renderEshopexSidebarPanel()}
-              <div className="mt-3" />
               {renderCalcuRapidaPanel()}
+              <nav aria-label="Herramientas del panel" className="grid grid-cols-2 gap-2">
+                {['calculadora', 'ebay'].map(id => renderNavItem({ ...SIDEBAR_NAV.find(item => item.id === id), compact: true }))}
+              </nav>
+            </div>
+          </details>
+          <nav aria-label="Navegación principal" className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+            <div className="flex flex-col gap-1 pb-4">
+              {renderNavItem(SIDEBAR_NAV.find(item => item.id === 'home'))}
+              {[['Operaciones', ['productos', 'inventario']], ['Finanzas', ['ganancias', 'gastos', 'analisis', 'proyeccion']], ['Administración', ['servicios']]].map(([group, ids]) => (
+                <div key={group}>
+                  <div className="ux-nav-label">{group}</div>
+                  <div className="space-y-1">{ids.map(id => renderNavItem(SIDEBAR_NAV.find(item => item.id === id)))}</div>
+                  {group === 'Finanzas' && <div className="mt-1 space-y-1">{SIDEBAR_SECONDARY_NAV.map(renderNavItem)}</div>}
+                </div>
+              ))}
 
-              <div className="my-3 h-px shrink-0 bg-slate-200" />
-              <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                Herramientas
-              </div>
-              {SIDEBAR_SECONDARY_NAV.map(renderNavItem)}
             </div>
           </nav>
         </aside>
 
-        <main className={`min-h-screen transition-[padding] duration-300 ease-out motion-reduce:transition-none ${sidebarHidden ? 'pl-0' : 'lg:pl-64'}`}>
+        <main className={`min-h-screen min-w-0 pt-16 transition-[padding] duration-300 ease-out motion-reduce:transition-none ${sidebarHidden ? 'pl-0' : 'lg:pl-64 lg:pt-0'}`}>
           {renderVista()}
         </main>
       </div>
@@ -1884,6 +1902,38 @@ function App() {
       )}
     </>
   );
+}
+
+function App() {
+  const [scheduleWarning, setScheduleWarning] = useState('');
+  const [processingSchedules, setProcessingSchedules] = useState(false);
+  const processSchedules = async () => {
+    setProcessingSchedules(true);
+    try {
+      await api.post('/schedules/process', {});
+      setScheduleWarning('');
+      notifySalesChanged();
+    } catch (err) {
+      setScheduleWarning('No se pudieron generar los cargos programados. Reintenta para actualizar los períodos pendientes.');
+    } finally { setProcessingSchedules(false); }
+  };
+  const [authenticated, setAuthenticated] = useState(() => Boolean(localStorage.getItem('token')));
+  useEffect(() => {
+    const expire = () => setAuthenticated(false);
+    const changed = () => setAuthenticated(Boolean(localStorage.getItem('token')));
+    window.addEventListener('auth:expired', expire);
+    window.addEventListener('storage', changed);
+    window.addEventListener('auth:changed', changed);
+    return () => {
+      window.removeEventListener('auth:expired', expire);
+      window.removeEventListener('storage', changed);
+      window.removeEventListener('auth:changed', changed);
+    };
+  }, []);
+  return authenticated ? <>
+    {scheduleWarning && <div role="alert" className="p-3 bg-amber-50 text-amber-900">{scheduleWarning} <button type="button" disabled={processingSchedules} onClick={processSchedules}>Reintentar programaciones</button></div>}
+    <AuthenticatedApp /><SaleResultNotice />
+  </> : <LoginGastos onLoggedIn={async () => { await processSchedules(); setAuthenticated(Boolean(localStorage.getItem('token'))); }} onBack={() => {}} />;
 }
 
 export default App;

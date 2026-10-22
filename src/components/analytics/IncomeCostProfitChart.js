@@ -1,10 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Bar } from 'react-chartjs-2';
 import './chartSetup';
 import ChartShell from './ChartShell';
 import useProfitData from './useProfitData';
 import { formatCurrency, formatPercent } from './format';
-import { mockRows } from './profitMocks';
 
 const inferGroupBy = (from, to) => {
   if (!from || !to) return 'month';
@@ -14,15 +13,11 @@ const inferGroupBy = (from, to) => {
 };
 
 export default function IncomeCostProfitChart({ from, to, filters }) {
-  const [showMock, setShowMock] = useState(false);
   const groupBy = inferGroupBy(from, to);
   const { data, loading, error, retry } = useProfitData({ ...filters, from, to, groupBy });
 
   const rows = useMemo(() => (Array.isArray(data?.rows) ? data.rows : []), [data]);
-  const displayRows = useMemo(
-    () => (rows.length ? rows : (showMock ? mockRows(groupBy) : [])),
-    [rows, showMock, groupBy],
-  );
+  const displayRows = rows;
   const labels = useMemo(() => displayRows.map((r) => r.period), [displayRows]);
 
   const chartData = useMemo(
@@ -89,8 +84,6 @@ export default function IncomeCostProfitChart({ from, to, filters }) {
       error={error}
       empty={!loading && !error && displayRows.length === 0}
       onRetry={retry}
-      onShowMock={() => setShowMock(true)}
-      showMock={showMock}
     >
       <div className="h-64">
         <Bar data={chartData} options={options} />

@@ -5,6 +5,7 @@ import { localDateInputValue } from '../utils/dates';
 import { isTechnicalExpenseNote, visibleExpenseNotes } from '../utils/expenseConcepts';
 import CloseX from './CloseX';
 import { formatPending500, getPending500 } from '../utils/pending500';
+import { CLASIFICACIONES_GASTO } from '../services/finanzas';
 
 const BANKS_DEBITO = [
   { value: 'bcp', label: 'BCP' },
@@ -33,6 +34,9 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
   const [tarjetaPago, setTarjetaPago] = useState(gasto?.tarjetaPago || '');
   const [moneda, setMoneda] = useState(gasto?.moneda || 'PEN');
   const [tipoCambio, setTipoCambio] = useState(gasto?.tasaUsdPen ? String(Number(gasto.tasaUsdPen)) : '');
+  const [clasificacion, setClasificacion] = useState(gasto?.clasificacionFinanciera || '');
+  const [ventaVinculadaId, setVentaVinculadaId] = useState(gasto?.ventaVinculadaId ? String(gasto.ventaVinculadaId) : '');
+  const [productoVinculadoId, setProductoVinculadoId] = useState(gasto?.productoVinculadoId ? String(gasto.productoVinculadoId) : '');
   const [cards, setCards] = useState([]);
   const [loadingCards, setLoadingCards] = useState(false);
   const [customConcepts, setCustomConcepts] = useState([]);
@@ -160,6 +164,13 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
       body.cantidad500 = isIngresoEn500 ? Number(cantidad500) : null;
       body.destinatario500 = isIngresoEn500 ? destinatario500 : null;
       if (concepto) body.concepto = concepto;
+      if (clasificacion !== (gasto.clasificacionFinanciera || '')
+        || ventaVinculadaId !== String(gasto.ventaVinculadaId || '')
+        || productoVinculadoId !== String(gasto.productoVinculadoId || '')) {
+        body.clasificacionFinanciera = clasificacion || null;
+        body.ventaVinculadaId = ventaVinculadaId ? Number(ventaVinculadaId) : null;
+        body.productoVinculadoId = productoVinculadoId ? Number(productoVinculadoId) : null;
+      }
       if (isCredito) {
         if (tarjeta) body.tarjeta = tarjeta;
       } else {
@@ -286,6 +297,25 @@ export default function ModalEditarGasto({ gasto, onClose, onSaved }) {
             <span className="block text-gray-600 mb-1">Notas</span>
             <input className="w-full border rounded px-3 py-2" value={notas} onChange={(e)=>setNotas(e.target.value)} placeholder="Opcional" />
           </label>
+
+          {!['ingreso', 'ingresos'].includes(concepto) && (
+            <details className="rounded-lg border border-gray-200 p-3 text-sm" open={Boolean(clasificacion)}>
+              <summary className="cursor-pointer text-gray-700">Clasificación financiera <span className="text-xs text-gray-500">(opcional)</span></summary>
+              <div className="mt-2 grid gap-2">
+                <select aria-label="Clasificación financiera" className="w-full border rounded px-3 py-2" value={clasificacion} onChange={(e) => setClasificacion(e.target.value)}>
+                  <option value="">Sin clasificar</option>
+                  {CLASIFICACIONES_GASTO.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+                {['costo_directo', 'comision_venta'].includes(clasificacion) && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block text-xs text-gray-600">Venta n.º<input inputMode="numeric" className="mt-1 w-full border rounded px-2 py-1.5" value={ventaVinculadaId} onChange={(e) => setVentaVinculadaId(e.target.value.replace(/\D/g, ''))} placeholder="Opcional" /></label>
+                    <label className="block text-xs text-gray-600">Producto n.º<input inputMode="numeric" className="mt-1 w-full border rounded px-2 py-1.5" value={productoVinculadoId} onChange={(e) => setProductoVinculadoId(e.target.value.replace(/\D/g, ''))} placeholder="Opcional" /></label>
+                  </div>
+                )}
+                {clasificacion === 'costo_inventario' && <p className="text-xs text-gray-500">Las compras de inventario no se cuentan como gasto operativo del mes.</p>}
+              </div>
+            </details>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className="px-4 py-2 rounded bg-gray-200 text-gray-800 hover:bg-gray-300" onClick={onClose}>Cancelar</button>

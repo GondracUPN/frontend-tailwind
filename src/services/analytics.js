@@ -67,6 +67,11 @@ export async function getProfitComparison(params = {}) {
   return cachedGet(path, 90_000);
 }
 
+export async function getFinancialDashboard(params = {}) {
+  const qs = buildParams(params);
+  return api.get(qs ? `/analytics/finance?${qs}` : '/analytics/finance');
+}
+
 export async function getPedidoSalesSummary() {
   return cachedGet('/ventas/a-pedido', 30_000);
 }

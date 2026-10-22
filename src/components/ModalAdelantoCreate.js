@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import api from '../api';
+import { notifyGastosChanged } from '../utils/gastosSync';
+import { notifySalesChanged } from '../utils/salesSync';
 
 export default function ModalAdelantoCreate({ producto, onClose, onSaved }) {
   const [form, setForm] = useState({
@@ -37,6 +39,8 @@ export default function ModalAdelantoCreate({ producto, onClose, onSaved }) {
         incomePaymentType: form.incomePaymentType,
       };
       const saved = await api.post('/ventas/adelanto', payload);
+      notifyGastosChanged({ action: 'advance-create', adelantoId: saved.id });
+      notifySalesChanged({ action: 'update', adelantoId: saved.id, productoId: producto.id });
       onSaved?.(saved);
     } catch (e) {
       console.error('[ModalAdelantoCreate] Error al guardar adelanto:', e);

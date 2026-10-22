@@ -1,5 +1,8 @@
+import VentaResolutionModal from '../components/VentaResolutionModal';
+import { accessoryProfitRows } from '../utils/accessoryProfitRows';
 // src/pages/Ganancias.js
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActionButton, PageHeader, StatCard, LoadingState, ErrorState, formatDisplayMoney } from '../components/ui/VisualUI';
 import api from '../api';
 import ModalVenta from '../components/ModalVenta';
 import { formatProfitProductName } from '../utils/productName';
@@ -7,10 +10,8 @@ import { formatProfitProductName } from '../utils/productName';
 /* =========================
    Helpers
    ========================= */
-const fmtSoles = (n) =>
-  n != null && n !== '' ? `S/ ${Number(n).toFixed(2)}` : 'S/ 0.00';
-const fmtUSD = (n) =>
-  n != null && n !== '' ? `$ ${Number(n).toFixed(2)}` : '$ 0.00';
+const fmtSoles = (n) => formatDisplayMoney(n ?? 0);
+const fmtUSD = (n) => formatDisplayMoney(n ?? 0, 'USD');
 
 const normalizeVendedor = (value) =>
   (value == null ? '' : String(value)).trim().toLowerCase();
@@ -67,9 +68,10 @@ const shareForSeller = (venta, seller) => {
 
 const getValorUsd = (venta) => Number(venta?.producto?.valor?.valorProducto ?? 0);
 const isAccessorySale = (venta) => String(venta?.producto?.tipo || '').trim().toLowerCase() === 'accesorios';
-const normalizeAccessorySale = (venta) => (
-  isAccessorySale(venta) ? { ...venta, ganancia: 0, porcentajeGanancia: 0 } : venta
-);
+const normalizeAccessorySale = (venta) => venta;
+const saleCost = (venta) => isAccessorySale(venta)
+  ? Number(venta?.costoVendido ?? (Number(venta?.precioVenta || 0) - Number(venta?.ganancia || 0)))
+  : Number(venta?.producto?.valor?.costoTotal ?? 0);
 const getEnvioSoles = (venta) =>
   Number(
     venta?.producto?.valor?.costoEnvioProrrateado ??
@@ -86,7 +88,10 @@ const getTipoCambioSplit = (venta, seller) => {
 
 const splitMetrics = (venta, seller) => {
   if (isAccessorySale(venta)) {
-    return { ingreso: Number(venta?.precioVenta ?? 0) / 2, costo: 0, ganancia: 0, pct: 0 };
+    const ingreso = Number(venta?.precioVenta ?? 0) / 2;
+    const costo = saleCost(venta) / 2;
+    const ganancia = ingreso - costo;
+    return { ingreso, costo, ganancia, pct: costo > 0 ? ganancia / costo * 100 : 0 };
   }
   const valorUsd = getValorUsd(venta);
   const envio = getEnvioSoles(venta);
@@ -147,13 +152,17 @@ function totales(ventasArr, seller) {
   let totalGanancia = 0;
   for (const v of ventasArr) {
     const share = Number(v?.__share ?? 1);
+    if (v.costoPendiente) {
+      totalVentasSoles += (Number(v.precioVenta || 0) - Number(v.precioDevuelto || 0)) * share;
+      continue;
+    }
     if (seller && v?.__split) {
       const m = splitMetrics(v, seller);
       totalVentasSoles += Number(m.ingreso || 0);
       totalGanancia += Number(m.ganancia || 0);
     } else {
-      totalVentasSoles += Number(v.precioVenta ?? 0) * share;
-      totalGanancia += Number(v.ganancia ?? 0) * share;
+      totalVentasSoles += (Number(v.precioVenta ?? 0) - Number(v.precioDevuelto || 0)) * share;
+      if (!v.costoPendiente) totalGanancia += Number(v.ganancia ?? 0) * share;
     }
   }
   return {
@@ -169,6 +178,7 @@ function totales(ventasArr, seller) {
 export default function Ganancias({ setVista }) {
   const [ventas, setVentas] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const currentYear = String(new Date().getFullYear());
 
@@ -188,6 +198,7 @@ export default function Ganancias({ setVista }) {
   // Carga TODAS las ventas
   const fetchVentas = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
+    setLoadError('');
     try {
       const data = await api.get('/ventas'); // idealmente con producto + valor
       const list = (Array.isArray(data) ? data : []).map(normalizeAccessorySale);
@@ -200,6 +211,7 @@ export default function Ganancias({ setVista }) {
       writeCache(list);
     } catch (e) {
       console.error('[Ganancias] Error cargando ventas:', e);
+      setLoadError('No se pudieron cargar las ventas. Intenta actualizar la página.');
       if (!silent) setVentas([]);
     } finally {
       if (!silent) setLoading(false);
@@ -303,31 +315,27 @@ export default function Ganancias({ setVista }) {
   const ventasSinVendedor = useMemo(() => ventasPorSeller.sin, [ventasPorSeller.sin]);
 
   return (
-    <div className="min-h-screen px-4 py-6 sm:px-6 lg:px-8 bg-macGray text-macDark">
-      {/* Header */}
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
-        <h2 className="text-3xl font-semibold">Ganancias</h2>
-        <button
-          onClick={() => setVista && setVista('home')}
-          className="w-full sm:w-auto px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100"
-        >
-          &larr; Volver
-        </button>
-      </header>
-
+    <div className="ux-page min-h-screen bg-macGray text-macDark">
+      <PageHeader title="Ganancias" eyebrow="Finanzas" description="Resultados comerciales y detalle de ventas por vendedor."
+        actions={<ActionButton onClick={() => setVista && setVista('home')}>← Inicio</ActionButton>} />
+      {loading && <LoadingState>Cargando ventas…</LoadingState>}
+      {loadError && <ErrorState>{loadError}</ErrorState>}
+      <div aria-busy={loading} hidden={loading || (!!loadError && !ventas.length)}>
+      <p className="mb-3 text-sm">Ganancia comercial antes de comisiones y gastos operativos. Las ventas con costo pendiente se excluyen de la ganancia: {ventas.filter((v) => v.costoPendiente).length} pendientes.</p>
       {/* Resumen Global */}
+      <p className="mb-2 text-sm">Período global: {mesGlobal || 'Todos los meses'} / {anioGlobal || 'Todos los años'} · Todos los vendedores. Cada cuadro de vendedor conserva sus propios filtros.</p>
       <div className="bg-white border rounded-2xl shadow-sm p-5 mb-6">
-        <div className="flex flex-col lg:flex-row items-start lg:items-end lg:justify-between gap-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full lg:w-auto">
+        <div className="ux-profit-summary">
+          <div className="ux-profit-stats">
             <Kpi titulo="Ventas totales" valor={totalesGlobales.cantidad} />
-            <Kpi titulo="Ganancia bruta total" valor={fmtSoles(totalesGlobales.brutaSoles)} />
-            <Kpi titulo="Ganancia neta total" valor={fmtSoles(totalesGlobales.netaSoles)} />
+            <Kpi titulo="Ingresos por ventas" valor={fmtSoles(totalesGlobales.brutaSoles)} />
+            <Kpi titulo="Ganancia comercial" valor={fmtSoles(totalesGlobales.netaSoles)} />
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+          <div className="ux-profit-filters">
             <div>
-              <label className="block text-sm text-gray-600 mb-1">Mes (global)</label>
-              <select
+              <label className="block text-sm text-gray-600 mb-1" htmlFor="profit-global-month">Mes (global)</label>
+              <select id="profit-global-month"
                 className="border rounded px-3 py-2 w-full sm:w-auto"
                 value={mesGlobal}
                 onChange={e => setMesGlobal(e.target.value)}
@@ -339,8 +347,8 @@ export default function Ganancias({ setVista }) {
               </select>
             </div>
             <div>
-              <label className="block text-sm text-gray-600 mb-1">Anio (global)</label>
-              <input
+              <label className="block text-sm text-gray-600 mb-1" htmlFor="profit-global-year">Año (global)</label>
+              <input id="profit-global-year"
                 type="number"
                 className="border rounded px-3 py-2 w-full sm:w-28"
                 placeholder="YYYY"
@@ -381,7 +389,7 @@ export default function Ganancias({ setVista }) {
           <div className="text-sm text-gray-500">Sin ventas pendientes de asignar.</div>
         ) : (
           <div className="overflow-x-auto border rounded max-h-[60vh]">
-            <table className="min-w-[1080px] w-full table-fixed text-left text-sm">
+            <table className="ux-profit-table w-full text-left text-sm">
               <thead className="bg-gray-100 sticky top-0">
                 <tr>
                   <th className="w-[220px] p-2">Nombre</th>
@@ -398,19 +406,19 @@ export default function Ganancias({ setVista }) {
                 {ventasSinVendedor.map((v) => {
                   const p = v.producto || {};
                   const val = p.valor || {};
-                  const costoTotal = Number(val.costoTotal ?? 0);
+                  const costoTotal = saleCost(v);
                   const precioVenta = Number(v.precioVenta ?? 0);
                   const ganancia = Number(v.ganancia ?? (precioVenta - costoTotal));
                   const pct = costoTotal > 0 ? (ganancia / costoTotal) * 100 : 0;
                   return (
                     <tr key={v.id} className="border-t">
                       <td className="p-2 align-top"><span style={nameCellStyle} title={nombreProducto(p)}>{nombreProducto(p) || '--'}</span></td>
-                      <td className="p-2">{fmtSoles(costoTotal)}</td>
+                      <td className="p-2 ux-money">{v.costoPendiente ? 'Costo pendiente' : fmtSoles(costoTotal)}</td>
                       <td className="p-2">
                       {val.fechaCompra ? formatDateLocal(val.fechaCompra) : '--'}
                       </td>
-                      <td className="p-2">{fmtSoles(precioVenta)}</td>
-                      <td className="p-2">{fmtSoles(ganancia)}</td>
+                      <td className="p-2 ux-money">{fmtSoles(precioVenta)}</td>
+                      <td className="p-2 ux-money">{v.costoPendiente ? 'Pendiente' : fmtSoles(ganancia)}</td>
                       <td className="p-2">{isFinite(pct) ? `${pct.toFixed(2)}%` : '--'}</td>
                       <td className="p-2">
                       {v.fechaVenta ? formatDateLocal(v.fechaVenta) : '--'}
@@ -428,7 +436,7 @@ export default function Ganancias({ setVista }) {
       </div>
 
       {/* Dos columnas: Gonzalo y Renato */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="ux-seller-grid">
         <ColVendedor
           titulo="Gonzalo"
           ventas={ventasGonzaloFiltradas}
@@ -453,7 +461,7 @@ export default function Ganancias({ setVista }) {
         />
       </div>
 
-      {loading && <p className="mt-4 text-gray-500">Cargando ventas...</p>}
+      </div>
 
       {/* Modal: Sunat */}
       {sellerSunat && (
@@ -471,12 +479,7 @@ export default function Ganancias({ setVista }) {
    Subcomponentes visuales
    ========================= */
 function Kpi({ titulo, valor }) {
-  return (
-    <div className="bg-white border rounded-xl p-4 shadow-sm">
-      <div className="text-sm text-gray-500">{titulo}</div>
-      <div className="text-2xl font-semibold">{valor}</div>
-    </div>
-  );
+  return <StatCard title={titulo} value={valor} />;
 }
 
 function ColVendedor({
@@ -492,89 +495,17 @@ function ColVendedor({
   const [editingVenta, setEditingVenta] = useState(null);
   const [deletingVentaId, setDeletingVentaId] = useState(null);
 
-  const handleDeleteVenta = async (venta) => {
-    if (!venta?.id || deletingVentaId) return;
-    const productName = nombreProducto(venta.producto || {}) || `venta #${venta.id}`;
-    const splitText = venta.__split ? '\n\nEsta venta es compartida y se eliminara completa para ambos vendedores.' : '';
-    if (!window.confirm(`Eliminar la venta de ${productName}?${splitText}`)) return;
+  const handleDeleteVenta = (venta) => { if (venta?.id) setDeletingVentaId(venta.id); };
 
-    setDeletingVentaId(venta.id);
-    try {
-      await api.del(`/ventas/${venta.id}`);
-      writeCache([]);
-      await reloadVentas({ silent: true });
-    } catch (e) {
-      console.error('[Ganancias] Error eliminando venta:', e);
-      alert('No se pudo eliminar la venta.');
-    } finally {
-      setDeletingVentaId(null);
-    }
-  };
-
-  return (
-    <div className="bg-white border rounded-2xl shadow-sm p-5">
-      {/* Cabecera vendedor + botones */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-        <div>
-          <div className="text-sm text-gray-500">Vendedor</div>
-          <div className="text-xl font-semibold">{titulo}</div>
-        </div>
-        <div className="flex w-full sm:w-auto gap-2">
-          <button
-            onClick={onSunat}
-            className="w-full sm:w-auto bg-amber-600 text-white px-4 py-2 rounded-xl hover:bg-amber-700"
-          >
-            Calcular Sunat
-          </button>
-        </div>
-      </div>
-
-      {/* KPIs por vendedor + Filtros */}
-      <div className="flex flex-col lg:flex-row items-start lg:items-end lg:justify-between gap-4 mb-3">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full lg:w-auto">
-          <Kpi titulo="Ventas" valor={totales.cantidad} />
-          <Kpi titulo="Bruta" valor={fmtSoles(totales.brutaSoles)} />
-          <Kpi titulo="Neta" valor={fmtSoles(totales.netaSoles)} />
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-          <div>
-            <label className="block text-sm text-gray-600 mb-1">Mes</label>
-            <select
-              className="border rounded px-3 py-2 w-full sm:w-auto"
-              value={mes}
-              onChange={e => setMes(e.target.value)}
-            >
-              <option value="">Todos</option>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
-                <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm text-gray-600 mb-1">Anio</label>
-            <input
-              type="number"
-              className="border rounded px-3 py-2 w-full sm:w-28"
-              placeholder="YYYY"
-              value={anio}
-              onChange={e => setAnio(e.target.value)}
-            />
-          </div>
-          <div className="flex items-end">
-            <button
-              className="w-full sm:w-auto px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
-              onClick={() => { setMes(''); setAnio(currentYear); }}
-            >
-              Limpiar
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Tabla de ventas del vendedor (sin Precio DEC) */}
-      <div className="overflow-x-auto max-h-[60vh] border rounded">
-        <table className="min-w-[1080px] w-full table-fixed text-left text-sm">
+  const accessorySales = ventas.filter(isAccessorySale);
+  const equipmentSales = ventas.filter((sale) => !isAccessorySale(sale));
+  const accessoryGroups = accessoryProfitRows(accessorySales, nombreProducto);
+  const accessoryTotals = accessoryGroups.length ? accessoryGroups.reduce((sum, group) => ({
+    units: sum.units + group.units, cost: sum.cost + group.cost, revenue: sum.revenue + group.revenue, profit: sum.profit + Number(group.profit || 0), pendingCount: sum.pendingCount + group.pendingCount,
+  }), { units: 0, cost: 0, revenue: 0, profit: 0, pendingCount: 0 }) : null;
+  const renderSalesTable = (rows) => (
+      <div className="ux-table-wrap max-h-[60vh]" tabIndex={0} role="region" aria-label="Ventas del vendedor; tabla desplazable">
+        <table className="ux-profit-table w-full text-left text-sm">
           <thead className="bg-gray-100 sticky top-0">
             <tr>
               <th className="w-[220px] p-2">Nombre</th>
@@ -588,18 +519,29 @@ function ColVendedor({
             </tr>
           </thead>
           <tbody>
-            {ventas.length === 0 ? (
+            {accessoryTotals && <tr className="border-t bg-slate-50 font-medium">
+              <td className="p-2">Accesorios ({accessoryTotals.units})</td>
+              <td className="p-2 ux-money">{accessoryTotals.pendingCount ? 'Costo pendiente' : fmtSoles(accessoryTotals.cost)}</td>
+              <td className="p-2">—</td>
+              <td className="p-2 ux-money">{fmtSoles(accessoryTotals.revenue)}</td>
+              <td className="p-2 ux-money">{accessoryTotals.pendingCount ? 'Pendiente' : fmtSoles(accessoryTotals.profit)}</td>
+              <td className="p-2">{!accessoryTotals.pendingCount && accessoryTotals.cost > 0 ? `${(accessoryTotals.profit / accessoryTotals.cost * 100).toFixed(2)}%` : '—'}</td>
+              <td className="p-2">{accessorySales.length === 1 ? formatDateLocal(accessorySales[0].fechaVenta) : 'Varias fechas'}</td>
+              {/* Todos los accesorios van en una sola fila; el detalle queda para editar o eliminar cada venta. */}
+              <td className="p-2 font-normal"><details><summary className="cursor-pointer">Ver ventas</summary>{accessoryGroups.flatMap((group) => group.sales.map((sale) => <div key={sale.id} className="mt-2 flex flex-wrap gap-2"><span>{group.name} · {formatDateLocal(sale.fechaVenta)} · {sale.cantidad || 1} ud.</span><button type="button" className="text-indigo-700" onClick={() => setEditingVenta(sale)}>Editar</button><button type="button" className="text-red-700" disabled={deletingVentaId === sale.id} onClick={() => handleDeleteVenta(sale)}>Devolver / corregir</button></div>))}</details></td>
+            </tr>}
+            {rows.length === 0 && accessoryGroups.length === 0 ? (
               <tr>
                 <td className="p-3 text-sm text-gray-500" colSpan={8}>
                   Sin ventas en este rango.
                 </td>
               </tr>
             ) : (
-              ventas.map(v => {
+              rows.map(v => {
                 const p = v.producto || {};
                 const val = p.valor || {};
                 const share = Number(v.__share ?? 1);
-                const costoTotal = Number(val.costoTotal ?? 0);
+                const costoTotal = saleCost(v);
                 const precioVenta = Number(v.precioVenta ?? 0);
                 const gananciaBase = Number(v.ganancia ?? (precioVenta - costoTotal));
                 const split = v.__split;
@@ -623,12 +565,12 @@ function ColVendedor({
                         )}
                       </div>
                     </td>
-                    <td className="p-2">{fmtSoles(costoMostrar)}</td>
+                    <td className="p-2 ux-money">{v.costoPendiente ? 'Pendiente' : fmtSoles(costoMostrar)}</td>
                     <td className="p-2">
                       {val.fechaCompra ? formatDateLocal(val.fechaCompra) : '--'}
                     </td>
-                    <td className="p-2">{fmtSoles(precioMostrar)}</td>
-                    <td className="p-2">{fmtSoles(gananciaMostrar)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(precioMostrar)}</td>
+                    <td className="p-2 ux-money">{v.costoPendiente ? 'Costo pendiente' : fmtSoles(gananciaMostrar)}</td>
                     <td className="p-2">{isFinite(pctMostrar) ? `${pctMostrar.toFixed(2)}%` : '--'}</td>
                     <td className="p-2">
                       {v.fechaVenta ? formatDateLocal(v.fechaVenta) : '--'}
@@ -646,7 +588,7 @@ function ColVendedor({
                         className="px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 text-xs"
                         onClick={() => handleDeleteVenta(v)}
                         disabled={deletingVentaId === v.id}
-                        title="Eliminar venta"
+                        title="Devolver o corregir venta"
                       >
                         {deletingVentaId === v.id ? 'Eliminando...' : 'Eliminar'}
                       </button>
@@ -656,10 +598,77 @@ function ColVendedor({
                 );
               })
             )}
+
           </tbody>
         </table>
       </div>
+  );
 
+  return (
+    <div className="bg-white border rounded-2xl shadow-sm p-5">
+      {/* Cabecera vendedor + botones */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+        <div>
+          <div className="text-sm text-gray-500">Vendedor</div>
+          <div className="text-xl font-semibold">{titulo}</div>
+        </div>
+        <div className="flex w-full sm:w-auto gap-2">
+          <button
+            onClick={onSunat}
+            className="w-full sm:w-auto bg-amber-600 text-white px-4 py-2 rounded-xl hover:bg-amber-700"
+          >
+            Calcular Sunat
+          </button>
+        </div>
+      </div>
+
+      {/* KPIs por vendedor + Filtros */}
+      <div className="ux-profit-summary mb-4">
+        <div className="ux-profit-stats">
+          <Kpi titulo="Ventas" valor={totales.cantidad} />
+          <Kpi titulo="Ingresos por ventas" valor={fmtSoles(totales.brutaSoles)} />
+          <Kpi titulo="Ganancia comercial" valor={fmtSoles(totales.netaSoles)} />
+        </div>
+
+        <div className="ux-profit-filters">
+          <div>
+            <label className="block text-sm text-gray-600 mb-1" htmlFor={`profit-${sellerSlug}-month`}>Mes</label>
+            <select id={`profit-${sellerSlug}-month`}
+              className="border rounded px-3 py-2 w-full sm:w-auto"
+              value={mes}
+              onChange={e => setMes(e.target.value)}
+            >
+              <option value="">Todos</option>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
+                <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1" htmlFor={`profit-${sellerSlug}-year`}>Año</label>
+            <input id={`profit-${sellerSlug}-year`}
+              type="number"
+              className="border rounded px-3 py-2 w-full sm:w-28"
+              placeholder="YYYY"
+              value={anio}
+              onChange={e => setAnio(e.target.value)}
+            />
+          </div>
+          <div className="flex items-end">
+            <button
+              className="w-full sm:w-auto px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
+              onClick={() => { setMes(''); setAnio(currentYear); }}
+            >
+              Limpiar
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabla de ventas del vendedor (sin Precio DEC) */}
+      {renderSalesTable(equipmentSales)}
+
+      {deletingVentaId && <VentaResolutionModal ventaId={deletingVentaId} onClose={() => setDeletingVentaId(null)} onSaved={() => { setDeletingVentaId(null); writeCache([]); reloadVentas({ silent: true }); }} />}
       {editingVenta && (
         <ModalVenta
           producto={editingVenta?.producto || null}
@@ -707,7 +716,7 @@ function ModalSunat({ seller, onClose, ventas }) {
   );
 
   const filas = useMemo(() => {
-    return lista.map(v => {
+    const detalle = lista.map(v => {
       const p = v.producto || {};
       const val = p.valor || {};
       const share = Number(v.__share ?? 1);
@@ -722,8 +731,8 @@ function ModalSunat({ seller, onClose, ventas }) {
       const ventaSoles = ventaSolesBase * share;
       const decSoles = valorDecUSD * tipoCambio;
       const accessorySale = isAccessorySale(v);
-      const costoBase = accessorySale ? 0 : decSoles + envioSoles;
-      const gananciaNeta = accessorySale ? 0 : ventaSoles - costoBase;
+      const costoBase = accessorySale ? saleCost(v) * share : decSoles + envioSoles;
+      const gananciaNeta = ventaSoles - costoBase;
 
       return {
         id: v.id,
@@ -736,8 +745,28 @@ function ModalSunat({ seller, onClose, ventas }) {
         gananciaNeta,
         fechaVenta: v.fechaVenta || v.createdAt || null,
         split: share !== 1,
+        accessory: accessorySale,
+        units: Math.max(1, Number(v.cantidad || 1)),
       };
     });
+    // Los accesorios se muestran juntos en una sola fila con su cantidad total.
+    const accesorios = detalle.filter((f) => f.accessory);
+    if (!accesorios.length) return detalle;
+    const sum = (key) => accesorios.reduce((total, f) => total + f[key], 0);
+    const fechas = new Set(accesorios.map((f) => String(f.fechaVenta || '').slice(0, 10)));
+    return [{
+      id: 'accesorios',
+      nombre: `Accesorios (${sum('units')})`,
+      valorDecUSD: sum('valorDecUSD'),
+      decSoles: sum('decSoles'),
+      envioSoles: sum('envioSoles'),
+      ventaSoles: sum('ventaSoles'),
+      costoBase: sum('costoBase'),
+      gananciaNeta: sum('gananciaNeta'),
+      fechaVenta: fechas.size === 1 ? accesorios[0].fechaVenta : null,
+      variasFechas: fechas.size > 1,
+      split: false,
+    }, ...detalle.filter((f) => !f.accessory)];
   }, [lista, sellerSlug]);
 
   const kpis = useMemo(() => {
@@ -826,8 +855,8 @@ function ModalSunat({ seller, onClose, ventas }) {
         {filas.length === 0 ? (
           <p>No hay ventas en ese rango.</p>
         ) : (
-          <div className="overflow-x-auto max-h-[60vh] border rounded">
-            <table className="min-w-[1080px] w-full table-fixed text-left text-sm">
+          <div className="ux-table-wrap max-h-[60vh]" tabIndex={0} role="region" aria-label="Ventas del vendedor; tabla desplazable">
+            <table className="ux-profit-table w-full text-left text-sm">
               <thead className="bg-gray-100 sticky top-0">
                 <tr>
                   <th className="w-[220px] p-2">Nombre</th>
@@ -853,14 +882,14 @@ function ModalSunat({ seller, onClose, ventas }) {
                         )}
                       </div>
                     </td>
-                    <td className="p-2">{fmtUSD(f.valorDecUSD)}</td>
-                    <td className="p-2">{fmtSoles(f.decSoles)}</td>
-                    <td className="p-2">{fmtSoles(f.envioSoles)}</td>
-                    <td className="p-2">{fmtSoles(f.ventaSoles)}</td>
-                    <td className="p-2">{fmtSoles(f.costoBase)}</td>
-                    <td className="p-2">{fmtSoles(f.gananciaNeta)}</td>
+                    <td className="p-2 ux-money">{fmtUSD(f.valorDecUSD)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(f.decSoles)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(f.envioSoles)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(f.ventaSoles)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(f.costoBase)}</td>
+                    <td className="p-2 ux-money">{fmtSoles(f.gananciaNeta)}</td>
                     <td className="p-2">
-                      {f.fechaVenta ? formatDateLocal(f.fechaVenta) : '--'}
+                      {f.variasFechas ? 'Varias fechas' : f.fechaVenta ? formatDateLocal(f.fechaVenta) : '--'}
                     </td>
                   </tr>
                 ))}

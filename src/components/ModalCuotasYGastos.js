@@ -221,8 +221,8 @@ export default function ModalCuotasYGastos({ onClose, rows = [], userId, onChang
         moneda: g.moneda,
         monto: Number(g.monto),
         nextDate: next,
-        tarjeta: g.metodoPago === 'credito' ? (g.tarjeta !== '-' ? g.tarjeta : null) : undefined,
-        tarjetaPago: g.metodoPago === 'debito' ? (g.tarjeta !== '-' ? g.tarjeta : (g.lastTarjetaPago || null)) : undefined,
+        tarjeta: g.lastTarjeta || (g.tarjeta !== '-' ? g.tarjeta : null),
+        anchorDay: Number(baseDate.slice(8, 10)),
       };
       const res = await fetch(`${API_URL}/schedules`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error(await res.text());

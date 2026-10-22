@@ -17,6 +17,8 @@ export const addMonthsToDateInput = (value, months) => {
   const date = parseDateInputValue(value);
   if (!date) return '';
   const day = date.getDate();
-  const result = new Date(date.getFullYear(), date.getMonth() + months, day);
+  const result = new Date(date.getFullYear(), date.getMonth() + months, 1);
+  const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  result.setDate(Math.min(day, lastDay));
   return localDateInputValue(result);
 };

@@ -11,6 +11,7 @@ const statusLabel = (status) => ({
 const DEBIT_CARD_LABEL = { bcp: 'BCP', interbank: 'Interbank', bbva: 'BBVA' };
 const PAYMENT_LABELS = { direct: 'Pago directo', card: 'Tarjeta de crédito', debt: 'x500', cash: 'Efectivo' };
 const PAYMENT_TYPES = Object.keys(PAYMENT_LABELS);
+const POLL_MS = 20000;
 const toCents = (value) => Math.round(Number(value || 0) * 100);
 const selectedParts = (values) => PAYMENT_TYPES.filter((type) => String(values?.[type] ?? '') !== '')
   .map((type) => ({ type, amount: Number(values[type]) }));
@@ -130,10 +131,16 @@ export default function CatalogSalesPending() {
 
   useEffect(() => {
     refresh();
-    const timer = window.setInterval(refresh, 5000);
+    // Solo consulta con la pestaña visible; al volver a ella se actualiza de inmediato.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refresh();
+    }, POLL_MS);
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
     const rateTimers = rateTimersRef.current;
     return () => {
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
       rateTimers.forEach((pending) => window.clearTimeout(pending));
     };
   }, [refresh]);

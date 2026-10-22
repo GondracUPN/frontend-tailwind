@@ -4,7 +4,6 @@ import './chartSetup';
 import ChartShell from './ChartShell';
 import useProfitData from './useProfitData';
 import { formatCurrency, formatPercent } from './format';
-import { mockRows } from './profitMocks';
 import { getProfitSeries } from '../../services/analytics';
 
 const GROUPS = [
@@ -20,7 +19,6 @@ const MONTHS = Array.from({ length: 12 }, (_, idx) => {
 
 export default function ProfitTimeSeries({ from, to, filters }) {
   const [groupBy, setGroupBy] = useState('month');
-  const [showMock, setShowMock] = useState(false);
   const [availableYears, setAvailableYears] = useState([]);
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
@@ -96,10 +94,7 @@ export default function ProfitTimeSeries({ from, to, filters }) {
     groupBy,
   });
   const rows = useMemo(() => (Array.isArray(data?.rows) ? data.rows : []), [data]);
-  const displayRows = useMemo(
-    () => (rows.length ? rows : (showMock ? mockRows(groupBy) : [])),
-    [rows, showMock, groupBy],
-  );
+  const displayRows = rows;
   const labels = useMemo(() => displayRows.map((r) => r.period), [displayRows]);
   const profits = useMemo(() => displayRows.map((r) => r.profit), [displayRows]);
 
@@ -163,15 +158,13 @@ export default function ProfitTimeSeries({ from, to, filters }) {
       error={error}
       empty={!loading && !error && displayRows.length === 0}
       onRetry={retry}
-      onShowMock={() => setShowMock(true)}
-      showMock={showMock}
     >
       <div className="flex flex-wrap items-center gap-2 mb-2 text-sm">
         {GROUPS.map((g) => (
           <button
             key={g.id}
             className={`px-2 py-1 rounded border ${groupBy === g.id ? 'bg-gray-900 text-white' : 'bg-white hover:bg-gray-50'}`}
-            onClick={() => { setShowMock(false); setGroupBy(g.id); }}
+            onClick={() => setGroupBy(g.id)}
           >
             {g.label}
           </button>

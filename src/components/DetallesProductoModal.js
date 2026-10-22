@@ -10,6 +10,9 @@ import FormProductoOtro from './formParts/FormProductoOtro';
 import FormProductoAccessory from './formParts/FormProductoAccessory';
 import api from '../api';
 import IncludedAccessories, { normalizeIncludedAccessories } from './IncludedAccessories';
+import PagosVenta from './finanzas/PagosVenta';
+import ReembolsosProducto from './finanzas/ReembolsosProducto';
+import { sesionFinanciera } from '../services/finanzas';
 
 const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian', 'Williams'];
 const OTHER_PEDIDO_SELLER = '__otro_nombre_pedido__';
@@ -321,6 +324,21 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                 )}
               </section>
             </div>
+
+            {sesionFinanciera().esAdmin && (
+              <div className="mb-6 space-y-3">
+                {venta?.id && (
+                  <details open className="rounded-xl border border-slate-200 p-3">
+                    <summary className="cursor-pointer text-sm font-semibold text-slate-900">Pagos y cobros de la venta</summary>
+                    <div className="mt-3"><PagosVenta ventaId={venta.id} compact /></div>
+                  </details>
+                )}
+                <details className="rounded-xl border border-slate-200 p-3" open={Boolean(producto.cierreMotivo)}>
+                  <summary className="cursor-pointer text-sm font-semibold text-slate-900">Reclamaciones y reembolsos</summary>
+                  <div className="mt-3"><ReembolsosProducto producto={producto} /></div>
+                </details>
+              </div>
+            )}
 
             <div className="flex justify-end space-x-2">
               <button

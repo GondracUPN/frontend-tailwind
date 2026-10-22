@@ -66,6 +66,7 @@ export default function GastosIndex({ setVista }) {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    window.dispatchEvent(new Event('auth:changed'));
     setToken(null);
     setUser(null);
     setMode(null);

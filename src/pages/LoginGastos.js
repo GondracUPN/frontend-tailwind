@@ -23,7 +23,7 @@ export default function LoginGastos({ onLoggedIn, onBack }) {
       if (!token || !user) throw new Error('Respuesta inválida');
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
-      onLoggedIn?.(user, token);
+      await onLoggedIn?.(user, token);
     } catch (err) {
       console.error('[login] error:', err);
       setError('Usuario o contraseña incorrectos.');

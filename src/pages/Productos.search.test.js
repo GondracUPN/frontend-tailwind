@@ -5,6 +5,7 @@ import {
   isEshopexAtBranch,
   isLegacySimpleAccessory,
   onlyProducts,
+  purchaseYear,
 } from './Productos';
 
 const products = [
@@ -75,4 +76,10 @@ test('permite pagar con el estado guardado aunque la carga temporal no tenga el 
 
 test('no permite pagar sin una cuenta asociada al casillero', () => {
   expect(canPayEshopexPickup({ status: 'EN SUCURSAL', account: '' })).toBe(false);
+});
+
+test('obtiene el año de compra sin depender de la zona horaria', () => {
+  expect(purchaseYear({ valor: { fechaCompra: '2026-01-01' } })).toBe('2026');
+  expect(purchaseYear({ valor: { fecha_compra: '2025-12-31T23:00:00Z' } })).toBe('2025');
+  expect(purchaseYear({ valor: {} })).toBeNull();
 });

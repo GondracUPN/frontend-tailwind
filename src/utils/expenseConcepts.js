@@ -29,6 +29,7 @@ export const buildExpenseConceptCategoryMap = (items) => {
 export const getExpenseConceptCategory = (concept, categories = {}) => {
   const n = normalizeExpenseConcept(concept);
   if (!n) return 'life';
+  if (n === 'devolucion_venta') return 'other';
   if (categories[n]) return normalizeExpenseCategory(categories[n]);
   if (n === 'ingreso' || n === 'cashback') return 'income';
   if (n === 'inversion' || n === 'bolsa') return 'investment';

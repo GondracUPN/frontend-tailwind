@@ -20,7 +20,7 @@ test('registra pagos x500 con fecha y mantiene vacíos los campos del nuevo pago
   fireEvent.change(screen.getByLabelText('Tipo de cambio (opcional)'), { target: { value: '3.8' } });
   fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
   await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/31', {
-    paymentCount: 3, paidAt: '2026-10-05', exchangeRate: 3.8,
+    paymentCount: 3, paidAt: '2026-10-05', bank: 'bcp', exchangeRate: 3.8,
   }));
   expect(onSaved).toHaveBeenCalled();
 });
@@ -37,7 +37,7 @@ test('en deuda normal solo agrega el importe nuevo hasta el saldo máximo', asyn
   expect(api.patch).not.toHaveBeenCalled();
   fireEvent.change(amount, { target: { value: '1700' } });
   fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
-  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/32', { paymentAmount: 1700, paidAt: '2026-10-05' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/32', { paymentAmount: 1700, paidAt: '2026-10-05', bank: 'bcp' }));
 });
 
 test('muestra el último monto x500 y permite corregir el cambio una vez pagado', async () => {
@@ -46,7 +46,7 @@ test('muestra el último monto x500 y permite corregir el cambio una vez pagado'
   fireEvent.change(screen.getByLabelText('Último monto recibido'), { target: { value: '200' } });
   fireEvent.change(screen.getByLabelText('Fecha del pago'), { target: { value: '2026-10-05' } });
   fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
-  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/33', { paymentAmount: 200, paidAt: '2026-10-05' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/33', { paymentAmount: 200, paidAt: '2026-10-05', bank: 'bcp' }));
 
   unmount();
   render(<ModalCobroVenta gasto={{ id: 34, saleId: 10, salePaymentType: 'card', monto: '1200', saleReceivedAmount: '1200.00', saleExchangeRate: '3.7000' }} onClose={jest.fn()} onSaved={jest.fn()} />);
@@ -54,4 +54,17 @@ test('muestra el último monto x500 y permite corregir el cambio una vez pagado'
   fireEvent.change(screen.getByLabelText('Tipo de cambio (opcional)'), { target: { value: '3.8' } });
   fireEvent.click(screen.getByRole('button', { name: 'Guardar cambio' }));
   await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/34', { exchangeRate: 3.8 }));
+});
+
+test('registra la cuenta de débito donde entró el cobro de la tarjeta', async () => {
+  render(<ModalCobroVenta gasto={{ id: 2401, saleId: 404, saleSku: 'MS-459', salePaymentType: 'card', monto: '485.00', saleReceivedAmount: '0.00', tarjeta: 'bcp' }} onClose={jest.fn()} onSaved={jest.fn()} />);
+  expect(screen.getByLabelText('Cuenta de débito')).toHaveValue('bcp');
+  fireEvent.change(screen.getByLabelText('Nuevo pago recibido'), { target: { value: '485' } });
+  fireEvent.change(screen.getByLabelText('Fecha del pago'), { target: { value: '2026-10-20' } });
+  fireEvent.change(screen.getByLabelText('Cuenta de débito'), { target: { value: 'interbank' } });
+  fireEvent.change(screen.getByLabelText('Tipo de cambio (opcional)'), { target: { value: '3.5' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/2401', {
+    paymentAmount: 485, paidAt: '2026-10-20', bank: 'interbank', exchangeRate: 3.5,
+  }));
 });

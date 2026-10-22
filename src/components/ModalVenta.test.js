@@ -19,7 +19,10 @@ test('confirma la venta si se pierde la respuesta del guardado', async () => {
     fechaVenta: '2026-07-20',
     precioVenta: 1500,
   };
-  api.post.mockRejectedValueOnce(new Error('network error'));
+  api.post.mockImplementationOnce(async (_, body) => {
+    saved.operacionKey = body.operacionKey;
+    throw new Error('network error');
+  });
   api.get.mockResolvedValueOnce([saved]);
   const onSaved = jest.fn();
   const onClose = jest.fn();
@@ -42,7 +45,7 @@ test('confirma la venta si se pierde la respuesta del guardado', async () => {
   expect(onClose).toHaveBeenCalled();
 });
 
-test('sincroniza fecha y monto del ingreso cuando se edita la venta', async () => {
+test('delega la sincronización del ingreso al endpoint de edición de venta', async () => {
   localStorage.setItem('user', JSON.stringify({ id: 1, username: 'gonzalo', role: 'admin' }));
   localStorage.setItem('token', 'gastos-token');
   const venta = {
@@ -86,11 +89,11 @@ test('sincroniza fecha y monto del ingreso cuando se edita la venta', async () =
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1550' } });
   fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
 
-  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/88', expect.objectContaining({
-    monto: 1550,
-    fecha: '2026-07-21',
-    notas: '__SALE_INCOME__:7',
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/ventas/15', expect.objectContaining({
+    precioVenta: 1550,
+    fechaVenta: '2026-07-21',
   })));
+  expect(api.patch.mock.calls.some(([path]) => path.startsWith('/gastos'))).toBe(false);
 });
 
 test('guarda la venta sin exigir una sesión de Gastos en el navegador', async () => {
@@ -124,6 +127,21 @@ test('guarda la venta sin exigir una sesión de Gastos en el navegador', async (
     incomeBank: 'bcp',
   }));
   expect(api.patch).not.toHaveBeenCalled();
+});
+
+test('equipo comprado en PEN no exige tipo de cambio y editar no envía banco', async () => {
+  api.get.mockResolvedValue({ incomeBank: 'interbank' });
+  const venta = { id: 15, productoId: 7, tipoCambio: 1, vendedor: 'Gonzalo', fechaVenta: '2026-10-20', precioVenta: 1500 };
+  api.patch.mockResolvedValue(venta);
+  const onSaved = jest.fn();
+  render(<ModalVenta producto={{ id: 7, vendedor: 'Gonzalo', valor: { valorProducto: 1000, monedaCompra: 'PEN' } }} venta={venta} onSaved={onSaved} onClose={jest.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
+  expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  const payload = api.patch.mock.calls.find(([path]) => path === '/ventas/15')[1];
+  expect(payload.incomeBank).toBeUndefined();
+  expect(payload.tipoCambio).toBe(1);
 });
 
 test('prioriza Gonzalo con cliente del producto sobre el vendedor genérico de una venta antigua', async () => {
@@ -206,4 +224,61 @@ test('para accesorios recibe el precio total, calcula el unitario y muestra el r
     precioVenta: 150,
     tipoCambio: 3.75,
   })));
+});
+
+test('permite escoger el lote inicial de un accesorio agrupado', async () => {
+  api.get.mockResolvedValueOnce({ ventas: [] });
+  api.post.mockResolvedValueOnce({ id: 91, precioVenta: 80, cantidad: 1, ganancia: 50 });
+  const lots = [
+    { id: 11, stockInicial: 2, stockActual: 2, valor: { fechaCompra: '2026-06-01', costoTotal: 40 } },
+    { id: 22, stockInicial: 2, stockActual: 2, valor: { fechaCompra: '2026-07-01', costoTotal: 60 } },
+  ];
+  render(<ModalVenta producto={{ id: 11, tipo: 'accesorios', vendedor: 'Gonzalo', stockActual: 4, __lots: lots }} onSaved={jest.fn()} onClose={jest.fn()} />);
+
+  fireEvent.change(screen.getByLabelText('Lote del que se vende primero'), { target: { value: '22' } });
+  fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.7' } });
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-08-14' } });
+  fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '80' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({ loteInicialId: 22 })));
+});
+
+ test.each(['Gonzalo', 'Renato', 'ambos'])('vende accesorios en soles de %s sin solicitar cambio', async (vendedor) => {
+  api.get.mockResolvedValue({ ventas: [] });
+  api.post.mockResolvedValue({ id: 92, vendedor });
+  render(<ModalVenta producto={{ id: 51, tipo: 'accesorios', vendedor, stockInicial: 5, stockActual: 5, valor: { monedaCompra: 'PEN', costoTotal: 50 } }} onSaved={jest.fn()} onClose={jest.fn()} />);
+  expect(screen.queryByText('Tipo de cambio', { exact: true })).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Comprado por')).toHaveValue(vendedor);
+  fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '30' } });
+  const date = document.querySelector('input[type="date"]');
+  fireEvent.change(date, { target: { value: '2026-10-19' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({ tipoCambio: 1, vendedor, precioVenta: 30 })));
+});
+
+test('solicita cambio si la cantidad cruza de un lote en soles a uno en dólares', async () => {
+  api.get.mockResolvedValue({ ventas: [] });
+  const lots = [
+    { id: 61, stockActual: 2, valor: { monedaCompra: 'PEN', fechaCompra: '2026-01-01' } },
+    { id: 62, stockActual: 5, valor: { monedaCompra: 'USD', fechaCompra: '2026-02-01' } },
+  ];
+  render(<ModalVenta producto={{ id: 61, tipo: 'accesorios', vendedor: 'Renato', stockActual: 7, __lots: lots }} onClose={jest.fn()} />);
+  expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Cantidad'), { target: { value: '3' } });
+  expect(screen.getByLabelText('Tipo de cambio')).toBeVisible();
+  fireEvent.change(screen.getByLabelText('Cantidad'), { target: { value: '1' } });
+  expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Lote del que se vende primero'), { target: { value: '62' } });
+  expect(screen.getByLabelText('Tipo de cambio')).toBeVisible();
+});
+
+test('edita una venta de accesorio en soles aunque el lote ya esté agotado', async () => {
+  api.patch.mockResolvedValue({ id: 95, vendedor: 'Renato', precioVenta: 35 });
+  render(<ModalVenta producto={{ id: 70, tipo: 'accesorios', vendedor: 'Renato', stockActual: 0, valor: { monedaCompra: 'PEN' } }} venta={{ id: 95, vendedor: 'Renato', cantidad: 1, tipoCambio: 1, fechaVenta: '2026-10-19', precioVenta: 30, ganancia: 10 }} onSaved={jest.fn()} onClose={jest.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Editar', exact: true }));
+  expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '35' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/ventas/95', expect.objectContaining({ tipoCambio: 1, precioVenta: 35 })));
 });

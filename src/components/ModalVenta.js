@@ -1,11 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import api from '../api';
-import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
-import { notifyGastosChanged } from '../utils/gastosSync';
 import { notifySalesChanged } from '../utils/salesSync';
+import { accessoryLotDate, consumedAccessoryLots } from '../utils/accessorySales';
+import { nuevaClave } from '../services/finanzas';
 
 const normalizeSeller = (value) =>
   value == null ? '' : String(value).trim().toLowerCase();
+
+const saleExpenseOwner = (seller) => {
+  const value = normalizeSeller(seller);
+  return value === 'renato' || value === 'gonzalo' || value.startsWith('gonzalo (');
+};
 
 const formatSeller = (value) => {
   const slug = normalizeSeller(value);
@@ -42,22 +47,6 @@ const resolvedSaleSeller = (saleSeller, productSeller, presetSeller) => {
   return productIsPedido && genericSale ? product : (sale || product);
 };
 
-const saleExpenseOwner = (seller) => {
-  const value = String(seller || '').trim().toLowerCase();
-  if (value === 'renato') return 'renato';
-  if (value === 'gonzalo' || value.startsWith('gonzalo (')) return 'gonzalo';
-  return '';
-};
-
-const saleIncomeReference = (productId, saleId, accessory = false) =>
-  accessory && saleId ? `__SALE_INCOME__:${productId}:${saleId}` : `__SALE_INCOME__:${productId}`;
-const isSaleIncomeForProduct = (row, productId) => {
-  const notes = String(row?.notas || '').trim();
-  return String(row?.concepto || '').trim().toLowerCase() === 'ingreso'
-    && String(row?.metodoPago || '').trim().toLowerCase() === 'debito'
-    && (notes === saleIncomeReference(productId) || notes === String(productId));
-};
-
 export default function ModalVenta({
   producto,
   venta,
@@ -69,6 +58,7 @@ export default function ModalVenta({
 }) {
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const operation = useRef(null);
   const [incomeBank, setIncomeBank] = useState('bcp');
   const [accessorySummary, setAccessorySummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -82,11 +72,12 @@ export default function ModalVenta({
     pedidoCliente: '',
     cantidad: '1',
     modalidad: 'unidad',
+    loteInicialId: '',
   });
 
   const effectiveSeller = form.vendedor || resolvedSaleSeller(venta?.vendedor, producto?.vendedor, presetVendedor);
   const sellerSlug = normalizeSeller(effectiveSeller);
-  const sellerLabel = formatSeller(effectiveSeller) || 'Sin vendedor asignado';
+  const sellerLabel = formatSeller(effectiveSeller) || 'Sin asignar';
   const isReadOnly = Boolean(venta) && !editMode;
   const isSplitVenta = Boolean(
     venta &&
@@ -98,6 +89,20 @@ export default function ModalVenta({
   const splitModeActive = venta ? isSplitVenta : isSplitCreate;
   const isAccessory = String(producto?.tipo || '').toLowerCase() === 'accesorios';
   const accessoryCreate = !venta && isAccessory;
+  const accessoryLots = (Array.isArray(producto?.__lots) && producto.__lots.length ? producto.__lots : [producto])
+    .filter((lot) => lot?.id && Number(lot.stockActual || 0) > 0)
+    .sort((a, b) => accessoryLotDate(a) - accessoryLotDate(b) || Number(a.id) - Number(b.id));
+  const selectedLot = accessoryLots.find((lot) => String(lot.id) === form.loteInicialId) || accessoryLots[0];
+  const consumedLots = consumedAccessoryLots(accessoryLots, selectedLot?.id, form.cantidad);
+  // Old lots without a currency were purchased in USD.
+  const requiresExchangeRate = !isAccessory ? String(producto.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN' : (venta
+    ? (venta.distribucionStock?.length
+      ? venta.distribucionStock.some((part) => {
+        const lot = (producto.__lots || [producto]).find((item) => Number(item.id) === Number(part.productoId));
+        return String(lot?.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN';
+      })
+      : String(producto.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN')
+    : consumedLots.some(({ lot }) => String(lot.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN'));
 
   useEffect(() => {
     const initialSeller = resolvedSaleSeller(venta?.vendedor, producto?.vendedor, presetVendedor);
@@ -114,6 +119,7 @@ export default function ModalVenta({
         pedidoCliente: pedidoClientFromSeller(initialSeller),
         cantidad: String(venta.cantidad || 1),
         modalidad: venta.modalidad || 'unidad',
+        loteInicialId: '',
       });
       return;
     }
@@ -128,12 +134,22 @@ export default function ModalVenta({
       pedidoCliente: pedidoClientFromSeller(initialSeller),
       cantidad: '1',
       modalidad: 'unidad',
+      loteInicialId: '',
     });
   }, [venta, producto?.id, producto?.vendedor, presetVendedor, allowVendedorOnCreate]);
 
   useEffect(() => {
     setEditMode(false);
   }, [producto?.id, venta?.id, venta]);
+
+  useEffect(() => {
+    if (!venta?.id) return undefined;
+    let active = true;
+    Promise.resolve(api.get(`/ventas/${venta.id}/cobros`)).then((data) => {
+      if (active && data?.incomeBank) setIncomeBank(data.incomeBank);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [venta?.id]);
 
   useEffect(() => {
     if (!accessoryCreate || !producto?.id) {
@@ -169,7 +185,20 @@ export default function ModalVenta({
   };
 
   const validate = () => {
-    if (String(producto?.tipo).toLowerCase() === 'accesorios') {
+    if (!Number.isFinite(Number(form.precioVenta)) || Number(form.precioVenta) <= 0 || Number(form.precioVenta) > 99999999.99 || Math.abs(Number(form.precioVenta) * 100 - Math.round(Number(form.precioVenta) * 100)) > 0.000001) {
+      alert('Indica un precio mayor que cero y con un máximo de dos decimales.');
+      return false;
+    }
+    const exchangeRates = splitModeActive ? [form.tipoCambioGonzalo, form.tipoCambioRenato] : [form.tipoCambio];
+    if (requiresExchangeRate && exchangeRates.some((value) => Number(value) > 1000 || Math.abs(Number(value) * 10000 - Math.round(Number(value) * 10000)) > 0.000001)) {
+      alert('El tipo de cambio admite hasta cuatro decimales y un máximo de 1000.');
+      return false;
+    }
+    if (isAccessory && !['gonzalo', 'renato', 'ambos'].includes(sellerSlug)) {
+      alert('Selecciona quién compró el accesorio para asignar su ganancia.');
+      return false;
+    }
+    if (accessoryCreate) {
       const quantity = Number(form.cantidad);
       if (!Number.isInteger(quantity) || quantity < 1 || quantity > Number(producto.stockActual || 0)) {
         alert(`Ingresa una cantidad entre 1 y ${producto.stockActual || 0}.`);
@@ -180,59 +209,19 @@ export default function ModalVenta({
       if (
         !form.fechaVenta ||
         !form.precioVenta ||
-        !form.tipoCambioGonzalo ||
-        !form.tipoCambioRenato
+        (requiresExchangeRate && (!Number.isFinite(Number(form.tipoCambioGonzalo)) || Number(form.tipoCambioGonzalo) <= 0 ||
+          !Number.isFinite(Number(form.tipoCambioRenato)) || Number(form.tipoCambioRenato) <= 0))
       ) {
         alert('Completa Fecha de venta, Precio de venta y tipo de cambio para ambos.');
         return false;
       }
       return true;
     }
-    if (!form.tipoCambio || !form.fechaVenta || !form.precioVenta) {
+    if ((requiresExchangeRate && (!Number.isFinite(Number(form.tipoCambio)) || Number(form.tipoCambio) <= 0)) || !form.fechaVenta || !form.precioVenta) {
       alert('Completa Tipo de cambio, Fecha de venta y Precio de venta.');
       return false;
     }
     return true;
-  };
-
-  const resolveSaleUser = async (owner) => {
-    if (!owner) return null;
-    let currentUser = null;
-    try {
-      currentUser = JSON.parse(localStorage.getItem('user') || 'null');
-    } catch {}
-    const normalizeAuthUser = (candidate) => {
-      if (!candidate) return null;
-      const id = candidate.id ?? candidate.userId ?? candidate.sub;
-      return id ? { ...candidate, id } : candidate;
-    };
-    currentUser = normalizeAuthUser(currentUser);
-
-    if (!currentUser?.id || !currentUser?.role) {
-      try {
-        currentUser = normalizeAuthUser(await api.get('/auth/me'));
-      } catch {}
-    }
-
-    let users = [];
-    if (currentUser?.role === 'admin') {
-      const response = await api.get('/auth/users');
-      users = Array.isArray(response) ? response.map(normalizeAuthUser) : [];
-    } else if (currentUser) {
-      users = [currentUser];
-    }
-    const ownerAccount = users.find((candidate) => {
-      const username = String(candidate?.username || '').trim().toLowerCase();
-      return owner === 'gonzalo' ? username.includes('gonzalo') : username.includes('renato');
-    });
-    if (ownerAccount) return ownerAccount;
-
-    // En esta instalación la cuenta Admin representa los gastos de Gonzalo.
-    if (owner === 'gonzalo') {
-      if (currentUser?.role === 'admin' && currentUser?.id) return currentUser;
-      return users.find((candidate) => candidate?.role === 'admin') || null;
-    }
-    return null;
   };
 
   const syncProductSeller = async (seller) => {
@@ -244,100 +233,6 @@ export default function ModalVenta({
     } catch (sellerError) {
       console.error('[ModalVenta] La venta se guardó, pero no se pudo sincronizar el vendedor del producto:', sellerError);
     }
-  };
-
-  const getSaleIncomeRows = async (targetUserId) => {
-    let currentUser = null;
-    try {
-      currentUser = JSON.parse(localStorage.getItem('user') || 'null');
-    } catch {}
-    const path = currentUser?.role === 'admin'
-      ? `/gastos/all?userId=${encodeURIComponent(String(targetUserId))}`
-      : '/gastos';
-    const rows = await api.get(path);
-    return Array.isArray(rows) ? rows : [];
-  };
-
-  const registerSaleIncome = async (savedVenta) => {
-    const resolvedSeller = savedVenta?.vendedor || form.vendedor || producto?.vendedor || presetVendedor;
-    const owner = saleExpenseOwner(resolvedSeller);
-    if (!owner) return;
-
-    const target = await resolveSaleUser(owner);
-    if (!target?.id) throw new Error(`No se encontró el usuario ${owner}.`);
-
-    const payload = {
-      concepto: 'ingreso',
-      metodoPago: 'debito',
-      moneda: 'PEN',
-      monto: Number(savedVenta?.precioVenta ?? form.precioVenta),
-      fecha: savedVenta?.fechaVenta || form.fechaVenta,
-      tarjeta: incomeBank,
-      notas: saleIncomeReference(producto.id, savedVenta?.id, String(producto?.tipo).toLowerCase() === 'accesorios'),
-    };
-
-    // La venta puede reintentarse o existir desde el flujo anterior, que usaba
-    // solamente el ID del producto en notas. En ese caso actualizamos el ingreso
-    // encontrado en vez de intentar crear un duplicado y mostrar un error falso.
-    const rows = await getSaleIncomeRows(target.id);
-    const linkedIncome = rows.find((row) => isSaleIncomeForProduct(row, producto.id));
-    if (linkedIncome?.id) {
-      await api.patch(`/gastos/${linkedIncome.id}`, payload);
-    } else {
-      await createExpenseWithDuplicateCheck(payload, { userId: target.id });
-    }
-    try {
-      localStorage.removeItem(`gastos-panel-cache:${target.id}`);
-    } catch {}
-  };
-
-  const syncSaleIncomeAfterEdit = async (updatedVenta) => {
-    const previousOwner = saleExpenseOwner(venta?.vendedor || producto?.vendedor || presetVendedor);
-    const nextOwner = saleExpenseOwner(updatedVenta?.vendedor || form.vendedor || producto?.vendedor || presetVendedor);
-    if (!previousOwner || !nextOwner) return;
-
-    const previousUser = await resolveSaleUser(previousOwner);
-    const nextUser = previousOwner === nextOwner ? previousUser : await resolveSaleUser(nextOwner);
-    if (!previousUser?.id || !nextUser?.id) {
-      throw new Error('No se encontró el propietario del ingreso asociado.');
-    }
-
-    let currentUser = null;
-    try {
-      currentUser = JSON.parse(localStorage.getItem('user') || 'null');
-    } catch {}
-    const rowsPath = currentUser?.role === 'admin'
-      ? `/gastos/all?userId=${encodeURIComponent(String(previousUser.id))}`
-      : '/gastos';
-    const rows = await api.get(rowsPath);
-    const linkedIncome = (Array.isArray(rows) ? rows : []).find((row) => (
-      isSaleIncomeForProduct(row, producto.id)
-    ));
-    // Las ventas antiguas o registradas manualmente pueden no tener ingreso vinculado.
-    if (!linkedIncome?.id) return;
-
-    const payload = {
-      concepto: 'ingreso',
-      metodoPago: 'debito',
-      moneda: 'PEN',
-      monto: Number(updatedVenta?.precioVenta ?? form.precioVenta),
-      fecha: updatedVenta?.fechaVenta || form.fechaVenta,
-      tarjeta: linkedIncome.tarjeta || incomeBank,
-      notas: saleIncomeReference(producto.id),
-    };
-
-    if (String(previousUser.id) === String(nextUser.id)) {
-      await api.patch(`/gastos/${linkedIncome.id}`, payload);
-    } else {
-      // Crear primero evita perder el ingreso si falla el traslado de propietario.
-      await createExpenseWithDuplicateCheck(payload, { userId: nextUser.id });
-      await api.del(`/gastos/${linkedIncome.id}`);
-    }
-
-    try {
-      localStorage.removeItem(`gastos-panel-cache:${previousUser.id}`);
-      localStorage.removeItem(`gastos-panel-cache:${nextUser.id}`);
-    } catch {}
   };
 
   const handleSaveCreate = async () => {
@@ -356,18 +251,19 @@ export default function ModalVenta({
         const cantidad = Number(form.cantidad);
         body.cantidad = cantidad;
         body.modalidad = cantidad > 1 ? 'mayor' : 'unidad';
+        body.loteInicialId = Number(selectedLot?.id || producto.id);
       }
 
       if (splitModeActive) {
-        const tcG = Number(form.tipoCambioGonzalo);
-        const tcR = Number(form.tipoCambioRenato);
+        const tcG = requiresExchangeRate ? Number(form.tipoCambioGonzalo) : 1;
+        const tcR = requiresExchangeRate ? Number(form.tipoCambioRenato) : 1;
         const avg = (tcG + tcR) / 2;
         body.tipoCambio = Number(avg.toFixed(4));
         body.tipoCambioGonzalo = tcG;
         body.tipoCambioRenato = tcR;
         body.vendedor = 'ambos';
       } else {
-        body.tipoCambio = Number(form.tipoCambio);
+        body.tipoCambio = requiresExchangeRate ? Number(form.tipoCambio) : 1;
         const seller = String(form.pedidoCliente || '').trim() ? pedidoSeller(form.pedidoCliente) : form.vendedor?.trim();
         if (seller) {
           body.vendedor = seller;
@@ -375,18 +271,12 @@ export default function ModalVenta({
         }
       }
 
+      const fingerprint = JSON.stringify(body);
+      if (!operation.current || operation.current.fingerprint !== fingerprint) operation.current = { fingerprint, key: nuevaClave() };
+      body.operacionKey = operation.current.key;
       const saved = await api.post('/ventas', body);
       await syncProductSeller(saved?.vendedor || body.vendedor);
-      if (localStorage.getItem('token')) {
-        try {
-          await registerSaleIncome(saved);
-        } catch (incomeError) {
-          if (!(incomeError instanceof ExpenseDuplicateCancelledError)) {
-            console.error('[ModalVenta] Respaldo de ingreso no disponible:', incomeError);
-          }
-        }
-      }
-      notifyGastosChanged({ action: 'sale-income', ventaId: saved?.id, seller: saved?.vendedor || body.vendedor });
+
       notifySalesChanged({
         action: 'create',
         venta: { ...saved, producto: saved?.producto || producto },
@@ -398,21 +288,12 @@ export default function ModalVenta({
     } catch (e) {
       console.error('[ModalVenta] Error al guardar venta:', e);
       // Si se perdio la respuesta despues de guardar, confirmar antes de pedir repetir.
-      if (String(producto?.tipo).toLowerCase() !== 'accesorios') try {
+      try {
         const ventas = await api.get(`/ventas/producto/${producto.id}`);
-        const existing = Array.isArray(ventas) ? ventas[0] : null;
+        const existing = Array.isArray(ventas) ? ventas.find((row) => row.operacionKey === operation.current?.key) : null;
         if (existing) {
           await syncProductSeller(existing?.vendedor || requestedSeller);
-          if (localStorage.getItem('token')) {
-            try {
-              await registerSaleIncome(existing);
-            } catch (incomeError) {
-              if (!(incomeError instanceof ExpenseDuplicateCancelledError)) {
-                console.error('[ModalVenta] Respaldo de ingreso no disponible:', incomeError);
-              }
-            }
-          }
-          notifyGastosChanged({ action: 'sale-income', ventaId: existing?.id, seller: existing?.vendedor });
+
           notifySalesChanged({
             action: 'create-confirmed',
             venta: { ...existing, producto: existing?.producto || producto },
@@ -440,34 +321,24 @@ export default function ModalVenta({
       const payload = {
         fechaVenta: form.fechaVenta,
         precioVenta: Number(form.precioVenta),
-        incomeBank,
       };
 
       if (splitModeActive) {
-        const tcG = Number(form.tipoCambioGonzalo || form.tipoCambio || 0);
-        const tcR = Number(form.tipoCambioRenato || form.tipoCambio || 0);
+        const tcG = requiresExchangeRate ? Number(form.tipoCambioGonzalo || form.tipoCambio || 0) : 1;
+        const tcR = requiresExchangeRate ? Number(form.tipoCambioRenato || form.tipoCambio || 0) : 1;
         const avg = (tcG + tcR) / 2;
         payload.tipoCambio = Number(avg.toFixed(4));
         payload.tipoCambioGonzalo = tcG;
         payload.tipoCambioRenato = tcR;
         payload.vendedor = 'ambos';
       } else {
-        payload.tipoCambio = Number(form.tipoCambio);
+        payload.tipoCambio = requiresExchangeRate ? Number(form.tipoCambio) : 1;
         payload.vendedor = String(form.pedidoCliente || '').trim() ? pedidoSeller(form.pedidoCliente) : (form.vendedor?.trim() || null);
       }
 
       const updated = await api.patch(`/ventas/${venta.id}`, payload);
       await syncProductSeller(updated?.vendedor || payload.vendedor);
-      if (localStorage.getItem('token')) {
-        try {
-          await syncSaleIncomeAfterEdit(updated);
-        } catch (incomeError) {
-          if (!(incomeError instanceof ExpenseDuplicateCancelledError)) {
-            console.error('[ModalVenta] Respaldo de sincronización no disponible:', incomeError);
-          }
-        }
-      }
-      notifyGastosChanged({ action: 'sale-income', ventaId: updated?.id, seller: updated?.vendedor || payload.vendedor });
+
       notifySalesChanged({
         action: 'update',
         venta: { ...updated, producto: updated?.producto || producto },
@@ -495,7 +366,7 @@ export default function ModalVenta({
     return Number.isFinite(n) && n > 0 ? n : null;
   };
   const baseTc =
-    toPositiveNumber(form.tipoCambio) ?? toPositiveNumber(venta?.tipoCambio) ?? 0;
+    requiresExchangeRate ? (toPositiveNumber(form.tipoCambio) ?? toPositiveNumber(venta?.tipoCambio) ?? 0) : 1;
   const tcG =
     toPositiveNumber(form.tipoCambioGonzalo) ??
     toPositiveNumber(venta?.tipoCambioGonzalo) ??
@@ -506,8 +377,14 @@ export default function ModalVenta({
     baseTc;
 
   const calcSplit = (tc) => {
-    if (!tc) return null;
-    const costo = (valorUsd / 2) * tc + envioSoles / 2;
+    if (venta?.costoPendiente) return null;
+    if (!tc && !isAccessory) return null;
+    const costo = isAccessory
+      ? (venta ? Number(venta.costoVendido ?? (Number(venta.precioVenta) - Number(venta.ganancia)))
+        : consumedLots.reduce((total, { lot, quantity }) => total + quantity *
+          Number(lot.valor?.costoTotalProrrateado ?? lot.valor?.costoTotal ?? lot.valor?.valorSoles ?? 0) /
+          Math.max(1, Number(lot.stockInicial || 1)), 0)) / 2
+      : (valorUsd / 2) * (String(producto.valor?.monedaCompra || 'USD').toUpperCase() === 'PEN' ? 1 : tc) + envioSoles / 2;
     const ganancia = mitadVentaSoles - costo;
     const porcentaje = costo > 0 ? (ganancia / costo) * 100 : 0;
     return { costo, ganancia, porcentaje };
@@ -528,8 +405,19 @@ export default function ModalVenta({
     ? accessoryTotalPrice / accessoryQuantity
     : null;
 
+  const accessoryLotPicker = accessoryCreate && (
+    <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+      <label htmlFor="venta-lote-inicial" className="block text-sm font-medium mb-1">Lote del que se vende primero</label>
+      <select id="venta-lote-inicial" className="w-full rounded border bg-white p-2" value={selectedLot?.id || ''} onChange={(e) => onChange('loteInicialId', e.target.value)}>
+        {accessoryLots.map((lot) => <option key={lot.id} value={lot.id}>{`Lote ${lot.id} | compra ${String(lot.valor?.fechaCompra || '').slice(0, 10) || 'sin fecha'} | ${lot.stockActual} disponibles | costo S/ ${(Number(lot.valor?.costoTotalProrrateado ?? lot.valor?.costoTotal ?? lot.valor?.valorSoles ?? 0) / Math.max(1, Number(lot.stockInicial || 1))).toFixed(2)} c/u`}</option>)}
+      </select>
+      <p className="mt-1 text-xs text-indigo-800">Si la cantidad supera este lote, se completa con los otros lotes por fecha de compra.</p>
+    </div>
+  );
+
   const renderSplitFields = () => (
     <>
+      {accessoryLotPicker}
       {accessoryCreate && (
         <div>
           <label htmlFor="venta-cantidad" className="block font-medium mb-1">Cantidad</label>
@@ -562,7 +450,7 @@ export default function ModalVenta({
       <div className="border rounded-lg divide-y">
         <div className="p-3 space-y-2">
           <div className="font-semibold">Gonzalo</div>
-          <div>
+          {requiresExchangeRate && <div>
             <label className="block text-sm font-medium mb-1">Tipo de cambio</label>
             <input
               type="number"
@@ -571,14 +459,14 @@ export default function ModalVenta({
               value={form.tipoCambioGonzalo}
               onChange={(e) => onChange('tipoCambioGonzalo', e.target.value)}
             />
-          </div>
+          </div>}
           <div className="text-xs text-gray-600">
             Costo: S/ {splitG ? fmtMoney(splitG.costo) : '--'} | Ganancia: S/ {splitG ? fmtMoney(splitG.ganancia) : '--'} | %: {splitG ? fmtPct(splitG.porcentaje) : '--'}
           </div>
         </div>
         <div className="p-3 space-y-2">
           <div className="font-semibold">Renato</div>
-          <div>
+          {requiresExchangeRate && <div>
             <label className="block text-sm font-medium mb-1">Tipo de cambio</label>
             <input
               type="number"
@@ -587,7 +475,7 @@ export default function ModalVenta({
               value={form.tipoCambioRenato}
               onChange={(e) => onChange('tipoCambioRenato', e.target.value)}
             />
-          </div>
+          </div>}
           <div className="text-xs text-gray-600">
             Costo: S/ {splitR ? fmtMoney(splitR.costo) : '--'} | Ganancia: S/ {splitR ? fmtMoney(splitR.ganancia) : '--'} | %: {splitR ? fmtPct(splitR.porcentaje) : '--'}
           </div>
@@ -598,7 +486,8 @@ export default function ModalVenta({
 
   const renderSingleFields = () => (
     <>
-      <div>
+      {accessoryLotPicker}
+      {requiresExchangeRate && <div>
         <label htmlFor="venta-tipo-cambio" className="block font-medium mb-1">Tipo de cambio</label>
         <input
           id="venta-tipo-cambio"
@@ -608,7 +497,7 @@ export default function ModalVenta({
           value={form.tipoCambio}
           onChange={(e) => onChange('tipoCambio', e.target.value)}
         />
-      </div>
+      </div>}
       <div>
         <label htmlFor="venta-fecha" className="block font-medium mb-1">Fecha de venta</label>
         <input
@@ -635,7 +524,7 @@ export default function ModalVenta({
           <div><label htmlFor="venta-cantidad" className="block text-sm font-medium mb-1">Cantidad</label><input id="venta-cantidad" type="number" min="1" max={producto.stockActual || 0} step="1" className="w-full border p-2 rounded bg-white" value={form.cantidad} onChange={(e) => onChange('cantidad', e.target.value)} /></div>
           <div><label htmlFor="venta-precio" className="block text-sm font-medium mb-1">Precio total de venta (S/)</label><input id="venta-precio" type="number" min="0" step="0.01" className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" value={form.precioVenta} onChange={(e) => onChange('precioVenta', e.target.value)} /></div>
           <div className="col-span-2 rounded-md border border-indigo-200 bg-white px-3 py-2 text-sm text-indigo-900">Precio por unidad: <strong>{accessoryUnitPrice == null ? 'S/ --' : `S/ ${accessoryUnitPrice.toFixed(2)}`}</strong></div>
-          <div className="col-span-2 text-xs text-indigo-800">Stock disponible: {producto.stockActual || 0}. El sistema descontarÃ¡ primero las unidades del lote mÃ¡s antiguo.</div>
+          <div className="col-span-2 text-xs text-indigo-800">Stock disponible: {producto.stockActual || 0}.</div>
         </div>
       )}
       {!venta && saleExpenseOwner(form.vendedor || producto?.vendedor || presetVendedor) && (
@@ -667,28 +556,27 @@ export default function ModalVenta({
       label: pedidoSeller(client),
     })),
   ];
-  const sellerSelectValue = sellerOptions.some((opt) => opt.value === form.vendedor)
-    ? form.vendedor
-    : '';
+  const sellerSelectValue = sellerOptions.find((opt) => normalizeSeller(opt.value) === normalizeSeller(form.vendedor))?.value || '';
   const renderSellerField = () => (
     <div className="rounded-lg border p-3 bg-gray-50 space-y-3">
       <div>
-        <label htmlFor="venta-vendedor" className="block font-medium mb-1">Vendedor</label>
+        <label htmlFor="venta-vendedor" className="block font-medium mb-1">{isAccessory ? 'Comprado por' : 'Vendedor'}</label>
         <select
           id="venta-vendedor"
           className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           value={sellerSelectValue}
           onChange={(e) => onSellerChange(e.target.value)}
-          disabled={isReadOnly}
+          disabled={isReadOnly || (accessoryCreate && Boolean(producto.vendedor))}
         >
-          {sellerOptions.map((opt) => (
+          {sellerOptions.filter((opt) => !isAccessory || !opt.value || ['gonzalo', 'renato', 'ambos'].includes(normalizeSeller(opt.value))).map((opt) => (
             <option key={opt.label} value={opt.value}>
-              {opt.label}
+              {isAccessory && !opt.value ? 'Seleccionar comprador' : opt.label}
             </option>
           ))}
         </select>
+        {accessoryCreate && producto.vendedor && <p className="mt-1 text-xs text-gray-600">La ganancia corresponde al comprador. Puedes corregirlo en Editar stock.</p>}
       </div>
-      <div>
+      {!isAccessory && <div>
         <label htmlFor="venta-cliente-pedido" className="block text-sm font-medium mb-1">Otro cliente a pedido</label>
         <input
           id="venta-cliente-pedido"
@@ -699,11 +587,11 @@ export default function ModalVenta({
           placeholder="Nombre del cliente"
           disabled={isReadOnly}
         />
-      </div>
+      </div>}
     </div>
   );
 
-  const summaryMoney = (value) => `S/ ${Number(value || 0).toFixed(2)}`;
+  const summaryMoney = (value) => value == null ? 'Pendiente' : `S/ ${Number(value).toFixed(2)}`;
   const summaryPanel = accessoryCreate && (
     <aside className="rounded-xl border border-slate-200 bg-slate-50 p-4" aria-label="Resumen de ventas del accesorio">
       <h3 className="font-semibold text-slate-950">Ventas del accesorio</h3>
@@ -715,7 +603,7 @@ export default function ModalVenta({
             <div className="rounded-lg bg-emerald-50 p-3 text-emerald-800"><span className="block text-xs">Ingreso total</span><strong className="text-lg">{summaryMoney(accessorySummary?.ventaBruta)}</strong></div>
             <div className="rounded-lg bg-indigo-50 p-3 text-indigo-800"><span className="block text-xs">Ganancia general</span><strong className="text-lg">{summaryMoney(accessorySummary?.gananciaNeta)}</strong></div>
           </div>
-          <p className="mt-3 text-xs text-slate-600">Tipo de cambio promedio: <strong>{accessorySummary?.tipoCambioPromedio != null ? Number(accessorySummary.tipoCambioPromedio).toFixed(4) : '--'}</strong></p>
+          {requiresExchangeRate && <p className="mt-3 text-xs text-slate-600">Tipo de cambio promedio: <strong>{accessorySummary?.tipoCambioPromedio != null ? Number(accessorySummary.tipoCambioPromedio).toFixed(4) : '--'}</strong></p>}
           <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
             {(accessorySummary?.ventas || []).map((item) => (
               <div key={item.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
@@ -751,10 +639,10 @@ export default function ModalVenta({
         </div>
 
         <div className="rounded-lg border bg-gray-50 px-3 py-2 text-sm text-gray-700 mb-4">
-          Vendedor del producto: <span className="font-medium">{sellerLabel}</span>
+          {isAccessory ? 'Comprado por' : 'Vendedor del producto'}: <span className="font-medium">{sellerLabel}</span>
         </div>
 
-        {!venta && !sellerSlug && (
+        {!venta && !sellerSlug && !isAccessory && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 mb-4">
             Este producto no tiene vendedor asignado. Puedes registrar la venta, pero no aparecerá en ganancias por vendedor hasta asignarlo en el producto.
           </div>
@@ -795,7 +683,7 @@ export default function ModalVenta({
                 <div className="border rounded-lg divide-y">
                   <div className="p-3 space-y-1">
                     <div className="font-semibold">Gonzalo</div>
-                    <div className="text-sm text-gray-700">Tipo de cambio: {fmtTc(tcG)}</div>
+                    {requiresExchangeRate && <div className="text-sm text-gray-700">Tipo de cambio: {fmtTc(tcG)}</div>}
                     <div className="text-xs text-gray-600">Venta: S/ {fmtMoney(mitadVentaSoles)}</div>
                     <div className="text-xs text-gray-600">
                       Costo: S/ {splitG ? fmtMoney(splitG.costo) : '--'} | Ganancia: S/ {splitG ? fmtMoney(splitG.ganancia) : '--'} | %: {splitG ? fmtPct(splitG.porcentaje) : '--'}
@@ -803,7 +691,7 @@ export default function ModalVenta({
                   </div>
                   <div className="p-3 space-y-1">
                     <div className="font-semibold">Renato</div>
-                    <div className="text-sm text-gray-700">Tipo de cambio: {fmtTc(tcR)}</div>
+                    {requiresExchangeRate && <div className="text-sm text-gray-700">Tipo de cambio: {fmtTc(tcR)}</div>}
                     <div className="text-xs text-gray-600">Venta: S/ {fmtMoney(mitadVentaSoles)}</div>
                     <div className="text-xs text-gray-600">
                       Costo: S/ {splitR ? fmtMoney(splitR.costo) : '--'} | Ganancia: S/ {splitR ? fmtMoney(splitR.ganancia) : '--'} | %: {splitR ? fmtPct(splitR.porcentaje) : '--'}
@@ -813,21 +701,21 @@ export default function ModalVenta({
               </>
             ) : (
               <>
-                <div>
+                {requiresExchangeRate && <div>
                   <span className="font-medium">Tipo de cambio: </span>
                   <span className="text-gray-700">{Number(venta.tipoCambio).toFixed(4)}</span>
-                </div>
+                </div>}
                 <div>
                   <span className="font-medium">Precio de venta (S/): </span>
                   <span className="text-gray-700">{Number(venta.precioVenta).toFixed(2)}</span>
                 </div>
                 <div>
                   <span className="font-medium">% Ganancia: </span>
-                  <span className="text-gray-700">{Number(venta.porcentajeGanancia).toFixed(3)}%</span>
+                  <span className="text-gray-700">{venta.costoPendiente ? 'Pendiente' : `${Number(venta.porcentajeGanancia).toFixed(3)}%`}</span>
                 </div>
                 <div>
-                  <span className="font-medium">Ganancia neta (S/): </span>
-                  <span className="text-gray-700">{Number(venta.ganancia).toFixed(2)}</span>
+                  <span className="font-medium">Ganancia comercial (S/): </span>
+                  <span className="text-gray-700">{venta.costoPendiente ? 'Costo pendiente' : Number(venta.ganancia).toFixed(2)}</span>
                 </div>
               </>
             )}

@@ -18,6 +18,11 @@ async function request(path, opts = {}) {
   });
 
   if (!res.ok) {
+    if (res.status === 401 && path !== '/auth/login') {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.dispatchEvent(new Event('auth:expired'));
+    }
     const txt = await res.text().catch(() => '');
     let detail = txt || '';
     try {
@@ -45,7 +50,7 @@ const api = {
   post:  (p, b) => request(p, { method: 'POST', body: JSON.stringify(b) }),
   patch: (p, b) => request(p, { method: 'PATCH', body: JSON.stringify(b) }),
   put:   (p, b) => request(p, { method: 'PUT',   body: JSON.stringify(b) }),
-  del:   (p)    => request(p, { method: 'DELETE' }),
+  del:   (p, b) => request(p, { method: 'DELETE', ...(b === undefined ? {} : { body: JSON.stringify(b) }) }),
 };
 
 export default api;

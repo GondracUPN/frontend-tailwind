@@ -1,9 +1,11 @@
 // src/pages/Productos.js
 import React, { Suspense, lazy, useState, useEffect, useCallback, useRef } from 'react';
+import { ActionButton, PageHeader, StatCard, Disclosure, LoadingState, ErrorState, formatDisplayMoney } from '../components/ui/VisualUI';
 import api from '../api';  // cliente fetch centralizado
 import { notifyGastosChanged } from '../utils/gastosSync';
 import ResumenCasilleros from '../components/ResumenCasilleros';
-import { FiFileText } from 'react-icons/fi';
+import ProductToolbar from '../components/productos/ProductToolbar';
+import { FiEdit2, FiTrash2 } from 'react-icons/fi';
 import { formatAppleWatchName } from '../utils/productName';
 import { accessoryCategoryForModel } from '../utils/accessoryModels';
 import CatalogSalesPending from '../components/CatalogSalesPending';
@@ -39,6 +41,12 @@ export const isLegacySimpleAccessory = (product) => {
     && !tracking[0]?.trackingEshop
     && !tracking[0]?.casillero;
 };
+export const purchaseYear = (product) => {
+  const raw = product?.valor?.fechaCompra || product?.valor?.fecha_compra || product?.fechaCompra || '';
+  const match = String(raw).match(/^(\d{4})/);
+  return match ? match[1] : null;
+};
+
 export const onlyProducts = (items) => (Array.isArray(items) ? items : [])
   .filter((product) => !product?.soloInventario && !isLegacySimpleAccessory(product));
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos para revalidar
@@ -366,6 +374,23 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
   useEffect(() => {
     const handleSalesUpdated = (event) => {
+      if (event?.detail?.adelantoId) {
+        const ids = productosRef.current.map((product) => product.id).filter(Boolean);
+        if (ids.length) api.get(`/ventas/adelantos/ultimos?ids=${ids.join(',')}`).then((list) => {
+          const next = Object.fromEntries(ids.map((id) => [id, null]));
+          (Array.isArray(list) ? list : []).forEach((advance) => { next[advance.productoId] = advance; });
+          adelantosRef.current = next;
+          setAdelantosMap(next);
+          writeCache(productosRef.current, ventasRef.current, resumenRef.current, next);
+        }).catch(console.error);
+        api.get(`/ventas/ultimas?ids=${ids.join(',')}`).then((list) => {
+          const next = Object.fromEntries(ids.map((id) => [id, null]));
+          (Array.isArray(list) ? list : []).forEach((sale) => { next[sale.productoId] = sale; });
+          ventasRef.current = next;
+          setVentasMap(next);
+          writeCache(productosRef.current, next, resumenRef.current, adelantosRef.current);
+        }).catch(console.error);
+      }
       const venta = event?.detail?.venta;
       const productoId = Number(venta?.productoId || event?.detail?.productoId || 0);
       if (!productoId || !venta) return;
@@ -422,17 +447,25 @@ export default function Productos({ setVista, setAnalisisBack }) {
       writeCache(productosRef.current, ventasRef.current, resumenRef.current, next);
       return next;
     });
-    cerrarAdelanto();
+    setAdelantoActivo(adelanto);
+    setAdelantoModo('detail');
+    notifyGastosChanged({ action: 'advance-create', productoId: adelanto.productoId });
   };
 
-  const handleAdelantoCuotaSaved = (adelanto) => {
+  const handleAdelantoCuotaSaved = async (adelanto) => {
     if (!adelanto?.productoId) return;
+    const active = !adelanto.ventaId && !adelanto.canceladoAt;
     setAdelantosMap(prev => {
-      const next = { ...prev, [adelanto.productoId]: adelanto };
+      const next = { ...prev, [adelanto.productoId]: active ? adelanto : null };
       writeCache(productosRef.current, ventasRef.current, resumenRef.current, next);
       return next;
     });
+    if (adelanto.ventaId) {
+      const venta = await api.get('/ventas/' + adelanto.ventaId);
+      setVentasMap(prev => ({ ...prev, [adelanto.productoId]: venta }));
+    }
     setAdelantoActivo(adelanto);
+    fetchResumen({ refresh: true });
   };
 
   const handleAdelantoCancelado = async () => {
@@ -532,6 +565,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [filtroTam, setFiltroTam] = useState('todos');   // tamano adicional para macbook/ipad
   const [trackingQuery, setTrackingQuery] = useState('');
   const [filtroGama, setFiltroGama] = useState('todos'); // gama (Pro, Air, etc)
+  const [filtroAnio, setFiltroAnio] = useState('todos'); // anio de compra: 'todos' | '2026' | 'sin-fecha'
   const setMostrarFiltro = (key, checked) => {
     setSoloVendidos(key === 'vendidos' && checked);
     setSoloAdelanto(key === 'adelanto' && checked);
@@ -775,6 +809,21 @@ export default function Productos({ setVista, setAnalisisBack }) {
       console.error('No se pudo cargar resumen de productos', e);
     }
   }, []);
+
+  // Resumen del año elegido; se vuelve a pedir cuando cambia el resumen general (altas, ventas, etc.).
+  const [resumenAnio, setResumenAnio] = useState(null); // { anio, data }
+  useEffect(() => {
+    if (filtroAnio === 'todos') return undefined;
+    let cancelled = false;
+    api.get(`/productos/resumen?refresh=true&anio=${encodeURIComponent(filtroAnio)}`)
+      .then((data) => { if (!cancelled && data) setResumenAnio({ anio: filtroAnio, data }); })
+      .catch((e) => console.error('No se pudo cargar el resumen del año', e));
+    return () => { cancelled = true; };
+  }, [filtroAnio, resumen]);
+  const resumenVista = filtroAnio === 'todos'
+    ? resumen
+    : (resumenAnio?.anio === filtroAnio ? resumenAnio.data : null);
+  const cargandoResumenAnio = filtroAnio !== 'todos' && !resumenVista;
 
   const cargarPersonalEshopex = useCallback(async () => {
     try {
@@ -2051,9 +2100,23 @@ const confirmAction = async () => {
         refreshProductos({ force: true, useCache: false, silent: true });
       }
     };
+    const salesChanged = () => {
+      fetchResumen({ refresh: true });
+      refreshProductos({ force: true, useCache: false, silent: true }).then((list) => {
+        if (!list) return;
+        const ids = list.map((p) => p.id);
+        api.get('/ventas/ultimas?ids=' + ids.join(',')).then((sales) => {
+          const next = Object.fromEntries(ids.map((id) => [id, null]));
+          (Array.isArray(sales) ? sales : []).forEach((sale) => { next[sale.productoId] = sale; });
+          ventasRef.current = next; setVentasMap(next);
+          writeCache(list, next, resumenRef.current, adelantosRef.current);
+        }).catch(console.error);
+      });
+    };
     window.addEventListener('app-view-activated', handleViewActivated);
-    return () => window.removeEventListener('app-view-activated', handleViewActivated);
-  }, [refreshProductos]);
+    window.addEventListener('ventas-updated', salesChanged);
+    return () => { window.removeEventListener('app-view-activated', handleViewActivated); window.removeEventListener('ventas-updated', salesChanged); };
+  }, [refreshProductos, fetchResumen]);
 
   // Carga inicial: intenta cache, pero si no hay data hace fetch
   useEffect(() => {
@@ -2140,6 +2203,10 @@ const confirmAction = async () => {
     let list = Array.isArray(productos) ? [...productos] : [];
     // --- Filtro por tracking (USA / Eshopex) ---
     list = filterProductsByCodeOrTracking(list, trackingQuery);
+
+    if (filtroAnio !== 'todos') {
+      list = list.filter((p) => (purchaseYear(p) || 'sin-fecha') === filtroAnio);
+    }
 
 
     if (soloEnCamino) {
@@ -2250,7 +2317,7 @@ const confirmAction = async () => {
       list.sort((a, b) => ts(b) - ts(a)); // mas nuevos arriba (fecha compra)
     }
     return list;
-  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, soloEnCamino, soloEnEshopex, filtroEstado, filtroTipo, filtroProc, filtroTam, filtroGama, trackingQuery, getFechaVenta, getLastTracking]);
+  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, soloEnCamino, soloEnEshopex, filtroEstado, filtroTipo, filtroProc, filtroTam, filtroGama, filtroAnio, trackingQuery, getFechaVenta, getLastTracking]);
 
   const paquetesSinVendedor = React.useMemo(() => {
     return (productos || []).filter((p) => !String(p?.vendedor || '').trim());
@@ -2503,7 +2570,9 @@ const confirmAction = async () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm(',Eliminar este producto?')) return;
+    const target = productos.find((item) => item.id === id);
+    const code = target ? `MS-${displayProductCode(target) ?? id}` : 'este producto';
+    if (!window.confirm(`¿Borrar ${code}? Esta acción no se puede deshacer.`)) return;
     try {
       await api.del(`/productos/${id}`);
       setProductos(list => {
@@ -2515,7 +2584,13 @@ const confirmAction = async () => {
       fetchResumen({ refresh: true });
     } catch (e) {
       console.error(e);
-      alert('Error al eliminar.');
+      if (e?.message?.includes('historial')) {
+        const motivo = window.prompt('El producto tiene historial. Motivo para archivarlo:');
+        if (motivo?.trim()) {
+          try { await api.post('/productos/' + id + '/archivar', { motivo }); await refreshProductos({ force: true, useCache: false }); }
+          catch (error) { alert(error.message || 'No se pudo archivar.'); }
+        }
+      } else alert(e.message || 'Error al eliminar.');
     }
   };
 
@@ -2589,14 +2664,14 @@ const confirmAction = async () => {
 
   // === CONTADORES ===
   const stats = React.useMemo(() => {
-    if (resumen) {
+    if (resumenVista) {
       return {
-        total: resumen.total ?? 0,
-        sinTracking: resumen.sinTracking ?? 0,
-        enCamino: resumen.enCamino ?? 0,
-        enEshopex: resumen.enEshopex ?? 0,
-        disponible: resumen.disponible ?? 0,
-        vendido: resumen.vendido ?? 0,
+        total: resumenVista.total ?? 0,
+        sinTracking: resumenVista.sinTracking ?? 0,
+        enCamino: resumenVista.enCamino ?? 0,
+        enEshopex: resumenVista.enEshopex ?? 0,
+        disponible: resumenVista.disponible ?? 0,
+        vendido: resumenVista.vendido ?? 0,
       };
     }
 
@@ -2625,7 +2700,52 @@ const confirmAction = async () => {
     }
 
     return { total, sinTracking, enCamino, enEshopex, disponible, vendido };
-  }, [productos, ventasMap, adelantosMap, resumen]);
+  }, [productos, ventasMap, adelantosMap, resumenVista]);
+
+  const adelantosActivos = React.useMemo(
+    () => {
+      const year = new Map(productos.map((p) => [String(p.id), purchaseYear(p) || 'sin-fecha']));
+      return Object.entries(adelantosMap || {})
+        .filter(([pid, a]) => a && !ventasMap[pid] && (filtroAnio === 'todos' || year.get(pid) === filtroAnio))
+        .length;
+    },
+    [adelantosMap, ventasMap, productos, filtroAnio],
+  );
+
+  const aniosDisponibles = React.useMemo(() => {
+    const counts = new Map();
+    for (const p of productos) {
+      const year = purchaseYear(p) || 'sin-fecha';
+      counts.set(year, (counts.get(year) || 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort(([a], [b]) => (a === 'sin-fecha') - (b === 'sin-fecha') || b.localeCompare(a))
+      .map(([value, count]) => ({ value, count, label: value === 'sin-fecha' ? 'Sin fecha' : value }));
+  }, [productos]);
+
+  const estadoChips = [
+    { key: 'todos', label: 'Todos', count: stats.total, active: !soloDisponibles && !soloEnCamino && !soloEnEshopex && !soloAdelanto && !soloVendidos },
+    { key: 'disponibles', label: 'Disponibles', count: stats.disponible, active: soloDisponibles },
+    { key: 'enCamino', label: 'En camino', count: stats.enCamino, active: soloEnCamino },
+    { key: 'enEshopex', label: 'En Eshopex', count: stats.enEshopex, active: soloEnEshopex },
+    { key: 'adelanto', label: 'Con adelanto', count: adelantosActivos, active: soloAdelanto },
+    { key: 'vendidos', label: 'Vendidos', count: stats.vendido, active: soloVendidos },
+  ];
+
+  const hayFiltrosActivos = !estadoChips[0].active
+    || Boolean(trackingQuery.trim())
+    || [filtroEstado, filtroTipo, filtroProc, filtroTam, filtroGama, filtroAnio].some((value) => value !== 'todos');
+
+  const limpiarFiltros = () => {
+    setMostrarFiltro('todos', false);
+    setTrackingQuery('');
+    setFiltroEstado('todos');
+    setFiltroTipo('todos');
+    setFiltroProc('todos');
+    setFiltroTam('todos');
+    setFiltroGama('todos');
+    setFiltroAnio('todos');
+  };
 
   // Convierte "S/ 1,234.50" o "$ 99" a nfmero seguro
   const toNumber = useCallback((x) => {
@@ -2697,17 +2817,17 @@ const confirmAction = async () => {
   // === TOTALES DE MONTOS ===
   // Suma global de valorProducto ($), costoEnvio (S/), costoTotal (S/), total vendido (S/), y ganancia (S/)
   const totals = React.useMemo(() => {
-    if (resumen) {
-      const fmtS = (n) => `S/ ${Number(n).toFixed(2)}`;
-      const fmtU = (n) => `$ ${Number(n).toFixed(2)}`;
+    if (resumenVista) {
+      const fmtS = (n) => formatDisplayMoney(n);
+      const fmtU = (n) => formatDisplayMoney(n, 'USD');
       const toNum = (v) => Number(v ?? 0) || 0;
       return {
-        totalGastadoUSD: fmtU(toNum(resumen.totalGastadoUsd)),
-        totalEnvioSoles: fmtS(toNum(resumen.totalEnvioPen)),
-        totalDecUSD: fmtU(toNum(resumen.totalDecUsd)),
-        totalCostoSoles: fmtS(toNum(resumen.totalCostoPen)),
-        totalVentaSoles: fmtS(toNum(resumen.totalVentaPen)),
-        gananciaSoles: fmtS(toNum(resumen.gananciaPen)),
+        totalGastadoUSD: fmtU(toNum(resumenVista.totalGastadoUsd)),
+        totalEnvioSoles: fmtS(toNum(resumenVista.totalEnvioPen)),
+        totalDecUSD: fmtU(toNum(resumenVista.totalDecUsd)),
+        totalCostoSoles: fmtS(toNum(resumenVista.totalCostoPen)),
+        totalVentaSoles: fmtS(toNum(resumenVista.totalVentaPen)),
+        gananciaSoles: fmtS(toNum(resumenVista.gananciaPen)),
       };
     }
 
@@ -2751,8 +2871,8 @@ const confirmAction = async () => {
     }
 
     // Helpers de formato
-    const fmtSoles = (n) => `S/ ${Number(n).toFixed(2)}`;
-    const fmtUSD = (n) => `$ ${Number(n).toFixed(2)}`;
+    const fmtSoles = (n) => formatDisplayMoney(n);
+    const fmtUSD = (n) => formatDisplayMoney(n, 'USD');
 
     return {
       totalGastadoUSD: fmtUSD(totalGastadoUSD),
@@ -2762,143 +2882,106 @@ const confirmAction = async () => {
       totalVentaSoles: fmtSoles(totalVentaSoles),
       gananciaSoles: fmtSoles(gananciaSoles),
     };
-  }, [productos, ventasMap, resumen, getMontoVentaSoles, toNumber]);
+  }, [productos, ventasMap, resumenVista, getMontoVentaSoles, toNumber]);
 
 
 
   return (
-    <div className="productos-modals-uniformes min-h-screen px-4 py-6 sm:px-6 lg:px-8 bg-macGray text-macDark">
-      {/* Header */}
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8">
-        <h2 className="text-3xl font-semibold">Gesti&oacute;n de Productos</h2>
-        <button onClick={() => setVista('home')} className="w-full sm:w-auto px-4 py-2 bg-white border rounded shadow-sm hover:bg-gray-100">
-          &larr; Volver
-        </button>
-      </header>
-
-      <CatalogSalesPending />
-
-      {/* Resumen de conteos */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Totales</div>
-          <div className="text-2xl font-semibold">{stats.total}</div>
+    <div className="productos-modals-uniformes ux-page min-h-screen bg-macGray text-macDark">
+      <PageHeader title="Productos" eyebrow="Operaciones" description="Compras, disponibilidad y seguimiento de tus equipos."
+        actions={<>
+          <ActionButton onClick={() => setVista('home')}>← Inicio</ActionButton>
+          <a className="ux-button" href="#product-context">Resumen económico</a>
+          <ActionButton variant="primary" onClick={abrirCrear} disabled={selectMode}>+ Agregar producto</ActionButton>
+        </>} />
+      {filtroAnio !== 'todos' && (
+        <div className="ux-year-banner" role="status">
+          <span>Mostrando solo compras de <strong>{filtroAnio === 'sin-fecha' ? 'productos sin fecha' : filtroAnio}</strong>: tarjetas, tabla y resumen económico.</span>
+          <button type="button" className="ux-link-button" onClick={() => setFiltroAnio('todos')}>Ver todos los años</button>
         </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Sin tracking</div>
-          <div className="text-2xl font-semibold">{stats.sinTracking}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">En camino US</div>
-          <div className="text-2xl font-semibold">{stats.enCamino}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">En Eshopex</div>
-          <div className="text-2xl font-semibold">{stats.enEshopex}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Disponible</div>
-          <div className="text-2xl font-semibold">{stats.disponible}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Vendido</div>
-          <div className="text-2xl font-semibold">{stats.vendido}</div>
-        </div>
-      </div>{/* Panel de casilleros */}
-      <ResumenCasilleros productos={productosConPersonal} onCasilleroClick={abrirCasillero} />
-
-      {/* Totales de montos */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total gastado ($)</div>
-          <div className="text-2xl font-semibold">{totals.totalGastadoUSD}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total env&iacute;o (S/)</div>
-          <div className="text-2xl font-semibold">{totals.totalEnvioSoles}</div>
-        </div> {/* ? cierre agregado aquf */}
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total DEC ($)</div>
-          <div className="text-2xl font-semibold">{totals.totalDecUSD}</div>
-        </div>
-
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total costo (S/)</div>
-          <div className="text-2xl font-semibold">{totals.totalCostoSoles}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Total venta (S/)</div>
-          <div className="text-2xl font-semibold">{totals.totalVentaSoles}</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-sm text-gray-500">Ganancia total (S/)</div>
-          <div className="text-2xl font-semibold">{totals.gananciaSoles}</div>
-        </div>
+      )}
+      <div className="ux-stats" aria-label="Resumen de productos">
+        {[
+          ['Total', stats.total, 'neutral'], ['Disponibles', stats.disponible, 'positive'],
+          ['En camino US', stats.enCamino, 'neutral'], ['En Eshopex', stats.enEshopex, 'attention'],
+          ['Sin tracking', stats.sinTracking, 'attention'], ['Vendidos', stats.vendido, 'neutral'],
+        ].map(([title, value, tone]) => <StatCard key={title} title={title} value={value} tone={tone} loading={(cargando && !productos.length) || cargandoResumenAnio} />)}
       </div>
 
-      {/* Botonera: Agregar / Importar recojo / Recojo masivo */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+      {!selectMode && (
+            <ProductToolbar
+              onRecojo={startRecojo}
+              onAdelantar={startAdelantarVenta}
+              onMensajeVenta={() => setVentaMsgOpen(true)}
+              onPersonal={() => {
+                setPersonalRecojoDate('');
+                setPersonalSelected(new Set());
+                setPersonalOpen(true);
+              }}
+              onAnalisis={() => { setAnalisisBack('productos'); setVista('analisis'); }}
+              onFotos={abrirFotosManual}
+              onScanner={abrirSnImeiScanner}
+              onMarcaAgua={abrirMarcaAgua}
+              onDec={abrirDec}
+              onFacu={abrirFacu}
+              sellerAssign={showSellerAssignButton ? { count: paquetesSinVendedor.length, onClick: abrirSellerAssign } : null}
+            />
+      )}
+
+      <ResumenCasilleros productos={productosConPersonal} loading={cargando && !productos.length} onCasilleroClick={abrirCasillero} />
+
+      {/* Busqueda y filtros */}
+      <div className="ux-product-filterbar">
         {!selectMode ? (
           <>
-            {/* Filtro a la izquierda */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap w-full">
-              <div className="border rounded-lg px-3 py-2 bg-white shadow-sm w-full sm:w-auto">
-                <div className="text-xs text-gray-500 mb-1">Mostrar</div>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={soloVendidos}
-                    onChange={(e) => setMostrarFiltro('vendidos', e.target.checked)}
-                  />
-                  Vendidos
-                </label>
-                <label className="flex items-center gap-2 text-sm mt-1">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={soloAdelanto}
-                    onChange={(e) => setMostrarFiltro('adelanto', e.target.checked)}
-                  />
-                  Adelanto
-                </label>
-                <label className="flex items-center gap-2 text-sm mt-1">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={soloDisponibles}
-                    onChange={(e) => setMostrarFiltro('disponibles', e.target.checked)}
-                  />
-                  Disponibles
-                </label>
-                <label className="flex items-center gap-2 text-sm mt-1">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={soloEnCamino}
-                    onChange={(e) => setMostrarFiltro('enCamino', e.target.checked)}
-                  />
-                  En camino
-                </label>
-                <label className="flex items-center gap-2 text-sm mt-1">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={soloEnEshopex}
-                    onChange={(e) => setMostrarFiltro('enEshopex', e.target.checked)}
-                  />
-                  En eShopex
-                </label>
-              </div>
-
+            <div className="ux-product-filters" role="group" aria-label="Buscar y filtrar productos">
+              <label className="ux-product-search"><span>Buscar por código o tracking</span>
               <input
                 type="text"
-                className="border rounded px-2 py-1 w-full sm:w-60"
+                aria-label="Buscar por código o tracking"
                 placeholder="Buscar Code o tracking (MS-123, MS123 o 123)"
                 value={trackingQuery}
                 onChange={(e) => setTrackingQuery(e.target.value)}
               />
+              </label>
 
+              <div className="ux-product-chips" role="group" aria-label="Mostrar">
+                {estadoChips.map(({ key, label, count, active }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={active}
+                    className={`ux-chip ${active ? 'ux-chip--active' : ''}`}
+                    onClick={() => setMostrarFiltro(key, key !== 'todos')}
+                  >
+                    {label}
+                    {count != null && <span className="ux-chip-count">{count}</span>}
+                  </button>
+                ))}
+                {hayFiltrosActivos && (
+                  <button type="button" className="ux-chip ux-chip--clear" onClick={limpiarFiltros}>
+                    Limpiar filtros
+                  </button>
+                )}
+              </div>
+
+              {aniosDisponibles.length > 0 && (
+                <div className="ux-product-chips ux-product-years" role="group" aria-label="Año de compra">
+                  <span className="ux-chips-label">Año de compra</span>
+                  {[{ value: 'todos', label: 'Todos', count: null }, ...aniosDisponibles].map(({ value, label, count }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={filtroAnio === value}
+                      className={`ux-chip ${filtroAnio === value ? 'ux-chip--active' : ''}`}
+                      onClick={() => setFiltroAnio(value)}
+                    >
+                      {label}
+                      {count != null && <span className="ux-chip-count">{count}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
 
 
               <label className="text-sm inline-flex items-center gap-2 w-full sm:w-auto">
@@ -3008,101 +3091,6 @@ const confirmAction = async () => {
               )}
             </div>
 
-            {/* Acciones a la derecha */}
-            <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-start sm:justify-end">
-              {/* Analisis a la izquierda, con m\u00e1s separaci\u00f3n del siguiente */}
-              <button
-                onClick={() => { setAnalisisBack('productos'); setVista('analisis'); }}
-                className="w-full sm:w-auto bg-slate-600 text-white px-5 py-2 rounded hover:bg-slate-700 sm:mr-6"
-                title="Ir al m\u00f3dulo de Analisis"
-              >
-                Analisis
-              </button>
-              <button
-                onClick={startAdelantarVenta}
-                className="w-full sm:w-auto bg-amber-600 text-white px-5 py-2 rounded hover:bg-amber-700"
-                title="Selecciona 1 producto no vendido para registrar la venta"
-              >
-                Adelantar venta
-              </button>
-              <button
-                onClick={abrirCrear}
-                className="w-full sm:w-auto bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700"
-              >
-                Agregar Producto
-              </button>
-              <button
-                onClick={startRecojo}
-                className="w-full sm:w-auto bg-purple-600 text-white px-5 py-2 rounded hover:bg-purple-700"
-                title="Selecciona varios y marcar como recogidos + generar texto para WhatsApp"
-              >
-                Recojo
-              </button>
-              <button
-                onClick={() => {
-                  setPersonalRecojoDate('');
-                  setPersonalSelected(new Set());
-                  setPersonalOpen(true);
-                }}
-                className="w-full sm:w-auto bg-violet-700 text-white px-5 py-2 rounded hover:bg-violet-800"
-                title="Ver paquetes personales guardados desde Eshopex"
-              >
-                Personal
-              </button>
-              <button
-                onClick={() => setVentaMsgOpen(true)}
-                className="w-full sm:w-auto bg-pink-600 text-white px-5 py-2 rounded hover:bg-pink-700"
-                title="Generar texto de venta para WhatsApp"
-              >
-                Venta
-              </button>
-              <button
-                onClick={abrirFotosManual}
-                className="w-full sm:w-auto bg-teal-600 text-white px-5 py-2 rounded hover:bg-teal-700"
-                title="Ingresar tracking y fecha para consultar fotos en Eshopex"
-              >
-                Fotos
-              </button>
-              <button
-                onClick={abrirSnImeiScanner}
-                className="w-full sm:w-auto bg-cyan-700 text-white px-5 py-2 rounded hover:bg-cyan-800"
-                title="Escanear una imagen para extraer SN e IMEIs"
-              >
-                Scan SN/IMEI
-              </button>
-              <button
-                onClick={abrirMarcaAgua}
-                className="w-full sm:w-auto bg-emerald-700 text-white px-5 py-2 rounded hover:bg-emerald-800"
-                title="Aplicar marca de agua a varias fotos"
-              >
-                Marca de agua
-              </button>
-              <button
-                onClick={abrirDec}
-                className="w-full sm:w-auto bg-gray-800 text-white px-5 py-2 rounded hover:bg-gray-900 inline-flex items-center gap-2"
-                title="Generar DEC / Comprobante"
-              >
-                <FiFileText className="text-lg" />
-                DEC
-              </button>
-              <button
-                onClick={abrirFacu}
-                className="w-full sm:w-auto bg-slate-700 text-white px-5 py-2 rounded hover:bg-slate-800 inline-flex items-center gap-2"
-                title="Generar FACU"
-              >
-                <FiFileText className="text-lg" />
-                FACU
-              </button>
-              {showSellerAssignButton && (
-                <button
-                  onClick={abrirSellerAssign}
-                  className="w-full sm:w-auto bg-rose-700 text-white px-5 py-2 rounded hover:bg-rose-800"
-                  title={`Temporal: asignar vendedor a ${paquetesSinVendedor.length} paquetes sin vendedor`}
-                >
-                  Asignar vendedor ({paquetesSinVendedor.length})
-                </button>
-              )}
-            </div>
           </>
         ) : (
           // ??? tu bloque existente de seleccifn (pickup/whatsapp) se mantiene igual
@@ -3123,7 +3111,10 @@ const confirmAction = async () => {
                 </div>
               )}
             </div>
-            <div className="flex flex-wrap gap-2 justify-start sm:justify-end w-full">
+            <div className="flex flex-wrap items-center gap-2 justify-start sm:justify-end w-full">
+              <span className="text-sm font-semibold text-slate-700" role="status">
+                {selectedIds.size === 1 ? '1 seleccionado' : `${selectedIds.size} seleccionados`}
+              </span>
               <button
                 onClick={confirmAction}
                 className="bg-indigo-600 text-white px-5 py-2 rounded hover:bg-indigo-700 disabled:opacity-50"
@@ -3149,31 +3140,29 @@ const confirmAction = async () => {
 
 
       {/* Cargando / Error */}
-      {cargando && <p>Cargando productos...</p>}
-      {error && <p className="text-red-500">{error}</p>}
+      {cargando && <LoadingState>Cargando productos…</LoadingState>}
+      {error && <ErrorState>{error}</ErrorState>}
 
       {/* Tabla */}
       {!cargando && !error && (
         displayedProductos.length > 0 ? (
-          <div className="overflow-x-auto -mx-4 sm:mx-0">
+          <div className="ux-table-wrap ux-product-table-region" tabIndex={0} role="region" aria-label="Listado de productos; desplaza horizontalmente para ver todas las columnas">
             <table className="min-w-[1080px] w-full text-left border text-xs sm:text-sm">
               <thead className="bg-gray-100">
                 <tr>
                   {selectMode && <th className="p-2">Sel.</th>}
-                  <th className="p-2">Code</th>
-                  <th className="p-2">Tipo</th>
+                  <th className={`p-2 ${selectMode ? '' : 'ux-sticky-left'}`}>Code</th>
+                  <th className="p-2">Producto y características</th>
                   <th className="p-2">Estado</th>
                   <th className="p-2 text-center">Accesorios</th>
-                  <th className="p-2">Valor $</th>
-                  <th className="p-2">Valor S/</th>
-                  <th className="p-2">{'Env\u00edo S/'}</th>
-                  <th className="p-2">Total S/</th>
-                  <th className="p-2">Calculadora</th>
+                  <th className="p-2 ux-money" title="Costo total en soles. Debajo: precio en dólares, en soles y envío">Costo</th>
+                  <th className="p-2">Precio de venta</th>
                   <th className="p-2">Vendedor</th>
-                  <th className="p-2 whitespace-nowrap" title="Compra / Recojo / Venta">C / R / V</th>
+                  <th className="p-2 whitespace-nowrap" title="C = Compra · R = Recojo · V = Venta">Fechas (C/R/V)</th>
                   <th className="w-56 min-w-56 p-2">Tracking</th>
-                  <th className="p-2">Fotos Es</th>
-                  <th className="p-2">Acciones</th>
+                  <th className="p-2">Fotos Eshopex</th>
+                  <th className="p-2 ux-sticky-right ux-sticky-right--venta">Venta</th>
+                  <th className="p-2 ux-sticky-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -3238,29 +3227,22 @@ const confirmAction = async () => {
 
 
 
-                    <td className="p-2 font-mono font-semibold text-gray-800 select-all">
-                      {displayProductCode(p) ?? '-'}
+                    <td className={`p-2 font-mono font-semibold text-gray-800 select-all whitespace-nowrap ${selectMode ? '' : 'ux-sticky-left'}`}>
+                      MS-{displayProductCode(p) ?? '-'}
                     </td>
                     <td className="p-2">
                       <button
                         onClick={(e) => { e.stopPropagation(); if (!guardando) abrirDetalle(p); }}
-                        className={`rounded bg-gray-200 px-2 py-1 hover:bg-gray-300 ${String(p.tipo).toLowerCase() === 'accesorios' ? 'text-center' : 'text-left'} ${guardando ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        className={`ux-product-name ${guardando ? 'opacity-60 cursor-not-allowed' : ''}`}
                         disabled={guardando}
                       >
-                        {guardando ? 'Guardando...' : String(p.tipo).toLowerCase() === 'accesorios' ? (
-                          <>
-                            <span className="block">{accessoryTypeLabel(p)}</span>
-                            <span className="mt-0.5 block whitespace-nowrap text-[11px] font-semibold text-indigo-700">
-                              {Number(p.stockActual || 0)} U
-                            </span>
-                          </>
-                        ) : (normalizeProductType(p.tipo) === 'watch'
-                          ? 'Watch'
-                          : (PRODUCT_TYPE_LABELS[normalizeProductType(p.tipo)] || p.tipo))}
+                        {guardando ? 'Guardando…' : buildNombreProducto(p)}
+                        <small>{[p.detalle?.almacenamiento, p.detalle?.ram ? p.detalle.ram + ' RAM' : ''].filter(Boolean).join(' · ')}</small>
+                        {String(p.tipo).toLowerCase() === 'accesorios' && <small>{accessoryTypeLabel(p)} · {Number(p.stockActual || 0)} unidades</small>}
                       </button>
 
                     </td>
-                    <td className="p-2">{p.estado}</td>
+                    <td className="p-2"><span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{PRODUCT_STATE_LABELS[p.estado] || p.estado}</span></td>
                     <td className="w-32 max-w-32 p-2 text-center align-middle">
                       {mainAccessories.length ? (
                         <div className="flex min-h-10 flex-wrap items-center justify-center gap-1.5 leading-4">
@@ -3272,17 +3254,21 @@ const confirmAction = async () => {
                         </div>
                       ) : '-'}
                     </td>
-                    <td className="p-2">{v.valorProducto != null ? `$ ${v.valorProducto}` : '-'}</td>
-                    <td className="p-2">{fmtSoles(v.valorSoles)}</td>
-                    <td className="p-2">{fmtSoles(v.costoEnvio)}</td>
-                    <td className="p-2">{fmtSoles(v.costoTotal)}</td>
+                    <td className="p-2 ux-money">
+                      <div className="text-sm font-semibold text-slate-900">{v.costoTotal == null ? '—' : formatDisplayMoney(v.costoTotal)}</div>
+                      <div className="mt-1 text-[11px] leading-4 text-slate-500">
+                        <div title="Precio del producto en dólares">{v.valorProducto != null ? formatDisplayMoney(v.valorProducto, 'USD') : '—'}</div>
+                        <div title="Precio del producto en soles">{v.valorSoles == null ? '—' : formatDisplayMoney(v.valorSoles)}</div>
+                        <div title="Costo de envío">Envío {v.costoEnvio == null ? '—' : formatDisplayMoney(v.costoEnvio)}</div>
+                      </div>
+                    </td>
                     <td className="p-2">
                       <button
                         onClick={(e) => { e.stopPropagation(); abrirCalculadora(p); }}
-                        className="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
-                        title="Calcular precio de venta"
+                        className="ux-button"
+                        title="Calcular a cuánto vender este producto"
                       >
-                        Calcular precio venta
+                        Calcular
                       </button>
 
                     </td>
@@ -3367,7 +3353,7 @@ const confirmAction = async () => {
                           <button
                             onClick={(e) => { if (!puedeVer) return; e.stopPropagation(); abrirFotos(p); }}
                             disabled={!puedeVer}
-                            className={`${puedeVer ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-300 text-gray-600 cursor-not-allowed'} px-2 py-1 rounded`}
+                            className={`ux-button ${puedeVer ? '' : 'opacity-50 cursor-not-allowed'}`}
                             title={puedeVer ? 'Ver fotos Eshopex' : 'Fotos no disponibles para este estado'}
                           >
                             Ver foto
@@ -3378,7 +3364,7 @@ const confirmAction = async () => {
 
 
                     {/* Venta */}
-                    <td className="p-2">
+                    <td className="p-2 ux-sticky-right ux-sticky-right--venta">
                       {(() => {
                         const t = getLastTracking(p);
                         const venta = ventasMap[p.id] || null;
@@ -3388,13 +3374,13 @@ const confirmAction = async () => {
                           && Number(p.stockActual || 0) > 0
                           && recogido;
 
-                        let text = 'En espera';
-                        let className = 'bg-gray-300 text-gray-600 cursor-not-allowed opacity-60';
+                        let text = 'Aún no llega';
+                        let className = 'bg-gray-100 text-gray-500 border border-gray-200 cursor-not-allowed';
                         let disabled = true;
 
                         if ((accessoryAvailable || recogido) && (accessoryAvailable || !venta) && !adelanto) {
-                          text = accessoryAvailable ? `Vender (${p.stockActual})` : 'Disponible';
-                          className = 'bg-yellow-500 text-white hover:bg-yellow-600';
+                          text = accessoryAvailable ? `Vender (${p.stockActual})` : 'Vender';
+                          className = 'bg-emerald-600 text-white font-semibold hover:bg-emerald-700';
                           disabled = false;
                         }
                         if (adelanto && !venta) {
@@ -3404,7 +3390,7 @@ const confirmAction = async () => {
                         }
                         if (venta) {
                           text = 'Vendido';
-                          className = 'bg-green-600 text-white hover:bg-green-700';
+                          className = 'bg-slate-100 text-slate-700 hover:bg-slate-200';
                           disabled = false;
                         }
 
@@ -3422,9 +3408,9 @@ const confirmAction = async () => {
                               }
                               abrirVenta(p);
                             }}
-                            className={`${className} px-3 py-1 rounded`}
+                            className={`${className} min-h-9 whitespace-nowrap px-3 py-1 rounded-lg text-sm`}
                             disabled={disabled}
-                            title={disabled ? 'A\u00fan no est\u00e1 recogido' : ''}
+                            title={disabled ? 'Se podr\u00e1 vender cuando el paquete se marque como recogido' : (venta ? 'Ver la venta registrada' : adelanto ? 'Ver el adelanto' : 'Registrar la venta')}
                           >
                             {text}
                           </button>
@@ -3433,20 +3419,27 @@ const confirmAction = async () => {
                     </td>
 
 
-                    <td className="p-2 space-x-1">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); abrirCostos(p); }}
-                        className="bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
-                      >
-                        Editar Costos
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                        className="bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
-                      >
-                        Borrar
-                      </button>
-
+                    <td className="p-2 ux-sticky-right">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); abrirCostos(p); }}
+                          className="ux-button ux-button--sm whitespace-nowrap"
+                          title="Editar precio, envío y otros costos"
+                        >
+                          <FiEdit2 aria-hidden="true" />
+                          Editar costos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
+                          className="ux-icon-button ux-icon-button--danger"
+                          title={`Borrar MS-${displayProductCode(p) ?? p.id}`}
+                          aria-label={`Borrar MS-${displayProductCode(p) ?? p.id}`}
+                        >
+                          <FiTrash2 aria-hidden="true" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   );
@@ -3455,23 +3448,43 @@ const confirmAction = async () => {
             </table>
           </div>
         ) : (
-          <p>
-            {soloDisponibles
-              ? 'No hay productos disponibles para venta.'
-              : soloVendidos
-                ? 'No hay productos vendidos.'
-                : soloAdelanto
-                  ? 'No hay productos con adelanto.'
-                  : soloEnCamino
-                    ? 'No hay productos en camino.'
-                    : soloEnEshopex
-                      ? 'No hay productos en eShopex.'
-                      : 'No hay productos a\u00fan.'}
-          </p>
+          <div className="ux-empty-state">
+            <p>
+              {soloDisponibles
+                ? 'No hay productos disponibles para venta.'
+                : soloVendidos
+                  ? 'No hay productos vendidos.'
+                  : soloAdelanto
+                    ? 'No hay productos con adelanto.'
+                    : soloEnCamino
+                      ? 'No hay productos en camino.'
+                      : soloEnEshopex
+                        ? 'No hay productos en Eshopex.'
+                        : hayFiltrosActivos
+                          ? 'Ning\u00fan producto coincide con la b\u00fasqueda o los filtros.'
+                          : 'No hay productos a\u00fan.'}
+            </p>
+            {hayFiltrosActivos && (
+              <button type="button" className="ux-button" onClick={limpiarFiltros}>Ver todos los productos</button>
+            )}
+          </div>
         )
       )}
 
       
+      <div id="product-context" className="ux-secondary-panels" style={{ scrollMarginTop: 80 }}>
+        <Disclosure title="Resumen económico" description="Compras, envío, DEC, ventas y ganancia acumulada.">
+          <div className="ux-financial-stats">
+            {[
+              ['Total comprado · USD', totals.totalGastadoUSD], ['Total envío · PEN', totals.totalEnvioSoles],
+              ['Total DEC · USD', totals.totalDecUSD], ['Total costo · PEN', totals.totalCostoSoles],
+              ['Total venta · PEN', totals.totalVentaSoles], ['Ganancia total · PEN', totals.gananciaSoles],
+            ].map(([title, value]) => <StatCard key={title} title={title} value={value} loading={(cargando && !productos.length) || cargandoResumenAnio} />)}
+          </div>
+        </Disclosure>
+        <Disclosure title="Ventas recibidas del catálogo" description="Revisa las operaciones antes de confirmarlas en Servicios."><CatalogSalesPending /></Disclosure>
+      </div>
+
             {recojoOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-start sm:items-center justify-center z-50 overflow-y-auto p-2 sm:p-4">
           <div className="bg-white w-full max-w-4xl rounded-xl shadow-lg p-4 sm:p-6 relative max-h-[95dvh] sm:max-h-[92dvh] overflow-hidden flex flex-col">
