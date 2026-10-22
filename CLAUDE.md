@@ -1,0 +1,3 @@
+# Planificación con índice compartido
+
+Para explorar: `npm --prefix .. run index:query -- <funcionalidad-o-símbolo> --relations --limit 8`. Complementar la planificación existente con [indexed-planning](../.claude/skills/indexed-planning/SKILL.md). Leer fragmentos actuales y entregar a Codex archivos, símbolos, relaciones y pruebas afectadas; Codex debe revalidarlos. Para cambios triviales con archivo conocido, ir directamente al archivo o usar `rg`, sin cargar mapas completos. Tras editar: `npm --prefix .. run index:update`. El índice es una ayuda local de navegación y excluye secretos. Guía bajo demanda: [CODE_INDEX](../docs/CODE_INDEX.md).

@@ -1,0 +1,3 @@
+# Navegación compartida
+
+Para explorar antes de implementar: `npm --prefix .. run index:query -- <símbolo-o-funcionalidad> --relations --limit 8`. Consultar la Skill complementaria [indexed-implementation](../.agents/skills/indexed-implementation/SKILL.md) cuando sea útil; preservar las Skills existentes. Leer el código actual localizado y consumidores afectados antes de modificar. Para cambios triviales con archivo conocido, abrirlo o usar `rg` directamente, sin cargar documentación completa. Después de editar: `npm --prefix .. run index:update` y pruebas pertinentes. El índice compartido vive en `../.code-index`, es solo ayuda de navegación y excluye secretos. Guía bajo demanda: [CODE_INDEX](../docs/CODE_INDEX.md). Preservar cambios previos del usuario.
