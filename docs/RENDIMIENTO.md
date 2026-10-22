@@ -1,0 +1,11 @@
+# Fase 6: cargas compartidas y menos cascadas
+
+- `src/services/productosStore.js`: una lista en memoria, timestamp, promesa compartida, suscripcion e invalidacion. `App`, `Home` y `Productos` consumen el store. Los cambios de productos y de sesion invalidan los resultados, incluso si una peticion antigua sigue en vuelo.
+- `Productos`: volver a la vista antes de 60 segundos reutiliza la lista. Las ventas y reservas dependen de una firma estable de IDs y de eventos de escritura. Las rutas sin IDs evitan URLs largas; el servidor filtra productos archivados.
+- `GastosPanel`: un POST de resumen para todos los adelantos, con dependencia en los IDs y recarga por eventos de Gastos. Usa el cliente HTTP comun y no recarga Gastos despues de consultar reservas. Prueba de apertura con tres reservas: cinco GET y un POST; ningun GET individual de reserva.
+- `api.js`: cache GET optativa por `maxAgeMs`, aislamiento por sesion/cabeceras, limpieza al autenticar/cerrar sesion y en eventos de cambios. Mantiene deduplicacion en vuelo. `signal` usa una peticion independiente para que cancelar un consumidor no cancele a los demas. Timeout predeterminado 30 segundos, configurable; la carga externa de Eshopex permite cinco minutos.
+- `storageEvents.js`: eventos `storage` entre pestanas y evento propio para escrituras del mismo documento. Sin sondeos de JSON de productos. El progreso Eshopex usa un unico sondeo de 700 ms mientras haya carga, se pausa con pestana oculta y en Productos con vista inactiva. La liberacion de vistas usa vencimientos, sin un setState periodico.
+- `Ganancias`: consulta la union de los rangos activos para conservar filtros independientes de cada vendedor. Si se seleccionan todos los anios, sigue siendo necesario consultar todo el historico; no se reemplazo por una analitica que cambie los calculos.
+- El importador masivo usa `React.lazy` y `Suspense`. `scripts/build.cjs` fija `GENERATE_SOURCEMAP=false`; se comprobo que el build no contiene archivos `.map`.
+
+Verificacion de esta fase: 320 pruebas en 53 suites, y build de produccion correcto. No se midio la red autenticada de produccion. Los objetivos de latencia dependen tambien de ubicar Koyeb y Neon en la misma region.

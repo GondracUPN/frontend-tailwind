@@ -1,7 +1,7 @@
 import VentaResolutionModal from '../components/VentaResolutionModal';
 import { accessoryProfitRows } from '../utils/accessoryProfitRows';
 // src/pages/Ganancias.js
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActionButton, PageHeader, StatCard, LoadingState, ErrorState, formatDisplayMoney } from '../components/ui/VisualUI';
 import api from '../api';
 import ModalVenta from '../components/ModalVenta';
@@ -33,9 +33,9 @@ const SPLIT_SHARE = 0.5;
 const CACHE_KEY = 'ganancias:cache:v2';
 const CACHE_TTL_MS = 2 * 60 * 1000;
 
-const readCache = () => {
+const readCache = (range = '') => {
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
+    const raw = localStorage.getItem(`${CACHE_KEY}:${range}`);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed?.ts) return null;
@@ -46,10 +46,10 @@ const readCache = () => {
   }
 };
 
-const writeCache = (ventas) => {
+const writeCache = (ventas, range = '') => {
   try {
     localStorage.setItem(
-      CACHE_KEY,
+      `${CACHE_KEY}:${range}`,
       JSON.stringify({ ts: Date.now(), ventas: Array.isArray(ventas) ? ventas : [] }),
     );
   } catch {
@@ -195,12 +195,19 @@ export default function Ganancias({ setVista }) {
   // Modales
   const [sellerSunat, setSellerSunat] = useState(null);   // 'Gonzalo' | 'Renato' | null
 
-  // Carga TODAS las ventas
+  const requestNumber = useRef(0);
+  // La union conserva los filtros independientes de los tres paneles.
+  const ranges = [[mesGlobal, anioGlobal], [mesGonzalo, anioGonzalo], [mesRenato, anioRenato]].map(([month, year]) => rangoFromMesAnio(month, year));
+  const ventasPath = ranges.some((range) => !range) ? '/ventas' : `/ventas?from=${ranges.map((range) => range.from).sort()[0]}&to=${ranges.map((range) => range.to).sort().slice(-1)[0]}`;
+
+  // Carga la union de los rangos visibles
   const fetchVentas = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     setLoadError('');
+    const requestId = ++requestNumber.current;
     try {
-      const data = await api.get('/ventas'); // idealmente con producto + valor
+      const data = await api.get(ventasPath);
+      if (requestId !== requestNumber.current) return;
       const list = (Array.isArray(data) ? data : []).map(normalizeAccessorySale);
       list.sort(
         (a, b) =>
@@ -208,18 +215,19 @@ export default function Ganancias({ setVista }) {
           new Date(a.fechaVenta || a.createdAt || 0)
       );
       setVentas(list);
-      writeCache(list);
+      writeCache(list, ventasPath);
     } catch (e) {
+      if (requestId !== requestNumber.current) return;
       console.error('[Ganancias] Error cargando ventas:', e);
       setLoadError('No se pudieron cargar las ventas. Intenta actualizar la página.');
       if (!silent) setVentas([]);
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && requestId === requestNumber.current) setLoading(false);
     }
-  }, []);
+  }, [ventasPath]);
 
   useEffect(() => {
-    const cached = readCache();
+    const cached = readCache(ventasPath);
     if (cached && cached.length) {
       setVentas(cached.map(normalizeAccessorySale));
       setLoading(false);
@@ -227,7 +235,7 @@ export default function Ganancias({ setVista }) {
     } else {
       fetchVentas();
     }
-  }, [fetchVentas]);
+  }, [fetchVentas, ventasPath]);
 
   useEffect(() => {
     const handleSalesUpdated = (event) => {
@@ -246,7 +254,7 @@ export default function Ganancias({ setVista }) {
               new Date(b.fechaVenta || b.createdAt || 0) -
               new Date(a.fechaVenta || a.createdAt || 0)
           );
-          writeCache(next);
+          writeCache(next, ventasPath);
           return next;
         });
       }
@@ -261,7 +269,7 @@ export default function Ganancias({ setVista }) {
       window.removeEventListener('ventas-updated', handleSalesUpdated);
       window.removeEventListener('app-view-activated', handleViewActivated);
     };
-  }, [fetchVentas]);
+  }, [fetchVentas, ventasPath]);
 
   // Global
   const rangoGlobal = useMemo(

@@ -1,11 +1,10 @@
 import VentaResolutionModal from '../components/VentaResolutionModal';
-import React, { useEffect, useMemo, useState } from 'react';
-import api, { API_URL } from '../api';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import api from '../api';
 import EditarIngresoVenta from '../components/ventas/EditarIngresoVenta';
 
 import ModalGastoDebito from '../components/ModalGastoDebito';
 import ModalGastoCredito from '../components/ModalGastoCredito';
-import ModalGastoCreditoMasivo from '../components/ModalGastoCreditoMasivo';
 import ModalTarjetas from '../components/ModalTarjetas';
 import ModalCuotasYGastos from '../components/ModalCuotasYGastos';
 import ModalEditarGasto from '../components/ModalEditarGasto';
@@ -24,6 +23,9 @@ import { notifySalesChanged } from '../utils/salesSync';
 import { hideMonthlyExpense } from '../utils/monthlyExpenses';
 import { getPending500 } from '../utils/pending500';
 import { buildExtraDebts } from '../utils/extraDebts';
+
+const ModalGastoCreditoMasivo = lazy(() => import('../components/ModalGastoCreditoMasivo'));
+
 
   const fmtMoney = (moneda, monto) => {
   const n = Number(monto);
@@ -233,14 +235,19 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   const [editingSaleId, setEditingSaleId] = useState(null);
   const [editingAdvance, setEditingAdvance] = useState(null);
   const [advanceDetails, setAdvanceDetails] = useState({});
+  const advanceIdsSignature = [...new Set(rows.map((row) => String(row.notas || '').match(/^__SALE_ADVANCE__:(\d+):/)?.[1]).filter(Boolean))].sort((a, b) => Number(a) - Number(b)).join(',');
   useEffect(() => {
     let current = true;
-    const ids = [...new Set(rows.map((row) => String(row.notas || '').match(/^__SALE_ADVANCE__:(\d+):/)?.[1]).filter(Boolean))];
-    Promise.all(ids.map(async (id) => {
-      try { return [id, await api.get(`/ventas/adelanto/${id}`)]; } catch { return [id, null]; }
-    })).then((entries) => { if (current) setAdvanceDetails(Object.fromEntries(entries)); });
-    return () => { current = false; };
-  }, [rows]);
+    const loadDetails = () => {
+      if (!advanceIdsSignature) { setAdvanceDetails({}); return; }
+      api.post('/ventas/adelantos/resumen', { ids: advanceIdsSignature.split(',').map(Number) })
+        .then((data) => { if (current) setAdvanceDetails(Object.fromEntries((Array.isArray(data) ? data : []).map((row) => [String(row.id), row]))); })
+        .catch(() => {});
+    };
+    loadDetails();
+    const unsubscribe = subscribeGastosChanges(loadDetails);
+    return () => { current = false; unsubscribe(); };
+  }, [advanceIdsSignature]);
   const [debitConceptFilter, setDebitConceptFilter] = useState('all');
   const [debitPaymentCardFilter, setDebitPaymentCardFilter] = useState('all');
   const [creditCardFilter, setCreditCardFilter] = useState('all');
@@ -436,30 +443,13 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         ? `?userId=${encodeURIComponent(String(targetUserId))}`
         : '';
 
-      const gastosUrl = isAdmin ? `${API_URL}/gastos/all${userIdParam}` : `${API_URL}/gastos`;
-      const cardsUrl = isAdmin && userIdParam ? `${API_URL}/cards/summary-by-user${userIdParam}` : `${API_URL}/cards/summary`;
-      const walletUrl = `${API_URL}/wallet${userIdParam}`;
-
-      const gastosPromise = shouldLoadGastos
-        ? fetch(gastosUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } })
-        : Promise.resolve(null);
-
-      const [gRes, cRes, wRes, conceptsRes] = await Promise.all([
-        gastosPromise,
-        fetch(cardsUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
-        fetch(walletUrl, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/catalog/expense-concepts`, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }).catch(() => null),
-      ]);
-
-      if (shouldLoadGastos && gRes && !gRes.ok) throw new Error(`GET ${gastosUrl} -> ${await gRes.text()}`);
-      if (!cRes.ok) throw new Error(`GET ${cardsUrl} -> ${await cRes.text()}`);
-      if (!wRes.ok) throw new Error(`GET ${walletUrl} -> ${await wRes.text()}`);
-
+      const gastosUrl = isAdmin ? `/gastos/all${userIdParam}` : '/gastos';
+      const cardsUrl = isAdmin && userIdParam ? `/cards/summary-by-user${userIdParam}` : '/cards/summary';
+      const walletUrl = `/wallet${userIdParam}`;
       const [gData, cData, wData, conceptsData] = await Promise.all([
-        shouldLoadGastos && gRes ? gRes.json() : Promise.resolve(null),
-        cRes.json(),
-        wRes.json(),
-        conceptsRes?.ok ? conceptsRes.json() : Promise.resolve([]),
+        shouldLoadGastos ? api.get(gastosUrl) : Promise.resolve(null),
+        api.get(cardsUrl), api.get(walletUrl),
+        api.get('/catalog/expense-concepts', { maxAgeMs: 60_000 }).catch(() => []),
       ]);
 
       const nextRows = shouldLoadGastos && gData ? sortRows(Array.isArray(gData) ? gData : []) : rows;
@@ -542,13 +532,10 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
   useEffect(() => {
     if (!token) return undefined;
     let active = true;
-    fetch(`${API_URL}/ventas/adelantos/ultimos`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((response) => response.ok ? response.json() : [])
+    api.get('/ventas/adelantos/ultimos')
       .then((data) => {
         if (!active) return;
         setActiveAdelantos(Array.isArray(data) ? data : []);
-        // La consulta concilia adelantos antiguos; recargar incorpora sus ingresos por fecha.
-        reloadAll({ includeGastos: true, useCache: false, silent: true });
       })
       .catch(() => { if (active) setActiveAdelantos([]); });
     return () => { active = false; };
@@ -596,10 +583,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       const [analytics, adelantosData] = targetSellerSlug
         ? await Promise.all([
             getAnalyticsSummary({ vendedor: targetSellerSlug }),
-            fetch(`${API_URL}/ventas/adelantos/ultimos`, {
-              headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-            })
-              .then((res) => (res.ok ? res.json() : []))
+            api.get('/ventas/adelantos/ultimos')
               .catch(() => []),
           ])
         : [null, []];
@@ -781,9 +765,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
     if (!g?.id) return;
     if (!window.confirm('Eliminar este gasto?')) return;
     try {
-      const t = localStorage.getItem('token');
-      const res = await fetch(`${API_URL}/gastos/${g.id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` } });
-      if (!res.ok) throw new Error(await res.text());
+      await api.del(`/gastos/${g.id}`);
       hideMonthlyExpense(g);
       setRows((prev) => prev.filter((r) => r.id !== g.id));
       notifyGastosChanged({ action: 'delete', userId: targetUserId, gastoId: g.id });
@@ -1267,6 +1249,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
         />
       )}
       {showCreBulk && (
+        <Suspense fallback={<div role="status">Cargando importador...</div>}>
         <ModalGastoCreditoMasivo
           userId={targetUserId}
           existingRows={rows}
@@ -1279,8 +1262,10 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
             reloadAll({ includeGastos: true, useCache: false, silent: true });
           }}
         />
+        </Suspense>
       )}
       {showDebBulk && (
+        <Suspense fallback={<div role="status">Cargando importador...</div>}>
         <ModalGastoCreditoMasivo
           mode="debito"
           userId={targetUserId}
@@ -1293,6 +1278,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
             reloadAll({ includeGastos: true, useCache: false, silent: true });
           }}
         />
+        </Suspense>
       )}
       {showTar && (
         <ModalTarjetas

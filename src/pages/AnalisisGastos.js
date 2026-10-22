@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { API_URL } from '../api';
+import api from '../api';
+import { getProductos } from '../services/productosStore';
 import LoginGastos from './LoginGastos';
 import { buildExpenseConceptCategoryMap, isCardPaymentExpenseConcept, isIncomeExpenseConcept, isInvestmentExpenseConcept, isLifeExpenseConcept } from '../utils/expenseConcepts';
 import { notifyGastosChanged, subscribeGastosChanges } from '../utils/gastosSync';
@@ -144,39 +145,21 @@ export default function AnalisisGastos({ setVista }) {
       try {
         setErr('');
         if (showInitialLoading) setLoading(true);
-        const token = session.token;
         const user = sessionUser || readSessionUser();
         const isAdmin = user?.role === 'admin';
         const targetId = targetUser?.id || user?.id;
         const userIdParam = isAdmin && targetId ? `?userId=${encodeURIComponent(String(targetId))}` : '';
-        const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
-        const gastosUrl = isAdmin ? `${API_URL}/gastos/all${userIdParam}` : `${API_URL}/gastos`;
-        // Se cargan todas las ventas para que el bruto coincida con Ganancias.
-        const ventasUrl = `${API_URL}/ventas`;
-
-        const [resGastos, resVentas, resProductos, resConcepts, resBolsa] = await Promise.all([
-          fetch(gastosUrl, { headers }),
-          fetch(ventasUrl, { headers }),
-          fetch(`${API_URL}/productos`, { headers }),
-          fetch(`${API_URL}/catalog/expense-concepts`, { headers }).catch(() => null),
-          fetch(`${API_URL}/gastos/bolsa-registro${userIdParam}`, { headers }),
+        const gastosUrl = isAdmin ? `/gastos/all${userIdParam}` : '/gastos';
+        const [dataGastos, dataVentas, dataProductos, dataConcepts, dataBolsa] = await Promise.all([
+          api.get(gastosUrl), api.get('/ventas'), getProductos(),
+          api.get('/catalog/expense-concepts', { maxAgeMs: 60_000 }).catch(() => []),
+          api.get(`/gastos/bolsa-registro${userIdParam}`),
         ]);
-        if (!resGastos.ok) throw new Error(`GET ${gastosUrl} -> ${await resGastos.text()}`);
-        if (!resVentas.ok) throw new Error(`GET ${ventasUrl} -> ${await resVentas.text()}`);
-        if (!resProductos.ok) throw new Error(`GET ${API_URL}/productos -> ${await resProductos.text()}`);
-        if (!resBolsa.ok) throw new Error(`GET bolsa-registro -> ${await resBolsa.text()}`);
-
-        const [dataGastos, dataVentas, dataProductos, dataBolsa] = await Promise.all([resGastos.json(), resVentas.json(), resProductos.json(), resBolsa.json()]);
         setRows(Array.isArray(dataGastos) ? dataGastos : []);
         setVentas(Array.isArray(dataVentas) ? dataVentas : []);
         setProductos(Array.isArray(dataProductos) ? dataProductos : []);
         setBolsaRecords(Array.isArray(dataBolsa) ? dataBolsa : []);
-        if (resConcepts?.ok) {
-          const dataConcepts = await resConcepts.json();
-          setConceptCategories(buildExpenseConceptCategoryMap(dataConcepts));
-        } else {
-          setConceptCategories({});
-        }
+        setConceptCategories(buildExpenseConceptCategoryMap(dataConcepts));
       } catch (e) {
         console.error('[AnalisisGastos] load error', e);
         setErr('No se pudo cargar los gastos y ventas.');
@@ -628,26 +611,13 @@ export default function AnalisisGastos({ setVista }) {
     try {
       setBolsaSaving(true);
       setBolsaError('');
-      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` };
       const isAdmin = sessionUser?.role === 'admin';
       const targetId = targetUser?.id || sessionUser?.id;
       const userIdParam = isAdmin && targetId ? `?userId=${encodeURIComponent(String(targetId))}` : '';
-      const response = await fetch(`${API_URL}/gastos/bolsa-registro${userIdParam}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          month,
-          amount: Number(amount.toFixed(2)),
-          hapiAmount: Number(hapiAmount.toFixed(2)),
-          triiAmount: Number(triiAmount.toFixed(2)),
-          date: bolsaPaymentDate,
-        }),
+      const saved = await api.post(`/gastos/bolsa-registro${userIdParam}`, {
+        month, amount: Number(amount.toFixed(2)), hapiAmount: Number(hapiAmount.toFixed(2)),
+        triiAmount: Number(triiAmount.toFixed(2)), date: bolsaPaymentDate,
       });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.message || 'No se pudo registrar la inversión.');
-      }
-      const saved = await response.json();
       setBolsaRecords((previous) => [saved, ...previous.filter((record) => record.month !== saved.month)]);
       notifyGastosChanged({ action: 'bolsa-upsert', userId: targetUser?.id || sessionUser?.id, month });
       setShowBolsaModal(false);
@@ -665,24 +635,16 @@ export default function AnalisisGastos({ setVista }) {
     try {
       setBolsaSaving(true);
       setBolsaError('');
-      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` };
       const isAdmin = sessionUser?.role === 'admin';
       const targetId = targetUser?.id || sessionUser?.id;
       const userIdParam = isAdmin && targetId ? `?userId=${encodeURIComponent(String(targetId))}` : '';
       // Un gasto Bolsa se ignora mediante un valor interno en cero; el gasto
       // original permanece intacto. Sin gasto vinculado, se borra sólo este registro.
       if (bolsaProjection.expenseActual > 0) {
-        const response = await fetch(`${API_URL}/gastos/bolsa-registro${userIdParam}`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ month, amount: 0, date: bolsaPaymentDate }),
-        });
-        if (!response.ok) throw new Error('No se pudo retirar la inversión de Análisis.');
-        const saved = await response.json();
+        const saved = await api.post(`/gastos/bolsa-registro${userIdParam}`, { month, amount: 0, date: bolsaPaymentDate });
         setBolsaRecords((previous) => [saved, ...previous.filter((record) => record.month !== month)]);
       } else {
-        const response = await fetch(`${API_URL}/gastos/bolsa-registro/${encodeURIComponent(month)}${userIdParam}`, { method: 'DELETE', headers });
-        if (!response.ok) throw new Error('No se pudo retirar el registro interno de la inversión.');
+        await api.del(`/gastos/bolsa-registro/${encodeURIComponent(month)}${userIdParam}`);
         setBolsaRecords((previous) => previous.filter((record) => record.month !== month));
       }
       notifyGastosChanged({ action: 'bolsa-withdraw', userId: targetUser?.id || sessionUser?.id, month });

@@ -23,6 +23,7 @@ export default function LoginGastos({ onLoggedIn, onBack }) {
       if (!token || !user) throw new Error('Respuesta inválida');
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
+      window.dispatchEvent(new Event('auth:changed'));
       await onLoggedIn?.(user, token);
     } catch (err) {
       console.error('[login] error:', err);

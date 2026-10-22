@@ -1,3 +1,5 @@
+import { getProductos, subscribeProductos } from './services/productosStore';
+import { setStoredValue, removeStoredValue, subscribeStorage, subscribePolling } from './utils/storageEvents';
 import { notifySalesChanged } from './utils/salesSync';
 import React, { Suspense, lazy, useState, useEffect, useMemo, useRef } from 'react';
 import Home from './pages/Home';
@@ -222,7 +224,7 @@ const writeProductosCache = (productos) => {
   try {
     const raw = localStorage.getItem(PRODUCTOS_CACHE_KEY);
     const prev = raw ? JSON.parse(raw) : {};
-    localStorage.setItem(
+    setStoredValue(
       PRODUCTOS_CACHE_KEY,
       JSON.stringify({
         ...prev,
@@ -364,7 +366,7 @@ const migratePersonalEshopexLocalStorage = async (current = []) => {
       return code && !existing.has(code);
     });
     if (!pending.length) {
-      localStorage.removeItem(legacyKey);
+      removeStoredValue(legacyKey);
       return current;
     }
     const results = await Promise.allSettled(
@@ -393,7 +395,7 @@ const migratePersonalEshopexLocalStorage = async (current = []) => {
     const saved = results
       .filter((result) => result.status === 'fulfilled')
       .map((result) => result.value);
-    if (saved.length === pending.length) localStorage.removeItem(legacyKey);
+    if (saved.length === pending.length) removeStoredValue(legacyKey);
     return [...saved, ...(current || [])];
   } catch {
     return current;
@@ -476,7 +478,7 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     try {
-      localStorage.removeItem('vista');
+      removeStoredValue('vista');
     } catch {
       /* ignore */
     }
@@ -515,21 +517,11 @@ function AuthenticatedApp() {
   }, []);
 
   useEffect(() => {
-    const handleProductUpdated = (event) => {
-      const updated = event?.detail?.producto;
-      const deletedId = Number(event?.detail?.deletedId || 0);
-      if (!updated?.id && !deletedId) return;
-      setProductosGlobal((current) => {
-        const exists = updated?.id && current.some((item) => item.id === updated.id);
-        const next = deletedId
-          ? current.filter((item) => item.id !== deletedId)
-          : (exists ? current.map((item) => item.id === updated.id ? updated : item) : [updated, ...current]);
-        writeProductosCache(next);
-        return next;
-      });
-    };
+    const unsubscribe = subscribeProductos((list) => setProductosGlobal((current) => current === list ? current : list));
+    const handleProductUpdated = () => { getProductos().catch(() => {}); };
     window.addEventListener('productos-updated', handleProductUpdated);
-    return () => window.removeEventListener('productos-updated', handleProductUpdated);
+    window.addEventListener('auth:changed', handleProductUpdated);
+    return () => { unsubscribe(); window.removeEventListener('productos-updated', handleProductUpdated); window.removeEventListener('auth:changed', handleProductUpdated); };
   }, []);
 
   useEffect(() => {
@@ -538,7 +530,7 @@ function AuthenticatedApp() {
     if (cached) setProductosGlobal(cached);
     (async () => {
       try {
-        const data = await api.get('/productos');
+        const data = await getProductos();
         if (!alive) return;
         const list = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
         setProductosGlobal(list);
@@ -564,30 +556,33 @@ function AuthenticatedApp() {
   }, [vista]);
 
   useEffect(() => {
+    document.documentElement.dataset.activeView = vista;
     window.dispatchEvent(new CustomEvent('app-view-activated', { detail: { view: vista } }));
   }, [vista]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
+    let timer;
+    const releaseExpiredViews = () => {
+      clearTimeout(timer);
+      if (document.hidden) return;
       const now = Date.now();
-      setKeptVistas((prev) => {
-        let changed = false;
-        const next = { ...prev };
-        Object.keys(next).forEach((key) => {
-          if (key !== vista && now - Number(next[key] || 0) > PAGE_KEEP_ALIVE_TTL_MS) {
-            delete next[key];
-            changed = true;
-          }
-        });
-        return changed ? next : prev;
-      });
-    }, 60 * 1000);
-    return () => window.clearInterval(timer);
-  }, [vista]);
+      const inactive = Object.entries(keptVistas).filter(([key]) => key !== vista);
+      const expired = inactive.filter(([, timestamp]) => now - Number(timestamp) > PAGE_KEEP_ALIVE_TTL_MS).map(([key]) => key);
+      if (expired.length) {
+        setKeptVistas((previous) => Object.fromEntries(Object.entries(previous).filter(([key]) => !expired.includes(key))));
+      } else if (inactive.length) {
+        const deadline = Math.min(...inactive.map(([, timestamp]) => Number(timestamp) + PAGE_KEEP_ALIVE_TTL_MS));
+        timer = setTimeout(releaseExpiredViews, Math.max(1, deadline - now + 1));
+      }
+    };
+    releaseExpiredViews();
+    document.addEventListener('visibilitychange', releaseExpiredViews);
+    return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', releaseExpiredViews); };
+  }, [vista, keptVistas]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(SIDEBAR_HIDDEN_KEY, sidebarHidden ? '1' : '0');
+      setStoredValue(SIDEBAR_HIDDEN_KEY, sidebarHidden ? '1' : '0');
     } catch {
       /* ignore */
     }
@@ -621,13 +616,13 @@ function AuthenticatedApp() {
       const cached = localStorage.getItem(ESHOPEX_CARGA_CACHE_KEY);
       const parsed = cached ? JSON.parse(cached) : null;
       hasCachedResult = !!parsed?.ts && Array.isArray(parsed?.rows);
-      if (hasCachedResult) localStorage.setItem(ESHOPEX_BG_REQUESTED_KEY, '1');
-      else localStorage.removeItem(ESHOPEX_BG_REQUESTED_KEY);
-      localStorage.removeItem(ESHOPEX_BG_TRIGGER_KEY);
-      localStorage.removeItem(ESHOPEX_BG_LOADING_KEY);
-      localStorage.removeItem(ESHOPEX_BG_ERROR_KEY);
-      localStorage.removeItem(ESHOPEX_BG_CONSUMED_KEY);
-      localStorage.removeItem(ESHOPEX_BG_OPEN_MODAL_KEY);
+      if (hasCachedResult) setStoredValue(ESHOPEX_BG_REQUESTED_KEY, '1');
+      else removeStoredValue(ESHOPEX_BG_REQUESTED_KEY);
+      removeStoredValue(ESHOPEX_BG_TRIGGER_KEY);
+      removeStoredValue(ESHOPEX_BG_LOADING_KEY);
+      removeStoredValue(ESHOPEX_BG_ERROR_KEY);
+      removeStoredValue(ESHOPEX_BG_CONSUMED_KEY);
+      removeStoredValue(ESHOPEX_BG_OPEN_MODAL_KEY);
     } catch {
       /* ignore */
     }
@@ -655,26 +650,26 @@ function AuthenticatedApp() {
       const count = pendingFromRows(cachedRows, products, personalEshopexGlobal).length;
       if (!hasPendingTrigger && loadingRaw) {
         try {
-          localStorage.setItem(ESHOPEX_BG_LOADING_KEY, '0');
+          setStoredValue(ESHOPEX_BG_LOADING_KEY, '0');
         } catch {
           /* ignore */
         }
       }
-      setEshopexUi({ requested, loading, error, count: Math.max(0, count) });
+      const next = { requested, loading, error, count: Math.max(0, count) };
+      setEshopexUi((previous) => Object.keys(next).every((key) => previous[key] === next[key]) ? previous : next);
     };
 
-    const timer = window.setInterval(readUi, 1000);
     readUi();
-    return () => window.clearInterval(timer);
+    return subscribeStorage(readUi);
   }, [personalEshopexGlobal, productosGlobal]);
 
   const triggerEshopexBg = () => {
     const nowTs = Date.now();
     try {
-      localStorage.setItem(ESHOPEX_BG_REQUESTED_KEY, '1');
-      localStorage.setItem(ESHOPEX_BG_TRIGGER_KEY, String(nowTs));
-      localStorage.setItem(ESHOPEX_BG_LOADING_KEY, '1');
-      localStorage.removeItem(ESHOPEX_BG_ERROR_KEY);
+      setStoredValue(ESHOPEX_BG_REQUESTED_KEY, '1');
+      setStoredValue(ESHOPEX_BG_TRIGGER_KEY, String(nowTs));
+      setStoredValue(ESHOPEX_BG_LOADING_KEY, '1');
+      removeStoredValue(ESHOPEX_BG_ERROR_KEY);
     } catch {
       /* ignore */
     }
@@ -720,18 +715,18 @@ function AuthenticatedApp() {
 
       inFlight = true;
       try {
-        localStorage.setItem(ESHOPEX_BG_LOADING_KEY, '1');
-        localStorage.removeItem(ESHOPEX_BG_ERROR_KEY);
+        setStoredValue(ESHOPEX_BG_LOADING_KEY, '1');
+        removeStoredValue(ESHOPEX_BG_ERROR_KEY);
       } catch {
         /* ignore */
       }
 
       try {
-        const data = await api.get('/tracking/eshopex-carga?refresh=1');
+        const data = await api.get('/tracking/eshopex-carga?refresh=1', { timeoutMs: 300_000 });
         if (!alive) return;
         const rows = Array.isArray(data) ? data : (data?.data || []);
         try {
-          localStorage.setItem(
+          setStoredValue(
             ESHOPEX_CARGA_CACHE_KEY,
             JSON.stringify({ ts: Date.now(), rows: Array.isArray(rows) ? rows : [] }),
           );
@@ -742,7 +737,7 @@ function AuthenticatedApp() {
         // Refrescamos solo nuestros datos locales; esto no consulta Eshopex otra vez.
         try {
           const [productsData, personalData] = await Promise.all([
-            api.get('/productos'),
+            getProductos({ maxAgeMs: 0 }),
             api.get('/productos/personal-eshopex'),
           ]);
           if (alive) {
@@ -766,7 +761,7 @@ function AuthenticatedApp() {
       } catch (e) {
         if (!alive) return;
         try {
-          localStorage.setItem(ESHOPEX_BG_ERROR_KEY, 'No se pudo cargar la informacion de Eshopex.');
+          setStoredValue(ESHOPEX_BG_ERROR_KEY, 'No se pudo cargar la informacion de Eshopex.');
         } catch {
           /* ignore */
         }
@@ -774,21 +769,17 @@ function AuthenticatedApp() {
         inFlight = false;
         if (!alive) return;
         try {
-          localStorage.setItem(ESHOPEX_BG_CONSUMED_KEY, String(trigger));
-          localStorage.setItem(ESHOPEX_BG_LOADING_KEY, '0');
+          setStoredValue(ESHOPEX_BG_CONSUMED_KEY, String(trigger));
+          setStoredValue(ESHOPEX_BG_LOADING_KEY, '0');
         } catch {
           /* ignore */
         }
       }
     };
 
-    const timer = window.setInterval(run, 1500);
+    const unsubscribe = subscribeStorage(run);
     run();
-
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
+    return () => { alive = false; unsubscribe(); };
   }, []);
 
   useEffect(() => {
@@ -796,13 +787,12 @@ function AuthenticatedApp() {
     let alive = true;
     const sync = () => {
       setEshopexModalRows(readCachedCargaRows());
-      const cachedProductos = readProductosCache();
-      if (cachedProductos) setProductosGlobal(cachedProductos);
+
     };
     sync();
     (async () => {
       try {
-        const data = await api.get('/productos');
+        const data = await getProductos();
         if (!alive) return;
         const lista = Array.isArray(data)
           ? data
@@ -813,17 +803,15 @@ function AuthenticatedApp() {
         /* ignore */
       }
     })();
-    const timer = window.setInterval(sync, 1000);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
+    const unsubscribe = subscribeStorage(sync);
+    return () => { alive = false; unsubscribe(); };
   }, [eshopexModalOpen]);
 
   useEffect(() => {
     if (!eshopexUi.loading) return () => {};
     let alive = true;
     const pullProgress = async () => {
+      if (document.hidden) return;
       try {
         const data = await api.get('/tracking/eshopex-carga-progress');
         if (!alive) return;
@@ -832,12 +820,8 @@ function AuthenticatedApp() {
         /* ignore */
       }
     };
-    const timer = window.setInterval(pullProgress, 700);
-    pullProgress();
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
+    const stopPolling = subscribePolling(pullProgress, 700);
+    return () => { alive = false; stopPolling(); };
   }, [eshopexUi.loading]);
 
   const eshopexModalPendientes = useMemo(
@@ -865,7 +849,7 @@ function AuthenticatedApp() {
   useEffect(() => {
     const count = eshopexModalPendientes.length;
     try {
-      localStorage.setItem(ESHOPEX_BG_COUNT_KEY, String(count));
+      setStoredValue(ESHOPEX_BG_COUNT_KEY, String(count));
     } catch {
       /* ignore */
     }
@@ -947,7 +931,7 @@ function AuthenticatedApp() {
 
   const refreshProductosGlobal = async () => {
     try {
-      const data = await api.get('/productos');
+      const data = await getProductos({ maxAgeMs: 0 });
       const lista = Array.isArray(data)
         ? data
         : (Array.isArray(data?.items) ? data.items : []);

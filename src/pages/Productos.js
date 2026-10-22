@@ -1,3 +1,5 @@
+import { getProductos, subscribeProductos } from '../services/productosStore';
+import { setStoredValue, removeStoredValue, subscribeStorage, subscribePolling } from '../utils/storageEvents';
 // src/pages/Productos.js
 import React, { Suspense, lazy, useState, useEffect, useCallback, useRef } from 'react';
 import { ActionButton, PageHeader, StatCard, Disclosure, LoadingState, ErrorState, formatDisplayMoney } from '../components/ui/VisualUI';
@@ -50,7 +52,6 @@ export const purchaseYear = (product) => {
 export const onlyProducts = (items) => (Array.isArray(items) ? items : [])
   .filter((product) => !product?.soloInventario && !isLegacySimpleAccessory(product));
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos para revalidar
-let productosRequest = null;
 const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
 const ESHOPEX_BG_REQUESTED_KEY = 'eshopex-carga-requested';
 const ESHOPEX_BG_OPEN_MODAL_KEY = 'eshopex-carga-open-modal';
@@ -298,7 +299,7 @@ const readCache = () => {
 
 const writeCache = (productos, ventasMap, resumen, adelantosMap) => {
   try {
-    localStorage.setItem(
+    setStoredValue(
       CACHE_KEY,
       JSON.stringify({
         productos: onlyProducts(productos),
@@ -334,8 +335,9 @@ export const sellerDisplayParts = (value) => {
 };
 
 export default function Productos({ setVista, setAnalisisBack }) {
-  const cached = readCache();
+  const [cached] = useState(() => readCache());
   const [productos, setProductos] = useState(() => cached?.productos || []);
+  useEffect(() => subscribeProductos((list) => setProductos(onlyProducts(list))), []);
   const [resumen, setResumen] = useState(() => cached?.resumen || null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
@@ -374,23 +376,6 @@ export default function Productos({ setVista, setAnalisisBack }) {
 
   useEffect(() => {
     const handleSalesUpdated = (event) => {
-      if (event?.detail?.adelantoId) {
-        const ids = productosRef.current.map((product) => product.id).filter(Boolean);
-        if (ids.length) api.get(`/ventas/adelantos/ultimos?ids=${ids.join(',')}`).then((list) => {
-          const next = Object.fromEntries(ids.map((id) => [id, null]));
-          (Array.isArray(list) ? list : []).forEach((advance) => { next[advance.productoId] = advance; });
-          adelantosRef.current = next;
-          setAdelantosMap(next);
-          writeCache(productosRef.current, ventasRef.current, resumenRef.current, next);
-        }).catch(console.error);
-        api.get(`/ventas/ultimas?ids=${ids.join(',')}`).then((list) => {
-          const next = Object.fromEntries(ids.map((id) => [id, null]));
-          (Array.isArray(list) ? list : []).forEach((sale) => { next[sale.productoId] = sale; });
-          ventasRef.current = next;
-          setVentasMap(next);
-          writeCache(productosRef.current, next, resumenRef.current, adelantosRef.current);
-        }).catch(console.error);
-      }
       const venta = event?.detail?.venta;
       const productoId = Number(venta?.productoId || event?.detail?.productoId || 0);
       if (!productoId || !venta) return;
@@ -767,9 +752,9 @@ export default function Productos({ setVista, setAnalisisBack }) {
       error: null,
     }));
     try {
-      localStorage.setItem(ESHOPEX_BG_REQUESTED_KEY, '1');
-      localStorage.setItem(ESHOPEX_BG_TRIGGER_KEY, String(Date.now()));
-      localStorage.setItem('eshopex-carga-bg-loading', '1');
+      setStoredValue(ESHOPEX_BG_REQUESTED_KEY, '1');
+      setStoredValue(ESHOPEX_BG_TRIGGER_KEY, String(Date.now()));
+      setStoredValue('eshopex-carga-bg-loading', '1');
     } catch {
       /* ignore */
     }
@@ -1224,17 +1209,15 @@ const confirmAction = async () => {
       }
     };
     syncPersistedResult();
-    const timer = window.setInterval(syncPersistedResult, 750);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
+    const unsubscribe = subscribeStorage(syncPersistedResult);
+    return () => { alive = false; unsubscribe(); };
   }, [readEshopexCargaCache]);
 
   useEffect(() => {
     if (!eshopexCargaLoading) return () => {};
     let alive = true;
     const pullProgress = async () => {
+      if (document.hidden || (document.documentElement.dataset.activeView && document.documentElement.dataset.activeView !== 'productos')) return;
       try {
         const data = await api.get('/tracking/eshopex-carga-progress');
         if (!alive) return;
@@ -1243,12 +1226,8 @@ const confirmAction = async () => {
         /* ignore */
       }
     };
-    const timer = window.setInterval(pullProgress, 700);
-    pullProgress();
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
+    const stopPolling = subscribePolling(pullProgress, 700, 'productos');
+    return () => { alive = false; stopPolling(); };
   }, [eshopexCargaLoading]);
 
   const eshopexCargaProgressLabel = React.useMemo(() => {
@@ -1331,7 +1310,7 @@ const confirmAction = async () => {
   const eshopexPendientesCount = eshopexPendientes.length;
   useEffect(() => {
     try {
-      localStorage.setItem(ESHOPEX_BG_COUNT_KEY, String(eshopexPendientesCount));
+      setStoredValue(ESHOPEX_BG_COUNT_KEY, String(eshopexPendientesCount));
     } catch {
       /* ignore */
     }
@@ -1346,14 +1325,13 @@ const confirmAction = async () => {
         if (signal <= eshopexOpenSignalSeenRef.current) return;
         eshopexOpenSignalSeenRef.current = signal;
         setEshopexCargaOpen(true);
-        localStorage.removeItem(ESHOPEX_BG_OPEN_MODAL_KEY);
+        removeStoredValue(ESHOPEX_BG_OPEN_MODAL_KEY);
       } catch {
         /* ignore */
       }
     };
-    const timer = window.setInterval(checkOpenSignal, 500);
     checkOpenSignal();
-    return () => window.clearInterval(timer);
+    return subscribeStorage(checkOpenSignal);
   }, []);
 
   const toggleRecojoSelect = (id) => {
@@ -2053,65 +2031,33 @@ const confirmAction = async () => {
   };
 
   // SWR helpers: cache + refresh
+  const [salesRevision, setSalesRevision] = useState(0);
+  const productosSignature = React.useMemo(() => productos.map((item) => item.id).filter(Boolean).sort((a, b) => a - b).join(','), [productos]);
   const refreshProductos = useCallback(async ({ force = false, useCache = true, silent = false } = {}) => {
-    const cache = useCache ? readCache() : null;
-    const cacheFresh = cache && cache.ts && Date.now() - cache.ts <= CACHE_TTL_MS;
-    if (!force && cacheFresh) {
-      setProductos(cache.productos || []);
-      if (cache.ventasMap) setVentasMap(cache.ventasMap || {});
-      if (cache.adelantosMap) setAdelantosMap(cache.adelantosMap || {});
-      if (cache.resumen) setResumen(cache.resumen);
-      if (!silent) {
-        setCargando(false);
-        setError(null);
-      }
-      return cache.productos || [];
-    }
-
-    const showSpinner = !silent && (productos.length === 0 || force || !cacheFresh);
-    if (showSpinner) setCargando(true);
-    if (!silent) setError(null);
+    if (!silent) { setCargando(true); setError(null); }
     try {
-      if (!productosRequest) {
-        productosRequest = api.get('/productos').finally(() => { productosRequest = null; });
-      }
-      const data = await productosRequest;
-      const lista = onlyProducts(Array.isArray(data)
-        ? data
-        : (Array.isArray(data?.items) ? data.items : []));
+      const data = await getProductos({ maxAgeMs: force || !useCache ? 0 : 60_000 });
+      const lista = onlyProducts(data);
       setProductos(lista);
-      // Ventas se mantienen (se revalidan en otro efecto), pero el cache se pisa con ventas actuales ref
       writeCache(lista, ventasRef.current, resumenRef.current, adelantosRef.current);
       fetchResumen({ refresh: false });
       return lista;
-    } catch (e) {
-      console.error('Error cargando /productos:', e);
-      const msg = (e && e.message) ? String(e.message) : '';
-      setError(`No se pudieron cargar los productos. ${msg}`);
+    } catch (error) {
+      setError(`No se pudieron cargar los productos. ${error?.message || ''}`);
       return null;
-    } finally {
-      if (!silent) setCargando(false);
-    }
-  }, [productos.length, fetchResumen]);
+    } finally { if (!silent) setCargando(false); }
+  }, [fetchResumen]);
 
   useEffect(() => {
     const handleViewActivated = (event) => {
       if (event?.detail?.view === 'productos') {
-        refreshProductos({ force: true, useCache: false, silent: true });
+        refreshProductos({ useCache: true, silent: true });
       }
     };
     const salesChanged = () => {
       fetchResumen({ refresh: true });
-      refreshProductos({ force: true, useCache: false, silent: true }).then((list) => {
-        if (!list) return;
-        const ids = list.map((p) => p.id);
-        api.get('/ventas/ultimas?ids=' + ids.join(',')).then((sales) => {
-          const next = Object.fromEntries(ids.map((id) => [id, null]));
-          (Array.isArray(sales) ? sales : []).forEach((sale) => { next[sale.productoId] = sale; });
-          ventasRef.current = next; setVentasMap(next);
-          writeCache(list, next, resumenRef.current, adelantosRef.current);
-        }).catch(console.error);
-      });
+      Promise.resolve().then(() => refreshProductos({ force: true, useCache: false, silent: true }));
+      setSalesRevision((value) => value + 1);
     };
     window.addEventListener('app-view-activated', handleViewActivated);
     window.addEventListener('ventas-updated', salesChanged);
@@ -2132,7 +2078,7 @@ const confirmAction = async () => {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if (!Array.isArray(productos) || productos.length === 0) return;
+      if (!productosSignature) return;
       const cache = readCache();
       const cacheFresh = cache && cache.ts && Date.now() - cache.ts <= CACHE_TTL_MS;
       const cacheHasVentas = cacheFresh && cache?.ventasMap && Object.keys(cache.ventasMap).length > 0;
@@ -2145,11 +2091,11 @@ const confirmAction = async () => {
       }
       // El cache se muestra de inmediato, pero siempre se confirma contra el servidor.
       try {
-        const ids = productos.map((p) => p.id).filter(Boolean);
-        const query = ids.length ? `?ids=${ids.join(',')}` : '';
+        const ids = productosSignature.split(',').map(Number);
+
         const [ventasData, adelantosData] = await Promise.all([
-          api.get(`/ventas/ultimas${query}`),
-          api.get(`/ventas/adelantos/ultimos${query}`),
+          api.get('/ventas/ultimas'),
+          api.get('/ventas/adelantos/ultimos'),
         ]);
         const ventasArr = Array.isArray(ventasData)
           ? ventasData
@@ -2180,7 +2126,7 @@ const confirmAction = async () => {
       }
     })();
     return () => { mounted = false; };
-  }, [productos]);
+  }, [productosSignature, salesRevision]);
 
   const displayedProductos = React.useMemo(() => {
 
@@ -3471,7 +3417,7 @@ const confirmAction = async () => {
         )
       )}
 
-      
+
       <div id="product-context" className="ux-secondary-panels" style={{ scrollMarginTop: 80 }}>
         <Disclosure title="Resumen económico" description="Compras, envío, DEC, ventas y ganancia acumulada.">
           <div className="ux-financial-stats">

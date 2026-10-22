@@ -35,7 +35,8 @@ test('conserva filtros independientes por vendedor y evita escrituras al filtrar
   expect(months[1]).toHaveValue('');
   expect(screen.getByLabelText('Mes (global)')).toHaveValue('');
   expect(api.get).toHaveBeenCalledTimes(1);
-  expect(api.get).toHaveBeenCalledWith('/ventas');
+  const year = new Date().getFullYear();
+  expect(api.get).toHaveBeenCalledWith(`/ventas?from=${year}-01-01&to=${year}-12-31`);
 });
 
 test('diferencia un error de consulta de un resultado de cero ventas', async () => {

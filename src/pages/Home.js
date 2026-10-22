@@ -1,8 +1,7 @@
 import React, { useEffect } from 'react';
-import api from '../api';
+import { getProductos } from '../services/productosStore';
 
-const PRODUCTOS_CACHE_KEY = 'productos:cache:v2';
-const PRODUCTOS_CACHE_TTL_MS = 2 * 60 * 1000;
+const PRODUCTOS_CACHE_TTL_MS = 60_000;
 
 function Home({ setVista, setAnalisisBack }) {
   useEffect(() => {
@@ -11,15 +10,7 @@ function Home({ setVista, setAnalisisBack }) {
       try {
         const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
         if (connection?.saveData || /(^|-)2g$/.test(String(connection?.effectiveType || ''))) return;
-        const raw = localStorage.getItem(PRODUCTOS_CACHE_KEY);
-        const parsed = raw ? JSON.parse(raw) : null;
-        const isFresh = parsed?.ts && (Date.now() - Number(parsed.ts)) < PRODUCTOS_CACHE_TTL_MS;
-        if (isFresh) return;
-        const data = await api.get('/productos');
-        if (cancelled) return;
-        const lista = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
-        const prev = raw ? JSON.parse(raw) : {};
-        localStorage.setItem(PRODUCTOS_CACHE_KEY, JSON.stringify({ ...prev, productos: lista, ts: Date.now() }));
+        await getProductos({ maxAgeMs: PRODUCTOS_CACHE_TTL_MS });
       } catch {}
     };
     const run = () => { if (!cancelled) prefetch(); };
