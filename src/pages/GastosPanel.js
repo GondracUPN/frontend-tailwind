@@ -90,10 +90,25 @@ export const groupAdvanceRows = (rows, advanceDetails = {}, extraDebts = []) => 
     const ventaId = id && (advanceDetails[id]?.ventaId || row.saleId);
     if (ventaId) saleToAdvance.set(Number(ventaId), id);
   });
+  const historicalAdvanceIdOf = (row) => {
+    if (row.saleId != null || row.concepto !== 'ingreso') return null;
+    const matches = Object.entries(advanceDetails).filter(([, detail]) => {
+      if (!detail.ventaId || !detail.productoId) return false;
+      const canonical = `__SALE_INCOME__:${detail.productoId}:${detail.ventaId}`;
+      const legacy = `__SALE_INCOME__:${detail.productoId}`;
+      const reference = String(row.notas || '');
+      const variants = (base) => [base, ...['direct', 'card', 'debt', 'cash'].map((type) => `${base}:${type}`)];
+      return variants(canonical).includes(reference) || (
+        [String(detail.productoId), ...variants(legacy)].includes(reference)
+        && String(row.fecha).slice(0, 10) === String(detail.fechaVenta).slice(0, 10)
+      );
+    });
+    return matches.length === 1 ? matches[0][0] : null;
+  };
   const groups = new Map();
   const output = [];
   rows.forEach((row) => {
-    const id = advanceIdOf(row) || (row.saleId && saleToAdvance.get(Number(row.saleId))) || null;
+    const id = advanceIdOf(row) || (row.saleId && saleToAdvance.get(Number(row.saleId))) || historicalAdvanceIdOf(row);
     if (!id) { output.push(row); return; }
     if (!groups.has(id)) {
       const group = { adelantoId: Number(id), rows: [] };
@@ -109,16 +124,21 @@ export const groupAdvanceRows = (rows, advanceDetails = {}, extraDebts = []) => 
     const openDebt = extraDebts.find((debt) => debt.id === `advance-${group.adelantoId}`);
     const creditRows = group.rows.filter((item) => ['card', 'debt'].includes(item.salePaymentType));
     const creditPending = creditRows.reduce((sum, item) => sum + Number(debitPendingBalance(item)?.amount || 0), 0);
-    const banks = [...new Set(group.rows.map((item) => item.tarjeta).filter(Boolean))];
+    const hasSummary = detail && Number.isFinite(Number(detail.cobrado)) && Number.isFinite(Number(detail.falta));
+    const share = String(detail?.producto?.vendedor || '').toLowerCase() === 'ambos' ? 0.5 : 1;
+    const banks = [...new Set((hasSummary ? detail.pagos?.map((item) => item.banco) : group.rows.map((item) => item.tarjeta))?.filter(Boolean))];
     return {
       ...row,
       saleSku: group.rows.find((item) => item.saleSku)?.saleSku || detail?.producto?.codigo || row.saleSku,
-      saleId: group.rows.find((item) => item.saleId)?.saleId || null,
+      saleId: group.rows.find((item) => item.saleId)?.saleId || detail?.ventaId || null,
       tarjeta: banks.length === 1 ? banks[0] : 'Varias',
       __advanceGroup: {
         ...group,
-        received: group.rows.reduce((sum, item) => sum + Number(receivedIncomeAmount(item) || 0), 0),
-        pending: openDebt ? Number(openDebt.pending || 0) : creditPending,
+        received: hasSummary ? Math.round(Number(detail.cobrado) * share * 100) / 100 : group.rows.reduce((sum, item) => sum + Number(receivedIncomeAmount(item) || 0), 0),
+        pending: hasSummary ? Math.round(Number(detail.falta) * share * 100) / 100 : openDebt ? Number(openDebt.pending || 0) : creditPending,
+        paid: Boolean(hasSummary && detail.estado !== 'cancelado' && Number(detail.falta) === 0 && Number(detail.cobrado) >= Number(detail.precio)),
+        summaryKnown: Boolean(hasSummary),
+        total: hasSummary ? Math.round(Number(detail.precio) * share * 100) / 100 : null,
         collectRow: openDebt ? null : creditRows.find((item) => Number(debitPendingBalance(item)?.amount || 0) > 0) || null,
         open: Boolean(openDebt),
       },
@@ -1038,8 +1058,10 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                               {pending.label}: {fmtMoney('PEN', pending.amount)} pendiente
                             </div>
                           )}
+                          {advanceGroup && advanceGroup.total != null && advanceGroup.pending > 0 && <div className="mt-0.5 text-[11px] text-slate-500">Total: {fmtMoney('PEN', advanceGroup.total)}</div>}
                           {advanceGroup && advanceGroup.pending > 0 && <div className="mt-0.5 text-[11px] leading-tight text-amber-700">Deuda: {fmtMoney('PEN', advanceGroup.pending)} pendiente</div>}
-                          {advanceGroup && advanceGroup.pending === 0 && <div className="mt-0.5 text-[11px] font-semibold leading-tight text-emerald-700">✓ Venta pagada</div>}
+                          {advanceGroup && !advanceGroup.summaryKnown && advanceGroup.pending === 0 && <div className="mt-0.5 text-[11px] text-slate-500">Pagos visibles · abrir detalle</div>}
+                          {advanceGroup && advanceGroup.paid && <div className="mt-0.5 text-[11px] font-semibold leading-tight text-emerald-700">✓ Venta pagada</div>}
                           {showAdvancePending && <div className="mt-0.5 text-[11px] leading-tight text-amber-700">Falta {fmtMoney('PEN', advanceDebt.pending)}</div>}
                           {pending && pending.amount === 0 && (
                             <div className="mt-0.5 text-[11px] font-semibold leading-tight text-emerald-700">

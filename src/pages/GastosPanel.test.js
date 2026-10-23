@@ -50,3 +50,25 @@ test('muestra una reserva con varios pagos como una sola venta con lo cobrado y 
   expect(vendida).toHaveLength(2);
   expect(vendida[0]).toMatchObject({ saleId: 77, tarjeta: 'Varias', __advanceGroup: { received: 2000, pending: 800, open: false, collectRow: expect.objectContaining({ id: 4 }) } });
 });
+
+
+test('una sola cuota visible usa el total confirmado y no declara pagada una venta incompleta', () => {
+  const rows = [{ id: 1, monto: 700, tarjeta: 'bcp', notas: '__SALE_ADVANCE__:10:0', concepto: 'ingreso' }];
+  const summary = { precio: 2600, cobrado: 2600, falta: 0, estado: 'vendido', ventaId: 405, producto: { codigo: 'MS-279', vendedor: 'Gonzalo' }, pagos: [{ banco: 'bcp' }] };
+  expect(groupAdvanceRows(rows, { 10: summary })[0]).toMatchObject({ saleId: 405, __advanceGroup: { received: 2600, pending: 0, paid: true } });
+  expect(groupAdvanceRows(rows, { 10: { ...summary, cobrado: 1950, falta: 650 } })[0].__advanceGroup).toMatchObject({ received: 1950, pending: 650, paid: false });
+  expect(groupAdvanceRows(rows)[0].__advanceGroup).toMatchObject({ received: 700, paid: false, summaryKnown: false });
+  expect(groupAdvanceRows(rows, { 10: { ...summary, producto: { vendedor: 'ambos' } } })[0].__advanceGroup).toMatchObject({ received: 1300, paid: true });
+  expect(groupAdvanceRows(rows, { 10: { ...summary, estado: 'cancelado' } })[0].__advanceGroup.paid).toBe(false);
+});
+
+
+test('agrupa también el cierre histórico sin saleId sin duplicar el total', () => {
+  const rows = [
+    { id: 1, notas: '__SALE_ADVANCE__:10:0', monto: 700, concepto: 'ingreso', tarjeta: 'bcp' },
+    { id: 2, notas: '__SALE_INCOME__:279:405:direct', monto: 650, concepto: 'ingreso', tarjeta: 'bcp', saleId: null },
+  ];
+  const details = { 10: { productoId: 279, ventaId: 405, precio: 2600, cobrado: 2600, falta: 0, estado: 'vendido', pagos: [{ banco: 'bcp' }] } };
+  expect(groupAdvanceRows(rows, details)).toHaveLength(1);
+  expect(groupAdvanceRows(rows, details)[0].__advanceGroup).toMatchObject({ received: 2600, paid: true });
+});
