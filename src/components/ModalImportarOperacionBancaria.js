@@ -23,7 +23,7 @@ export default function ModalImportarOperacionBancaria({ userId, ownerName, card
   const findDuplicate = (op) => op?.operationNumber ? rows.find((row) =>
     String(row.notas || '').includes(`Operación ${op.operationNumber}`)
       || String(row.notas || '').includes(`Operacion ${op.operationNumber}`)
-      || String(row.notas || '').includes(`__BANK_IMPORT__:BCP:${op.operationNumber}`)) : null;
+      || String(row.notas || '').includes(`__BANK_IMPORT__:${op.sourceBank.toUpperCase()}:${op.operationNumber}`)) : null;
   const updateItem = (id, changes) => setItems((current) => current.map((item) => item.id === id ? { ...item, ...changes } : item));
 
   const analyze = (value = rawText) => {
@@ -77,7 +77,7 @@ export default function ModalImportarOperacionBancaria({ userId, ownerName, card
       concepto: 'pago_tarjeta', metodoPago: 'debito', moneda: operation.chargedCurrency,
       monto: Number(operation.chargedAmount), fecha: operation.date, tarjeta: operation.sourceBank,
       tarjetaPago: operation.cardType, pagoObjetivo: paymentTarget,
-      notas: operation.operationNumber ? `__BANK_IMPORT__:BCP:${operation.operationNumber}` : '__BANK_IMPORT__:BCP',
+      notas: `__BANK_IMPORT__:${operation.sourceBank.toUpperCase()}${operation.operationNumber ? `:${operation.operationNumber}` : ''}`,
     };
     if (paymentTarget === 'USD' && operation.chargedCurrency === 'PEN') {
       body.tipoCambioDia = rate;
@@ -161,7 +161,7 @@ export default function ModalImportarOperacionBancaria({ userId, ownerName, card
                 <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
                   <div><span className="block text-xs text-gray-500">Aplicado</span><strong>{op.currency === 'USD' ? '$' : 'S/'} {op.amount.toFixed(2)}</strong></div>
                   <div><span className="block text-xs text-gray-500">Cobrado</span><strong>{op.chargedCurrency === 'USD' ? '$' : 'S/'} {op.chargedAmount.toFixed(2)}</strong></div>
-                  <div><span className="block text-xs text-gray-500">Cuenta origen</span><strong>BCP {op.sourceLast4 ? `•••• ${op.sourceLast4}` : ''}</strong></div>
+                  <div><span className="block text-xs text-gray-500">Cuenta origen</span><strong>{op.sourceBank === 'interbank' ? 'Interbank' : 'BCP'} {op.sourceLast4 ? `•••• ${op.sourceLast4}` : ''}</strong></div>
                   <div><span className="block text-xs text-gray-500">Operación</span><strong>{op.operationNumber || 'Sin número'}</strong></div>
                 </div>
                 {!mappedCardExists && <div className="mt-2 text-sm text-amber-800">La tarjeta detectada todavía no está registrada para {ownerName}.</div>}
