@@ -50,7 +50,9 @@ export function cardTypeFromProduct(productName) {
 function parseSpanishDate(text) {
   const match = text.match(/(\d{1,2})(?:\s+de)?\s+([a-záéíóúñ]+)(?:\s+de)?\s+(\d{4})/i);
   if (!match) return '';
-  const month = MONTHS_ES[fold(match[2])];
+  const monthName = fold(match[2]);
+  const month = MONTHS_ES[monthName]
+    || (monthName.length === 3 ? MONTHS_ES[Object.keys(MONTHS_ES).find((name) => name.startsWith(monthName))] : null);
   if (!month) return '';
   return `${match[3]}-${String(month).padStart(2, '0')}-${String(Number(match[1])).padStart(2, '0')}`;
 }
@@ -59,6 +61,35 @@ export function parseBankOperation(input) {
   const text = stripMarkup(input);
   const normalized = fold(text);
   const isIoServicePayment = normalized.includes('io de bcp') && normalized.includes('pago dolares');
+
+  if (normalized.includes('interbank') && normalized.includes('constancia de pago')) {
+    const amountMatch = text.match(/Moneda\s+y\s+monto\s*:?\s*(S\/|US\$|USD|\$)\s*([\d.,]+)/i);
+    const amount = parseBankAmount(amountMatch?.[2]);
+    const currency = /^S\/$/i.test(amountMatch?.[1] || '') ? 'PEN' : 'USD';
+    const date = parseSpanishDate(text.match(/Fecha\s+y\s+hora\s*:?\s*([^\n]+)/i)?.[1] || '');
+    const source = text.match(/Cuenta\s+cargo\s*:?\s*([^\n]+)\s+(Soles|D[oó]lares)\s+([\d *Xx]+)/i);
+    const card = text.match(/Tarjeta\s+de\s+cr[eé]dito\s*:?\s*([^\n]+)\s+(?:Soles|D[oó]lares)\s+([\d *Xx]+)/i);
+    const operationNumber = text.match(/C[oó]digo\s+de\s+operaci[oó]n\s*:?\s*(\d+)/i)?.[1] || '';
+    const missing = [];
+    if (!amount) missing.push('monto');
+    if (!date) missing.push('fecha');
+    if (!source) missing.push('cuenta cargo');
+    if (!card) missing.push('tarjeta destino');
+    if (missing.length) return { ok: false, error: `No se pudo reconocer: ${missing.join(', ')}.` };
+    const chargedCurrency = fold(source[2]) === 'soles' ? 'PEN' : 'USD';
+    if (chargedCurrency !== currency) {
+      return { ok: false, error: 'La constancia usa monedas distintas para la cuenta cargo y el monto; falta el monto cobrado para importar.' };
+    }
+    return {
+      ok: true,
+      operation: {
+        kind: 'card_payment', amount, currency, chargedAmount: amount, chargedCurrency,
+        exchangeRate: null, date, cardType: 'interbank', productName: card[1].trim(),
+        cardLast4: card[2].replace(/\s/g, '').slice(-4), sourceBank: 'interbank',
+        sourceLast4: source[3].replace(/\s/g, '').slice(-4), operationNumber,
+      },
+    };
+  }
 
   if (isIoServicePayment) {
     const amount = parseBankAmount(text.match(/Monto\s+total\s*:\s*(?:US\$|USD|\$)\s*([\d.,]+)/i)?.[1]);
@@ -96,7 +127,7 @@ export function parseBankOperation(input) {
   }
 
   if (!normalized.includes('pago a tu tarjeta') && !normalized.includes('pago de tarjeta propia')) {
-    return { ok: false, error: 'Por ahora se reconoce el correo de pago de tarjeta propia BCP.' };
+    return { ok: false, error: 'Se reconocen pagos de tarjeta BCP, IO y constancias de pago de tarjeta Interbank.' };
   }
 
   const amountMatch = text.match(/Monto\s+pagado\s+(?:S\/|US\$|USD|\$)\s*([\d.,]+)/i)
@@ -158,6 +189,7 @@ function splitBankOperationTexts(input) {
 
   const starts = [];
   const startPatterns = [
+    /Constancia\s+de\s+pago(?=\s+C[oó]digo\s+de\s+operaci[oó]n)/gi,
     /Realizaste\s+un\s+pago\s+a\s+tu\s+tarjeta/gi,
     /Fecha\s+y\s+hora\s*:?[^\n]*(?:\n|\s)[\s\S]{0,300}?Empresa\s*:\s*(?:\*\*)?IO\s+DE\s+BCP/gi,
   ];
