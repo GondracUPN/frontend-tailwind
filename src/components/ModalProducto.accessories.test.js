@@ -1,0 +1,24 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import api from '../api';
+import ModalProducto from './ModalProducto';
+jest.mock('../api',()=>({__esModule:true,default:{get:jest.fn(),post:jest.fn(),put:jest.fn(),patch:jest.fn()}}));
+jest.mock('../services/appleCatalog',()=>({fetchAppleCatalog:jest.fn(async()=>({families:{}}))}));
+const changeSelect=(option,value)=>fireEvent.change(screen.getByRole('option',{name:option,exact:true}).closest('select'),{target:{value}});
+const field=(label)=>screen.getByText(label,{selector:'label'}).nextElementSibling;
+beforeEach(()=>{jest.clearAllMocks();localStorage.clear();api.get.mockResolvedValue([]);api.post.mockResolvedValue({id:500,tipo:'accesorios',codigoInventario:500});api.put.mockResolvedValue({casillero:'Walter',estado:'comprado_sin_tracking'});});
+test('alta Apple permite modelo preconfigurado y casillero; conserva costo unitario al cambiar cantidad y envía tipo de cambio',async()=>{
+ const saved=jest.fn();render(<ModalProducto onSaved={saved} onClose={jest.fn()} />);
+ changeSelect('Accesorios','accesorios');changeSelect('Apple Pencil','Apple Pencil');changeSelect('Apple Pencil USB-C','Apple Pencil USB-C');
+ expect(screen.getByText('Compatible con:')).toBeVisible();expect(screen.getByText(/iPad mini 6/)).toBeVisible();
+ expect(screen.queryByLabelText('Originalidad')).toBeNull();expect(screen.queryByLabelText('Marca')).toBeNull();
+ fireEvent.change(screen.getByLabelText('Costo por unidad'),{target:{value:'10'}});
+ fireEvent.change(field('Cantidad comprada'),{target:{value:'5'}});
+ expect(screen.getByLabelText('Costo por unidad')).toHaveValue(10);expect(screen.getByLabelText('Costo total del lote')).toHaveValue('50.00');expect(screen.getByLabelText('Costo total del lote')).toHaveAttribute('readonly');
+ expect(screen.getByLabelText('Tipo de cambio de compra')).toHaveValue(3.7);fireEvent.change(screen.getByLabelText('Tipo de cambio de compra'),{target:{value:'4.1'}});
+ changeSelect('Nuevo','nuevo');fireEvent.change(field('Casillero'),{target:{value:'Walter'}});
+ fireEvent.change(field('Valor DEC ($)'),{target:{value:'20'}});fireEvent.change(field('Peso (kg)'),{target:{value:'0.5'}});fireEvent.change(field('Fecha de Compra'),{target:{value:'2026-10-25'}});
+ fireEvent.click(screen.getByRole('button',{name:'Guardar',exact:true}));
+ await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/productos',expect.objectContaining({tipo:'accesorios',cantidad:5,estado:'nuevo',detalle:expect.objectContaining({gama:'Apple Pencil',modelo:'Apple Pencil USB-C'}),valor:expect.objectContaining({valorProducto:50,tipoCambioCompra:4.1,valorDec:'20',peso:'0.5'})})));
+ const body=api.post.mock.calls.find(([path])=>path==='/productos')[1];expect(body).not.toHaveProperty('soloInventario');expect(body).not.toHaveProperty('referenciaId');
+ await waitFor(()=>expect(api.put).toHaveBeenCalledWith('/tracking/producto/500',{casillero:'Walter',estado:'comprado_sin_tracking'}));expect(saved).toHaveBeenCalled();
+});

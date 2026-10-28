@@ -20,3 +20,9 @@ test('limita descripciones generales al primer nombre corto', () => {
     detalle: { descripcionOtro: 'Equipo especial de escritorio con accesorios, caja y manual incluidos' },
   })).toBe('Equipo especial de escritorio con accesorios');
 });
+
+test('conserva la edición de AirPods del catálogo', () => {
+  expect(formatProfitProductName({ tipo: 'airpods', detalle: { modelo: 'AirPods 4 con ANC' } })).toBe('Apple AirPods 4 con ANC');
+  expect(formatProfitProductName({ tipo: 'airpods', detalle: { modelo: 'AirPods 4 sin ANC' } })).toBe('Apple AirPods 4 sin ANC');
+  expect(formatProfitProductName({ tipo: 'airpods', detalle: { modelo: 'AirPods 5 con estuche inalámbrico' } })).toBe('Apple AirPods 5 con estuche inalámbrico');
+});

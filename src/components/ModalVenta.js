@@ -1,8 +1,11 @@
+import { accessorySalePrice } from '../utils/accessoryPrice';
+import useAccessoryQuote from '../hooks/useAccessoryQuote';
 import React, { useEffect, useState, useRef } from 'react';
 import api from '../api';
 import { notifySalesChanged } from '../utils/salesSync';
-import { accessoryLotDate, consumedAccessoryLots } from '../utils/accessorySales';
+import { accessoryLotDate, consumedAccessoryLots, accessoryLotAvailable } from '../utils/accessorySales';
 import { nuevaClave } from '../services/finanzas';
+import AnularVentaButton from './AnularVentaButton';
 
 const normalizeSeller = (value) =>
   value == null ? '' : String(value).trim().toLowerCase();
@@ -54,8 +57,13 @@ export default function ModalVenta({
   onSaved,
   allowVendedorOnCreate = false,
   presetVendedor = '',
+  precioPublicado,
+  precioMinimo,
   embedded = false,
+  // Solo Productos lo indica: habilita la anulación completa desde el detalle.
+  onAnulada,
 }) {
+  const [priceEdited, setPriceEdited] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const operation = useRef(null);
@@ -90,10 +98,22 @@ export default function ModalVenta({
   const isAccessory = String(producto?.tipo || '').toLowerCase() === 'accesorios';
   const accessoryCreate = !venta && isAccessory;
   const accessoryLots = (Array.isArray(producto?.__lots) && producto.__lots.length ? producto.__lots : [producto])
-    .filter((lot) => lot?.id && Number(lot.stockActual || 0) > 0)
+    .filter((lot) => lot?.id && accessoryLotAvailable(lot))
     .sort((a, b) => accessoryLotDate(a) - accessoryLotDate(b) || Number(a.id) - Number(b.id));
   const selectedLot = accessoryLots.find((lot) => String(lot.id) === form.loteInicialId) || accessoryLots[0];
   const consumedLots = consumedAccessoryLots(accessoryLots, selectedLot?.id, form.cantidad);
+  const quotation = useAccessoryQuote({ enabled: accessoryCreate, productoId: producto?.id,
+    comprador: effectiveSeller, cantidad: Number(form.cantidad), loteInicialId: selectedLot?.id,
+    precioUnitario: form.precioVenta === '' ? '' : Number(form.precioVenta) / Math.max(1, Number(form.cantidad)) });
+  const minimum = producto?.referencia?.precioMinimoSoles ?? precioMinimo ?? quotation.quote?.precioMinimo;
+  const referencePricing = producto?.referencia || quotation.quote;
+  const automaticUnitPrice = accessorySalePrice({ ...referencePricing, precioPublicado: producto?.referencia?.precioPublicadoSoles ?? precioPublicado ?? referencePricing?.precioPublicado }, form.cantidad);
+  useEffect(() => {
+    if (accessoryCreate && !priceEdited && automaticUnitPrice != null) setForm((current) => {
+      const value = String(Number((Number(automaticUnitPrice) * Math.max(1, Number(current.cantidad))).toFixed(2)));
+      return current.precioVenta === value ? current : { ...current, precioVenta: value };
+    });
+  }, [accessoryCreate, priceEdited, automaticUnitPrice, form.cantidad]);
   // Old lots without a currency were purchased in USD.
   const requiresExchangeRate = !isAccessory ? String(producto.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN' : (venta
     ? (venta.distribucionStock?.length
@@ -105,6 +125,7 @@ export default function ModalVenta({
     : consumedLots.some(({ lot }) => String(lot.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN'));
 
   useEffect(() => {
+    setPriceEdited(false);
     const initialSeller = resolvedSaleSeller(venta?.vendedor, producto?.vendedor, presetVendedor);
     if (venta) {
       setForm({
@@ -124,19 +145,20 @@ export default function ModalVenta({
       return;
     }
 
+    const initialPrice = accessorySalePrice({ ...producto?.referencia, precioPublicado: producto?.referencia?.precioPublicadoSoles ?? precioPublicado }, 1);
     setForm({
       tipoCambio: '',
       tipoCambioGonzalo: '',
       tipoCambioRenato: '',
       fechaVenta: '',
-      precioVenta: '',
+      precioVenta: initialPrice == null ? '' : String(initialPrice),
       vendedor: initialSeller,
       pedidoCliente: pedidoClientFromSeller(initialSeller),
       cantidad: '1',
       modalidad: 'unidad',
       loteInicialId: '',
     });
-  }, [venta, producto?.id, producto?.vendedor, presetVendedor, allowVendedorOnCreate]);
+  }, [venta, producto?.id, producto?.vendedor, presetVendedor, allowVendedorOnCreate, precioPublicado, producto?.referencia]);
 
   useEffect(() => {
     setEditMode(false);
@@ -167,8 +189,10 @@ export default function ModalVenta({
 
   if (!producto) return null;
 
-  const onChange = (field, value) =>
-    setForm((prev) => ({ ...prev, [field]: value }));
+  const onChange = (field, value) => {
+    if (field === 'precioVenta') setPriceEdited(true);
+    setForm((prev) => ({ ...prev, [field]: value, ...(accessoryCreate && field === 'cantidad' && prev.precioVenta !== '' ? { precioVenta: String(Number((Number(prev.precioVenta) / Math.max(1, Number(prev.cantidad)) * Number(value || 1)).toFixed(2))) } : {}) }));
+  };
   const onSellerChange = (value) => {
     setForm((prev) => ({
       ...prev,
@@ -237,6 +261,7 @@ export default function ModalVenta({
 
   const handleSaveCreate = async () => {
     if (saving || !validate()) return;
+    if (accessoryCreate && !quotation.quote?.cotizacionToken) { alert(quotation.error || 'Espera la cotización antes de vender.'); return; }
 
     setSaving(true);
     let requestedSeller = '';
@@ -250,6 +275,7 @@ export default function ModalVenta({
       if (isAccessory) {
         const cantidad = Number(form.cantidad);
         body.cantidad = cantidad;
+        body.cotizacionToken = quotation.quote.cotizacionToken;
         body.modalidad = cantidad > 1 ? 'mayor' : 'unidad';
         body.loteInicialId = Number(selectedLot?.id || producto.id);
       }
@@ -287,6 +313,11 @@ export default function ModalVenta({
       onClose?.();
     } catch (e) {
       console.error('[ModalVenta] Error al guardar venta:', e);
+      if (/409|cotización cambió|Stock insuficiente/i.test(e.message || '')) {
+        quotation.refresh();
+        alert('El stock o los costos cambiaron. Revisa la nueva cotización antes de confirmar.');
+        return;
+      }
       // Si se perdio la respuesta despues de guardar, confirmar antes de pedir repetir.
       try {
         const ventas = await api.get(`/ventas/producto/${producto.id}`);
@@ -379,11 +410,9 @@ export default function ModalVenta({
   const calcSplit = (tc) => {
     if (venta?.costoPendiente) return null;
     if (!tc && !isAccessory) return null;
+    if (isAccessory && !venta && quotation.quote?.costoTotal == null) return null;
     const costo = isAccessory
-      ? (venta ? Number(venta.costoVendido ?? (Number(venta.precioVenta) - Number(venta.ganancia)))
-        : consumedLots.reduce((total, { lot, quantity }) => total + quantity *
-          Number(lot.valor?.costoTotalProrrateado ?? lot.valor?.costoTotal ?? lot.valor?.valorSoles ?? 0) /
-          Math.max(1, Number(lot.stockInicial || 1)), 0)) / 2
+      ? (venta ? Number(venta.costoVendido ?? (Number(venta.precioVenta) - Number(venta.ganancia))) : Number(quotation.quote.costoTotal)) / 2
       : (valorUsd / 2) * (String(producto.valor?.monedaCompra || 'USD').toUpperCase() === 'PEN' ? 1 : tc) + envioSoles / 2;
     const ganancia = mitadVentaSoles - costo;
     const porcentaje = costo > 0 ? (ganancia / costo) * 100 : 0;
@@ -418,6 +447,7 @@ export default function ModalVenta({
   const renderSplitFields = () => (
     <>
       {accessoryLotPicker}
+      {accessoryCreate && <label className="block text-sm font-medium">Precio por unidad (S/)<input type="number" min="0" step="0.01" className="w-full rounded border p-2" value={form.precioVenta === '' ? '' : Number((Number(form.precioVenta) / Math.max(1, Number(form.cantidad))).toFixed(2))} onChange={(event) => onChange('precioVenta', event.target.value === '' ? '' : String(Number((Number(event.target.value) * Number(form.cantidad || 1)).toFixed(2))))} /></label>}
       {accessoryCreate && (
         <div>
           <label htmlFor="venta-cantidad" className="block font-medium mb-1">Cantidad</label>
@@ -487,6 +517,7 @@ export default function ModalVenta({
   const renderSingleFields = () => (
     <>
       {accessoryLotPicker}
+      {accessoryCreate && <label className="block text-sm font-medium">Precio por unidad (S/)<input type="number" min="0" step="0.01" className="w-full rounded border p-2" value={form.precioVenta === '' ? '' : Number((Number(form.precioVenta) / Math.max(1, Number(form.cantidad))).toFixed(2))} onChange={(event) => onChange('precioVenta', event.target.value === '' ? '' : String(Number((Number(event.target.value) * Number(form.cantidad || 1)).toFixed(2))))} /></label>}
       {requiresExchangeRate && <div>
         <label htmlFor="venta-tipo-cambio" className="block font-medium mb-1">Tipo de cambio</label>
         <input
@@ -608,6 +639,8 @@ export default function ModalVenta({
             {(accessorySummary?.ventas || []).map((item) => (
               <div key={item.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
                 <div className="flex justify-between gap-2"><strong>{item.fechaVenta}</strong><span>{item.cantidad} und.</span></div>
+                {onAnulada && <div className="mt-1 flex justify-end"><AnularVentaButton venta={{ ...item, productoId: producto.id }} onAnulada={onAnulada}
+                  className="rounded border border-red-300 px-2 py-1 text-red-700 hover:bg-red-50 disabled:opacity-60" /></div>}
                 <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
                   <span>Cada uno: <strong>{summaryMoney(item.precioUnitario)}</strong></span>
                   <span className="text-right">Total: <strong>{summaryMoney(item.ventaBruta)}</strong></span>
@@ -652,6 +685,15 @@ export default function ModalVenta({
           <div className={accessoryCreate ? 'grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]' : ''}>
             <div className="space-y-4">
               {renderSellerField()}
+              {accessoryCreate && <div aria-label="Cotización del accesorio" className="rounded-lg border p-3 text-sm" aria-live="polite">
+                {quotation.loading ? <p>Cotizando…</p> : quotation.error ? <p role="alert">{quotation.error}</p> : <>
+                  <p>Costo total: S/ {fmtMoney(quotation.quote?.costoTotal)}</p>
+                  <p>Ganancia bruta: S/ {fmtMoney(quotation.quote?.gananciaBruta)}</p>
+                  <p>Margen sobre venta: {fmtPct(quotation.quote?.margenSobreVenta)}</p>
+                </>}
+                {minimum != null && <p>Precio mínimo: S/ {Number(minimum).toFixed(2)} por unidad</p>}
+                {minimum != null && form.precioVenta !== '' && Number(form.precioVenta) / Number(form.cantidad || 1) < Number(minimum) && <p role="alert" className="text-amber-800">El precio por unidad está por debajo del precio mínimo.</p>}
+              </div>}
               {splitModeActive ? renderSplitFields() : renderSingleFields()}
               <div className="text-right">
               <button
@@ -726,6 +768,7 @@ export default function ModalVenta({
             </div>
 
             <div className="text-right pt-2 flex items-center justify-end gap-2">
+              {onAnulada && <AnularVentaButton venta={venta} onAnulada={onAnulada} />}
               <button
                 className="px-3 py-2 rounded bg-amber-500 text-white hover:bg-amber-600"
                 onClick={() => setEditMode(true)}

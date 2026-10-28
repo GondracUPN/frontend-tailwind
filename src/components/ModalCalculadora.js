@@ -1,3 +1,5 @@
+import { accessoryLotAvailable } from '../utils/accessorySales';
+import useAccessoryQuote from '../hooks/useAccessoryQuote';
 // src/components/ModalCalculadora.js
 // Calculadora simple: sugiere precios minimos/medios y permite probar un precio personalizado.
 import React, { useMemo, useState } from 'react';
@@ -100,14 +102,14 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
     const source = Array.isArray(producto?.__lots) && producto.__lots.length
       ? producto.__lots
       : [producto];
-    return source.filter(Boolean).sort((a, b) => {
+    return source.filter((lot) => lot && (!isAccessory || accessoryLotAvailable(lot))).sort((a, b) => {
       const aPurchase = Date.parse(a?.valor?.fechaCompra || '');
       const bPurchase = Date.parse(b?.valor?.fechaCompra || '');
       const aTime = Number.isFinite(aPurchase) ? aPurchase : Number(a?.id || 0);
       const bTime = Number.isFinite(bPurchase) ? bPurchase : Number(b?.id || 0);
       return aTime - bTime || Number(a?.id || 0) - Number(b?.id || 0);
     });
-  }, [producto]);
+  }, [producto, isAccessory]);
   const [selectedLotId, setSelectedLotId] = useState(() => String(accessoryLots[0]?.id || ''));
   const [cantidad, setCantidad] = useState('1');
   const selectedLot = accessoryLots.find((lot) => String(lot.id) === selectedLotId) || accessoryLots[0] || producto;
@@ -119,7 +121,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
     ? selectedStoredCost
     : Number(selectedValue.valorSoles || 0) + selectedShipping;
   const selectedUnits = Math.max(1, Number(selectedLot?.stockInicial || 1));
-  const costoTotalBase = isAccessory ? selectedTotalCost / selectedUnits : selectedTotalCost;
+  const storedCostBase = isAccessory ? selectedTotalCost / selectedUnits : selectedTotalCost;
   const valorUSD = Number(selectedValue.valorProducto ?? 0) / (isAccessory ? selectedUnits : 1);
   const envioSoles = selectedShipping / (isAccessory ? selectedUnits : 1);
 
@@ -131,20 +133,24 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
   const [historyError, setHistoryError] = useState('');
   const [similarSales, setSimilarSales] = useState([]);
 
+  const quotation = useAccessoryQuote({ enabled: isAccessory, productoId: producto?.id,
+    cantidad: Number(cantidad), comprador: producto?.vendedor, loteInicialId: selectedLot?.id, precioUnitario: precioCustom });
+  const costoTotalBase = isAccessory ? (quotation.quote?.costoTotal == null ? NaN : quotation.quote.costoTotal / Math.max(1, Number(cantidad))) : storedCostBase;
+
   // costo usado: si hay TC valido, (valorUSD * TC) + envio; si no, costoBase
   const costoUsado = useMemo(() => {
     const tc = Number(tipoCambio);
-    if (isAccessory && costoTotalBase > 0) return costoTotalBase;
+    if (isAccessory) return costoTotalBase;
     if (isFinite(tc) && tc > 0) return valorUSD * tc + envioSoles;
     return costoTotalBase;
   }, [tipoCambio, valorUSD, envioSoles, costoTotalBase, isAccessory]);
 
   // Sugerencias basadas en el costo recalculado con el TC ingresado.
   const { pvMin, pvMed } = useMemo(() => {
-    const pvMinRounded = roundUp10(costoUsado * 1.2); // +20%
-    const pvMedRounded = roundUp50(costoUsado * 1.3); // +30%, siempre termina en 00 o 50
+    const pvMinRounded = isAccessory ? (quotation.quote?.precioMinimo ?? Math.ceil(costoUsado * 1.2 * 100) / 100) : roundUp10(costoUsado * 1.2); // +20%
+    const pvMedRounded = isAccessory ? (quotation.quote?.precioUnitarioSugerido ?? Math.ceil(costoUsado * 1.3 * 100) / 100) : roundUp50(costoUsado * 1.3); // +30%, siempre termina en 00 o 50
     return { pvMin: pvMinRounded, pvMed: pvMedRounded };
-  }, [costoUsado]);
+  }, [costoUsado, isAccessory, quotation.quote?.precioMinimo, quotation.quote?.precioUnitarioSugerido]);
 
   // Personalizado con redondeo a 10 hacia arriba
   const customOut = useMemo(() => {
@@ -169,7 +175,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
     setHistoryError('');
     try {
       const data = await api.get(`/ventas/similares?productoId=${producto.id}&limit=8`);
-      setSimilarSales(Array.isArray(data) ? data : []);
+      setSimilarSales(Array.isArray(data) ? data : [...(data?.coincidenciaExacta || []).map((sale) => ({ ...sale, __group: 'Coincidencia exacta' })), ...(data?.mismaFamilia || []).map((sale) => ({ ...sale, __group: 'Misma familia' }))]);
       setHistoryLoaded(true);
     } catch (error) {
       setHistoryError('No se pudieron cargar los últimos vendidos.');
@@ -200,14 +206,14 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
               <span className="font-semibold">{fmtSoles(costoTotalBase)}</span>
             </p>
           </div>
-          {!(isAccessory && producto?.soloInventario) && <button
+          <button
             type="button"
             onClick={toggleHistory}
             aria-expanded={historyOpen}
             className="mb-4 shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
             {historyOpen ? 'Ocultar vendidos ←' : 'Últimos vendidos →'}
-          </button>}
+          </button>
         </div>
 
         <div className={historyOpen ? 'grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(19rem,0.8fr)]' : ''}>
@@ -226,32 +232,33 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
                 </div>
                 <div>
                   <label htmlFor="calculadora-cantidad" className="block text-sm font-medium mb-2">Unidades a vender</label>
-                  <input id="calculadora-cantidad" type="number" min="1" max={selectedLot?.stockActual || 1} step="1" value={cantidad} onChange={(event) => setCantidad(event.target.value)} className="w-full rounded-lg border bg-white p-2" />
+                  <input id="calculadora-cantidad" type="number" min="1" max={quotation.quote?.disponible ?? producto.stockActual ?? 1} step="1" value={cantidad} onChange={(event) => setCantidad(event.target.value)} className="w-full rounded-lg border bg-white p-2" />
                 </div>
-                <p className="sm:col-span-2 text-xs text-indigo-800">Cada compra se calcula por separado. Este costo unitario no cambia cuando se vende una unidad.</p>
+                <p className="sm:col-span-2 text-xs text-indigo-800">Se usa primero el lote elegido y se completa con las siguientes compras. El costo total incluye todos los lotes necesarios.</p>
               </div>
             )}
             {/* Sugerencias */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
               <div className="border rounded-lg p-4 bg-gray-50">
-                <div className="text-sm text-gray-500 mb-1">Precio minimo (+20%)</div>
+                <div className="text-sm text-gray-500 mb-1">{isAccessory ? 'Precio mínimo' : 'Precio minimo (+20%)'}</div>
                 <div className="text-2xl font-semibold">{fmtSoles(pvMin)}</div>
                 <div className="text-sm text-gray-700 mt-1">
                   Ganancia: <strong>{fmtSoles(gananciaMin)}</strong>
                 </div>
               </div>
               <div className="border rounded-lg p-4 bg-gray-50">
-                <div className="text-sm text-gray-500 mb-1">Precio medio (+30%)</div>
+                <div className="text-sm text-gray-500 mb-1">{isAccessory ? 'Precio sugerido' : 'Precio medio (+30%)'}</div>
                 <div className="text-2xl font-semibold">{fmtSoles(pvMed)}</div>
                 <div className="text-sm text-gray-700 mt-1">
-                  30% exacto: <strong>{fmtSoles(treintaPorCientoExacto)}</strong>
+                  {isAccessory ? 'Ganancia unitaria al costo +30%:' : '30% exacto:'} <strong>{fmtSoles(treintaPorCientoExacto)}</strong>
                 </div>
                 <div className="text-sm text-gray-700 mt-1">
-                  Ganancia redondeada: <strong>{fmtSoles(gananciaMed)}</strong>
+                  {isAccessory ? 'Ganancia unitaria sugerida:' : 'Ganancia redondeada:'} <strong>{fmtSoles(gananciaMed)}</strong>
                 </div>
               </div>
             </div>
 
+            {isAccessory && <div aria-live="polite">{quotation.loading ? 'Cotizando…' : quotation.error ? <p role="alert">{quotation.error}</p> : <p>Margen sobre venta: {quotation.quote?.margenSobreVenta == null ? '—' : quotation.quote.margenSobreVenta.toFixed(2) + '%'}</p>}</div>}
             {/* Personalizado con Tipo de Cambio */}
             <div className="border rounded-lg p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -279,7 +286,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
                     onChange={(e) => setTipoCambio(e.target.value)}
                   />
                   <div className="text-xs text-gray-600 mt-1">
-                    {isAccessory ? 'Se guardarÃ¡ para el promedio de tipos de cambio; el costo del lote permanece fijo.' : 'Si ingresas TC, costo = (valor US$ x TC) + envio.'}
+                    {isAccessory ? 'El costo guardado del lote no se modifica al cotizar.' : 'Si ingresas TC, costo = (valor US$ x TC) + envio.'}
                   </div>
                 </div>
               </div>
@@ -300,7 +307,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
           {historyOpen && (
             <aside className="border-t border-slate-200 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0" aria-label="Últimos equipos vendidos similares">
               <h3 className="text-base font-semibold text-slate-950">Últimos vendidos similares</h3>
-              <p className="mt-1 text-xs text-slate-500">{isAccessory ? 'Misma familia de accesorio; no mezcla AirTag, Apple Pencil u otros.' : 'Mismo producto, procesador y tamaño de pantalla.'}</p>
+              <p className="mt-1 text-xs text-slate-500">{isAccessory ? 'Primero la misma variante y estado; después otras variantes de la familia.' : 'Mismo producto, procesador y tamaño de pantalla.'}</p>
               {historyLoading ? (
                 <div className="py-8 text-center text-sm text-slate-500">Cargando...</div>
               ) : historyError ? (
@@ -309,21 +316,27 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
                 <div className="mt-4 rounded-lg border border-dashed border-slate-300 p-4 text-center text-sm text-slate-500">No hay vendidos similares.</div>
               ) : (
                 <div className="mt-3 space-y-2">
-                  {similarSales.map((sale) => {
+                  {similarSales.map((sale, index) => {
                     const soldProduct = sale?.producto || {};
                     const soldSpecs = buildSoldSpecs(soldProduct);
                     return (
-                      <article key={sale.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <React.Fragment key={sale.id}>
+                      {sale.__group && (index === 0 || sale.__group !== similarSales[index - 1].__group) && <h4 className="font-semibold">{sale.__group}</h4>}
+                      <article className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                         <div className="flex items-start justify-between gap-3">
                           <strong className="text-sm text-slate-950">{buildProductName(soldProduct) || 'Producto'}</strong>
-                          <strong className="whitespace-nowrap text-sm text-emerald-700">{fmtSoles(sale.precioVenta)}</strong>
+                          <strong className="whitespace-nowrap text-sm text-emerald-700">{isAccessory ? fmtSoles(sale.precioUnitario) + ' / unidad' : fmtSoles(sale.precioVenta)}</strong>
                         </div>
                         <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-600">
                           {soldSpecs.map((spec) => <span key={spec.label}>{spec.label}: <b>{spec.value}</b></span>)}
+                          <span>Cantidad: <b>{sale.cantidad ?? 1}</b></span>
+                          <span>Precio por unidad: <b>{fmtSoles(sale.precioUnitario ?? Number(sale.precioVenta || 0) / Math.max(1, Number(sale.cantidad || 1)))}</b></span>
+                          <span>Total: <b>{fmtSoles(sale.total ?? sale.precioVenta)}</b></span>
                           <span>Fecha venta: <b>{fmtDate(sale.fechaVenta)}</b></span>
                           <span>Días hasta venta: <b>{sale.diasHastaVenta != null ? `${sale.diasHastaVenta} días` : '—'}</b></span>
                         </div>
                       </article>
+                      </React.Fragment>
                     );
                   })}
                 </div>

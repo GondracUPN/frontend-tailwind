@@ -50,15 +50,20 @@ async function request(path, opts = {}) {
     }
     const txt = await res.text().catch(() => '');
     let detail = txt || '';
+    let data = null;
     try {
       const parsed = JSON.parse(txt);
+      data = parsed;
       if (Array.isArray(parsed?.message)) detail = parsed.message.join(' | ');
       else if (parsed?.message) detail = String(parsed.message);
       else if (parsed?.error) detail = String(parsed.error);
     } catch {
       // keep raw text
     }
-    throw new Error(`HTTP ${res.status} - ${String(detail || '').slice(0, 500)}`);
+    const error = new Error(`HTTP ${res.status} - ${String(detail || '').slice(0, 500)}`);
+    error.status = res.status;
+    error.data = data;
+    throw error;
   }
 
   const ct = res.headers.get('content-type') || '';
@@ -92,7 +97,7 @@ const api = {
     inflightGets.set(key, promise);
     return promise;
   },
-  post:  (p, b) => writeRequest(p, { method: 'POST', body: JSON.stringify(b) }),
+  post:  (p, b, opts = {}) => writeRequest(p, { ...opts, method: 'POST', body: JSON.stringify(b) }),
   patch: (p, b) => writeRequest(p, { method: 'PATCH', body: JSON.stringify(b) }),
   put:   (p, b) => writeRequest(p, { method: 'PUT',   body: JSON.stringify(b) }),
   del:   (p, b) => writeRequest(p, { method: 'DELETE', ...(b === undefined ? {} : { body: JSON.stringify(b) }) }),

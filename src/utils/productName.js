@@ -54,7 +54,8 @@ export const formatProfitProductName = (product = {}) => {
 
   if (typeKey.includes('airpods')) {
     const model = clean(detail.modelo || detail.descripcionOtro || type);
-    const match = model.match(/\bAirPods(?:\s+(?:Pro|Max))?(?:\s+\d+)?\b/i);
+    // Conserva la edición del catálogo (con/sin ANC, USB-C, estuche) para que todas las vistas usen el mismo nombre.
+    const match = model.match(/\bAirPods(?:\s+(?:Pro|Max))?(?:\s+\d+)?(?:\s+(?:con ANC|sin ANC|USB-C|con estuche inalámbrico))?(?=[\s,]|$)/i);
     return match ? `Apple ${match[0]}` : shortText(model);
   }
 

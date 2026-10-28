@@ -81,7 +81,7 @@ test('permite confirmar una venta con cobro directo', async () => {
   await screen.findByLabelText('Agregar forma de cobro para MS-4');
   expect(screen.queryByLabelText('Pago directo para MS-4')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Agregar forma de cobro para MS-4'), { target: { value: 'direct' } });
-  fireEvent.change(screen.getByLabelText('Pago directo para MS-4'), { target: { value: '900' } });
+  expect(screen.getByLabelText('Pago directo para MS-4')).toHaveValue(900);
   fireEvent.click(screen.getByRole('button', { name: 'Confirmar venta' }));
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/integrations/catalog-sales/4/confirm', {
     exchangeRate: 3.7, incomeBank: 'bcp', incomeParts: [{ type: 'direct', amount: 900 }],
@@ -96,6 +96,7 @@ test('recalcula ambos medios al editar cualquiera y limita el total de la venta'
   jest.spyOn(window, 'confirm').mockReturnValue(true);
   render(<CatalogSalesPending />);
   fireEvent.change(await screen.findByLabelText('Agregar forma de cobro para MS-6'), { target: { value: 'direct' } });
+  expect(screen.getByLabelText('Pago directo para MS-6')).toHaveValue(2000);
   fireEvent.change(screen.getByLabelText('Pago directo para MS-6'), { target: { value: '1500' } });
   fireEvent.click(screen.getByRole('button', { name: '+ Otro medio' }));
   fireEvent.change(screen.getByLabelText('Agregar forma de cobro para MS-6'), { target: { value: 'debt' } });
@@ -126,26 +127,54 @@ test('permite las cuatro formas de cobro y limpia el importe al quitar una', asy
   expect(screen.queryByLabelText('Tarjeta de débito receptora para MS-5')).not.toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText('Agregar forma de cobro para MS-5'), { target: { value: 'direct' } });
-  fireEvent.change(screen.getByLabelText('Pago directo para MS-5'), { target: { value: '40' } });
+  expect(screen.getByLabelText('Pago directo para MS-5')).toHaveValue(100);
   expect(screen.getByLabelText('Tarjeta de débito receptora para MS-5')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '+ Otro medio' }));
   fireEvent.change(screen.getByLabelText('Agregar forma de cobro para MS-5'), { target: { value: 'card' } });
+  fireEvent.change(screen.getByLabelText('Tarjeta de crédito para MS-5'), { target: { value: '20' } });
+  expect(screen.getByLabelText('Pago directo para MS-5')).toHaveValue(80);
   fireEvent.click(screen.getByRole('button', { name: '+ Otro medio' }));
   fireEvent.change(screen.getByLabelText('Agregar forma de cobro para MS-5'), { target: { value: 'debt' } });
   fireEvent.change(screen.getByLabelText('x500 para MS-5'), { target: { value: '30' } });
-  expect(screen.getByLabelText('Tarjeta de crédito para MS-5')).toHaveValue(30);
+  expect(screen.getByLabelText('Tarjeta de crédito para MS-5')).toHaveValue(20);
+  expect(screen.getByLabelText('Pago directo para MS-5')).toHaveValue(50);
   fireEvent.click(screen.getByRole('button', { name: '+ Otro medio' }));
   fireEvent.change(screen.getByLabelText('Agregar forma de cobro para MS-5'), { target: { value: 'cash' } });
   fireEvent.change(screen.getByLabelText('Efectivo para MS-5'), { target: { value: '20' } });
+  expect(screen.getByLabelText('Pago directo para MS-5')).toHaveValue(30);
   expect(screen.queryByRole('button', { name: '+ Otro medio' })).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: 'Quitar Tarjeta de crédito para MS-5' }));
   expect(screen.queryByLabelText('Tarjeta de crédito para MS-5')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Pago directo para MS-5')).toHaveValue(50);
   fireEvent.change(screen.getByLabelText('Efectivo para MS-5'), { target: { value: '50' } });
   fireEvent.click(screen.getByRole('button', { name: 'Confirmar venta' }));
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/integrations/catalog-sales/5/confirm', {
-    exchangeRate: 3.7, incomeBank: 'bcp', incomeParts: [{ type: 'direct', amount: 40 }, { type: 'debt', amount: 10 }, { type: 'cash', amount: 50 }],
+    exchangeRate: 3.7, incomeBank: 'bcp', incomeParts: [{ type: 'direct', amount: 20 }, { type: 'debt', amount: 30 }, { type: 'cash', amount: 50 }],
   }));
+});
+
+test('mantiene los centavos y ajusta el primer medio elegido al dividir y quitar cobros', async () => {
+  api.get.mockImplementation((path) => path.endsWith('/pending')
+    ? Promise.resolve([{ id: 8, eventType: 'sale.created', sku: 'MS-8', amount: 100.75, exchangeRate: 3.7, soldAt: '2026-10-02', status: 'pending_confirmation' }])
+    : Promise.resolve({ seller: 'Gonzalo', cards: [{ tipo: 'bcp' }] }));
+  render(<CatalogSalesPending />);
+  fireEvent.change(await screen.findByLabelText('Agregar forma de cobro para MS-8'), { target: { value: 'card' } });
+  expect(screen.getByLabelText('Tarjeta de crédito para MS-8')).toHaveValue(100.75);
+  fireEvent.click(screen.getByRole('button', { name: '+ Otro medio' }));
+  fireEvent.change(screen.getByLabelText('Agregar forma de cobro para MS-8'), { target: { value: 'direct' } });
+  expect(screen.getByLabelText('Tarjeta de crédito para MS-8')).toHaveValue(100.75);
+  fireEvent.change(screen.getByLabelText('Pago directo para MS-8'), { target: { value: '20.25' } });
+  expect(screen.getByLabelText('Tarjeta de crédito para MS-8')).toHaveValue(80.5);
+  fireEvent.click(screen.getByRole('button', { name: '+ Otro medio' }));
+  fireEvent.change(screen.getByLabelText('Agregar forma de cobro para MS-8'), { target: { value: 'debt' } });
+  fireEvent.change(screen.getByLabelText('x500 para MS-8'), { target: { value: '10' } });
+  expect(screen.getByLabelText('Tarjeta de crédito para MS-8')).toHaveValue(70.5);
+  expect(screen.getByLabelText('Pago directo para MS-8')).toHaveValue(20.25);
+  fireEvent.click(screen.getByRole('button', { name: 'Quitar Tarjeta de crédito para MS-8' }));
+  expect(screen.getByLabelText('Pago directo para MS-8')).toHaveValue(90.75);
+  fireEvent.click(screen.getByRole('button', { name: 'Quitar x500 para MS-8' }));
+  expect(screen.getByLabelText('Pago directo para MS-8')).toHaveValue(100.75);
 });
 
 test('registra una venta que nunca pasó a catálogo con pago mixto', async () => {
@@ -164,10 +193,11 @@ test('registra una venta que nunca pasó a catálogo con pago mixto', async () =
   fireEvent.change(screen.getByLabelText('Fecha de venta manual'), { target: { value: '2026-10-07' } });
   fireEvent.change(screen.getByLabelText('Precio de venta manual'), { target: { value: '1000' } });
   fireEvent.change(screen.getByLabelText('Agregar forma de cobro para venta manual'), { target: { value: 'direct' } });
-  fireEvent.change(screen.getByLabelText('Pago directo para venta manual'), { target: { value: '300' } });
+  expect(screen.getByLabelText('Pago directo para venta manual')).toHaveValue(1000);
   fireEvent.click(screen.getByRole('button', { name: '+ Otro medio' }));
   fireEvent.change(screen.getByLabelText('Agregar forma de cobro para venta manual'), { target: { value: 'cash' } });
   fireEvent.change(screen.getByLabelText('Efectivo para venta manual'), { target: { value: '700' } });
+  expect(screen.getByLabelText('Pago directo para venta manual')).toHaveValue(300);
   fireEvent.click(screen.getByRole('button', { name: 'Registrar venta' }));
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({
     productoId: 7, precioVenta: 1000, incomeSku: 'MS-77', incomeParts: [{ type: 'direct', amount: 300 }, { type: 'cash', amount: 700 }],

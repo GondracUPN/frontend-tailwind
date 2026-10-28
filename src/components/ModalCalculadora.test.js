@@ -4,7 +4,7 @@ import ModalCalculadora from './ModalCalculadora';
 
 jest.mock('../api', () => ({
   __esModule: true,
-  default: { get: jest.fn() },
+  default: { get: jest.fn(), post: jest.fn() },
 }));
 
 const producto = {
@@ -17,6 +17,24 @@ const producto = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+});
+
+test('soloInventario muestra historial exacto y familia, cantidades netas y precio unitario', async () => {
+  api.post.mockResolvedValue({ cotizacionToken: 'a'.repeat(64), costoTotal: 10 });
+  const product = { id: 900, tipo: 'accesorios', estado: 'nuevo', soloInventario: true, detalle: { modelo: 'Cable 60W' }, stockActual: 5 };
+  api.get.mockResolvedValue({ coincidenciaExacta: [{ id: 1, cantidad: 3, precioVenta: 100, total: 60, precioUnitario: 20,
+    fechaVenta: '2026-10-20', producto: product }], mismaFamilia: [{ id: 2, cantidad: 1, total: 30, precioUnitario: 30,
+    fechaVenta: '2026-10-19', producto: { ...product, detalle: { modelo: 'Cable 240W' } } }] });
+  render(<ModalCalculadora producto={product} onClose={jest.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Últimos vendidos →' }));
+  const history = await screen.findByLabelText('Últimos equipos vendidos similares');
+  expect(await within(history).findByText('Coincidencia exacta')).toBeVisible();
+  expect(within(history).getByText('Misma familia')).toBeVisible();
+  const sale = within(history).getByText('Cable 60W').closest('article');
+  expect(within(sale).getByText('Cantidad:')).toHaveTextContent('3');
+  expect(within(sale).getByText('Precio por unidad:')).toHaveTextContent('S/ 20.00');
+  expect(within(sale).getByText('Total:')).toHaveTextContent('S/ 60.00');
+  expect(within(sale).getByText('Estado:')).toHaveTextContent('nuevo');
 });
 
 test('recalcula precio mínimo y medio con el tipo de cambio ingresado', () => {
@@ -48,7 +66,8 @@ test('redondea el precio medio hacia arriba para terminar en 00 o 50', () => {
   expect(within(mediumCard).getByText('S/ 1132.55')).toBeInTheDocument();
 });
 
-test('calcula accesorios por cantidad, precio unitario y lote seleccionado', () => {
+test('calcula accesorios por cantidad, precio unitario y lote seleccionado', async () => {
+  api.post.mockImplementation(async (_, body) => ({ cotizacionToken: 'a'.repeat(64), costoTotal: (body.loteInicialId === 12 ? 30 : 50) * body.cantidad }));
   render(<ModalCalculadora producto={{
     id: 40,
     tipo: 'accesorios',
@@ -63,14 +82,14 @@ test('calcula accesorios por cantidad, precio unitario y lote seleccionado', () 
   }} onClose={jest.fn()} />);
 
   expect(screen.getByLabelText('Lote de compra')).toHaveValue('12');
-  expect(screen.getByText('Costo unitario usado:').parentElement).toHaveTextContent('S/ 30.00');
+  await waitFor(() => expect(screen.getByText('Costo unitario usado:').parentElement).toHaveTextContent('S/ 30.00'));
   fireEvent.change(screen.getByLabelText('Unidades a vender'), { target: { value: '3' } });
   fireEvent.change(screen.getByLabelText('Precio unitario de venta (S/)'), { target: { value: '50' } });
   expect(screen.getByText('Venta total:').parentElement).toHaveTextContent('S/ 150.00');
-  expect(screen.getByText('Ganancia estimada:').parentElement).toHaveTextContent('S/ 60.00');
+  await waitFor(() => expect(screen.getByText('Ganancia estimada:').parentElement).toHaveTextContent('S/ 60.00'));
 
   fireEvent.change(screen.getByLabelText('Lote de compra'), { target: { value: '40' } });
-  expect(screen.getByText('Costo unitario usado:').parentElement).toHaveTextContent('S/ 50.00');
+  await waitFor(() => expect(screen.getByText('Costo unitario usado:').parentElement).toHaveTextContent('S/ 50.00'));
   expect(screen.getByText('Venta total:').parentElement).toHaveTextContent('S/ 150.00');
   expect(screen.getByText('Ganancia estimada:').parentElement).toHaveTextContent('S/ 0.00');
 });
@@ -113,7 +132,7 @@ test('abre al lado los últimos equipos vendidos similares', async () => {
   expect(within(history).getByText('Estado:')).toHaveTextContent('usado');
   expect(within(history).getByText('Fecha venta:')).toHaveTextContent('01/07/2026');
   expect(within(history).getByText('Días hasta venta:')).toHaveTextContent('11 días');
-  expect(within(history).getByText('S/ 5990.00')).toBeInTheDocument();
+  expect(within(history).getAllByText('S/ 5990.00').length).toBeGreaterThan(0);
 });
 
 test('muestra solo los datos correspondientes a iPhone y Apple Watch', async () => {

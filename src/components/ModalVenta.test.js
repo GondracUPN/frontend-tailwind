@@ -10,6 +10,42 @@ jest.mock('../api', () => ({
 beforeEach(() => {
   jest.clearAllMocks();
   localStorage.clear();
+  api.post.mockReset();
+});
+
+test('precarga mayorista al alcanzar la cantidad mínima y vuelve a publicado bajo el umbral', async () => {
+  api.get.mockResolvedValue({ ventas: [] });
+  api.post.mockResolvedValue({ cotizacionToken: 'a'.repeat(64), costoTotal: 10 });
+  render(<ModalVenta producto={{ id: 9, tipo: 'accesorios', stockActual: 20, stockInicial: 20, vendedor: 'Gonzalo', valor: { monedaCompra: 'PEN' },
+    referencia: { precioPublicadoSoles: 25, precioMinimoSoles: 15, precioMayoristaSoles: 18, cantidadMinimaMayorista: 5 } }} onClose={jest.fn()} />);
+  expect(screen.getByLabelText('Precio por unidad (S/)')).toHaveValue(25);
+  fireEvent.change(screen.getByLabelText('Cantidad'), { target: { value: '5' } });
+  expect(screen.getByLabelText('Precio por unidad (S/)')).toHaveValue(18);
+  expect(screen.getByLabelText('Precio total de venta (S/)')).toHaveValue(90);
+  fireEvent.change(screen.getByLabelText('Cantidad'), { target: { value: '4' } });
+  expect(screen.getByLabelText('Precio por unidad (S/)')).toHaveValue(25);
+  fireEvent.change(screen.getByLabelText('Precio por unidad (S/)'), { target: { value: '14' } });
+  expect(screen.getByRole('alert')).toHaveTextContent('por debajo del precio mínimo');
+});
+
+test('precarga el precio publicado, mantiene el unitario al cambiar cantidad y avisa bajo mínimo sin bloquear', async () => {
+  api.get.mockResolvedValue({ ventas: [] });
+  api.post.mockImplementation(async (path, body) => path.endsWith('/cotizar')
+    ? { cotizacionToken: 'a'.repeat(64), costoTotal: 65, gananciaBruta: body.precioUnitario * body.cantidad - 65, margenSobreVenta: 35 }
+    : { id: 801 });
+  render(<ModalVenta producto={{ id: 700, tipo: 'accesorios', vendedor: 'Gonzalo', stockInicial: 5, stockActual: 5, valor: { monedaCompra: 'PEN' } }}
+    precioPublicado={25} precioMinimo={20} onClose={jest.fn()} onSaved={jest.fn()} />);
+  expect(screen.getByLabelText('Precio total de venta (S/)')).toHaveValue(25);
+  fireEvent.change(screen.getByLabelText('Cantidad'), { target: { value: '5' } });
+  expect(screen.getByLabelText('Precio por unidad (S/)')).toHaveValue(25);
+  expect(screen.getByLabelText('Precio total de venta (S/)')).toHaveValue(125);
+  fireEvent.change(screen.getByLabelText('Precio por unidad (S/)'), { target: { value: '19' } });
+  expect(screen.getByRole('alert')).toHaveTextContent('por debajo del precio mínimo');
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-10-25' } });
+  await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
+  expect(screen.getByLabelText('Cotización del accesorio')).toHaveTextContent('Costo total: S/ 65.00');
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({ cantidad: 5, precioVenta: 95, cotizacionToken: 'a'.repeat(64) })));
 });
 
 test('confirma la venta si se pierde la respuesta del guardado', async () => {
@@ -38,6 +74,7 @@ test('confirma la venta si se pierde la respuesta del guardado', async () => {
   fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.75' } });
   fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-07-20' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1500' } });
+  if (screen.queryByLabelText('Cotización del accesorio')) await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
 
   await waitFor(() => expect(api.get).toHaveBeenCalledWith('/ventas/producto/7'));
@@ -118,6 +155,7 @@ test('guarda la venta sin exigir una sesión de Gastos en el navegador', async (
   fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.75' } });
   fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-07-28' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '3000' } });
+  if (screen.queryByLabelText('Cotización del accesorio')) await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
 
   await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
@@ -187,6 +225,7 @@ test('sincroniza Gonzalo con cliente hacia la venta y el producto', async () => 
   fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.7' } });
   fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-08-21' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1900' } });
+  if (screen.queryByLabelText('Cotización del accesorio')) await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
 
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({ vendedor: 'Gonzalo (Jorge)' })));
@@ -195,7 +234,7 @@ test('sincroniza Gonzalo con cliente hacia la venta y el producto', async () => 
 
 test('para accesorios recibe el precio total, calcula el unitario y muestra el resumen', async () => {
   api.get.mockResolvedValueOnce({ unidadesVendidas: 4, unidadesDisponibles: 15, ventaBruta: 240, costoVendido: 100, gananciaNeta: 140, tipoCambioPromedio: 3.72, ventas: [] });
-  api.post.mockResolvedValueOnce({ id: 90, precioVenta: 150, cantidad: 3 });
+  api.post.mockImplementation(async (path) => path.endsWith('/cotizar') ? { cotizacionToken: 'a'.repeat(64), costoTotal: 60 } : { id: 90, precioVenta: 150, cantidad: 3 });
   render(
     <ModalVenta
       producto={{ id: 399, tipo: 'accesorios', stockActual: 15, vendedor: 'Gonzalo', valor: { valorProducto: 20 } }}
@@ -218,6 +257,7 @@ test('para accesorios recibe el precio total, calcula el unitario y muestra el r
 
   fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.75' } });
   fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-08-14' } });
+  if (screen.queryByLabelText('Cotización del accesorio')) await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({
     cantidad: 3,
@@ -228,7 +268,7 @@ test('para accesorios recibe el precio total, calcula el unitario y muestra el r
 
 test('permite escoger el lote inicial de un accesorio agrupado', async () => {
   api.get.mockResolvedValueOnce({ ventas: [] });
-  api.post.mockResolvedValueOnce({ id: 91, precioVenta: 80, cantidad: 1, ganancia: 50 });
+  api.post.mockImplementation(async (path) => path.endsWith('/cotizar') ? { cotizacionToken: 'a'.repeat(64), costoTotal: 30 } : { id: 91, precioVenta: 80, cantidad: 1, ganancia: 50 });
   const lots = [
     { id: 11, stockInicial: 2, stockActual: 2, valor: { fechaCompra: '2026-06-01', costoTotal: 40 } },
     { id: 22, stockInicial: 2, stockActual: 2, valor: { fechaCompra: '2026-07-01', costoTotal: 60 } },
@@ -239,6 +279,7 @@ test('permite escoger el lote inicial de un accesorio agrupado', async () => {
   fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.7' } });
   fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-08-14' } });
   fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '80' } });
+  if (screen.queryByLabelText('Cotización del accesorio')) await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
 
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({ loteInicialId: 22 })));
@@ -246,13 +287,14 @@ test('permite escoger el lote inicial de un accesorio agrupado', async () => {
 
  test.each(['Gonzalo', 'Renato', 'ambos'])('vende accesorios en soles de %s sin solicitar cambio', async (vendedor) => {
   api.get.mockResolvedValue({ ventas: [] });
-  api.post.mockResolvedValue({ id: 92, vendedor });
+  api.post.mockImplementation(async (path) => path.endsWith('/cotizar') ? { cotizacionToken: 'a'.repeat(64), costoTotal: 10 } : { id: 92, vendedor });
   render(<ModalVenta producto={{ id: 51, tipo: 'accesorios', vendedor, stockInicial: 5, stockActual: 5, valor: { monedaCompra: 'PEN', costoTotal: 50 } }} onSaved={jest.fn()} onClose={jest.fn()} />);
   expect(screen.queryByText('Tipo de cambio', { exact: true })).not.toBeInTheDocument();
   expect(screen.getByLabelText('Comprado por')).toHaveValue(vendedor);
   fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '30' } });
   const date = document.querySelector('input[type="date"]');
   fireEvent.change(date, { target: { value: '2026-10-19' } });
+  if (screen.queryByLabelText('Cotización del accesorio')) await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({ tipoCambio: 1, vendedor, precioVenta: 30 })));
 });

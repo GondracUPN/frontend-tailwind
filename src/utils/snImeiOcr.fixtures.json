@@ -1,0 +1,241 @@
+{
+  "iphone": {
+    "text": "(S) Serial No. FGHJKLMPQR\nIMEI/MEID 352099001761481\nIMEI2 353915112345675\nEID 89049032005008882600012345678901",
+    "candidates": [
+      {
+        "kind": "imei",
+        "value": "352099001761481",
+        "rawValue": "352099001761481",
+        "label": "IMEI/MEID",
+        "slot": "imei1",
+        "component": null,
+        "labelEvidence": "same_line",
+        "confidence": 0.95,
+        "confidenceSource": "heuristic",
+        "validation": {
+          "status": "valid",
+          "rule": "luhn"
+        },
+        "warnings": [],
+        "sourcePass": "full",
+        "boundingBox": null,
+        "corrections": [],
+        "id": "imei:352099001761481:imei1:",
+        "sourcePasses": [
+          "full"
+        ],
+        "autofill": true
+      },
+      {
+        "kind": "imei",
+        "value": "353915112345675",
+        "rawValue": "353915112345675",
+        "label": "IMEI2",
+        "slot": "imei2",
+        "component": null,
+        "labelEvidence": "same_line",
+        "confidence": 0.95,
+        "confidenceSource": "heuristic",
+        "validation": {
+          "status": "valid",
+          "rule": "luhn"
+        },
+        "warnings": [],
+        "sourcePass": "full",
+        "boundingBox": null,
+        "corrections": [],
+        "id": "imei:353915112345675:imei2:",
+        "sourcePasses": [
+          "full"
+        ],
+        "autofill": true
+      },
+      {
+        "kind": "serial",
+        "rawValue": "FGHJKLMPQR",
+        "label": "SERIAL NO",
+        "slot": null,
+        "component": null,
+        "labelEvidence": "same_line",
+        "sourcePass": "full",
+        "boundingBox": null,
+        "confidence": 0.77,
+        "confidenceSource": "heuristic",
+        "value": "FGHJKLMPQR",
+        "validation": {
+          "status": "valid",
+          "rule": "apple_serial"
+        },
+        "warnings": [
+          "letters_only"
+        ],
+        "corrections": [],
+        "id": "serial:FGHJKLMPQR::",
+        "sourcePasses": [
+          "full"
+        ],
+        "autofill": true
+      }
+    ],
+    "conflicts": [],
+    "serial": "FGHJKLMPQR",
+    "imei1": "352099001761481",
+    "imei2": "353915112345675",
+    "serials": [
+      "FGHJKLMPQR"
+    ],
+    "imeis": [
+      "352099001761481",
+      "353915112345675"
+    ],
+    "calls": 1,
+    "requestToken": null,
+    "budget": {
+      "maxCalls": 4,
+      "stoppedReason": "satisfied"
+    }
+  },
+  "imei2Only": {
+    "text": "Serial: GXQTQJCTWH\nIMEI 2: 353915112345675",
+    "candidates": [
+      {
+        "kind": "imei",
+        "value": "353915112345675",
+        "rawValue": "353915112345675",
+        "label": "IMEI 2",
+        "slot": "imei2",
+        "component": null,
+        "labelEvidence": "same_line",
+        "confidence": 0.95,
+        "confidenceSource": "heuristic",
+        "validation": {
+          "status": "valid",
+          "rule": "luhn"
+        },
+        "warnings": [],
+        "sourcePass": "full",
+        "boundingBox": null,
+        "corrections": [],
+        "id": "imei:353915112345675:imei2:",
+        "sourcePasses": [
+          "full"
+        ],
+        "autofill": true
+      },
+      {
+        "kind": "serial",
+        "rawValue": "GXQTQJCTWH",
+        "label": "SERIAL",
+        "slot": null,
+        "component": null,
+        "labelEvidence": "same_line",
+        "sourcePass": "full",
+        "boundingBox": null,
+        "confidence": 0.77,
+        "confidenceSource": "heuristic",
+        "value": "GXQTQJCTWH",
+        "validation": {
+          "status": "valid",
+          "rule": "apple_serial"
+        },
+        "warnings": [
+          "letters_only"
+        ],
+        "corrections": [],
+        "id": "serial:GXQTQJCTWH::",
+        "sourcePasses": [
+          "full"
+        ],
+        "autofill": true
+      }
+    ],
+    "conflicts": [],
+    "serial": "GXQTQJCTWH",
+    "imei1": "",
+    "imei2": "353915112345675",
+    "serials": [
+      "GXQTQJCTWH"
+    ],
+    "imeis": [
+      "353915112345675"
+    ],
+    "calls": 1,
+    "requestToken": null,
+    "budget": {
+      "maxCalls": 4,
+      "stoppedReason": "satisfied"
+    }
+  },
+  "airpods": {
+    "text": "Case Serial Number: GXQTQJCTWH\nLeft Serial Number: HKLMNPQRST",
+    "candidates": [
+      {
+        "kind": "serial",
+        "rawValue": "GXQTQJCTWH",
+        "label": "SERIAL NUMBER",
+        "slot": null,
+        "component": "case",
+        "labelEvidence": "same_line",
+        "sourcePass": "full",
+        "boundingBox": null,
+        "confidence": 0.77,
+        "confidenceSource": "heuristic",
+        "value": "GXQTQJCTWH",
+        "validation": {
+          "status": "valid",
+          "rule": "apple_serial"
+        },
+        "warnings": [
+          "letters_only"
+        ],
+        "corrections": [],
+        "id": "serial:GXQTQJCTWH::case",
+        "sourcePasses": [
+          "full"
+        ],
+        "autofill": true
+      },
+      {
+        "kind": "serial",
+        "rawValue": "HKLMNPQRST",
+        "label": "SERIAL NUMBER",
+        "slot": null,
+        "component": "left",
+        "labelEvidence": "same_line",
+        "sourcePass": "full",
+        "boundingBox": null,
+        "confidence": 0.77,
+        "confidenceSource": "heuristic",
+        "value": "HKLMNPQRST",
+        "validation": {
+          "status": "valid",
+          "rule": "apple_serial"
+        },
+        "warnings": [
+          "letters_only"
+        ],
+        "corrections": [],
+        "id": "serial:HKLMNPQRST::left",
+        "sourcePasses": [
+          "full"
+        ],
+        "autofill": false
+      }
+    ],
+    "conflicts": [],
+    "serial": "GXQTQJCTWH",
+    "imei1": "",
+    "imei2": "",
+    "serials": [
+      "GXQTQJCTWH",
+      "HKLMNPQRST"
+    ],
+    "imeis": [],
+    "calls": 1,
+    "requestToken": null,
+    "budget": {
+      "maxCalls": 4,
+      "stoppedReason": "satisfied"
+    }
+  }
+}

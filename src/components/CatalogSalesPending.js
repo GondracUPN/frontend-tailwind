@@ -23,7 +23,7 @@ function PaymentParts({ sku, values, selectedTypes, onSelect, onRemove, onChange
   const parts = selectedParts(values);
   const allocated = parts.reduce((sum, part) => sum + (Number.isFinite(part.amount) ? toCents(part.amount) : 0), 0);
   const balanceFor = (type) => {
-    const partner = selectedTypes.length > 1 ? [...selectedTypes].reverse().find((selected) => selected !== type) : null;
+    const partner = selectedTypes.find((selected) => selected !== type) || null;
     const fixed = selectedTypes.filter((selected) => selected !== type && selected !== partner)
       .reduce((sum, selected) => sum + (Number.isFinite(Number(values?.[selected])) ? toCents(values?.[selected]) : 0), 0);
     return { partner, maximum: Math.max(0, toCents(total) - fixed) };
@@ -46,11 +46,16 @@ function PaymentParts({ sku, values, selectedTypes, onSelect, onRemove, onChange
       <input aria-label={`${PAYMENT_LABELS[type]} para ${sku}`} type="number" min="0.01" max={(maxFor(type) / 100).toFixed(2)} step="0.01" placeholder="S/ 0.00"
         value={values?.[type] ?? ''} onChange={(event) => changeAmount(type, event.target.value)}
         className="w-24 rounded-md border border-slate-300 bg-white px-2 py-1 text-right text-xs focus:border-amber-600 focus:outline-none" />
-      <button type="button" aria-label={`Quitar ${PAYMENT_LABELS[type]} para ${sku}`} title="Quitar" onClick={() => onRemove(type)}
+      <button type="button" aria-label={`Quitar ${PAYMENT_LABELS[type]} para ${sku}`} title="Quitar" onClick={() => {
+        const partner = selectedTypes.find((selected) => selected !== type);
+        const fixed = selectedTypes.filter((selected) => selected !== type && selected !== partner)
+          .reduce((sum, selected) => sum + toCents(values?.[selected]), 0);
+        onRemove(type, partner, String(Math.max(0, toCents(total) - fixed) / 100));
+      }}
         className="rounded px-1 text-sm text-slate-400 hover:text-red-700">×</button>
     </div>)}
     {showChoices && <select aria-label={`Agregar forma de cobro para ${sku}`} value=""
-      onChange={(event) => { if (event.target.value) onSelect(event.target.value, selectedTypes.length ? Math.max(0, toCents(total) - allocated) / 100 : null); setAdding(false); }}
+      onChange={(event) => { if (event.target.value) onSelect(event.target.value, Math.max(0, toCents(total) - allocated) / 100); setAdding(false); }}
       className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700">
       <option value="">{selectedTypes.length ? 'Elegir otra forma...' : 'Elegir forma de cobro...'}</option>
       {available.map((type) => <option key={type} value={type}>{PAYMENT_LABELS[type]}</option>)}
@@ -324,7 +329,7 @@ export default function CatalogSalesPending() {
           <h5 className="mb-2 text-sm font-semibold text-amber-950">Forma de cobro</h5>
           <PaymentParts sku="venta manual" values={manualPayments} selectedTypes={manualSelection} total={manual.amount}
             onSelect={(type, remainder) => { setManualSelection((current) => [...current, type]); if (remainder > 0) setManualPayments((current) => ({ ...current, [type]: String(remainder) })); }}
-            onRemove={(type) => { setManualSelection((current) => current.filter((item) => item !== type)); setManualPayments((current) => ({ ...current, [type]: '' })); }}
+            onRemove={(type, partner, partnerValue) => { setManualSelection((current) => current.filter((item) => item !== type)); setManualPayments((current) => ({ ...current, [type]: '', ...(partner ? { [partner]: partnerValue } : {}) })); }}
             onChange={(type, value, partner, partnerValue) => setManualPayments((current) => ({ ...current, [type]: value, ...(partner ? { [partner]: partnerValue } : {}) }))}
             bankControl={<label className="block text-xs font-medium text-slate-700">Cuenta que recibió el pago
               <select aria-label="Cuenta de débito para venta manual" value={manual.incomeBank} onChange={(event) => setManual((current) => ({ ...current, incomeBank: event.target.value }))} className="mt-1 block w-full rounded-lg border border-amber-300 bg-white p-2 text-sm">
@@ -366,7 +371,7 @@ export default function CatalogSalesPending() {
                   <td className="p-3 align-top">{event.eventType === 'sale.created' ? <PaymentParts sku={event.sku} values={payments[event.id]}
                     selectedTypes={paymentSelections[event.id] || []} total={event.amount}
                     onSelect={(type, remainder) => { setPaymentSelections((current) => ({ ...current, [event.id]: [...(current[event.id] || []), type] })); if (remainder > 0) setPayments((current) => ({ ...current, [event.id]: { ...current[event.id], [type]: String(remainder) } })); }}
-                    onRemove={(type) => { setPaymentSelections((current) => ({ ...current, [event.id]: (current[event.id] || []).filter((item) => item !== type) })); setPayments((current) => ({ ...current, [event.id]: { ...current[event.id], [type]: '' } })); }}
+                    onRemove={(type, partner, partnerValue) => { setPaymentSelections((current) => ({ ...current, [event.id]: (current[event.id] || []).filter((item) => item !== type) })); setPayments((current) => ({ ...current, [event.id]: { ...current[event.id], [type]: '', ...(partner ? { [partner]: partnerValue } : {}) } })); }}
                     onChange={(type, value, partner, partnerValue) => setPayments((current) => ({ ...current, [event.id]: { ...current[event.id], [type]: value, ...(partner ? { [partner]: partnerValue } : {}) } }))}
                     bankControl={<label className="block text-xs font-medium text-slate-700">Recibido en (débito)
                       <span className="mt-0.5 block text-xs font-normal text-slate-500">Venta de {paymentOptions[event.id]?.seller || 'vendedor sin asignar'}</span>

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import Ganancias from './Ganancias';
 import api from '../api';
 import { formatDisplayMoney } from '../components/ui/VisualUI';
@@ -59,6 +59,22 @@ test('integra accesorios y costo vendido en la tabla, por tipo y por vendedor', 
   const row = screen.getByRole('row', { name: /Accesorios \(5\)/ });
   expect(row).toHaveTextContent('S/ 300.00'); expect(row).toHaveTextContent('S/ 450.00'); expect(row).toHaveTextContent('S/ 150.00'); expect(row).toHaveTextContent('50.00%');
   expect(row).not.toHaveTextContent('10,000');
+  const open = within(row).getByRole('button', { name: 'Ver ventas' });
+  open.focus();
+  fireEvent.click(open);
+  const panel = screen.getByRole('region', { name: 'Ventas de accesorios de Gonzalo' });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(panel.closest('tr').previousElementSibling).toBe(row);
+  expect(panel.closest('td')).toHaveAttribute('colspan', '8');
+  expect(open).toHaveAttribute('aria-expanded', 'true');
+  expect(within(panel).getByText('AirTag')).toBeInTheDocument();
+  expect(within(row).queryByText('AirTag')).not.toBeInTheDocument();
+  expect(within(panel).getAllByRole('button', { name: 'Editar' })).toHaveLength(2);
+  expect(api.get).toHaveBeenCalledTimes(1);
+  fireEvent.click(within(row).getByRole('button', { name: 'Ocultar ventas' }));
+  expect(screen.queryByRole('region', { name: 'Ventas de accesorios de Gonzalo' })).not.toBeInTheDocument();
+  expect(open).toHaveAttribute('aria-expanded', 'false');
+  expect(open).toHaveFocus();
   fireEvent.change(screen.getAllByLabelText('Mes', { exact: true })[0], { target: { value: '2' } });
   expect(screen.queryByText('Accesorios (5)')).not.toBeInTheDocument();
 });

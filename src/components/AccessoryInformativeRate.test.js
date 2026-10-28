@@ -1,0 +1,7 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import api from '../api';
+import AccessoryInformativeRate from './AccessoryInformativeRate';
+jest.mock('../api',()=>({__esModule:true,default:{patch:jest.fn()}}));
+const producto={id:7,valor:{monedaCompra:'USD',valorProducto:10,valorSoles:37,tipoCambioCompra:null}};
+test('no infiere el campo, compara con cambio implícito y envía únicamente la tasa al endpoint informativo',async()=>{api.patch.mockResolvedValue({tipoCambioCompra:4});const saved=jest.fn();const before=JSON.stringify(producto);render(<AccessoryInformativeRate producto={producto} onSaved={saved} />);expect(screen.getByLabelText('Tipo de cambio de compra informativo')).toHaveValue(null);expect(screen.getByText(/3.700000/)).toBeVisible();fireEvent.change(screen.getByLabelText('Tipo de cambio de compra informativo'),{target:{value:'4'}});expect(screen.getByRole('status')).toHaveTextContent('difiere');fireEvent.click(screen.getByText('Registrar cambio informativo'));await waitFor(()=>expect(saved).toHaveBeenCalledWith(4));expect(api.patch).toHaveBeenCalledWith('/accesorios/lotes/7/tipo-cambio-informativo',{tipoCambioCompra:4});expect(JSON.stringify(producto)).toBe(before);});
+test('una tasa ya guardada se muestra sin permitir sobreescribirla',()=>{render(<AccessoryInformativeRate producto={{...producto,valor:{...producto.valor,tipoCambioCompra:3.8}}} />);expect(screen.getByText(/3.800000/)).toBeVisible();expect(screen.queryByRole('button')).toBeNull();});

@@ -1,4 +1,5 @@
 import VentaResolutionModal from '../components/VentaResolutionModal';
+import AccessorySalesPanel from '../components/AccessorySalesPanel';
 import { accessoryProfitRows } from '../utils/accessoryProfitRows';
 // src/pages/Ganancias.js
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -502,6 +503,7 @@ function ColVendedor({
   const sellerSlug = normalizeVendedor(titulo);
   const [editingVenta, setEditingVenta] = useState(null);
   const [deletingVentaId, setDeletingVentaId] = useState(null);
+  const [showAccessorySales, setShowAccessorySales] = useState(false);
 
   const handleDeleteVenta = (venta) => { if (venta?.id) setDeletingVentaId(venta.id); };
 
@@ -536,8 +538,9 @@ function ColVendedor({
               <td className="p-2">{!accessoryTotals.pendingCount && accessoryTotals.cost > 0 ? `${(accessoryTotals.profit / accessoryTotals.cost * 100).toFixed(2)}%` : '—'}</td>
               <td className="p-2">{accessorySales.length === 1 ? formatDateLocal(accessorySales[0].fechaVenta) : 'Varias fechas'}</td>
               {/* Todos los accesorios van en una sola fila; el detalle queda para editar o eliminar cada venta. */}
-              <td className="p-2 font-normal"><details><summary className="cursor-pointer">Ver ventas</summary>{accessoryGroups.flatMap((group) => group.sales.map((sale) => <div key={sale.id} className="mt-2 flex flex-wrap gap-2"><span>{group.name} · {formatDateLocal(sale.fechaVenta)} · {sale.cantidad || 1} ud.</span><button type="button" className="text-indigo-700" onClick={() => setEditingVenta(sale)}>Editar</button><button type="button" className="text-red-700" disabled={deletingVentaId === sale.id} onClick={() => handleDeleteVenta(sale)}>Devolver / corregir</button></div>))}</details></td>
+              <td className="p-2 font-normal"><button type="button" aria-expanded={showAccessorySales} aria-controls={`accessory-sales-${sellerSlug}`} className="inline-flex min-h-[40px] items-center gap-2 whitespace-nowrap rounded-lg border border-indigo-100 bg-indigo-50 px-3 text-xs font-semibold text-indigo-700 hover:bg-indigo-100" onClick={() => setShowAccessorySales((value) => !value)}>{showAccessorySales ? 'Ocultar ventas' : 'Ver ventas'} <span aria-hidden="true">{showAccessorySales ? '⌃' : '⌄'}</span></button></td>
             </tr>}
+            {showAccessorySales && accessoryTotals && <tr className="border-t border-slate-100 bg-slate-50/50"><td colSpan={8} className="p-3"><AccessorySalesPanel id={`accessory-sales-${sellerSlug}`} seller={titulo} period={`${mes ? `Mes ${String(mes).padStart(2, '0')}` : 'Todos los meses'} · ${anio || 'Todos los años'}`} groups={accessoryGroups} onEdit={setEditingVenta} onResolve={handleDeleteVenta} /></td></tr>}
             {rows.length === 0 && accessoryGroups.length === 0 ? (
               <tr>
                 <td className="p-3 text-sm text-gray-500" colSpan={8}>
@@ -675,6 +678,7 @@ function ColVendedor({
 
       {/* Tabla de ventas del vendedor (sin Precio DEC) */}
       {renderSalesTable(equipmentSales)}
+
 
       {deletingVentaId && <VentaResolutionModal ventaId={deletingVentaId} onClose={() => setDeletingVentaId(null)} onSaved={() => { setDeletingVentaId(null); writeCache([]); reloadVentas({ silent: true }); }} />}
       {editingVenta && (

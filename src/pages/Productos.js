@@ -4,6 +4,8 @@ import { setStoredValue, removeStoredValue, subscribeStorage, subscribePolling }
 import React, { Suspense, lazy, useState, useEffect, useCallback, useRef } from 'react';
 import { ActionButton, PageHeader, StatCard, Disclosure, LoadingState, ErrorState, formatDisplayMoney } from '../components/ui/VisualUI';
 import api from '../api';  // cliente fetch centralizado
+import { notifySalesChanged } from '../utils/salesSync';
+import { showsRam } from '../utils/commercialSpecs';
 import { notifyGastosChanged } from '../utils/gastosSync';
 import ResumenCasilleros from '../components/ResumenCasilleros';
 import ProductToolbar from '../components/productos/ProductToolbar';
@@ -378,6 +380,18 @@ export default function Productos({ setVista, setAnalisisBack }) {
     const handleSalesUpdated = (event) => {
       const venta = event?.detail?.venta;
       const productoId = Number(venta?.productoId || event?.detail?.productoId || 0);
+      if (productoId && event?.detail?.anulada) {
+        // Venta anulada: el producto vuelve a estar disponible y sin reserva vinculada.
+        const nextVentas = { ...ventasRef.current };
+        delete nextVentas[productoId];
+        const nextAdelantos = { ...adelantosRef.current, [productoId]: null };
+        ventasRef.current = nextVentas;
+        adelantosRef.current = nextAdelantos;
+        setVentasMap(nextVentas);
+        setAdelantosMap(nextAdelantos);
+        writeCache(productosRef.current, nextVentas, resumenRef.current, nextAdelantos);
+        return;
+      }
       if (!productoId || !venta) return;
       setVentasMap((current) => {
         const next = { ...current, [productoId]: venta };
@@ -424,6 +438,9 @@ export default function Productos({ setVista, setAnalisisBack }) {
     fetchResumen({ refresh: true });
     cerrarModal();
   };
+
+  // El evento ventas-updated (notifySalesChanged) ya quitó la venta y refresca stock y resumen.
+  const handleVentaAnulada = () => cerrarModal();
 
   const handleAdelantoSaved = (adelanto) => {
     if (!adelanto?.productoId) return;
@@ -2518,25 +2535,35 @@ const confirmAction = async () => {
   const handleDelete = async (id) => {
     const target = productos.find((item) => item.id === id);
     const code = target ? `MS-${displayProductCode(target) ?? id}` : 'este producto';
-    if (!window.confirm(`¿Borrar ${code}? Esta acción no se puede deshacer.`)) return;
+    const vendido = Boolean(ventasRef.current[id] || adelantosRef.current[id]);
+    // Varios lotes de accesorio comparten código: se indica cuál se borra.
+    const lote = String(target?.tipo || '').toLowerCase() === 'accesorios'
+      ? ` (lote #${id}, ${Number(target.stockActual || 0)} de ${Number(target.stockInicial || 0)} unidades)` : '';
+    if (!window.confirm(`¿Eliminar definitivamente ${code}${lote}?${vendido ? ' Tiene venta o reserva registrada.' : ''}
+`
+      + 'Se borrarán de la base de datos el producto y sus registros asociados: ventas, reservas, cobros, ingresos en Gastos y reembolsos. '
+      + 'Esta acción no se puede deshacer.')) return;
     try {
       await api.del(`/productos/${id}`);
+      const nextVentas = { ...ventasRef.current };
+      delete nextVentas[id];
+      const nextAdelantos = { ...adelantosRef.current, [id]: null };
+      ventasRef.current = nextVentas;
+      adelantosRef.current = nextAdelantos;
+      setVentasMap(nextVentas);
+      setAdelantosMap(nextAdelantos);
       setProductos(list => {
         const next = list.filter(p => p.id !== id);
-        writeCache(next, ventasRef.current, resumenRef.current, adelantosRef.current);
+        productosRef.current = next;
+        writeCache(next, nextVentas, resumenRef.current, nextAdelantos);
         return next;
       });
       window.dispatchEvent(new CustomEvent('productos-updated', { detail: { deletedId: id } }));
-      fetchResumen({ refresh: true });
+      // Refresca Gastos, Ganancias, Inventario y sus cachés; Productos lo trata como venta retirada.
+      notifySalesChanged({ action: 'delete-product', anulada: true, productoId: id });
     } catch (e) {
       console.error(e);
-      if (e?.message?.includes('historial')) {
-        const motivo = window.prompt('El producto tiene historial. Motivo para archivarlo:');
-        if (motivo?.trim()) {
-          try { await api.post('/productos/' + id + '/archivar', { motivo }); await refreshProductos({ force: true, useCache: false }); }
-          catch (error) { alert(error.message || 'No se pudo archivar.'); }
-        }
-      } else alert(e.message || 'Error al eliminar.');
+      alert(e.message || 'Error al eliminar.');
     }
   };
 
@@ -3183,7 +3210,7 @@ const confirmAction = async () => {
                         disabled={guardando}
                       >
                         {guardando ? 'Guardando…' : buildNombreProducto(p)}
-                        <small>{[p.detalle?.almacenamiento, p.detalle?.ram ? p.detalle.ram + ' RAM' : ''].filter(Boolean).join(' · ')}</small>
+                        <small>{[p.detalle?.almacenamiento, p.detalle?.ram && showsRam(p.tipo) ? p.detalle.ram + ' RAM' : ''].filter(Boolean).join(' · ')}</small>
                         {String(p.tipo).toLowerCase() === 'accesorios' && <small>{accessoryTypeLabel(p)} · {Number(p.stockActual || 0)} unidades</small>}
                       </button>
 
@@ -4350,6 +4377,7 @@ const confirmAction = async () => {
             venta={String(productoSeleccionado?.tipo).toLowerCase() === 'accesorios' ? null : (ventasMap[productoSeleccionado?.id] || null)}
             onClose={cerrarModal}
             onSaved={handleVentaSaved}
+            onAnulada={handleVentaAnulada}
           />
         )}
         {adelantoModo === 'select' && (

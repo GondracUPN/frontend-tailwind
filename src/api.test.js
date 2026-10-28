@@ -61,3 +61,6 @@ test('el timeout configurable aborta una respuesta bloqueada', async () => {
   await assertion;
   jest.useRealTimers();
 });
+
+
+test('preserva status y cuerpo del conflicto para recuperar la referencia duplicada',async()=>{global.fetch.mockResolvedValue({ok:false,status:409,headers:{get:()=> 'application/json'},text:async()=>JSON.stringify({message:'Duplicada',id:8})});await expect(api.post('/accesorios/ingresos',{})).rejects.toMatchObject({status:409,data:{id:8},message:expect.stringContaining('Duplicada')});});

@@ -22,7 +22,7 @@ beforeEach(() => {
   localStorage.setItem('token', 'audit-only');
   localStorage.setItem('user', JSON.stringify({ id: 1, username: 'gonzalo', role: 'admin' }));
   oldFetch = global.fetch;
-  api.post.mockResolvedValue(saved);
+  api.post.mockImplementation(async (path) => path.endsWith('/cotizar') ? { cotizacionToken: 'a'.repeat(64), costoTotal: 10 } : saved);
   api.get.mockImplementation(async (path) => path === '/auth/users'
     ? [{ id: 1, username: 'gonzalo', role: 'admin' }] : [ingreso]);
   global.fetch = jest.fn().mockResolvedValueOnce({ status: 409, ok: false,
@@ -39,6 +39,7 @@ async function vender(confirmar, accesorio = false) {
   if (!accesorio) fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.7' } });
   fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-10-20' } });
   fireEvent.change(screen.getByLabelText(accesorio ? 'Precio total de venta (S/)' : 'Precio de venta (S/)'), { target: { value: '80' } });
+  if (accesorio) await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
   await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
 }

@@ -1,5 +1,7 @@
 import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import api from '../api';
+import CatalogoAppleAdmin from '../components/CatalogoAppleAdmin';
+import EveryMacImportAdmin from '../components/EveryMacImportAdmin';
 import LoginGastos from './LoginGastos';
 import { EXPENSE_CATEGORY_OPTIONS } from '../utils/expenseConcepts';
 
@@ -754,6 +756,8 @@ export default function Servicios({ setVista }) {
         <InventarioAdmin onIrProductos={() => setVista('productos')} />
         <TarifasAdmin />
         <CatalogosAdmin />
+        <EveryMacImportAdmin />
+        <CatalogoAppleAdmin />
       </div>
     </div>
   );

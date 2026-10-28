@@ -1,19 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CloseX from './CloseX';
 import api from '../api';
+import OcrCandidateReview from './OcrCandidateReview';
+import OcrCropSelector from './OcrCropSelector';
+import parseSnImeiIds, { OCR_REQUEST_TIMEOUT_MS, createScanSession, planAutofill } from '../utils/snImeiOcr';
 
-const normalizeOcrText = (value) =>
-  String(value || '')
-    .replace(/[|]/g, 'I')
-    .replace(/[“”]/g, '"')
-    .replace(/[’]/g, "'")
-    .replace(/\r/g, '\n');
-
-const onlyDigits = (value) => String(value || '').replace(/\D+/g, '');
 const cleanSerial = (value) => String(value || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
-const SERIAL_MIN_LENGTH = 10;
-const SERIAL_MAX_LENGTH = 12;
-const IMEI_LENGTH = 15;
+const unique = (items) => Array.from(new Set(items.filter(Boolean)));
+const EMPTY_SELECTION = { serial: '', imei: '', imei2: '' };
+// Este escáner solo consulta: no guarda SN/IMEI en el producto. Para registrarlos se usa Inventario.
+const PERSISTENCE_NOTE = 'Solo para consultar: no se guarda en el producto. Para registrar SN/IMEI usa Inventario → Identificar SN / IMEI por foto.';
 
 const SICKW_SERVICES = [
   { id: '30', label: 'Apple Basic Info', description: 'Servicio #30', cost: '0.05' },
@@ -27,163 +23,6 @@ const IFREEICLOUD_SERVICES = [
   { id: 'ifreeicloud-205', label: 'iFreeCheck Mini', description: 'FMI, iCloud, SIM Lock, garantia y datos del equipo', cost: '0.05' },
   { id: 'ifreeicloud-281', label: 'iFreeCheck Ultimate', description: 'FMI, SIM Lock, carrier, EID, MDM, garantia y reporte completo', cost: '0.40' },
 ];
-
-const normalizeOcrDigits = (value) =>
-  String(value || '')
-    .replace(/[OoQqDd]/g, '0')
-    .replace(/[Il|!]/g, '1')
-    .replace(/[Zz]/g, '2')
-    .replace(/[Ss]/g, '5')
-    .replace(/[Gg]/g, '6')
-    .replace(/[Bb]/g, '8')
-    .replace(/\D+/g, '');
-
-const isValidImei = (value) => {
-  const digits = onlyDigits(value);
-  if (digits.length !== IMEI_LENGTH) return false;
-  let sum = 0;
-  for (let i = 0; i < 15; i += 1) {
-    let n = Number(digits[i]);
-    if (i % 2 === 1) {
-      n *= 2;
-      if (n > 9) n -= 9;
-    }
-    sum += n;
-  }
-  return sum % 10 === 0;
-};
-
-const unique = (items) => Array.from(new Set(items.filter(Boolean)));
-
-const SERIAL_LABEL = /\b(?:S\/N|S\s*\/\s*N|SN|SERIAL(?:\s+NUMBER)?|SERIAL\s+NO\.?|SERIE|NO\.\s*SERIE|NUMERO\s+DE\s+SERIE|NRO\s+SERIE)\b/i;
-const SERIAL_STOP_WORDS = new Set([
-  'APPLE',
-  'CALIFORNIA',
-  'DESIGNED',
-  'ASSEMBLED',
-  'CHINA',
-  'MODEL',
-  'MODELO',
-  'NUMBER',
-  'SERIAL',
-  'SERIE',
-  'IMEI',
-  'MEID',
-  'ICCID',
-  'MACBOOK',
-  'IPHONE',
-  'IPAD',
-  'WATCH',
-  'ORIGINAL',
-  'COLOR',
-  'CAPACITY',
-]);
-
-const extractImeis = (text) => {
-  const source = normalizeOcrText(text);
-  const found = [];
-  const imeiChars = '[0-9OoQqDdIl|!ZzSsGgBb\\s.:-]';
-  const labelRegex = new RegExp(`\\b(?:IMEI|1MEI|IME1|MEID)(?:\\s*[12])?(?:\\s*\\/\\s*MEID)?\\b[\\s:;#-]*(${imeiChars}{${IMEI_LENGTH},34})`, 'gi');
-  let match;
-
-  while ((match = labelRegex.exec(source))) {
-    const digits = normalizeOcrDigits(match[1]).slice(0, IMEI_LENGTH);
-    if (digits.length === IMEI_LENGTH) found.push(digits);
-  }
-
-  const lineRegex = /(?:\b(?:IMEI|1MEI|IME1|MEID)\b[^\n]{0,60})/gi;
-  while ((match = lineRegex.exec(source))) {
-    const digits = normalizeOcrDigits(match[0]).slice(-IMEI_LENGTH);
-    if (digits.length === IMEI_LENGTH) found.push(digits);
-  }
-
-  const looseRegex = /\b\d(?:[\s.:-]*\d){14}\b/g;
-  while ((match = looseRegex.exec(source))) {
-    const digits = onlyDigits(match[0]);
-    if (digits.length === IMEI_LENGTH) found.push(digits);
-  }
-
-  const valid = unique(found.filter(isValidImei));
-  return valid.length ? valid : unique(found);
-};
-
-const scoreSerialCandidate = (candidate, contextScore = 0) => {
-  const value = cleanSerial(candidate);
-  if (value.length < SERIAL_MIN_LENGTH || value.length > SERIAL_MAX_LENGTH) return 0;
-  if (/^\d+$/.test(value)) return 0;
-  if (!/[A-Z]/.test(value) || !/\d/.test(value)) return 0;
-  if (SERIAL_STOP_WORDS.has(value)) return 0;
-  if (Array.from(SERIAL_STOP_WORDS).some((word) => word.length > 4 && value.includes(word))) return 0;
-  let score = contextScore + 5;
-  score += 4;
-  if (new RegExp(`^[A-Z0-9]{${SERIAL_MIN_LENGTH},${SERIAL_MAX_LENGTH}}$`).test(value)) score += 3;
-  if (/[IOQ]/.test(value)) score -= 1;
-  return score;
-};
-
-const collectSerialCandidates = (text, imeis) => {
-  const source = normalizeOcrText(text);
-  const blocked = new Set((imeis || []).map(String));
-  const lines = source.split('\n').map((line) => line.trim()).filter(Boolean);
-  const scored = new Map();
-
-  const addCandidate = (candidate, contextScore) => {
-    const value = cleanSerial(candidate);
-    if (blocked.has(value) || /^\d{15}$/.test(value)) return;
-    const score = scoreSerialCandidate(value, contextScore);
-    if (!score) return;
-    scored.set(value, Math.max(scored.get(value) || 0, score));
-  };
-
-  const addFromContext = (context, contextScore) => {
-    const upper = context.toUpperCase();
-    const afterLabel = upper.replace(SERIAL_LABEL, ' ');
-    const tokens = afterLabel.match(/\b[A-Z0-9][A-Z0-9-]{8,16}\b/g) || [];
-    tokens.forEach((token) => addCandidate(token, contextScore));
-
-    const compact = afterLabel.replace(/[^A-Z0-9]/g, '');
-    for (let length = SERIAL_MAX_LENGTH; length >= SERIAL_MIN_LENGTH; length -= 1) {
-      for (let i = 0; i <= compact.length - length; i += 1) {
-        addCandidate(compact.slice(i, i + length), contextScore - 2);
-      }
-    }
-  };
-
-  lines.forEach((line, index) => {
-    if (!SERIAL_LABEL.test(line)) return;
-    addFromContext(line, 12);
-    if (lines[index + 1]) addFromContext(lines[index + 1], 10);
-    if (lines[index + 2] && cleanSerial(lines[index + 1]).length < 8) addFromContext(lines[index + 2], 8);
-  });
-
-  const directRegex = /\b(?:S\/N|S\s*\/\s*N|SN|SERIAL(?:\s+NUMBER)?|SERIAL\s+NO\.?|SERIE|NO\.\s*SERIE|NUMERO\s+DE\s+SERIE|NRO\s+SERIE)\b[\s:;#-]*([A-Z0-9][A-Z0-9\s-]{9,22})/gi;
-  let match;
-  while ((match = directRegex.exec(source))) {
-    addFromContext(match[1], 14);
-  }
-
-  const standaloneRegex = /\b[A-Z0-9]{10,12}\b/gi;
-  while ((match = standaloneRegex.exec(source))) {
-    addCandidate(match[0], 2);
-  }
-
-  return Array.from(scored.entries())
-    .sort((a, b) => b[1] - a[1])
-    .map(([value]) => value)
-    .slice(0, 5);
-};
-
-export const parseIds = (text) => {
-  const imeis = extractImeis(text);
-  const serialCandidates = collectSerialCandidates(text, imeis);
-  return {
-    serial: serialCandidates[0] || '',
-    imei1: imeis[0] || '',
-    imei2: imeis[1] || '',
-    serials: serialCandidates,
-    imeis,
-  };
-};
 
 const fileToDataUrl = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -225,7 +64,9 @@ export default function ModalSnImeiScanner({ onClose }) {
   const [manualInput, setManualInput] = useState('');
   const [selectedProvider, setSelectedProvider] = useState('sickw');
   const [selectedServiceId, setSelectedServiceId] = useState('30');
-  const [text, setText] = useState('');
+  const [ocr, setOcr] = useState(() => parseSnImeiIds(null));
+  const [selection, setSelection] = useState(EMPTY_SELECTION);
+  const [scanSource, setScanSource] = useState(null);
   const [selectedLookup, setSelectedLookup] = useState(null);
   const [sickwResult, setSickwResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -247,6 +88,13 @@ export default function ModalSnImeiScanner({ onClose }) {
   const [historyError, setHistoryError] = useState('');
   const [lookupStatus, setLookupStatus] = useState(null);
   const [lookupNotice, setLookupNotice] = useState('');
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  const scanSessionRef = useRef(null);
+  if (!scanSessionRef.current) scanSessionRef.current = createScanSession();
+
+  // Al cerrar el modal, una lectura en curso se aborta y su respuesta se descarta.
+  useEffect(() => () => scanSessionRef.current?.cancel(), []);
 
   useEffect(() => {
     let active = true;
@@ -291,7 +139,6 @@ export default function ModalSnImeiScanner({ onClose }) {
     };
   }, [historyOpen, historyQuery]);
 
-  const parsed = useMemo(() => parseIds(text), [text]);
   const manualOption = useMemo(() => parseManualIdentifier(manualInput), [manualInput]);
   const activeServices = selectedProvider === 'ifreeicloud' ? IFREEICLOUD_SERVICES : SICKW_SERVICES;
   const selectedService = useMemo(
@@ -301,22 +148,25 @@ export default function ModalSnImeiScanner({ onClose }) {
   const lookupOptions = useMemo(() => {
     const options = [
       manualOption,
-      parsed.serial ? { type: 'sn', label: 'SN', value: parsed.serial } : null,
-      parsed.imei1 ? { type: 'imei', label: 'IMEI 1', value: parsed.imei1 } : null,
-      parsed.imei2 ? { type: 'imei2', label: 'IMEI 2', value: parsed.imei2 } : null,
+      selection.serial ? { type: 'sn', label: 'SN', value: selection.serial } : null,
+      selection.imei ? { type: 'imei', label: 'IMEI 1', value: selection.imei } : null,
+      selection.imei2 ? { type: 'imei2', label: 'IMEI 2', value: selection.imei2 } : null,
     ].filter(Boolean);
     return unique(options.map((item) => `${item.type}:${item.value}`)).map((key) => {
       const [type, value] = key.split(':');
       return options.find((item) => item.type === type && item.value === value);
     }).filter(Boolean);
-  }, [manualOption, parsed.serial, parsed.imei1, parsed.imei2]);
+  }, [manualOption, selection.serial, selection.imei, selection.imei2]);
   const resetScanState = () => {
+    scanSessionRef.current.cancel();
     setError('');
     setCheckError('');
     setCopied(false);
     setCopiedIdentifier('');
     setHasScanned(false);
-    setText('');
+    setOcr(parseSnImeiIds(null));
+    setSelection(EMPTY_SELECTION);
+    setScanSource(null);
     setSelectedLookup(null);
     setSickwResult(null);
     setLookupStatus(null);
@@ -339,20 +189,38 @@ export default function ModalSnImeiScanner({ onClose }) {
     setSelectedLookup(option);
   };
 
-  const applyOcrText = (value) => {
-    const normalized = normalizeOcrText(value || '');
-    setText(normalized);
-    setHasScanned(true);
-    setProgress(100);
-    const parsedNow = parseIds(normalized);
-    const first = parsedNow.serial
-      ? { type: 'sn', label: 'SN', value: parsedNow.serial }
-      : parsedNow.imei1
-        ? { type: 'imei', label: 'IMEI 1', value: parsedNow.imei1 }
-        : parsedNow.imei2
-          ? { type: 'imei2', label: 'IMEI 2', value: parsedNow.imei2 }
-          : null;
-    setSelectedLookup(first);
+  const firstLookup = (values) => (values.serial
+    ? { type: 'sn', label: 'SN', value: values.serial }
+    : values.imei
+      ? { type: 'imei', label: 'IMEI 1', value: values.imei }
+      : values.imei2
+        ? { type: 'imei2', label: 'IMEI 2', value: values.imei2 }
+        : null);
+
+  // Leer texto nunca consulta SICKW ni iFreeiCloud: solo propone identificadores para revisar.
+  const runOcr = async (body, { crop = null, fallbackError } = {}) => {
+    const ticket = scanSessionRef.current.begin();
+    setLoading(true);
+    setError('');
+    try {
+      setProgress(45);
+      const result = await api.post('/ocr/vision', { ...body, ...(crop ? { crop } : {}), requestToken: ticket.token }, { signal: ticket.signal, timeoutMs: OCR_REQUEST_TIMEOUT_MS });
+      if (!ticket.isCurrent(result)) return;
+      const parsedNow = parseSnImeiIds(result);
+      setOcr(parsedNow);
+      setHasScanned(true);
+      setProgress(100);
+      // Sin reglas de modelo: todo campo es aplicable, pero nunca se pisa lo que ya se eligió.
+      const base = selectionRef.current;
+      const next = { ...base, ...planAutofill(parsedNow, base, null).patch };
+      setSelection(next);
+      setSelectedLookup((lookup) => lookup || firstLookup(next));
+    } catch (err) {
+      if (!ticket.isCurrent()) return;
+      setError(err?.message || fallbackError);
+    } finally {
+      if (ticket.isCurrent()) setLoading(false);
+    }
   };
 
   const handleFile = async (event) => {
@@ -362,23 +230,17 @@ export default function ModalSnImeiScanner({ onClose }) {
     if (imageUrl?.startsWith('blob:')) URL.revokeObjectURL(imageUrl);
     const url = URL.createObjectURL(file);
     setImageUrl(url);
-    setLoading(true);
-
+    setProgress(20);
+    let imageBase64 = '';
     try {
-      setProgress(20);
-      const imageBase64 = await fileToDataUrl(file);
-      setProgress(45);
-      const result = await api.post('/ocr/vision', {
-        imageBase64,
-        mimeType: file.type || 'image/jpeg',
-      });
-      applyOcrText(result?.text || '');
-    } catch (err) {
-      console.error('[ModalSnImeiScanner] OCR error:', err);
-      setError(err?.message || 'No se pudo leer la imagen con Cloud Vision.');
-    } finally {
-      setLoading(false);
+      imageBase64 = await fileToDataUrl(file);
+    } catch {
+      setError('No se pudo leer el archivo de imagen.');
+      return;
     }
+    const source = { imageBase64, mimeType: file.type || 'image/jpeg' };
+    setScanSource(source);
+    await runOcr(source, { fallbackError: 'No se pudo leer la imagen con Cloud Vision.' });
   };
 
   const handleUrlScan = async () => {
@@ -387,20 +249,24 @@ export default function ModalSnImeiScanner({ onClose }) {
     resetScanState();
     if (imageUrl?.startsWith('blob:')) URL.revokeObjectURL(imageUrl);
     setImageUrl(trimmed);
-    setLoading(true);
+    const source = { imageUrl: trimmed };
+    setScanSource(source);
+    setProgress(35);
+    await runOcr(source, { fallbackError: 'No se pudo leer la imagen desde la URL.' });
+  };
 
-    try {
-      setProgress(35);
-      const result = await api.post('/ocr/vision', {
-        imageUrl: trimmed,
-      });
-      applyOcrText(result?.text || '');
-    } catch (err) {
-      console.error('[ModalSnImeiScanner] OCR URL error:', err);
-      setError(err?.message || 'No se pudo leer la imagen desde la URL.');
-    } finally {
-      setLoading(false);
-    }
+  const rescanZone = (crop) => {
+    if (!scanSource) return;
+    runOcr(scanSource, { crop, fallbackError: 'No se pudo releer la zona seleccionada.' });
+  };
+
+  const assignSelection = (field, value) => {
+    setSelection((current) => ({ ...current, [field]: value }));
+    const type = field === 'serial' ? 'sn' : field;
+    setSelectedLookup({ type, label: field === 'serial' ? 'SN' : field === 'imei' ? 'IMEI 1' : 'IMEI 2', value });
+    setSickwResult(null);
+    setLookupStatus(null);
+    setLookupNotice('');
   };
 
   const checkSickw = async () => {
@@ -555,7 +421,15 @@ export default function ModalSnImeiScanner({ onClose }) {
             </div>
             {imageUrl ? (
               <div className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
-                <img src={imageUrl} alt="Imagen para OCR" className="max-h-[24rem] w-full object-contain" />
+                <OcrCropSelector
+                  key={imageUrl}
+                  src={imageUrl}
+                  alt="Imagen para OCR"
+                  fit="contain"
+                  imgClassName="block max-h-[24rem] w-full object-contain"
+                  disabled={loading || !scanSource}
+                  onCrop={rescanZone}
+                />
               </div>
             ) : (
               <div className="flex min-h-48 items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-500">
@@ -571,6 +445,7 @@ export default function ModalSnImeiScanner({ onClose }) {
               </div>
             )}
             {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+            <OcrCandidateReview parsed={ocr} values={selection} onAssign={assignSelection} persistenceNote={PERSISTENCE_NOTE} />
           </div>
 
           <div className="space-y-4">

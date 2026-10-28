@@ -12,7 +12,9 @@ import { normalizeProductLookupUrl } from '../utils/productUrl';
 import { createExpenseWithDuplicateCheck, ExpenseDuplicateCancelledError } from '../utils/createExpense';
 import IncludedAccessories, { normalizeIncludedAccessories } from './IncludedAccessories';
 import { formatAppleWatchName } from '../utils/productName';
-import { describeAppleModelMatch, lookupAppleModel } from '../utils/appleModelLookup';
+import { calculateShippingWeight, describeAppleModelMatch } from '../utils/appleModelLookup';
+import FormProductoAirpods from './formParts/FormProductoAirpods';
+import { fetchAppleCatalog } from '../services/appleCatalog';
 
 const normalizeText = (val) =>
   String(val || '')
@@ -310,6 +312,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
   const [sellerExpenseUserId, setSellerExpenseUserId] = useState(null);
   const [paymentCard, setPaymentCard] = useState('');
 
+  const [purchaseRate, setPurchaseRate] = useState('3.7');
   const [form, setForm] = useState({
     tipo: '',
     estado: '',
@@ -481,7 +484,11 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
 
   const onChange = (section, field, value) => {
     if (section === 'main') {
-      setForm((f) => ({ ...f, [field]: value }));
+      setForm((f) => ({ ...f, [field]: value,
+        ...(field === 'cantidad' && f.tipo === 'accesorios' && f.valor.valorProducto !== '' ? {
+          valor: { ...f.valor, valorProducto: Number((Number(f.valor.valorProducto) / Math.max(1, Number(f.cantidad)) * Math.max(1, Number(value))).toFixed(2)) },
+        } : {}),
+      }));
     } else {
       setForm((f) => ({ ...f, [section]: { ...f[section], [field]: value } }));
     }
@@ -666,21 +673,34 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
       const title = String(data?.title || '');
       const parsed = data?.titleParsed || {};
       const condition = String(data?.condition || '');
-      const identifierMatch = lookupAppleModel(title);
+      // Identificación por Axxxx / código de pedido / identificador desde el catálogo del backend.
+      // Solo se aplica cuando es inequívoca; nunca rellena RAM/SSD mínimos de la familia.
+      const identified = await api.get(`/apple-catalog/identify?q=${encodeURIComponent(title)}`).catch(() => null);
+      const candidates = Array.isArray(identified?.candidates) ? identified.candidates : [];
+      const exact = identified?.status === 'exact' ? candidates[0] : null;
+      const identifierMatch = exact ? {
+        tipo: exact.tipo,
+        ...exact.detalle,
+        identifier: exact.token,
+        title: exact.title,
+        conflicts: exact.conflicts || [],
+        pesoProductoKg: exact.weightKg || null,
+        pesoEnvioKg: calculateShippingWeight(exact.weightKg),
+      } : (candidates.length ? { ambiguous: true, identifier: candidates[0].token, candidates } : null);
 
-      const tipoInfer = normalizeText(parsed?.tipo || identifierMatch?.tipo || inferTipo(title));
+      const tipoInfer = normalizeText(identifierMatch?.tipo || parsed?.tipo || inferTipo(title));
       const tipo = tipoInfer || 'otro';
       const gama = identifierMatch?.gama || parsed?.gama || inferGama(title, tipo);
       const proc = identifierMatch?.procesador || parsed?.proc || inferProcesador(title);
       const pantalla = identifierMatch?.tamano || parsed?.pantalla || inferPantalla(title);
-      const ram = extractRamValue(parsed?.ram || '') || inferRamFromTitle(title) || identifierMatch?.ram || '';
+      const ram = extractRamValue(parsed?.ram || '') || inferRamFromTitle(title) || (!identifierMatch?.ambiguous && identifierMatch?.ram) || '';
       const ssd = extractStorageValue(
         parsed?.ssd ||
           parsed?.storage ||
           parsed?.almacenamiento ||
           parsed?.capacidad ||
           '',
-      ) || inferStorageFromTitle(title) || identifierMatch?.almacenamiento || '';
+      ) || inferStorageFromTitle(title) || (!identifierMatch?.ambiguous && identifierMatch?.almacenamiento) || '';
       const iphoneMeta = inferIphoneMeta(title);
       const watchMeta = inferWatchMeta(title);
       const ipadConexion = normalizeIpadConexion(
@@ -721,7 +741,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
           nextDetalle.conexion = identifierMatch?.conexion || watchMeta.conexion || nextDetalle.conexion;
         } else if (tipo === 'imac' || tipo === 'macmini') {
           nextDetalle.procesador = identifierMatch?.procesador || proc || nextDetalle.procesador;
-          nextDetalle.tamano = identifierMatch?.tamano || pantalla || nextDetalle.tamano;
+          if (tipo === 'imac') nextDetalle.tamano = identifierMatch?.tamano || pantalla || nextDetalle.tamano;
           nextDetalle.ram = ram || nextDetalle.ram;
           nextDetalle.almacenamiento = ssd || nextDetalle.almacenamiento;
         } else if (tipo === 'otro') {
@@ -750,6 +770,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
     if (e) e.preventDefault();
     if (saving) return;
     if (form.tipo === 'accesorios') {
+      if (!isEdit && (!Number.isFinite(Number(purchaseRate)) || Number(purchaseRate) <= 0)) { alert('Ingresa un tipo de cambio de compra válido.'); return; }
       const cantidad = Number(form.cantidad);
       if (!Number.isInteger(cantidad) || cantidad < 1) {
         alert('Indica cuántas unidades estás comprando (mínimo 1).');
@@ -781,15 +802,24 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
 
     const base = { tipo: form.tipo, estado: form.estado, accesorios, cantidad: Number(form.cantidad || 1) };
     const allowedDetalle = ['gama', 'procesador', 'generacion', 'numero', 'modelo', 'tamano', 'almacenamiento', 'ram', 'conexion', 'esim', 'descripcionOtro'];
+    let hiddenFields = [];
+    if (!isEdit) {
+      try {
+        const catalog = await fetchAppleCatalog();
+        hiddenFields = catalog.families?.[form.tipo]?.hiddenFields || [];
+      } catch {
+        hiddenFields = [];
+      }
+    }
     const cleanDetalle = Object.fromEntries(
-      Object.entries(form.detalle || {}).filter(([k]) => allowedDetalle.includes(k))
+      Object.entries(form.detalle || {}).filter(([k]) => allowedDetalle.includes(k) && !hiddenFields.includes(k))
     );
 
     const pedidoNombre = String(form.pedidoCliente || '').trim();
     const vendedorPayload = pedidoNombre
       ? pedidoSeller(pedidoNombre)
       : (form.vendedor === OTHER_PEDIDO_SELLER ? null : form.vendedor?.trim() || null);
-    const payload = { ...base, vendedor: vendedorPayload, detalle: cleanDetalle, valor: form.valor };
+    const payload = { ...base, vendedor: vendedorPayload, detalle: cleanDetalle, valor: { ...form.valor, ...(!isEdit && form.tipo === 'accesorios' ? { tipoCambioCompra: Number(purchaseRate) } : {}) } };
     const primaryLink = Array.isArray(vincularConList) ? vincularConList[0] : null;
     if (primaryLink) payload.vincularCon = Number(primaryLink);
     if (desvincularEnvio) payload.desvincularEnvio = true;
@@ -882,7 +912,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
 
       if (String(saved?.tipo || '').toLowerCase() === 'accesorios'
         && Number(saved?.codigoInventario || saved?.id) !== Number(saved?.id)) {
-        alert(`La compra #${saved.id} se creó por separado y comparte el código MS-${saved.codigoInventario}.`);
+        alert(`La compra #${saved.id} se creó por separado y comparte el código ACC-${saved.codigoInventario}.`);
       }
 
       const extras = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
@@ -1166,12 +1196,18 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                         {ebayTitle}
                       </div>
                     )}
-                    {ebayModelMatch && (
+                    {ebayModelMatch && !ebayModelMatch.ambiguous && (
                       <div className="text-xs text-emerald-800 mt-2 border border-emerald-200 rounded bg-emerald-50 p-2" role="status">
                         Código {ebayModelMatch.identifier} reconocido: <strong>{describeAppleModelMatch(ebayModelMatch)}</strong>
                         {ebayModelMatch.pesoEnvioKg && (
                           <> · Peso del equipo: {ebayModelMatch.pesoProductoKg} kg · Peso automático: <strong>{ebayModelMatch.pesoEnvioKg} kg</strong></>
                         )}
+                        {ebayModelMatch.conflicts?.length > 0 && <div className="text-amber-700 mt-1">Revisar: {ebayModelMatch.conflicts.join(' ')}</div>}
+                      </div>
+                    )}
+                    {ebayModelMatch?.ambiguous && (
+                      <div className="text-xs text-amber-800 mt-2 border border-amber-200 rounded bg-amber-50 p-2" role="status">
+                        Código {ebayModelMatch.identifier} compartido por varios modelos: {ebayModelMatch.candidates.map((c) => c.title).join(' / ')}. Selecciona el modelo exacto.
                       </div>
                     )}
                   </div>
@@ -1277,12 +1313,10 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
                   <FormProductoMacDesktop tipo="imac" detalle={form.detalle} onChange={(f, v) => onChange('detalle', f, v)} />
                 )}
                 {form.tipo === 'airpods' && (
-                  <div>
-                    <label className="block font-medium">Modelo de AirPods</label>
-                    <select className="w-full border p-2 rounded" value={form.detalle?.modelo || ''} onChange={e => onChange('detalle', 'modelo', e.target.value)}>
-                      <option value="">Selecciona</option><option>AirPods Pro 1</option><option>AirPods Pro 2</option><option>AirPods Pro 3</option><option>AirPods 4</option><option>AirPods 4 ANC</option><option>AirPods Max 1</option><option>AirPods Max 2</option>
-                    </select>
-                  </div>
+                  <FormProductoAirpods
+                    detalle={form.detalle}
+                    onChange={(f, v) => onChange('detalle', f, v)}
+                  />
                 )}
                 {form.tipo === 'accesorios' && (
                   <FormProductoAccessory
@@ -1348,7 +1382,12 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
               </div>
 
               <div className="space-y-4">
-                {['valorProducto', 'valorDec', 'peso', 'fechaCompra'].map(field => (
+                {form.tipo === 'accesorios' && <>
+                  <label className="block font-medium">Costo por unidad<input aria-label="Costo por unidad" type="number" min="0" step="0.01" className="w-full rounded border p-2" value={form.valor.valorProducto === '' ? '' : Number(form.valor.valorProducto) / Math.max(1, Number(form.cantidad))} onChange={(event) => onChange('valor', 'valorProducto', Number((Number(event.target.value) * Math.max(1, Number(form.cantidad))).toFixed(2)))} /></label>
+                  <label className="block font-medium">Costo total del lote<input aria-label="Costo total del lote" readOnly className="w-full rounded border bg-slate-50 p-2" value={Number(form.valor.valorProducto || 0).toFixed(2)} /></label>
+                  {!isEdit && <label className="block font-medium">Tipo de cambio de compra<input aria-label="Tipo de cambio de compra" type="number" min="0.0001" step="0.0001" className="w-full rounded border p-2" value={purchaseRate} onChange={(event) => setPurchaseRate(event.target.value)} /><span className="text-xs">Costo de compra en soles: S/ {(Number(form.valor.valorProducto || 0) * Number(purchaseRate || 0)).toFixed(2)}</span></label>}
+                </>}
+                {['valorProducto', 'valorDec', 'peso', 'fechaCompra'].filter((field) => form.tipo !== 'accesorios' || field !== 'valorProducto').map(field => (
                   <div key={field}>
                     <label className="block font-medium mb-1">
                       {{

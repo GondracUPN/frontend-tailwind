@@ -1,4 +1,7 @@
 // Match the sale's selected lot followed by FIFO consumption in the backend.
+export const accessoryLotAvailable = (lot) => Number(lot?.stockActual || 0) > 0 &&
+  !(lot?.referenciaId && lot.origen === 'accesorio_importado' && !(lot.tracking || []).some((row) => row.fechaRecogido || String(row.estado).toLowerCase() === 'recogido'));
+
 export function accessoryLotDate(lot) {
   const purchase = lot.valor?.fechaCompra ? new Date(lot.valor.fechaCompra).getTime() : NaN;
   if (Number.isFinite(purchase)) return purchase;

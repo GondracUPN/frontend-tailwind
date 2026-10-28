@@ -5,6 +5,8 @@ import FormProductoIpad from './formParts/FormProductoIpad';
 import FormProductoIphone from './formParts/FormProductoIphone';
 import FormProductoWatch from './formParts/FormProductoWatch';
 import FormProductoMacDesktop from './formParts/FormProductoMacDesktop';
+import FormProductoAirpods from './formParts/FormProductoAirpods';
+import { commercialSpecs } from '../utils/commercialSpecs';
 import { formatAppleWatchName } from '../utils/productName';
 import FormProductoOtro from './formParts/FormProductoOtro';
 import FormProductoAccessory from './formParts/FormProductoAccessory';
@@ -13,6 +15,7 @@ import IncludedAccessories, { normalizeIncludedAccessories } from './IncludedAcc
 import PagosVenta from './finanzas/PagosVenta';
 import ReembolsosProducto from './finanzas/ReembolsosProducto';
 import { sesionFinanciera } from '../services/finanzas';
+import AnularVentaButton from './AnularVentaButton';
 
 const PEDIDO_CLIENTS = ['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian', 'Williams'];
 const OTHER_PEDIDO_SELLER = '__otro_nombre_pedido__';
@@ -32,7 +35,7 @@ const pedidoClientFromSeller = (seller) => {
   return match?.[1] ? match[1].trim() : '';
 };
 
-export default function DetallesProductoModal({ producto, venta, productosAll = [], onClose, onSaved, onSaveOutside }) {
+export default function DetallesProductoModal({ producto, venta, productosAll = [], onClose, onSaved, onSaveOutside, onVentaAnulada }) {
   // ----- 1. Estado e inicializacion -----
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState({
@@ -303,9 +306,7 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                         {vinculados.map((v) => {
                           const d = v.detalle || {};
                           const accesorios = Array.isArray(v.accesorios) ? v.accesorios.join(', ') : 'N/A';
-                          const specs = [d.gama, d.generacion, d.procesador, d.tamano || d.tamanio, d.almacenamiento, d.ram, d.conexion]
-                            .filter(Boolean)
-                            .join(' | ');
+                          const specs = commercialSpecs(v.tipo, d).join(' | ');
                           return (
                             <li key={v.id}>
                               <div className="text-sm font-medium">#{v.id} - {v.tipo}</div>
@@ -331,6 +332,9 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                   <details open className="rounded-xl border border-slate-200 p-3">
                     <summary className="cursor-pointer text-sm font-semibold text-slate-900">Pagos y cobros de la venta</summary>
                     <div className="mt-3"><PagosVenta ventaId={venta.id} compact /></div>
+                    <div className="mt-3 flex justify-end">
+                      <AnularVentaButton venta={venta} onAnulada={(anulada) => { onVentaAnulada?.(anulada); onClose?.(); }} />
+                    </div>
                   </details>
                 )}
                 <details className="rounded-xl border border-slate-200 p-3" open={Boolean(producto.cierreMotivo)}>
@@ -403,7 +407,7 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                 )}
                 {form.tipo === 'macmini' && <FormProductoMacDesktop tipo="macmini" detalle={form.detalle} onChange={handleDetalleChange} />}
                 {form.tipo === 'imac' && <FormProductoMacDesktop tipo="imac" detalle={form.detalle} onChange={handleDetalleChange} />}
-                {form.tipo === 'airpods' && <div><label className="block font-medium">Modelo de AirPods</label><select className="w-full border p-2 rounded" value={form.detalle?.modelo || ''} onChange={e => handleDetalleChange('modelo', e.target.value)}><option value="">Selecciona</option><option>AirPods Pro 1</option><option>AirPods Pro 2</option><option>AirPods Pro 3</option><option>AirPods 4</option><option>AirPods 4 ANC</option><option>AirPods Max 1</option><option>AirPods Max 2</option></select></div>}
+                {form.tipo === 'airpods' && <FormProductoAirpods detalle={form.detalle} onChange={handleDetalleChange} />}
                 {form.tipo === 'accesorios' && <FormProductoAccessory detalle={form.detalle} cantidad={form.cantidad} onDetalleChange={handleDetalleChange} onCantidadChange={(value) => handleMainChange('cantidad', value)} currentStock={{ initial: producto.stockInicial, current: producto.stockActual }} />}
 
                 <div className={form.tipo === 'iphone' ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}>

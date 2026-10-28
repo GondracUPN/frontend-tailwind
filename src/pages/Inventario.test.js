@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import api from '../api';
 import Inventario, { groupInventoryEntries } from './Inventario';
 
@@ -55,6 +55,54 @@ test('fusiona en Inventario los lotes de accesorios con el mismo codigo y suma e
   });
 });
 
+test('editar una ficha agrupada selecciona un lote y conserva su costo unitario y cantidad propios', async () => {
+  const make = (id, count, total) => ({ producto: { id, codigoInventario: 701, tipo: 'accesorios', estado: 'nuevo', vendedor: 'Gonzalo',
+    stockInicial: count, stockActual: count, detalle: { modelo: 'Cable' },
+    valor: { valorProducto: total, monedaCompra: 'PEN', costoEnvio: 0, fechaCompra: '2026-10-20' } }, ficha: { enAlmacen: true } });
+  api.get.mockResolvedValue([make(701, 2, 20), make(702, 3, 45)]);
+  api.patch.mockResolvedValue({ enAlmacen: true });
+  render(<Inventario setVista={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Editar stock' }));
+  expect(screen.getByLabelText('Lote que se edita')).toHaveValue('702');
+  expect(screen.getByLabelText('Cantidad comprada')).toHaveValue(3);
+  expect(screen.getByLabelText('Costo por unidad')).toHaveValue(15);
+  expect(screen.getByLabelText('Costo total del lote')).toHaveValue('45.00');
+  fireEvent.change(screen.getByLabelText('Lote que se edita'), { target: { value: '701' } });
+  expect(screen.getByLabelText('Cantidad comprada')).toHaveValue(2);
+  expect(screen.getByLabelText('Costo por unidad')).toHaveValue(10);
+  expect(screen.getByLabelText('Costo total del lote')).toHaveValue('20.00');
+  expect(screen.getByLabelText('Costo total del lote')).toHaveAttribute('readonly');
+  fireEvent.change(screen.getByLabelText('Costo por unidad'), { target: { value: '12' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/productos/701', expect.objectContaining({ valor: expect.objectContaining({ valorProducto: 24 }) })));
+  expect(api.patch).not.toHaveBeenCalledWith('/productos/702', expect.anything());
+});
+
+test('alta simple con título libre calcula unitario por cantidad y guarda cambio USD editable', async () => {
+  api.get.mockResolvedValue([entry]); api.post.mockResolvedValue({ id: 703 }); api.patch.mockResolvedValue({ enAlmacen: true });
+  render(<Inventario setVista={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Agregar accesorio simple' }));
+  const dialog = screen.getByRole('dialog', { name: 'Agregar accesorio simple' });
+  fireEvent.change(within(dialog).getByLabelText('Nombre / título del accesorio *'), { target: { value: 'Soporte plegable Temu' } });
+  expect(within(dialog).getByLabelText('Nombre / título del accesorio *')).not.toHaveAttribute('list');
+  expect(dialog.querySelector('datalist')).toBeNull();
+  fireEvent.change(within(dialog).getByLabelText('Comprado por *'), { target: { value: 'Gonzalo' } });
+  fireEvent.change(within(dialog).getByLabelText('Precio de compra por unidad'), { target: { value: '10' } });
+  fireEvent.change(within(dialog).getByLabelText('Cantidad *'), { target: { value: '5' } });
+  fireEvent.change(within(dialog).getByLabelText('Moneda de compra'), { target: { value: 'USD' } });
+  expect(within(dialog).getByLabelText('Tipo de cambio de compra')).toHaveValue(3.7);
+  fireEvent.change(within(dialog).getByLabelText('Tipo de cambio de compra'), { target: { value: '4.1' } });
+  expect(dialog).toHaveTextContent('Costo total del lote: USD 50.00');
+  expect(dialog).toHaveTextContent('Compra en soles: S/ 205.00');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Agregar accesorio' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/productos', expect.objectContaining({ tipo: 'accesorios', soloInventario: true, vendedor: 'Gonzalo', cantidad: 5,
+    detalle: { modelo: 'Soporte plegable Temu', modelosCompatibles: [] }, valor: expect.objectContaining({ valorProducto: 50, monedaCompra: 'USD', tipoCambioCompra: 4.1, valorDec: 0, peso: 0 }) })));
+  expect(api.post.mock.calls[0][1]).not.toHaveProperty('referenciaId');
+  expect(api.get.mock.calls.some(([path]) => path.startsWith('/accesorios/'))).toBe(false);
+});
+
 test('separa todos los accesorios del inventario y los muestra tengan o no foto', async () => {
   api.get.mockResolvedValue([
     entry,
@@ -74,22 +122,29 @@ test('separa todos los accesorios del inventario y los muestra tengan o no foto'
   expect(screen.getAllByText('Accesorio')).toHaveLength(2);
 });
 
-test('crea el accesorio simple como compra exclusiva de Inventario', async () => {
-  api.post.mockResolvedValue({ id: 503 });
-  api.patch.mockResolvedValue({ enAlmacen: true });
+test('alta simple en soles con envío y compatibilidad libre, sin catálogo Apple ni campos de producto', async () => {
+  api.get.mockResolvedValue([entry]); api.post.mockResolvedValue({ id: 503 }); api.patch.mockResolvedValue({ enAlmacen: true });
   render(<Inventario setVista={jest.fn()} />);
-
   fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Agregar accesorio simple' }));
+  expect(screen.queryByText('Sin referencia')).toBeNull();
+  expect(screen.queryByText('Ingresar accesorios')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Agregar accesorio simple' }));
   const dialog = screen.getByRole('dialog', { name: 'Agregar accesorio simple' });
-  fireEvent.change(within(dialog).getByPlaceholderText('Ej. Case para iPhone 16 Pro'), { target: { value: 'Cable USB-C' } });
+  fireEvent.change(within(dialog).getByLabelText('Nombre / título del accesorio *'), { target: { value: 'Case marca libre' } });
   fireEvent.change(within(dialog).getByLabelText('Comprado por *'), { target: { value: 'Renato' } });
-  fireEvent.change(within(dialog).getByLabelText('Precio de compra por unidad *'), { target: { value: '15' } });
+  fireEvent.change(within(dialog).getByLabelText('Precio de compra por unidad'), { target: { value: '15' } });
+  fireEvent.change(within(dialog).getByLabelText('Cantidad *'), { target: { value: '2' } });
+  fireEvent.change(within(dialog).getByLabelText(/Modelos compatibles \(opcional\)/), { target: { value: 'Galaxy S25, Pixel 10' } });
+  fireEvent.click(within(dialog).getByLabelText('Hubo costo de envío'));
+  fireEvent.change(within(dialog).getByLabelText('Costo de envío (S/)'), { target: { value: '8' } });
+  fireEvent.change(within(dialog).getByLabelText(/Precio de venta \(opcional\)/), { target: { value: '35' } });
+  expect(within(dialog).queryByLabelText('Tipo de cambio de compra')).toBeNull();
+  expect(within(dialog).queryByText(/Casillero|DEC|Tracking/)).toBeNull();
   fireEvent.click(within(dialog).getByRole('button', { name: 'Agregar accesorio' }));
-
-  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/productos', expect.objectContaining({
-    tipo: 'accesorios', soloInventario: true, vendedor: 'Renato',
-  })));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/productos', expect.objectContaining({ soloInventario: true, vendedor: 'Renato', cantidad: 2,
+    detalle: { modelo: 'Case marca libre', modelosCompatibles: ['Galaxy S25', 'Pixel 10'] }, valor: expect.objectContaining({ valorProducto: 30, monedaCompra: 'PEN', costoEnvio: 8 }) })));
+  expect(api.post.mock.calls[0][1].valor).not.toHaveProperty('tipoCambioCompra');
+  expect(api.patch).toHaveBeenCalledWith('/inventario/503', { enAlmacen: true, fotosTomadas: false, primerPrecioSoles: 35 });
 });
 
 test('guarda ambos precios de un accesorio simple sin enviar el id interno de detalle', async () => {
@@ -739,11 +794,66 @@ test('Factura US carga el producto por code y calcula 25 por ciento adicional', 
   expect(screen.getByLabelText('Imei 2')).toHaveValue('222222222222222');
 });
 
+// Respuesta de /ocr/vision con el contrato del reconocedor del backend (candidatos tipados + campos antiguos).
+const ocrCandidate = (kind, value, slot = null) => ({
+  id: `${kind}:${value}:${slot || ''}:`, kind, value, rawValue: value, label: slot === 'imei2' ? 'IMEI 2' : slot ? 'IMEI 1' : 'SERIAL NUMBER',
+  slot, component: null, labelEvidence: 'same_line', confidence: 0.95, confidenceSource: 'heuristic',
+  validation: { status: 'valid', rule: kind === 'imei' ? 'luhn' : 'apple_serial' }, warnings: [], sourcePass: 'full', sourcePasses: ['full'],
+  boundingBox: null, corrections: [], autofill: true,
+});
+const visionResult = (overrides = {}) => ({
+  text: 'Serial Number: C02ABCDE1234\nIMEI 1: 490154203237518\nIMEI 2: 356938035643809',
+  candidates: [ocrCandidate('serial', 'C02ABCDE1234'), ocrCandidate('imei', '490154203237518', 'imei1'), ocrCandidate('imei', '356938035643809', 'imei2')],
+  conflicts: [],
+  serial: 'C02ABCDE1234', imei1: '490154203237518', imei2: '356938035643809',
+  serials: ['C02ABCDE1234'], imeis: ['490154203237518', '356938035643809'],
+  calls: 1,
+  ...overrides,
+});
+const openScanner = async () => {
+  fireEvent.click(await screen.findByRole('button', { name: 'Completar ficha' }));
+  const scanFile = new File(['imagen temporal'], 'identificadores.jpg', { type: 'image/jpeg' });
+  fireEvent.change(screen.getByLabelText('Imagen temporal para escanear'), { target: { files: [scanFile] } });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Detectar SN / IMEI' })).toBeEnabled());
+};
+
+test('Inventario: una respuesta OCR que llega después de quitar la imagen no rellena la ficha', async () => {
+  api.get.mockResolvedValue([entry]);
+  let resolve;
+  api.post.mockImplementation((path, body) => new Promise((r) => { resolve = () => r(visionResult({ requestToken: body.requestToken })); }));
+  render(<Inventario setVista={jest.fn()} />);
+  await openScanner();
+  fireEvent.click(screen.getByRole('button', { name: 'Detectar SN / IMEI' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ocr/vision', expect.objectContaining({ requestToken: expect.any(String) }), expect.objectContaining({ signal: expect.any(Object) })));
+  const { signal } = api.post.mock.calls[0][2];
+  fireEvent.click(screen.getByRole('button', { name: 'Quitar imagen temporal' }));
+  expect(signal.aborted).toBe(true);
+  await act(async () => { resolve(); await Promise.resolve(); });
+  expect(screen.getByLabelText('IMEI 1')).toHaveValue('');
+  expect(screen.queryByText('490154203237518')).not.toBeInTheDocument();
+});
+
+test('Inventario: en un Mac los IMEI detectados no se asignan y el serial sí', async () => {
+  const rule = (visible) => ({ visible, requiredForComplete: false });
+  const mac = {
+    producto: { ...entry.producto, id: 43, tipo: 'macbook', detalle: { gama: 'Air', procesador: 'M2' } },
+    ficha: null,
+    reglas: { tipo: 'macbook', resolution: 'exact', serial: rule(true), imei: rule(false), imei2: rule(false), saludBateria: rule(false), ciclosBateria: rule(false), color: { ...rule(true), options: [], status: 'unknown' } },
+  };
+  api.get.mockResolvedValue([mac]);
+  api.post.mockImplementation((path, body) => Promise.resolve(visionResult({ requestToken: body.requestToken })));
+  render(<Inventario setVista={jest.fn()} />);
+  await openScanner();
+  fireEvent.click(screen.getByRole('button', { name: 'Detectar SN / IMEI' }));
+  expect(await screen.findByText(/este modelo no admite IMEI/)).toBeInTheDocument();
+  expect(screen.queryByLabelText('IMEI 1')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Usar como IMEI/ })).not.toBeInTheDocument();
+  expect(screen.getByPlaceholderText('Número de serie')).toHaveValue('C02ABCDE1234');
+});
+
 test('detecta todos los identificadores y mantiene la lupa mientras se corrigen', async () => {
   api.get.mockResolvedValue([entry]);
-  api.post.mockResolvedValue({
-    text: 'Serial Number: C02ABCDE1234\nIMEI 1: 490154203237518\nIMEI 2: 356938035643809',
-  });
+  api.post.mockImplementation((path, body) => Promise.resolve(visionResult({ requestToken: body.requestToken })));
   render(<Inventario setVista={jest.fn()} />);
 
   fireEvent.click(await screen.findByRole('button', { name: 'Completar ficha' }));
@@ -770,4 +880,20 @@ test('no mezcla stock del mismo accesorio comprado por personas distintas', () =
   const groups = groupInventoryEntries(rows);
   expect(groups).toHaveLength(3);
   expect(groups.map(row => row.producto.stockActual)).toEqual([2, 2, 2]);
+});
+
+
+test.each(['admin','user'])('el alta por referencias no aparece en Inventario para %s', async (role) => {
+ localStorage.setItem('token','test');localStorage.setItem('user',JSON.stringify({role}));api.get.mockResolvedValue([entry]);
+ render(<Inventario setVista={jest.fn()} />);fireEvent.click(await screen.findByRole('button',{name:'Accesorios'}));
+ expect(screen.queryByText('Revisar sin referencia')).toBeNull(); expect(screen.queryByText('Ingresar accesorios')).toBeNull(); expect(screen.queryByText('Sin referencia')).toBeNull();expect(screen.getByRole('button',{name:'Agregar accesorio simple'})).toBeVisible();localStorage.clear();
+});
+
+test('el editor registra cambio informativo por separado sin guardar costo ni ficha',async()=>{
+ localStorage.setItem('token','test');localStorage.setItem('user',JSON.stringify({role:'admin'}));
+ const accessory={producto:{id:800,tipo:'accesorios',estado:'nuevo',soloInventario:true,stockInicial:2,stockActual:2,detalle:{modelo:'Cable'},valor:{monedaCompra:'USD',valorProducto:20,valorSoles:74,tipoCambioCompra:null}},ficha:{enAlmacen:true}};
+ api.get.mockImplementation(async path=>path==='/accesorios/operativo'?[]:[accessory]);api.patch.mockResolvedValue({tipoCambioCompra:4});
+ render(<Inventario setVista={jest.fn()} />);fireEvent.click(await screen.findByRole('button',{name:'Accesorios'}));fireEvent.click(await screen.findByText('Editar stock'));
+ fireEvent.change(screen.getByLabelText('Tipo de cambio de compra informativo'),{target:{value:'4'}});fireEvent.click(screen.getByText('Registrar cambio informativo'));
+ await waitFor(()=>expect(api.patch).toHaveBeenCalledWith('/accesorios/lotes/800/tipo-cambio-informativo',{tipoCambioCompra:4}));expect(api.patch).toHaveBeenCalledTimes(1);expect(await screen.findByText(/registrado: 4.000000/)).toBeVisible();localStorage.clear();
 });

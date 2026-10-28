@@ -1,4 +1,5 @@
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import AccessoryInformativeRate from '../components/AccessoryInformativeRate';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FiArchive,
   FiArrowLeft,
@@ -26,10 +27,12 @@ import {
   FiZoomOut,
 } from 'react-icons/fi';
 import api, { API_URL } from '../api';
-import parseSnImeiIds from '../utils/snImeiOcr';
+import parseSnImeiIds, { OCR_REQUEST_TIMEOUT_MS, createScanSession, planAutofill } from '../utils/snImeiOcr';
+import OcrCandidateReview from '../components/OcrCandidateReview';
+import OcrCropSelector from '../components/OcrCropSelector';
 import IncludedAccessories, { normalizeIncludedAccessories } from '../components/IncludedAccessories';
 import { formatAppleWatchName } from '../utils/productName';
-import { ACCESSORY_MODEL_GROUPS, accessoryCompatibility, accessoryModelName } from '../utils/accessoryModels';
+import { showsRam } from '../utils/commercialSpecs';
 import { sesionFinanciera } from '../services/finanzas';
 
 const ModalFacu = lazy(() => import('../components/ModalFacu'));
@@ -43,6 +46,19 @@ const roundUp10 = (value) => Math.ceil(Number(value || 0) / 10) * 10;
 const roundUp50 = (value) => Math.ceil(Number(value || 0) / 50) * 50;
 const formatInventorySoles = (value) => `S/ ${Number(value || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatInventoryUsd = (value) => `$ ${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const EMPTY_SIMPLE_ACCESSORY = {
+  comprador: '',
+  nombre: '',
+  precioCompra: '',
+  monedaCompra: 'PEN',
+  tipoCambioCompra: '3.7',
+  tieneEnvio: false,
+  costoEnvio: '',
+  precioVenta: '',
+  cantidad: 1,
+  modelosCompatibles: [],
+};
 
 const EMPTY_FORM = {
   enAlmacen: false,
@@ -68,28 +84,31 @@ const EMPTY_FORM = {
   monedaCompra: 'USD',
   costoEnvioAccesorio: '',
   modelosCompatibles: [],
-};
-
-const EMPTY_SIMPLE_ACCESSORY = {
-  comprador: '',
-  nombre: '',
-  precioCompra: '',
-  monedaCompra: 'PEN',
-  tieneEnvio: false,
-  costoEnvio: '',
-  precioVenta: '',
-  cantidad: 1,
-  modelosCompatibles: [],
+  exigirCompleta: false,
 };
 
 const text = (value) => String(value ?? '').trim();
 const isNewProduct = (producto) => text(producto?.estado).toLowerCase() === 'nuevo';
+// Visibilidad por modelo/variante calculada en el backend (catálogo Apple). Sin reglas se mantiene el comportamiento previo.
+export const fieldVisible = (reglas, key, fallback = true) => (reglas ? Boolean(reglas[key]?.visible) : fallback);
+// Reconoce los colores guardados antes en español sin modificar la ficha al consultarla.
+export const inventoryColor = (value, reglas) => {
+  const color = text(value);
+  const match = (reglas?.color?.options || []).find((option) =>
+    [option.value, option.label, ...(option.aliases || [])].some((alias) => text(alias).toLowerCase() === color.toLowerCase()));
+  return match?.value || color;
+};
+const fieldRequired = (reglas, key) => Boolean(reglas?.[key]?.requiredForComplete);
+const EMPTY_OCR = parseSnImeiIds(null);
+const FIELD_LABELS = { serial: 'Serial', imei: 'IMEI 1', imei2: 'IMEI 2', color: 'Color', saludBateria: 'Salud de batería', ciclosBateria: 'Ciclos de batería' };
 const formatSoles = (value) => {
   if (value === null || value === undefined || value === '') return null;
   const amount = Number(value);
   if (!Number.isFinite(amount)) return null;
   return amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
+
+const withCompletitud = (reglas, ficha) => (reglas && ficha?.completitud ? { ...reglas, completitud: ficha.completitud } : reglas);
 
 const buildNombre = (producto) => {
   const detalle = producto?.detalle || {};
@@ -126,7 +145,7 @@ const buildNombre = (producto) => {
 
 const buildSpecs = (producto) => {
   const d = producto?.detalle || {};
-  return [d.almacenamiento, d.ram ? `${d.ram} RAM` : '', d.conexion, producto?.estado]
+  return [d.almacenamiento, d.ram && showsRam(producto?.tipo) ? `${d.ram} RAM` : '', d.conexion, producto?.estado]
     .map(text)
     .filter(Boolean)
     .join(' · ');
@@ -170,7 +189,7 @@ const buildClipboardText = (producto, precio) => {
   const capacidad = formatCapacity(detalle.almacenamiento, { ssd: mac });
   const conexion = formatConnection(detalle.conexion);
   const conexionTitulo = ['Wifi Celular', 'Wifi', 'GPS Celular', 'GPS'].includes(conexion) ? conexion : '';
-  const titulo = [nombreConTamano, formatRam(detalle.ram), conexionTitulo].filter(Boolean).join(' ');
+  const titulo = [nombreConTamano, showsRam(tipo) ? formatRam(detalle.ram) : '', conexionTitulo].filter(Boolean).join(' ');
   const precioNumero = Number(precio);
   const precioSoles = precio !== '' && precio !== null && precio !== undefined && Number.isFinite(precioNumero)
     ? String(precioNumero)
@@ -239,7 +258,7 @@ const toForm = (entry) => {
   return {
     ...EMPTY_FORM,
     ...ficha,
-    color: ficha.color || '',
+    color: inventoryColor(ficha.color, entry?.reglas),
     ciclosBateria: ficha.ciclosBateria ?? '',
     saludBateria: ficha.saludBateria ?? '',
     tieneGarantia: Boolean(ficha.tieneGarantia || ficha.tipoGarantia || ficha.garantiaHasta || ficha.garantiaDetalle),
@@ -255,7 +274,7 @@ const toForm = (entry) => {
     ultimoPrecioSoles: ficha.ultimoPrecioSoles ?? '',
     nombreAccesorio: entry?.producto?.detalle?.modelo || '',
     compradorAccesorio: entry?.producto?.vendedor || '',
-    precioCompra: entry?.producto?.valor?.valorProducto ?? '',
+    precioCompra: entry?.producto?.valor?.valorProducto == null ? '' : Number(entry.producto.valor.valorProducto) / Math.max(1, Number(entry.producto.stockInicial || 1)),
     monedaCompra: entry?.producto?.valor?.monedaCompra || 'USD',
     costoEnvioAccesorio: entry?.producto?.valor?.costoEnvio ?? '',
     modelosCompatibles: Array.isArray(entry?.producto?.detalle?.modelosCompatibles) ? entry.producto.detalle.modelosCompatibles : [],
@@ -272,6 +291,7 @@ export const groupInventoryEntries = (rawEntries) => {
       result.push(entry);
       return;
     }
+    if (producto.archivadoAt || producto.cierreMotivo) return;
     const key = `${Number(producto.codigoInventario || producto.id)}:${text(producto.vendedor).toLowerCase()}`;
     accessoryGroups.set(key, [...(accessoryGroups.get(key) || []), entry]);
   });
@@ -377,7 +397,12 @@ export default function Inventario({ setVista }) {
   const [photoZoom, setPhotoZoom] = useState(1);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState('');
-  const [ocrCandidates, setOcrCandidates] = useState({ serials: [], imeis: [] });
+  const [ocrCandidates, setOcrCandidates] = useState(EMPTY_OCR);
+  const [ocrNotice, setOcrNotice] = useState('');
+  const ocrSessionRef = useRef(null);
+  const formRef = useRef(form);
+  formRef.current = form;
+  if (!ocrSessionRef.current) ocrSessionRef.current = createScanSession();
   const [scanImageData, setScanImageData] = useState('');
   const [scanImageName, setScanImageName] = useState('');
   const [scanDragActive, setScanDragActive] = useState(false);
@@ -453,13 +478,13 @@ export default function Inventario({ setVista }) {
   const replaceFicha = (productoId, ficha, productoPatch = null) => {
     setEntries((current) => {
       const next = current.filter((entry) => entry?.producto?.id).map((entry) => (
-        entry?.producto?.id === productoId ? { ...entry, ficha, producto: productoPatch ? { ...entry.producto, ...productoPatch } : entry.producto } : entry
+        entry?.producto?.id === productoId ? { ...entry, ficha, reglas: withCompletitud(entry.reglas, ficha), producto: productoPatch ? { ...entry.producto, ...productoPatch } : entry.producto } : entry
       ));
       writeInventarioCache(next);
       return next;
     });
     setEditing((current) => (
-      current?.producto?.id === productoId ? { ...current, ficha, producto: productoPatch ? { ...current.producto, ...productoPatch } : current.producto } : current
+      current?.producto?.id === productoId ? { ...current, ficha, reglas: withCompletitud(current.reglas, ficha), producto: productoPatch ? { ...current.producto, ...productoPatch } : current.producto } : current
     ));
   };
 
@@ -528,8 +553,10 @@ export default function Inventario({ setVista }) {
   };
 
   const openEditor = (entry) => {
-    setEditing(entry);
-    setForm(toForm(entry));
+    const lots = entry.producto?.__lots;
+    const selected = lots?.length ? (entries.find((item) => item.producto.id === entry.producto.id) || entry) : entry;
+    setEditing({ ...selected, lotOptions: lots });
+    setForm(toForm(selected));
     setPhotoData('');
     setNotice('');
     setDragActive(false);
@@ -537,7 +564,8 @@ export default function Inventario({ setVista }) {
     setPhotoZoom(1);
     setOcrLoading(false);
     setOcrError('');
-    setOcrCandidates({ serials: [], imeis: [] });
+    setOcrCandidates(EMPTY_OCR);
+    setOcrNotice('');
     setScanImageData('');
     setScanImageName('');
     setScanDragActive(false);
@@ -634,14 +662,17 @@ export default function Inventario({ setVista }) {
 
   const saveSimpleAccessory = async (event) => {
     event.preventDefault();
+    if (simpleAccessorySaving) return;
     const nombre = text(simpleAccessory.nombre);
     const precioCompra = Number(simpleAccessory.precioCompra);
     const cantidad = Number(simpleAccessory.cantidad);
     const costoEnvio = simpleAccessory.tieneEnvio ? Number(simpleAccessory.costoEnvio) : 0;
     const precioVenta = simpleAccessory.precioVenta === '' ? null : Number(simpleAccessory.precioVenta);
+    const rate = Number(simpleAccessory.tipoCambioCompra);
+    if (simpleAccessory.monedaCompra === 'USD' && (!Number.isFinite(rate) || rate < 0.0001)) return setSimpleAccessoryError('Ingresa un tipo de cambio de compra válido.');
     if (!nombre) return setSimpleAccessoryError('El nombre del producto es obligatorio.');
     if (!simpleAccessory.comprador) return setSimpleAccessoryError('Selecciona quién compró el accesorio.');
-    if (!Number.isFinite(precioCompra) || precioCompra < 0) return setSimpleAccessoryError('Ingresa un precio de compra válido.');
+    if (simpleAccessory.precioCompra === '' || !Number.isFinite(precioCompra) || precioCompra < 0) return setSimpleAccessoryError('Ingresa un precio de compra válido.');
     if (!Number.isInteger(cantidad) || cantidad < 1) return setSimpleAccessoryError('La cantidad debe ser al menos 1.');
     if (!Number.isFinite(costoEnvio) || costoEnvio < 0) return setSimpleAccessoryError('Ingresa un costo de envío válido.');
     if (precioVenta !== null && (!Number.isFinite(precioVenta) || precioVenta < 0)) return setSimpleAccessoryError('Ingresa un precio de venta válido.');
@@ -663,6 +694,7 @@ export default function Inventario({ setVista }) {
           fechaCompra: new Date().toISOString().slice(0, 10),
           costoEnvio,
           monedaCompra: simpleAccessory.monedaCompra,
+          ...(simpleAccessory.monedaCompra === 'USD' ? { tipoCambioCompra: rate } : {}),
         },
       });
       await api.patch(`/inventario/${producto.id}`, {
@@ -704,7 +736,8 @@ export default function Inventario({ setVista }) {
       setReviewOpen(true);
       setPhotoZoom(1);
       setOcrError('');
-      setOcrCandidates({ serials: [], imeis: [] });
+      setOcrCandidates(EMPTY_OCR);
+      setOcrNotice('');
     };
     reader.readAsDataURL(file);
   };
@@ -721,38 +754,50 @@ export default function Inventario({ setVista }) {
     setReviewOpen(false);
     setPhotoZoom(1);
     setOcrError('');
-    setOcrCandidates({ serials: [], imeis: [] });
+    setOcrCandidates(EMPTY_OCR);
+    setOcrNotice('');
   };
 
-  const scanIdentifiers = async () => {
+  // Cambiar de producto, de imagen o cerrar la ficha aborta la lectura en curso: su respuesta no puede
+  // rellenar otra imagen ni otro producto.
+  const editingProductId = editing?.producto?.id;
+  useEffect(() => () => ocrSessionRef.current?.cancel(), [editingProductId, scanImageData]);
+
+  const scanIdentifiers = async (crop = null) => {
     if (!scanImageData) {
       setOcrError('Primero selecciona o arrastra la imagen temporal del SN/IMEI.');
       return;
     }
+    const ticket = ocrSessionRef.current.begin();
+    const reglas = editing?.reglas;
     setReviewOpen(true);
     setOcrLoading(true);
     setOcrError('');
+    setOcrNotice('');
     try {
       const mimeType = scanImageData.match(/^data:([^;]+);base64,/)?.[1] || 'image/jpeg';
-      const result = await api.post('/ocr/vision', { imageBase64: scanImageData, mimeType });
-      const parsed = parseSnImeiIds(result?.text || '');
-      setOcrCandidates({
-        serials: Array.isArray(parsed.serials) ? parsed.serials : [],
-        imeis: Array.isArray(parsed.imeis) ? parsed.imeis : [],
-      });
-      setForm((current) => ({
-        ...current,
-        serial: current.serial || parsed.serial || '',
-        imei: current.imei || parsed.imei1 || '',
-        imei2: current.imei2 || parsed.imei2 || '',
-      }));
-      if (!parsed.serials?.length && !parsed.imeis?.length) {
-        setOcrError('No se detectaron SN o IMEI claros. Amplía la foto y corrige los campos manualmente.');
+      const result = await api.post(
+        '/ocr/vision',
+        { imageBase64: scanImageData, mimeType, requestToken: ticket.token, ...(crop ? { crop } : {}) },
+        { signal: ticket.signal, timeoutMs: OCR_REQUEST_TIMEOUT_MS },
+      );
+      if (!ticket.isCurrent(result)) return;
+      const parsed = parseSnImeiIds(result);
+      setOcrCandidates(parsed);
+      // Solo se completan campos aplicables al modelo (entry.reglas) y vacíos; lo ya escrito se conserva.
+      const { kept } = planAutofill(parsed, formRef.current, reglas);
+      setForm((current) => ({ ...current, ...planAutofill(parsed, current, reglas).patch }));
+      if (kept.length) setOcrNotice(`Se conservaron los valores ya escritos en ${kept.map((item) => FIELD_LABELS[item.field]).join(', ')}; revisa los detectados.`);
+      if (!parsed.candidates.length) {
+        setOcrError(crop
+          ? 'No se detectaron SN o IMEI en la zona seleccionada. Prueba con una zona más ajustada a la etiqueta.'
+          : 'No se detectaron SN o IMEI claros. Selecciona la zona de la etiqueta en la lupa o corrige los campos manualmente.');
       }
     } catch (err) {
+      if (!ticket.isCurrent()) return;
       setOcrError(err?.message || 'No se pudo analizar la foto.');
     } finally {
-      setOcrLoading(false);
+      if (ticket.isCurrent()) setOcrLoading(false);
     }
   };
 
@@ -787,18 +832,20 @@ export default function Inventario({ setVista }) {
           ? Number(form.cantidadStock || 0)
           : undefined,
         enAlmacen: Boolean(form.enAlmacen),
-        color: text(form.color) || null,
-        ciclosBateria: productoNuevo || form.ciclosBateria === '' ? null : Number(form.ciclosBateria),
-        saludBateria: productoNuevo || form.saludBateria === '' ? null : Number(form.saludBateria),
+        color: fieldVisible(editing.reglas, 'color') ? (text(form.color) || null) : undefined,
+        // Flujo existente de nuevo/sellado: limpia batería. Campo no aplicable al modelo: no se envía (conserva legado).
+        ciclosBateria: productoNuevo ? null : !fieldVisible(editing.reglas, 'ciclosBateria') ? undefined : (form.ciclosBateria === '' ? null : Number(form.ciclosBateria)),
+        saludBateria: productoNuevo ? null : !fieldVisible(editing.reglas, 'saludBateria') ? undefined : (form.saludBateria === '' ? null : Number(form.saludBateria)),
         primerPrecioSoles,
         ultimoPrecioSoles,
         tieneGarantia: productoNuevo ? false : Boolean(form.tieneGarantia),
         tipoGarantia: !productoNuevo && form.tieneGarantia ? form.tipoGarantia : null,
         garantiaHasta: !productoNuevo && form.tieneGarantia ? (form.garantiaHasta || null) : null,
         garantiaDetalle: null,
-        serial: text(form.serial) || null,
-        imei: text(form.imei) || null,
-        imei2: text(form.imei2) || null,
+        serial: fieldVisible(editing.reglas, 'serial') ? (text(form.serial) || null) : undefined,
+        imei: fieldVisible(editing.reglas, 'imei') ? (text(form.imei) || null) : undefined,
+        imei2: fieldVisible(editing.reglas, 'imei2') ? (text(form.imei2) || null) : undefined,
+        exigirCompleta: Boolean(form.exigirCompleta) || undefined,
         accesorios: normalizeIncludedAccessories(editing.producto.tipo, form.accesorios, editing.producto.detalle?.modelo, editing.producto.estado),
         observaciones: text(form.observaciones) || null,
         fotosTomadas: Boolean(form.fotosTomadas),
@@ -812,25 +859,33 @@ export default function Inventario({ setVista }) {
         if (!Number.isFinite(purchasePrice) || purchasePrice < 0) throw new Error('El precio de compra no es válido.');
         if (!Number.isFinite(shippingCost) || shippingCost < 0) throw new Error('El costo de envío no es válido.');
         const currentValue = editing.producto.valor || {};
+        const totalPurchase = Number((purchasePrice * Number(form.cantidadStock || 1)).toFixed(2));
+        const costChanged = totalPurchase !== Number(currentValue.valorProducto || 0) || shippingCost !== Number(currentValue.costoEnvio || 0) || form.monedaCompra !== (currentValue.monedaCompra || 'USD');
         updatedProduct = await api.patch(`/productos/${id}`, {
           vendedor: form.compradorAccesorio || null,
           detalle: {
             modelo: text(form.nombreAccesorio),
             modelosCompatibles: form.modelosCompatibles,
           },
-          valor: {
-            valorProducto: purchasePrice,
+          ...(costChanged ? { valor: {
+            valorProducto: totalPurchase,
             valorDec: Number(currentValue.valorDec || 0),
             peso: Number(currentValue.peso || 0),
             fechaCompra: String(currentValue.fechaCompra || new Date().toISOString()).slice(0, 10),
             costoEnvio: shippingCost,
             monedaCompra: form.monedaCompra,
-          },
+          } } : {}),
         });
       }
       let ficha = await api.patch(`/inventario/${id}`, payload);
       if (photoData) ficha = await api.post(`/inventario/${id}/foto`, { dataUrl: photoData });
       replaceFicha(id, ficha, updatedProduct);
+      if (Array.isArray(ficha?.avisos) && ficha.avisos.length) {
+        // Avisos de revisión (valores legados, posible reingreso): se muestran antes de cerrar.
+        setNotice(`Guardado con avisos: ${ficha.avisos.join(' ')}`);
+        setPhotoData('');
+        return;
+      }
       setEditing(null);
       setPhotoData('');
       if (String(editing.producto.tipo).toLowerCase() === 'accesorios') await load({ silent: true });
@@ -1165,9 +1220,10 @@ export default function Inventario({ setVista }) {
                     </div>
 
                     <div className="mt-3 flex min-h-7 flex-wrap gap-1.5">
-                      {ficha?.color && <Pill>{ficha.color}</Pill>}
-                      {ficha?.ciclosBateria != null && <Pill>{ficha.ciclosBateria} ciclos</Pill>}
-                      {ficha?.saludBateria != null && <Pill>{ficha.saludBateria}% batería</Pill>}
+                      {ficha?.color && <Pill>{inventoryColor(ficha.color, entry.reglas)}</Pill>}
+                      {ficha?.ciclosBateria != null && fieldVisible(entry.reglas, 'ciclosBateria') && <Pill>{ficha.ciclosBateria} ciclos</Pill>}
+                      {ficha?.saludBateria != null && fieldVisible(entry.reglas, 'saludBateria') && <Pill>{ficha.saludBateria}% batería</Pill>}
+                      {!accessoryStock && entry.reglas?.completitud && !entry.reglas.completitud.complete && <Pill tone="amber">Falta {entry.reglas.completitud.missing.map((key) => FIELD_LABELS[key] || key).join(', ') || 'modelo'}</Pill>}
                       {(ficha?.accesorios || []).slice(0, 3).map((item) => <Pill key={item}>{item}</Pill>)}
                       {accessoryStock && (producto.detalle?.modelosCompatibles || []).slice(0, 3).map((item) => <Pill key={item}>Compatible: {item}</Pill>)}
                     </div>
@@ -1247,13 +1303,8 @@ export default function Inventario({ setVista }) {
               <button type="button" disabled={simpleAccessorySaving} onClick={() => setSimpleAccessoryOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"><FiX /></button>
             </div>
             <div className="grid gap-4 p-5 sm:grid-cols-2">
-              <label className="text-sm font-medium text-slate-700 sm:col-span-2">Nombre del producto *
-                <input required list="simple-accessory-names" value={simpleAccessory.nombre} onChange={(event) => {
-                  const nombre = event.target.value;
-                  const compatibility = accessoryCompatibility(nombre);
-                  setSimpleAccessory((current) => ({ ...current, nombre, modelosCompatibles: compatibility ? compatibility.split(' · ').map(text).filter(Boolean) : current.modelosCompatibles }));
-                }} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" placeholder="Ej. Case para iPhone 16 Pro" />
-                <datalist id="simple-accessory-names">{ACCESSORY_MODEL_GROUPS.flatMap((group) => group.models).map((item) => <option key={accessoryModelName(item)} value={accessoryModelName(item)} />)}</datalist>
+              <label className="text-sm font-medium text-slate-700 sm:col-span-2">Nombre / título del accesorio *
+                <input required value={simpleAccessory.nombre} onChange={(event) => setSimpleAccessory((current) => ({ ...current, nombre: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3" placeholder="Ej. Funda transparente marca X" />
               </label>
               <label className="text-sm font-medium text-slate-700">Comprado por *
                 <select required value={simpleAccessory.comprador} onChange={(event) => setSimpleAccessory((current) => ({ ...current, comprador: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
@@ -1261,9 +1312,11 @@ export default function Inventario({ setVista }) {
                 </select>
               </label>
               <label className="text-sm font-medium text-slate-700">Precio de compra por unidad *
-                <div className="mt-1 flex"><select value={simpleAccessory.monedaCompra} onChange={(event) => setSimpleAccessory((current) => ({ ...current, monedaCompra: event.target.value }))} className="h-11 rounded-l-xl border border-r-0 border-slate-200 bg-slate-50 px-2 font-semibold"><option value="PEN">S/</option><option value="USD">$</option></select><input required type="number" min="0" step="0.01" value={simpleAccessory.precioCompra} onChange={(event) => setSimpleAccessory((current) => ({ ...current, precioCompra: event.target.value }))} className="h-11 min-w-0 flex-1 rounded-r-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></div>
+                <div className="mt-1 flex"><select aria-label="Moneda de compra" value={simpleAccessory.monedaCompra} onChange={(event) => setSimpleAccessory((current) => ({ ...current, monedaCompra: event.target.value }))} className="h-11 rounded-l-xl border border-r-0 border-slate-200 bg-slate-50 px-2 font-semibold"><option value="PEN">S/</option><option value="USD">$</option></select><input aria-label="Precio de compra por unidad" required type="number" min="0" step="0.01" value={simpleAccessory.precioCompra} onChange={(event) => setSimpleAccessory((current) => ({ ...current, precioCompra: event.target.value }))} className="h-11 min-w-0 flex-1 rounded-r-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></div>
               </label>
               <label className="text-sm font-medium text-slate-700">Cantidad *<input required type="number" min="1" step="1" value={simpleAccessory.cantidad} onChange={(event) => setSimpleAccessory((current) => ({ ...current, cantidad: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></label>
+              {simpleAccessory.monedaCompra === 'USD' && <label className="text-sm font-medium text-slate-700">Tipo de cambio de compra<input required type="number" min="0.0001" step="0.000001" value={simpleAccessory.tipoCambioCompra} onChange={(event) => setSimpleAccessory((current) => ({ ...current, tipoCambioCompra: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border px-3" /></label>}
+              <p className="rounded-xl bg-indigo-50 p-3 text-sm sm:col-span-2">Costo total del lote: {simpleAccessory.monedaCompra === 'USD' ? 'USD' : 'S/'} {(Number(simpleAccessory.precioCompra || 0) * Number(simpleAccessory.cantidad || 0)).toFixed(2)}{simpleAccessory.monedaCompra === 'USD' && <> · Compra en soles: S/ {(Number(simpleAccessory.precioCompra || 0) * Number(simpleAccessory.cantidad || 0) * Number(simpleAccessory.tipoCambioCompra || 0)).toFixed(2)}</>}</p>
               <div className="rounded-xl border border-slate-200 p-3 sm:col-span-2">
                 <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={simpleAccessory.tieneEnvio} onChange={(event) => setSimpleAccessory((current) => ({ ...current, tieneEnvio: event.target.checked, costoEnvio: event.target.checked ? current.costoEnvio : '' }))} /> Hubo costo de envío</label>
                 {simpleAccessory.tieneEnvio && <label className="mt-3 block text-sm text-slate-700">Costo de envío (S/)<input required type="number" min="0" step="0.01" value={simpleAccessory.costoEnvio} onChange={(event) => setSimpleAccessory((current) => ({ ...current, costoEnvio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></label>}
@@ -1293,6 +1346,18 @@ export default function Inventario({ setVista }) {
               {accessoryEditing && (
                 <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 lg:col-span-2">
                   <h3 className="text-base font-semibold text-slate-950">Stock del accesorio</h3>
+                  {sesionFinanciera().esAdmin && <AccessoryInformativeRate key={editing.producto.id} producto={editing.producto} onSaved={(rate) => {
+                    setEditing((current) => current?.producto?.id === editing.producto.id ? { ...current, producto: { ...current.producto, valor: { ...current.producto.valor, tipoCambioCompra: rate } } } : current);
+                    load({ silent: true });
+                  }} />}
+                  <label className="block text-sm font-medium">Lote que se edita
+                    <select aria-label="Lote que se edita" value={editing.producto.id} onChange={(event) => {
+                      const selected = entries.find((item) => item.producto.id === Number(event.target.value));
+                      if (selected) { setEditing({ ...selected, lotOptions: editing.lotOptions }); setForm(toForm(selected)); }
+                    }} className="mt-1 w-full rounded-xl border p-3">
+                      {(editing.lotOptions || [editing.producto]).map((lot) => <option key={lot.id} value={lot.id}>Lote {lot.id} · {lot.stockInicial} compradas · {lot.stockActual} disponibles</option>)}
+                    </select>
+                  </label>
                   <label className="block text-sm font-medium text-slate-700">Comprado por
                     <select value={form.compradorAccesorio} onChange={(event) => setForm((current) => ({ ...current, compradorAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
                       <option value="">Sin asignar</option><option value="Gonzalo">Gonzalo</option><option value="Renato">Renato</option><option value="ambos">Ambos (50/50)</option>
@@ -1301,9 +1366,10 @@ export default function Inventario({ setVista }) {
                   <p className="mt-1 text-sm text-slate-600">Este tipo usa almacén, cantidad y una sola foto principal; no requiere caja, SN, IMEI ni sesión de fotos.</p>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <label className="flex min-h-14 items-center justify-between rounded-xl bg-white px-4 text-sm font-medium text-slate-700 ring-1 ring-slate-200">En almacén<input type="checkbox" checked={Boolean(form.enAlmacen)} onChange={(event) => setForm((current) => ({ ...current, enAlmacen: event.target.checked }))} className="h-7 w-7" /></label>
-                    <label className="text-sm font-medium text-slate-700">Cantidad comprada<input type="number" min={Math.max(1, accessoryUnitsSold)} step="1" value={form.cantidadStock} disabled={Boolean(editing.producto.__inventoryGroup)} onChange={(event) => setForm((current) => ({ ...current, cantidadStock: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 disabled:cursor-not-allowed disabled:bg-slate-100" /></label>
+                    <label className="text-sm font-medium text-slate-700">Cantidad comprada<input type="number" min={Math.max(1, accessoryUnitsSold)} step="1" value={form.cantidadStock}  onChange={(event) => setForm((current) => ({ ...current, cantidadStock: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 disabled:cursor-not-allowed disabled:bg-slate-100" /></label>
                     <label className="text-sm font-medium text-slate-700 sm:col-span-2">Nombre del accesorio<input value={form.nombreAccesorio} onChange={(event) => setForm((current) => ({ ...current, nombreAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" /></label>
-                    <label className="text-sm font-medium text-slate-700">Precio de compra<div className="mt-1 flex"><select value={form.monedaCompra} onChange={(event) => setForm((current) => ({ ...current, monedaCompra: event.target.value }))} className="h-11 rounded-l-xl border border-r-0 border-slate-200 bg-slate-50 px-2 font-semibold"><option value="PEN">S/</option><option value="USD">$</option></select><input type="number" min="0" step="0.01" value={form.precioCompra} onChange={(event) => setForm((current) => ({ ...current, precioCompra: event.target.value }))} className="h-11 min-w-0 flex-1 rounded-r-xl border border-slate-200 bg-white px-3" /></div></label>
+                    <div className="text-sm font-medium text-slate-700"><label htmlFor="accessory-unit-cost">Costo por unidad</label><div className="mt-1 flex"><select aria-label="Moneda de compra" value={form.monedaCompra} onChange={(event) => setForm((current) => ({ ...current, monedaCompra: event.target.value }))} className="h-11 rounded-l-xl border border-r-0 border-slate-200 bg-slate-50 px-2 font-semibold"><option value="PEN">S/</option><option value="USD">$</option></select><input id="accessory-unit-cost" type="number" min="0" step="any" value={form.precioCompra} onChange={(event) => setForm((current) => ({ ...current, precioCompra: event.target.value }))} className="h-11 min-w-0 flex-1 rounded-r-xl border border-slate-200 bg-white px-3" /></div></div>
+                    <label className="text-sm font-medium text-slate-700">Costo total del lote<input aria-label="Costo total del lote" readOnly value={(Number(form.precioCompra || 0) * Number(form.cantidadStock || 1)).toFixed(2)} className="mt-1 h-11 w-full rounded-xl border bg-slate-50 px-3" /></label>
                     <label className="text-sm font-medium text-slate-700">Costo de envío (S/)<input type="number" min="0" step="0.01" value={form.costoEnvioAccesorio} onChange={(event) => setForm((current) => ({ ...current, costoEnvioAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" placeholder="0 si no tuvo" /></label>
                     <label className="text-sm font-medium text-slate-700">Precio de venta (S/)<input type="number" min="0" step="0.01" value={form.primerPrecioSoles} onChange={(event) => setForm((current) => ({ ...current, primerPrecioSoles: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" placeholder="Puede quedar vacío" /></label>
                     <label className="text-sm font-medium text-slate-700">Precio mínimo (S/)<input type="number" min="0" step="0.01" value={form.ultimoPrecioSoles} onChange={(event) => setForm((current) => ({ ...current, ultimoPrecioSoles: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" placeholder="Puede quedar vacío" /></label>
@@ -1403,7 +1469,7 @@ export default function Inventario({ setVista }) {
                     <input aria-label="Imagen temporal para escanear" type="file" accept="image/*" onChange={(event) => handleScanFile(event.target.files?.[0])} className="sr-only" />
                   </label>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" onClick={scanIdentifiers} disabled={!scanImageData || ocrLoading} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+                    <button type="button" onClick={() => scanIdentifiers()} disabled={!scanImageData || ocrLoading} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
                       <FiSearch /> {ocrLoading ? 'Analizando...' : 'Detectar SN / IMEI'}
                     </button>
                     {scanImageData && <button type="button" onClick={() => setReviewOpen((current) => !current)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"><FiZoomIn /> {reviewOpen ? 'Ocultar lupa' : 'Revisar con lupa'}</button>}
@@ -1412,33 +1478,13 @@ export default function Inventario({ setVista }) {
 
                   {ocrError && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{ocrError}</div>}
 
-                  {(ocrCandidates.serials.length > 0 || ocrCandidates.imeis.length > 0) && (
-                    <div className="mt-3 space-y-3 rounded-xl bg-slate-50 p-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Todos los detectados</div>
-                      {ocrCandidates.serials.length > 0 && (
-                        <div>
-                          <div className="mb-1 text-xs font-medium text-slate-600">Seriales</div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {ocrCandidates.serials.map((serial) => <button key={serial} type="button" onClick={() => setForm((current) => ({ ...current, serial }))} className="rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-xs text-slate-800 hover:border-blue-400 hover:bg-blue-50" title="Usar como Serial">{serial}</button>)}
-                          </div>
-                        </div>
-                      )}
-                      {ocrCandidates.imeis.length > 0 && (
-                        <div>
-                          <div className="mb-1 text-xs font-medium text-slate-600">IMEIs</div>
-                          <div className="space-y-1.5">
-                            {ocrCandidates.imeis.map((imei) => (
-                              <div key={imei} className="flex flex-wrap items-center gap-1.5 rounded-lg bg-white p-2 ring-1 ring-slate-200">
-                                <span className="mr-auto font-mono text-xs text-slate-800">{imei}</span>
-                                <button type="button" onClick={() => setForm((current) => ({ ...current, imei }))} className="rounded bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100">Usar en IMEI 1</button>
-                                <button type="button" onClick={() => setForm((current) => ({ ...current, imei2: imei }))} className="rounded bg-violet-50 px-2 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-100">Usar en IMEI 2</button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {ocrNotice && <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">{ocrNotice}</div>}
+                  <OcrCandidateReview
+                    parsed={ocrCandidates}
+                    values={form}
+                    reglas={editing?.reglas}
+                    onAssign={(field, value) => setForm((current) => ({ ...current, [field]: value }))}
+                  />
 
                   {reviewOpen && scanImageData && (
                     <div className="mt-3 overflow-hidden rounded-xl border border-slate-300 bg-slate-950">
@@ -1451,7 +1497,15 @@ export default function Inventario({ setVista }) {
                         </div>
                       </div>
                       <div className="max-h-[26rem] overflow-auto">
-                        <img src={scanImageData} alt="Revisión ampliada para SN e IMEI" draggable={false} className="block h-auto object-contain" style={{ width: `${photoZoom * 100}%`, maxWidth: 'none' }} />
+                        <OcrCropSelector
+                          key={scanImageData.length + scanImageName}
+                          src={scanImageData}
+                          alt="Revisión ampliada para SN e IMEI"
+                          imgClassName="block h-auto w-full"
+                          style={{ width: `${photoZoom * 100}%`, maxWidth: 'none' }}
+                          disabled={ocrLoading}
+                          onCrop={(crop) => scanIdentifiers(crop)}
+                        />
                       </div>
                     </div>
                   )}
@@ -1462,16 +1516,7 @@ export default function Inventario({ setVista }) {
                 <section>
                   <h3 className="mb-3 text-sm font-semibold text-slate-950">Identificación y condición</h3>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="text-xs font-medium text-slate-600">Color<input value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} placeholder="Ej. Azul Sierra" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" /></label>
-                    <label className="text-xs font-medium text-slate-600">Serial<input value={form.serial} onChange={(e) => setForm({ ...form, serial: e.target.value })} placeholder="Número de serie" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none focus:border-slate-400" /></label>
-                    <label className="text-xs font-medium text-slate-600">IMEI 1<input value={form.imei} onChange={(e) => setForm({ ...form, imei: e.target.value })} placeholder="IMEI principal" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none focus:border-slate-400" /></label>
-                    <label className="text-xs font-medium text-slate-600">IMEI 2<input value={form.imei2} onChange={(e) => setForm({ ...form, imei2: e.target.value })} placeholder="Segundo IMEI si corresponde" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none focus:border-slate-400" /></label>
-                    {!isNewProduct(editing.producto) && (
-                      <>
-                        <label className="text-xs font-medium text-slate-600">Ciclos de batería<input type="number" min="0" max="100000" value={form.ciclosBateria} onChange={(e) => setForm({ ...form, ciclosBateria: e.target.value })} placeholder="Ej. 145" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" /></label>
-                        <label className="text-xs font-medium text-slate-600">Salud de batería (%)<input type="number" min="0" max="100" value={form.saludBateria} onChange={(e) => setForm({ ...form, saludBateria: e.target.value })} placeholder="Ej. 92" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" /></label>
-                      </>
-                    )}
+                    <IdentificacionFields reglas={editing.reglas} ficha={editing.ficha} form={form} setForm={setForm} productoNuevo={isNewProduct(editing.producto)} />
                     <div className="text-xs font-medium text-slate-600">
                       <label htmlFor="inventario-primer-precio">Precio (S/)</label>
                       <div className="relative mt-1.5">
@@ -1604,6 +1649,8 @@ export default function Inventario({ setVista }) {
                       <ModalVenta
                         embedded
                         producto={selling.entry.producto}
+                        precioPublicado={selling.entry.ficha?.primerPrecioSoles}
+                        precioMinimo={selling.entry.ficha?.ultimoPrecioSoles}
                         venta={null}
                         presetVendedor={selling.entry.producto?.vendedor || ''}
                         allowVendedorOnCreate
@@ -1655,5 +1702,59 @@ export default function Inventario({ setVista }) {
         </div>
       )}
     </div>
+  );
+}
+
+export function IdentificacionFields({ reglas, ficha, form, setForm, productoNuevo }) {
+  const input = 'mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400';
+  const required = (key) => (fieldRequired(reglas, key) ? ' *' : '');
+  const colorOptions = reglas?.color?.options || [];
+  const selectedColor = inventoryColor(form.color, reglas);
+  const legacyColor = selectedColor && colorOptions.length && !colorOptions.some((option) => option.value.toLowerCase() === selectedColor.toLowerCase());
+  // Valores guardados en campos que el modelo no admite: se conservan y se muestran para revisión.
+  const legacyHidden = ['serial', 'imei', 'imei2', 'saludBateria', 'ciclosBateria']
+    .filter((key) => reglas && !fieldVisible(reglas, key) && ficha?.[key] !== null && ficha?.[key] !== undefined && ficha?.[key] !== '')
+    .filter((key) => !(productoNuevo && ['saludBateria', 'ciclosBateria'].includes(key)));
+  const batteryLabel = (key, base) => (reglas?.[key]?.source === 'manual' ? `${base} · diagnóstico manual` : base);
+  return (
+    <>
+      {reglas?.resolution === 'ambiguous' && (
+        <div className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Modelo ambiguo ({(reglas.candidates || []).map((c) => c.title).join(' / ')}): corrige el producto para validar la ficha.
+        </div>
+      )}
+      {reglas?.resolution === 'unknown' && (
+        <div className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Modelo sin coincidencia en el catálogo: se aplican las reglas generales de la familia.
+        </div>
+      )}
+      {fieldVisible(reglas, 'color') && (colorOptions.length ? (
+        <label className="text-xs font-medium text-slate-600">Color{required('color')}
+          <select value={selectedColor} onChange={(e) => setForm({ ...form, color: e.target.value })} className={input}>
+            <option value="">Selecciona</option>
+            {colorOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            {legacyColor && <option value={form.color}>{form.color} (valor guardado, revisar)</option>}
+          </select>
+        </label>
+      ) : (
+        <label className="text-xs font-medium text-slate-600">Color<input value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} placeholder="Ej. Sierra Blue" className={input} /></label>
+      ))}
+      {fieldVisible(reglas, 'serial') && <label className="text-xs font-medium text-slate-600">Serial{required('serial')}<input value={form.serial} onChange={(e) => setForm({ ...form, serial: e.target.value })} placeholder="Número de serie" className={`${input} font-mono`} /></label>}
+      {fieldVisible(reglas, 'imei') && <label className="text-xs font-medium text-slate-600">IMEI 1{required('imei')}<input value={form.imei} inputMode="numeric" onChange={(e) => setForm({ ...form, imei: e.target.value })} placeholder="15 dígitos" className={`${input} font-mono`} /></label>}
+      {fieldVisible(reglas, 'imei2') && <label className="text-xs font-medium text-slate-600">IMEI 2{required('imei2')}<input value={form.imei2} inputMode="numeric" onChange={(e) => setForm({ ...form, imei2: e.target.value })} placeholder="Segundo IMEI (no es el EID)" className={`${input} font-mono`} /></label>}
+      {!productoNuevo && fieldVisible(reglas, 'ciclosBateria') && <label className="text-xs font-medium text-slate-600">{batteryLabel('ciclosBateria', 'Ciclos de batería')}<input type="number" min="0" max="100000" value={form.ciclosBateria} onChange={(e) => setForm({ ...form, ciclosBateria: e.target.value })} placeholder="Ej. 145" className={input} /></label>}
+      {!productoNuevo && fieldVisible(reglas, 'saludBateria') && <label className="text-xs font-medium text-slate-600">{batteryLabel('saludBateria', 'Salud de batería (%)')}<input type="number" min="0" max="100" value={form.saludBateria} onChange={(e) => setForm({ ...form, saludBateria: e.target.value })} placeholder="Ej. 92" className={input} /></label>}
+      {legacyHidden.length > 0 && (
+        <div className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Valores guardados que no aplican a este modelo (se conservan para revisión): {legacyHidden.map((key) => `${FIELD_LABELS[key]}: ${ficha[key]}`).join(' · ')}
+        </div>
+      )}
+      {reglas && reglas.tipo && (
+        <label className="sm:col-span-2 flex items-center gap-2 text-xs font-medium text-slate-600">
+          <input type="checkbox" checked={Boolean(form.exigirCompleta)} onChange={(e) => setForm({ ...form, exigirCompleta: e.target.checked })} className="h-4 w-4" />
+          Guardar como ficha completa (exige los campos marcados con *). Sin marcar se guarda como borrador.
+        </label>
+      )}
+    </>
   );
 }
