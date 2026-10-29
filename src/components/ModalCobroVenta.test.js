@@ -9,6 +9,19 @@ beforeEach(() => {
   api.patch.mockResolvedValue({});
 });
 
+test('registra depósitos parciales de efectivo con fecha, cuenta e historial', async () => {
+  render(<ModalCobroVenta gasto={{ id: 50, saleId: 12, saleSku: 'MS-340', salePaymentType: 'cash', monto: '1000', saleReceivedAmount: '400.00', tarjeta: 'efectivo', salePaymentHistory: [{ amount: 400, paidAt: '2026-10-27', bank: 'bcp' }] }} onClose={jest.fn()} onSaved={jest.fn()} />);
+  expect(screen.getByText('Depósitos de efectivo')).toBeInTheDocument();
+  expect(screen.getByText('Depositado')).toHaveTextContent('S/ 400.00');
+  expect(screen.getByText('Por depositar')).toHaveTextContent('S/ 600.00');
+  expect(screen.getByText('2026-10-27 · BCP')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Nuevo monto depositado'), { target: { value: '200' } });
+  fireEvent.change(screen.getByLabelText('Fecha del depósito'), { target: { value: '2026-10-28' } });
+  fireEvent.change(screen.getByLabelText('Cuenta de débito'), { target: { value: 'interbank' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar depósito' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/50', { paymentAmount: 200, paidAt: '2026-10-28', bank: 'interbank' }));
+});
+
 test('registra pagos x500 con fecha y mantiene vacíos los campos del nuevo pago', async () => {
   const onSaved = jest.fn();
   render(<ModalCobroVenta gasto={{ id: 31, saleId: 7, saleSku: 'MS-366', salePaymentType: 'debt', monto: '5200', saleReceivedAmount: '500.00', salePaymentHistory: [{ amount: 500, paidAt: '2026-10-02', units500: 1 }] }} onClose={jest.fn()} onSaved={onSaved} />);

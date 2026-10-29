@@ -2,6 +2,15 @@ jest.mock('pdfjs-dist/webpack', () => ({ getDocument: jest.fn() }));
 
 import { buildCreditExpensesText, debitPendingBalance, groupAdvanceRows, receivedIncomeAmount } from './GastosPanel';
 
+test('el efectivo solo suma lo depositado y muestra cuánto falta depositar', () => {
+  const cash = { monto: 1000, salePaymentType: 'cash', saleReceivedAmount: '0.00' };
+  expect(receivedIncomeAmount(cash)).toBe(0);
+  expect(debitPendingBalance(cash)).toEqual({ label: 'Por depositar', amount: 1000 });
+  expect(receivedIncomeAmount({ ...cash, saleReceivedAmount: '400.00' })).toBe(400);
+  expect(debitPendingBalance({ ...cash, saleReceivedAmount: '400.00' })).toEqual({ label: 'Por depositar', amount: 600 });
+  expect(debitPendingBalance({ ...cash, saleReceivedAmount: '1000.00' })).toEqual({ label: 'Por depositar', amount: 0 });
+});
+
 test('muestra solo el saldo faltante de deuda y x500 en Débito', () => {
   expect(debitPendingBalance({ salePaymentType: 'card', monto: 2200, saleReceivedAmount: 600 })).toEqual({ label: 'Deuda', amount: 1600 });
   expect(debitPendingBalance({ salePaymentType: 'debt', monto: 5200, cantidad500: 0, saleReceivedAmount: 0 })).toEqual({ label: 'x500', amount: 5200 });

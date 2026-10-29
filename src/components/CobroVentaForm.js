@@ -4,9 +4,10 @@ import api from '../api';
 const money = (value) => `S/ ${Number(value || 0).toFixed(2)}`;
 export const COBRO_BANCOS = { bcp: 'BCP', interbank: 'Interbank', bbva: 'BBVA', io: 'IO' };
 
-// Formulario de cobro de una deuda de venta (tarjeta o x500). Se usa en el modal de Gastos y dentro de D.Extra.
+// Cobros de venta y depósitos de efectivo. Se usa en Gastos y dentro de D.Extra.
 export default function CobroVentaForm({ gasto, onCancel, onSaved, compact = false }) {
   const isX500 = gasto.salePaymentType === 'debt';
+  const isCash = gasto.salePaymentType === 'cash';
   const total = Number(gasto.monto || 0);
   const received = Number(gasto.saleReceivedAmount || 0);
   const remaining = Math.max(0, Math.round((total - received) * 100) / 100);
@@ -58,11 +59,11 @@ export default function CobroVentaForm({ gasto, onCancel, onSaved, compact = fal
     <form onSubmit={save} className="space-y-4" aria-label={`Cobro de venta ${gasto.saleSku || gasto.saleId}`}>
       <div className="grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3 text-center text-xs text-slate-600">
         <div>Total<strong className="block text-sm tabular-nums text-slate-900">{money(total)}</strong></div>
-        <div>Recibido<strong className="block text-sm tabular-nums text-emerald-700">{money(received)}</strong></div>
-        <div>Pendiente<strong className="block text-sm tabular-nums text-amber-800">{money(remaining)}</strong></div>
+        <div>{isCash ? 'Depositado' : 'Recibido'}<strong className="block text-sm tabular-nums text-emerald-700">{money(received)}</strong></div>
+        <div>{isCash ? 'Por depositar' : 'Pendiente'}<strong className="block text-sm tabular-nums text-amber-800">{money(remaining)}</strong></div>
       </div>
       {history.length > 0 && <div className={compact ? '' : 'rounded-xl border border-slate-200 p-3'}>
-        <h3 className="mb-2 text-sm font-semibold">Pagos registrados</h3>
+        <h3 className="mb-2 text-sm font-semibold">{isCash ? 'Depósitos registrados' : 'Pagos registrados'}</h3>
         <ul className="space-y-1 text-sm text-slate-700">
           {history.map((payment, index) => <li key={index} className="flex justify-between gap-3">
             <span>{payment.paidAt || 'Fecha anterior no registrada'}{payment.units500 ? ` · ${payment.units500} × 500` : ''}{payment.bank ? ` · ${COBRO_BANCOS[payment.bank] || payment.bank}` : ''}{payment.legacy ? ' · registro anterior' : ''}</span>
@@ -70,18 +71,18 @@ export default function CobroVentaForm({ gasto, onCancel, onSaved, compact = fal
           </li>)}
         </ul>
       </div>}
-      {remaining === 0 && <p className="rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">✓ {isX500 ? 'Cobros x500 completos' : 'Deuda pagada'}</p>}
+      {remaining === 0 && <p className="rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">✓ {isCash ? 'Efectivo depositado' : isX500 ? 'Cobros x500 completos' : 'Deuda pagada'}</p>}
       {remaining > 0 && <>
         {useCount
           ? <label className="block text-sm">Pagos de S/ 500 que vas a registrar
             <input name="paymentCount" autoComplete="off" inputMode="numeric" type="number" min="1" max={Math.floor(remaining / 500)} step="1" value={paymentCount} onChange={(event) => setPaymentCount(event.target.value)} placeholder="Cantidad, por ejemplo 1 o 3…" className={input} />
             <span className="mt-1 block text-xs text-slate-500">Puedes registrar uno o varios con la misma fecha. Máximo {Math.floor(remaining / 500)}.</span>
           </label>
-          : <label className="block text-sm">{isX500 ? 'Último monto recibido' : 'Nuevo pago recibido'}
+          : <label className="block text-sm">{isCash ? 'Nuevo monto depositado' : isX500 ? 'Último monto recibido' : 'Nuevo pago recibido'}
             <input name="paymentAmount" autoComplete="off" inputMode="decimal" type="number" min="0.01" max={remaining} step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder={`Máximo ${money(remaining)}`} className={input} />
           </label>}
         <div className="grid grid-cols-2 gap-3">
-          <label className="block text-sm">Fecha del pago
+          <label className="block text-sm">{isCash ? 'Fecha del depósito' : 'Fecha del pago'}
             <input name="paidAt" type="date" value={paidAt} onChange={(event) => setPaidAt(event.target.value)} className={input} />
           </label>
           <label className="block text-sm">Cuenta de débito
@@ -98,7 +99,7 @@ export default function CobroVentaForm({ gasto, onCancel, onSaved, compact = fal
       {error && <p id={`${id}-error`} role="alert" className="text-sm text-red-700">{error}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="rounded border border-slate-300 px-4 py-2 hover:bg-slate-50">{compact ? 'Ocultar' : 'Cancelar'}</button>
-        <button type="submit" disabled={saving} className="rounded bg-emerald-700 px-4 py-2 font-semibold text-white hover:bg-emerald-800 disabled:opacity-60">{saving ? 'Guardando…' : hasPaymentInput ? 'Registrar pago' : 'Guardar cambio'}</button>
+        <button type="submit" disabled={saving} className="rounded bg-emerald-700 px-4 py-2 font-semibold text-white hover:bg-emerald-800 disabled:opacity-60">{saving ? 'Guardando…' : hasPaymentInput ? isCash ? 'Registrar depósito' : 'Registrar pago' : 'Guardar cambio'}</button>
       </div>
     </form>
   );

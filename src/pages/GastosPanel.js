@@ -72,8 +72,8 @@ export const receivedIncomeAmount = (gasto) => {
 };
 
 export const debitPendingBalance = (gasto) => {
-  if (gasto?.salePaymentType === 'debt' || gasto?.salePaymentType === 'card') {
-    return { label: gasto.salePaymentType === 'debt' ? 'x500' : 'Deuda', amount: Math.max(0, Number(gasto.monto || 0) - Number(gasto.saleReceivedAmount || 0)) };
+  if (['debt', 'card', 'cash'].includes(gasto?.salePaymentType)) {
+    return { label: gasto.salePaymentType === 'cash' ? 'Por depositar' : gasto.salePaymentType === 'debt' ? 'x500' : 'Deuda', amount: Math.max(0, Number(gasto.monto || 0) - Number(gasto.saleReceivedAmount || 0)) };
   }
   if (Number(gasto?.cantidad500) > 0) {
     return { label: 'x500', amount: getPending500(gasto.monto, gasto.cantidad500).amount };
@@ -122,7 +122,7 @@ export const groupAdvanceRows = (rows, advanceDetails = {}, extraDebts = []) => 
     if (!group) return row;
     const detail = advanceDetails[group.adelantoId];
     const openDebt = extraDebts.find((debt) => debt.id === `advance-${group.adelantoId}`);
-    const creditRows = group.rows.filter((item) => ['card', 'debt'].includes(item.salePaymentType));
+    const creditRows = group.rows.filter((item) => ['card', 'debt', 'cash'].includes(item.salePaymentType));
     const creditPending = creditRows.reduce((sum, item) => sum + Number(debitPendingBalance(item)?.amount || 0), 0);
     const hasSummary = detail && Number.isFinite(Number(detail.cobrado)) && Number.isFinite(Number(detail.falta));
     const share = String(detail?.producto?.vendedor || '').toLowerCase() === 'ambos' ? 0.5 : 1;
@@ -581,7 +581,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
       const m = Number(g.monto) || 0;
       if (g.moneda !== 'USD') continue;
       if (g.metodoPago !== 'debito') continue;
-      if (isIncomeExpenseConcept(g.concepto, conceptCategories)) delta += m; else delta -= m;
+      if (isIncomeExpenseConcept(g.concepto, conceptCategories)) delta += receivedIncomeAmount(g); else delta -= m;
     }
     return (Number(wallet.efectivoUsd || 0) + delta).toFixed(2);
   }, [rows, wallet.efectivoUsd, conceptCategories]);
@@ -1065,7 +1065,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                           {showAdvancePending && <div className="mt-0.5 text-[11px] leading-tight text-amber-700">Falta {fmtMoney('PEN', advanceDebt.pending)}</div>}
                           {pending && pending.amount === 0 && (
                             <div className="mt-0.5 text-[11px] font-semibold leading-tight text-emerald-700">
-                              ✓ {pending.label === 'Deuda' ? 'Deuda pagada' : 'x500 completo'}
+                              ✓ {pending.label === 'Por depositar' ? 'Efectivo depositado' : pending.label === 'Deuda' ? 'Deuda pagada' : 'x500 completo'}
                             </div>
                           )}
                         </td>
@@ -1081,7 +1081,7 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M9 3.75A2.25 2.25 0 0 1 11.25 1.5h1.5A2.25 2.25 0 0 1 15 3.75V4.5h3.75a.75.75 0 0 1 0 1.5H5.25a.75.75 0 0 1 0-1.5H9v-.75ZM6.75 7.5h10.5l-.63 11.34a2.25 2.25 0 0 1-2.245 2.11H9.625a2.25 2.25 0 0 1-2.244-2.11L6.75 7.5Z" /></svg>
                             </button>}
                           </div> : g.saleId ? <div className="flex items-center gap-1">
-                            {['card', 'debt'].includes(g.salePaymentType) && <button type="button" onClick={() => setCollectingSale(g)} title={pending?.amount === 0 ? 'Ver pagos' : 'Cobrar'} aria-label={`${pending?.amount === 0 ? 'Ver pagos de' : 'Cobrar'} ${g.saleSku || `venta ${g.saleId}`}`} className={`inline-flex w-7 h-7 items-center justify-center rounded border text-sm font-semibold ${pending?.amount === 0 ? 'border-gray-300 text-gray-500 hover:bg-gray-100' : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'}`}>$</button>}
+                            {['card', 'debt', 'cash'].includes(g.salePaymentType) && <button type="button" onClick={() => setCollectingSale(g)} title={g.salePaymentType === 'cash' ? 'Ver o registrar depósitos' : pending?.amount === 0 ? 'Ver pagos' : 'Cobrar'} aria-label={`${g.salePaymentType === 'cash' ? 'Depósitos de' : pending?.amount === 0 ? 'Ver pagos de' : 'Cobrar'} ${g.saleSku || `venta ${g.saleId}`}`} className={`inline-flex w-7 h-7 items-center justify-center rounded border text-sm font-semibold ${pending?.amount === 0 ? 'border-gray-300 text-gray-500 hover:bg-gray-100' : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'}`}>$</button>}
                             <EditarIngresoVenta ingreso={g} onAdvance={setEditingAdvance} onSale={setEditingSaleId} />
                             <button type="button" title="Devolver o corregir venta" aria-label={`Devolver venta ${g.saleSku || g.saleId}`} onClick={() => onDeleteLinkedSale(g)} className="inline-flex items-center justify-center w-7 h-7 rounded border border-gray-300 text-red-600 hover:bg-red-50">
                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M9 3.75A2.25 2.25 0 0 1 11.25 1.5h1.5A2.25 2.25 0 0 1 15 3.75V4.5h3.75a.75.75 0 0 1 0 1.5H5.25a.75.75 0 0 1 0-1.5H9v-.75ZM6.75 7.5h10.5l-.63 11.34a2.25 2.25 0 0 1-2.245 2.11H9.625a2.25 2.25 0 0 1-2.244-2.11L6.75 7.5Z" /></svg>
