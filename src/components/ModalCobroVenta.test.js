@@ -9,6 +9,34 @@ beforeEach(() => {
   api.patch.mockResolvedValue({});
 });
 
+test('permite anular un depósito cuando el efectivo ya está completo', async () => {
+  const onSaved = jest.fn();
+  api.patch.mockResolvedValue({ id: 50, saleReceivedAmount: '400.00' });
+  render(<ModalCobroVenta gasto={{ id: 50, saleId: 12, salePaymentType: 'cash', monto: '1000', saleReceivedAmount: '1000.00', salePaymentHistory: [
+    { amount: 400, paidAt: '2026-10-27', bank: 'bcp' },
+    { amount: 600, paidAt: '2026-10-28', bank: 'interbank' },
+  ] }} onClose={jest.fn()} onSaved={onSaved} />);
+  expect(screen.getByText('✓ Efectivo depositado')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Anular depósito 2' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/50', { cancelPaymentIndex: 1 }));
+  expect(onSaved).toHaveBeenCalledWith({ id: 50, saleReceivedAmount: '400.00' });
+});
+
+test('muestra depósitos anulados sin permitir anularlos otra vez', () => {
+  render(<ModalCobroVenta gasto={{ id: 50, saleId: 12, salePaymentType: 'cash', monto: '1000', saleReceivedAmount: '0.00', salePaymentHistory: [{ amount: 1000, paidAt: '2026-10-27', cancelledAt: '2026-10-28T12:00:00Z' }] }} onClose={jest.fn()} onSaved={jest.fn()} />);
+  expect(screen.getByText('Anulado')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Anular depósito/ })).not.toBeInTheDocument();
+  expect(screen.getByText('Por depositar')).toHaveTextContent('S/ 1000.00');
+});
+
+test('permite anular un depósito antiguo y muestra los errores al anular', async () => {
+  api.patch.mockRejectedValue(new Error('No se pudo anular'));
+  render(<ModalCobroVenta gasto={{ id: 51, saleId: 12, salePaymentType: 'cash', monto: '1000', saleReceivedAmount: '1000.00' }} onClose={jest.fn()} onSaved={jest.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Anular depósito 1' }));
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('No se pudo anular'));
+  expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/51', { cancelPaymentIndex: 0 });
+});
+
 test('registra depósitos parciales de efectivo con fecha, cuenta e historial', async () => {
   render(<ModalCobroVenta gasto={{ id: 50, saleId: 12, saleSku: 'MS-340', salePaymentType: 'cash', monto: '1000', saleReceivedAmount: '400.00', tarjeta: 'efectivo', salePaymentHistory: [{ amount: 400, paidAt: '2026-10-27', bank: 'bcp' }] }} onClose={jest.fn()} onSaved={jest.fn()} />);
   expect(screen.getByText('Depósitos de efectivo')).toBeInTheDocument();

@@ -27,6 +27,19 @@ export default function CobroVentaForm({ gasto, onCancel, onSaved, compact = fal
   const rateChanged = exchangeRate !== '' && Number(exchangeRate) !== Number(gasto.saleExchangeRate || 0);
   const id = `cobro-${gasto.id}`;
 
+  const cancelDeposit = async (index) => {
+    setSaving(true);
+    setError('');
+    try {
+      const updated = await api.patch(`/gastos/sale-income/${gasto.id}`, { cancelPaymentIndex: index });
+      onSaved?.(updated);
+    } catch (err) {
+      setError(err?.message || 'No se pudo anular el depósito.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const save = async (event) => {
     event.preventDefault();
     setError('');
@@ -67,7 +80,10 @@ export default function CobroVentaForm({ gasto, onCancel, onSaved, compact = fal
         <ul className="space-y-1 text-sm text-slate-700">
           {history.map((payment, index) => <li key={index} className="flex justify-between gap-3">
             <span>{payment.paidAt || 'Fecha anterior no registrada'}{payment.units500 ? ` · ${payment.units500} × 500` : ''}{payment.bank ? ` · ${COBRO_BANCOS[payment.bank] || payment.bank}` : ''}{payment.legacy ? ' · registro anterior' : ''}</span>
-            <strong className="whitespace-nowrap tabular-nums">{money(payment.amount)}</strong>
+            <div className="flex shrink-0 items-center gap-2">
+              <strong className={`whitespace-nowrap tabular-nums ${payment.cancelledAt ? 'line-through text-slate-400' : ''}`}>{money(payment.amount)}</strong>
+              {payment.cancelledAt ? <span className="text-xs text-slate-500">Anulado</span> : isCash && !payment.pagoId && <button type="button" disabled={saving} onClick={() => cancelDeposit(index)} aria-label={`Anular depósito ${index + 1}`} className="text-xs font-medium text-red-700 hover:underline disabled:opacity-50">Anular</button>}
+            </div>
           </li>)}
         </ul>
       </div>}
