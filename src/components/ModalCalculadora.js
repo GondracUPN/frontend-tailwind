@@ -1,4 +1,4 @@
-import { accessoryLotAvailable } from '../utils/accessorySales';
+import { accessoryLotAvailable, consumedAccessoryLots } from '../utils/accessorySales';
 import { isSimpleAccessory } from '../utils/accessoryCost';
 import useAccessoryQuote from '../hooks/useAccessoryQuote';
 // src/components/ModalCalculadora.js
@@ -143,16 +143,31 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
   // costo usado: si hay TC valido, (valorUSD * TC) + envio; si no, costoBase
   const costoUsado = useMemo(() => {
     const tc = Number(tipoCambio);
-    if (isAccessory) return costoTotalBase;
+    if (isAccessory) {
+      if (!Number.isFinite(tc) || tc <= 0 || !quotation.quote) return costoTotalBase;
+      const parts = quotation.quote.lotes || consumedAccessoryLots(accessoryLots, selectedLot?.id, cantidad)
+        .map(({ lot, quantity }) => ({ productoId: lot.id, cantidad: quantity }));
+      const total = parts.reduce((sum, part) => {
+        const lot = accessoryLots.find((item) => Number(item.id) === Number(part.productoId));
+        const value = lot?.valor || {};
+        const units = Math.max(1, Number(lot?.stockInicial || 1));
+        const shipping = Number(value.costoEnvioProrrateado ?? value.costoEnvio ?? 0) / units;
+        const unitCost = String(value.monedaCompra || 'USD').toUpperCase() === 'PEN'
+          ? Number(part.costoUnitario ?? Number(value.valorProducto || 0) / units + shipping)
+          : Number(value.valorProducto || 0) / units * tc + shipping;
+        return sum + unitCost * Number(part.cantidad);
+      }, 0);
+      return total / Math.max(1, Number(cantidad));
+    }
     if (isFinite(tc) && tc > 0) return valorUSD * tc + envioSoles;
     return costoTotalBase;
-  }, [tipoCambio, valorUSD, envioSoles, costoTotalBase, isAccessory]);
+  }, [tipoCambio, valorUSD, envioSoles, costoTotalBase, isAccessory, quotation.quote, accessoryLots, selectedLot?.id, cantidad]);
 
   // Sugerencias basadas en el costo recalculado con el TC ingresado.
   const { pvMin, pvMed } = useMemo(() => {
-    const pvMinRounded = simpleAccessory ? Math.ceil(costoUsado * 1.3 * 100 - 1e-9) / 100
+    const pvMinRounded = simpleAccessory ? Math.ceil(costoUsado * 1.3 * 2 - 1e-9) / 2
       : isAccessory ? (quotation.quote?.precioMinimo ?? Math.ceil(costoUsado * 1.2 * 100) / 100) : roundUp10(costoUsado * 1.2);
-    const pvMedRounded = simpleAccessory ? Math.ceil(costoUsado * 1.5 * 100 - 1e-9) / 100
+    const pvMedRounded = simpleAccessory ? Math.ceil(costoUsado * 1.5 * 2 - 1e-9) / 2
       : isAccessory ? (quotation.quote?.precioUnitarioSugerido ?? Math.ceil(costoUsado * 1.3 * 100) / 100) : roundUp50(costoUsado * 1.3);
     return { pvMin: pvMinRounded, pvMed: pvMedRounded };
   }, [costoUsado, isAccessory, simpleAccessory, quotation.quote?.precioMinimo, quotation.quote?.precioUnitarioSugerido]);
@@ -171,6 +186,9 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
   const gananciaMin = pvMin - costoUsado;
   const gananciaMed = pvMed - costoUsado;
   const gananciaPorcentajeExacto = costoUsado * (simpleAccessory ? 0.5 : 0.3);
+  const precioCotizado = precioCustom === '' ? pvMed : Number(precioCustom);
+  const margenCotizado = precioCotizado > 0 && Number.isFinite(costoUsado)
+    ? (precioCotizado - costoUsado) / precioCotizado * 100 : null;
 
   const toggleHistory = async () => {
     const nextOpen = !historyOpen;
@@ -263,7 +281,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
               </div>
             </div>
 
-            {isAccessory && <div aria-live="polite">{quotation.loading ? 'Cotizando…' : quotation.error ? <p role="alert">{quotation.error}</p> : <p>Margen sobre venta: {quotation.quote?.margenSobreVenta == null ? '—' : quotation.quote.margenSobreVenta.toFixed(2) + '%'}</p>}</div>}
+            {isAccessory && <div aria-live="polite">{quotation.loading ? 'Cotizando…' : quotation.error ? <p role="alert">{quotation.error}</p> : <p>Margen sobre venta: {margenCotizado == null ? '—' : margenCotizado.toFixed(2) + '%'}</p>}</div>}
             {/* Personalizado con Tipo de Cambio */}
             <div className="border rounded-lg p-4">
               <div className={`grid grid-cols-1 ${purchaseInSoles ? '' : 'sm:grid-cols-2'} gap-3`}>
@@ -287,12 +305,11 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
                     inputMode="decimal"
                     className="w-full border rounded-lg p-2"
                     placeholder={`Opcional: p.ej. ${TC_FIJO}`}
-                    value={simpleAccessory ? TC_FIJO : tipoCambio}
-                    readOnly={simpleAccessory}
+                    value={tipoCambio}
                     onChange={(e) => setTipoCambio(e.target.value)}
                   />
                   <div className="text-xs text-gray-600 mt-1">
-                    {simpleAccessory ? 'Tipo de cambio fijo: S/ 3.70 por dólar.' : isAccessory ? 'El costo guardado del lote no se modifica al cotizar.' : 'Si ingresas TC, costo = (valor US$ x TC) + envio.'}
+                    {isAccessory ? 'Simula el costo con el tipo de cambio ingresado; la compra guardada no se modifica.' : 'Si ingresas TC, costo = (valor US$ x TC) + envio.'}
                   </div>
                 </div>}
               </div>

@@ -64,15 +64,14 @@ test.each([
 
   const costLabel = monedaCompra === 'PEN' ? 'Costo unitario de compra (S/):' : 'Costo unitario usado:';
   await waitFor(() => expect(screen.getByText(costLabel).parentElement).toHaveTextContent(`S/ ${unitCost.toFixed(2)}`));
-  expect(screen.getByText('Precio mínimo (+30%)').parentElement).toHaveTextContent(`S/ ${(Math.ceil(unitCost * 1.3 * 100 - 1e-9) / 100).toFixed(2)}`);
-  expect(screen.getByText('Precio sugerido (+50%)').parentElement).toHaveTextContent(`S/ ${(Math.ceil(unitCost * 1.5 * 100 - 1e-9) / 100).toFixed(2)}`);
+  expect(screen.getByText('Precio mínimo (+30%)').parentElement).toHaveTextContent(`S/ ${(Math.ceil(unitCost * 1.3 * 2 - 1e-9) / 2).toFixed(2)}`);
+  expect(screen.getByText('Precio sugerido (+50%)').parentElement).toHaveTextContent(`S/ ${(Math.ceil(unitCost * 1.5 * 2 - 1e-9) / 2).toFixed(2)}`);
   if (monedaCompra === 'PEN') {
     expect(screen.queryByLabelText('Tipo de cambio (US$ a S/)')).not.toBeInTheDocument();
     expect(screen.queryByText('Valor (US$):')).not.toBeInTheDocument();
     expect(screen.queryByText(/\$ 53/)).not.toBeInTheDocument();
   } else {
-    expect(screen.getByLabelText('Tipo de cambio (US$ a S/)')).toHaveValue(3.7);
-    expect(screen.getByLabelText('Tipo de cambio (US$ a S/)')).toHaveAttribute('readonly');
+    expect(screen.getByLabelText('Tipo de cambio (US$ a S/)')).not.toHaveAttribute('readonly');
     expect(screen.getByText('Valor (US$):').parentElement).toHaveTextContent('$ 53.00');
   }
   if (costoEnvio > 0) expect(screen.getByText('Envio (S/):').parentElement).toHaveTextContent('S/ 3.00');
@@ -92,6 +91,38 @@ test('redondea el precio medio hacia arriba para terminar en 00 o 50', () => {
   expect(within(mediumCard).getByText('S/ 4750.00')).toBeInTheDocument();
   expect(within(mediumCard).getByText('S/ 1085.24')).toBeInTheDocument();
   expect(within(mediumCard).getByText('S/ 1132.55')).toBeInTheDocument();
+});
+
+test('simula cualquier cambio en accesorios simples, convierte solo lotes USD y redondea precios a 0.50', async () => {
+  const lots = [
+    { id: 11, tipo: 'accesorios', soloInventario: true, stockInicial: 2, stockActual: 1,
+      valor: { monedaCompra: 'USD', valorProducto: 20, costoEnvio: 4, fechaCompra: '2026-01-01' } },
+    { id: 12, tipo: 'accesorios', soloInventario: true, stockInicial: 2, stockActual: 2,
+      valor: { monedaCompra: 'PEN', valorProducto: 40, costoEnvio: 0, fechaCompra: '2026-02-01' } },
+  ];
+  const originalLots = JSON.stringify(lots);
+  api.post.mockImplementation(async (_, body) => ({ cotizacionToken: 'a'.repeat(64),
+    costoTotal: body.cantidad === 1 ? 39 : 59,
+    lotes: [{ productoId: 11, cantidad: 1, costoUnitario: 39 },
+      ...(body.cantidad === 1 ? [] : [{ productoId: 12, cantidad: 1, costoUnitario: 20 }])],
+  }));
+  render(<ModalCalculadora producto={{ ...lots[0], __lots: lots }} onClose={jest.fn()} />);
+  await waitFor(() => expect(screen.getByText('Costo unitario usado:').parentElement).toHaveTextContent('S/ 39.00'));
+  fireEvent.change(screen.getByLabelText('Unidades a vender'), { target: { value: '2' } });
+  await waitFor(() => expect(screen.getByText('Costo unitario usado:').parentElement).toHaveTextContent('S/ 29.50'));
+  const rate = screen.getByLabelText('Tipo de cambio (US$ a S/)');
+  expect(rate).not.toHaveAttribute('readonly');
+  fireEvent.change(rate, { target: { value: '4' } });
+  expect(screen.getByText('Costo unitario usado:').parentElement).toHaveTextContent('S/ 31.00');
+  expect(screen.getByText('Precio mínimo (+30%)').parentElement).toHaveTextContent('S/ 40.50');
+  expect(screen.getByText('Precio sugerido (+50%)').parentElement).toHaveTextContent('S/ 46.50');
+  fireEvent.change(screen.getByLabelText('Precio unitario de venta (S/)'), { target: { value: '50' } });
+  await waitFor(() => expect(screen.getByText('Ganancia estimada:').parentElement).toHaveTextContent('S/ 38.00'));
+  expect(screen.getByText('Margen sobre venta: 38.00%')).toBeVisible();
+  fireEvent.change(rate, { target: { value: '' } });
+  expect(screen.getByText('Costo unitario usado:').parentElement).toHaveTextContent('S/ 29.50');
+  expect(JSON.stringify(lots)).toBe(originalLots);
+  expect(api.post.mock.calls.every(([path]) => path === '/ventas/accesorios/cotizar')).toBe(true);
 });
 
 test('calcula accesorios por cantidad, precio unitario y lote seleccionado', async () => {

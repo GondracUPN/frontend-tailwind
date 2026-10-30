@@ -836,7 +836,7 @@ export default function Inventario({ setVista }) {
         ciclosBateria: productoNuevo ? null : !fieldVisible(editing.reglas, 'ciclosBateria') ? undefined : (form.ciclosBateria === '' ? null : Number(form.ciclosBateria)),
         saludBateria: productoNuevo ? null : !fieldVisible(editing.reglas, 'saludBateria') ? undefined : (form.saludBateria === '' ? null : Number(form.saludBateria)),
         primerPrecioSoles,
-        ultimoPrecioSoles,
+        ...(!isSimpleAccessory(editing.producto) ? { ultimoPrecioSoles } : {}),
         tieneGarantia: productoNuevo ? false : Boolean(form.tieneGarantia),
         tipoGarantia: !productoNuevo && form.tieneGarantia ? form.tipoGarantia : null,
         garantiaHasta: !productoNuevo && form.tieneGarantia ? (form.garantiaHasta || null) : null,
@@ -1380,7 +1380,7 @@ export default function Inventario({ setVista }) {
                     <label className="text-sm font-medium text-slate-700">Costo total del lote<input aria-label="Costo total del lote" type={isSimpleAccessory(editing.producto) ? 'number' : 'text'} min="0" step="0.01" readOnly={!isSimpleAccessory(editing.producto)} value={accessoryPurchaseTotal(form, 'cantidadStock')} onChange={(event) => setForm((current) => updateAccessoryPurchase(current, 'totalCompra', event.target.value, 'cantidadStock'))} className="mt-1 h-11 w-full rounded-xl border bg-slate-50 px-3" /></label>
                     <label className="text-sm font-medium text-slate-700">Costo de envío (S/)<input type="number" min="0" step="0.01" value={form.costoEnvioAccesorio} onChange={(event) => setForm((current) => ({ ...current, costoEnvioAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" placeholder="0 si no tuvo" /></label>
                     <label className="text-sm font-medium text-slate-700">Precio de venta (S/)<input type="number" min="0" step="0.01" value={form.primerPrecioSoles} onChange={(event) => setForm((current) => ({ ...current, primerPrecioSoles: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" placeholder="Puede quedar vacío" /></label>
-                    <label className="text-sm font-medium text-slate-700">Precio mínimo (S/)<input type="number" min="0" step="0.01" value={form.ultimoPrecioSoles} onChange={(event) => setForm((current) => ({ ...current, ultimoPrecioSoles: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" placeholder="Puede quedar vacío" /></label>
+                    {!isSimpleAccessory(editing.producto) && <label className="text-sm font-medium text-slate-700">Precio mínimo (S/)<input type="number" min="0" step="0.01" value={form.ultimoPrecioSoles} onChange={(event) => setForm((current) => ({ ...current, ultimoPrecioSoles: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" placeholder="Puede quedar vacío" /></label>}
                     <label className="text-sm font-medium text-slate-700 sm:col-span-2">Modelos compatibles<textarea rows="2" value={form.modelosCompatibles.join(', ')} onChange={(event) => setForm((current) => ({ ...current, modelosCompatibles: event.target.value.split(',').map(text).filter(Boolean) }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-3" placeholder="Separados por comas" /></label>
                   </div>
                   <div className="mt-3 text-sm font-medium text-indigo-800">Disponibles después de guardar: {accessoryProjectedStock}</div>

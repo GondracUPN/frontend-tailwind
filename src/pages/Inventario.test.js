@@ -127,6 +127,7 @@ test('editar total del lote simple conserva el importe exacto al dividir entre t
   fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Editar stock' }));
   expect(screen.getByLabelText('Costo total del lote')).not.toHaveAttribute('readonly');
+  expect(screen.queryByLabelText('Precio mínimo (S/)')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Costo total del lote'), { target: { value: '100' } });
   expect(screen.getByLabelText('Costo por unidad')).toHaveValue(50);
   fireEvent.change(screen.getByLabelText('Cantidad comprada'), { target: { value: '3' } });
@@ -136,6 +137,8 @@ test('editar total del lote simple conserva el importe exacto al dividir entre t
   await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/productos/710', expect.objectContaining({
     valor: expect.objectContaining({ valorProducto: 100, costoEnvio: 4 }) })));
   expect(api.patch).toHaveBeenCalledWith('/inventario/710', expect.objectContaining({ cantidadStock: 3 }));
+  const savedFicha = api.patch.mock.calls.find(([path]) => path === '/inventario/710')[1];
+  expect(savedFicha).not.toHaveProperty('ultimoPrecioSoles');
 });
 
 test('alta simple con título libre calcula unitario por cantidad y usa cambio USD fijo', async () => {
@@ -206,7 +209,7 @@ test('alta simple en soles con envío y compatibilidad libre, sin catálogo Appl
   expect(api.patch).toHaveBeenCalledWith('/inventario/503', { enAlmacen: true, fotosTomadas: false, primerPrecioSoles: 35 });
 });
 
-test('guarda ambos precios de un accesorio simple sin enviar el id interno de detalle', async () => {
+test('guarda precio de venta del accesorio simple sin precio mínimo ni id interno de detalle', async () => {
   const accessory = {
     producto: {
       id: 503, tipo: 'accesorios', estado: 'nuevo', soloInventario: true,
@@ -232,14 +235,14 @@ test('guarda ambos precios de un accesorio simple sin enviar el id interno de de
   const dialog = screen.getByRole('dialog', { name: 'Completar ficha de inventario' });
   fireEvent.change(within(dialog).getByLabelText('Comprado por'), { target: { value: 'ambos' } });
   fireEvent.change(within(dialog).getByLabelText('Precio de venta (S/)'), { target: { value: '35.50' } });
-  fireEvent.change(within(dialog).getByLabelText('Precio mínimo (S/)'), { target: { value: '29.90' } });
+  expect(within(dialog).queryByLabelText('Precio mínimo (S/)')).not.toBeInTheDocument();
   fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar ficha' }));
-  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/inventario/503', expect.objectContaining({ primerPrecioSoles: 35.5, ultimoPrecioSoles: 29.9 })));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/inventario/503', expect.objectContaining({ primerPrecioSoles: 35.5 })));
   expect(api.patch).toHaveBeenCalledWith('/productos/503', expect.objectContaining({ vendedor: 'ambos', detalle: { modelo: 'Cable USB-C', modelosCompatibles: ['iPhone 15'] } }));
   await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Completar ficha de inventario' })).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Editar stock' }));
   expect(screen.getByLabelText('Precio de venta (S/)')).toHaveValue(35.5);
-  expect(screen.getByLabelText('Precio mínimo (S/)')).toHaveValue(29.9);
+  expect(screen.queryByLabelText('Precio mínimo (S/)')).not.toBeInTheDocument();
 });
 
 test('muestra el error de guardado también en la ficha de accesorios', async () => {
