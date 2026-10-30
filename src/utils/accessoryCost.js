@@ -1,6 +1,18 @@
 export const isSimpleAccessory = (lot) =>
   String(lot?.tipo).toLowerCase() === 'accesorios' && Boolean(lot?.soloInventario) && !lot?.referenciaId;
 
+export const accessoryPurchaseTotal = (form, quantityKey) => form.totalCompra ??
+  (Number(form.precioCompra || 0) * Number(form[quantityKey] || 1)).toFixed(2);
+
+export function updateAccessoryPurchase(form, field, value, quantityKey) {
+  const next = { ...form, [field]: value };
+  if (field === 'precioCompra') next.totalCompra = null;
+  if (field === 'totalCompra' || (field === quantityKey && next.totalCompra != null)) {
+    next.precioCompra = next.totalCompra === '' ? '' : Number(next.totalCompra) / Math.max(1, Number(next[quantityKey]) || 1);
+  }
+  return next;
+}
+
 export function accessoryUnitCost(lot) {
   const value = lot?.valor;
   if (!value) return null;

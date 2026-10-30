@@ -94,6 +94,50 @@ test('editar una ficha agrupada selecciona un lote y conserva su costo unitario 
   expect(api.patch).not.toHaveBeenCalledWith('/productos/702', expect.anything());
 });
 
+test.each(['PEN', 'USD'])('alta simple %s permite ingresar total del lote y recalcula costo por cantidad', async (monedaCompra) => {
+  api.get.mockResolvedValue([]);
+  api.post.mockResolvedValue({ id: 703 });
+  api.patch.mockResolvedValue({ enAlmacen: true });
+  render(<Inventario setVista={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Agregar accesorio simple' }));
+  const dialog = screen.getByRole('dialog', { name: 'Agregar accesorio simple' });
+  fireEvent.change(within(dialog).getByLabelText('Nombre / título del accesorio *'), { target: { value: 'Cable simple' } });
+  fireEvent.change(within(dialog).getByLabelText('Comprado por *'), { target: { value: 'Gonzalo' } });
+  fireEvent.change(within(dialog).getByLabelText('Moneda de compra'), { target: { value: monedaCompra } });
+  fireEvent.change(within(dialog).getByLabelText('Costo total del lote'), { target: { value: '100' } });
+  fireEvent.change(within(dialog).getByLabelText('Cantidad *'), { target: { value: '3' } });
+  expect(within(dialog).getByLabelText('Precio de compra por unidad').value).toBe(String(100 / 3));
+  expect(within(dialog).getByLabelText('Costo total del lote')).toHaveValue(100);
+  fireEvent.change(within(dialog).getByLabelText('Cantidad *'), { target: { value: '4' } });
+  expect(within(dialog).getByLabelText('Precio de compra por unidad')).toHaveValue(25);
+  fireEvent.change(within(dialog).getByLabelText('Precio de compra por unidad'), { target: { value: '30' } });
+  expect(within(dialog).getByLabelText('Costo total del lote')).toHaveValue(120);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Agregar accesorio' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/productos', expect.objectContaining({ cantidad: 4,
+    valor: expect.objectContaining({ valorProducto: 120, monedaCompra }) })));
+});
+
+test('editar total del lote simple conserva el importe exacto al dividir entre tres unidades', async () => {
+  api.get.mockResolvedValue([{ producto: { id: 710, tipo: 'accesorios', soloInventario: true,
+    stockInicial: 2, stockActual: 1, detalle: { modelo: 'Cable' },
+    valor: { valorProducto: 20, monedaCompra: 'PEN', costoEnvio: 4 } }, ficha: { enAlmacen: true } }]);
+  api.patch.mockResolvedValue({ enAlmacen: true });
+  render(<Inventario setVista={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Editar stock' }));
+  expect(screen.getByLabelText('Costo total del lote')).not.toHaveAttribute('readonly');
+  fireEvent.change(screen.getByLabelText('Costo total del lote'), { target: { value: '100' } });
+  expect(screen.getByLabelText('Costo por unidad')).toHaveValue(50);
+  fireEvent.change(screen.getByLabelText('Cantidad comprada'), { target: { value: '3' } });
+  expect(screen.getByLabelText('Costo por unidad').value).toBe(String(100 / 3));
+  expect(screen.getByLabelText('Costo total del lote')).toHaveValue(100);
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar ficha' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/productos/710', expect.objectContaining({
+    valor: expect.objectContaining({ valorProducto: 100, costoEnvio: 4 }) })));
+  expect(api.patch).toHaveBeenCalledWith('/inventario/710', expect.objectContaining({ cantidadStock: 3 }));
+});
+
 test('alta simple con título libre calcula unitario por cantidad y usa cambio USD fijo', async () => {
   api.get.mockResolvedValue([entry]); api.post.mockResolvedValue({ id: 703 }); api.patch.mockResolvedValue({ enAlmacen: true });
   render(<Inventario setVista={jest.fn()} />);
