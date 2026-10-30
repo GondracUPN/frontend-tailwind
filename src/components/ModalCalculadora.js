@@ -1,4 +1,5 @@
 import { accessoryLotAvailable } from '../utils/accessorySales';
+import { isSimpleAccessory } from '../utils/accessoryCost';
 import useAccessoryQuote from '../hooks/useAccessoryQuote';
 // src/components/ModalCalculadora.js
 // Calculadora simple: sugiere precios minimos/medios y permite probar un precio personalizado.
@@ -115,6 +116,8 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
   const selectedLot = accessoryLots.find((lot) => String(lot.id) === selectedLotId) || accessoryLots[0] || producto;
   // Valores base del producto
   const selectedValue = selectedLot?.valor || {};
+  const simpleAccessory = isSimpleAccessory(selectedLot);
+  const purchaseInSoles = simpleAccessory && String(selectedValue.monedaCompra || 'USD').toUpperCase() === 'PEN';
   const selectedShipping = Number(selectedValue.costoEnvioProrrateado ?? selectedValue.costoEnvio ?? 0);
   const selectedStoredCost = Number(selectedValue.costoTotalProrrateado ?? selectedValue.costoTotal ?? 0);
   const selectedTotalCost = selectedStoredCost > 0
@@ -147,10 +150,12 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
 
   // Sugerencias basadas en el costo recalculado con el TC ingresado.
   const { pvMin, pvMed } = useMemo(() => {
-    const pvMinRounded = isAccessory ? (quotation.quote?.precioMinimo ?? Math.ceil(costoUsado * 1.2 * 100) / 100) : roundUp10(costoUsado * 1.2); // +20%
-    const pvMedRounded = isAccessory ? (quotation.quote?.precioUnitarioSugerido ?? Math.ceil(costoUsado * 1.3 * 100) / 100) : roundUp50(costoUsado * 1.3); // +30%, siempre termina en 00 o 50
+    const pvMinRounded = simpleAccessory ? Math.ceil(costoUsado * 1.3 * 100 - 1e-9) / 100
+      : isAccessory ? (quotation.quote?.precioMinimo ?? Math.ceil(costoUsado * 1.2 * 100) / 100) : roundUp10(costoUsado * 1.2);
+    const pvMedRounded = simpleAccessory ? Math.ceil(costoUsado * 1.5 * 100 - 1e-9) / 100
+      : isAccessory ? (quotation.quote?.precioUnitarioSugerido ?? Math.ceil(costoUsado * 1.3 * 100) / 100) : roundUp50(costoUsado * 1.3);
     return { pvMin: pvMinRounded, pvMed: pvMedRounded };
-  }, [costoUsado, isAccessory, quotation.quote?.precioMinimo, quotation.quote?.precioUnitarioSugerido]);
+  }, [costoUsado, isAccessory, simpleAccessory, quotation.quote?.precioMinimo, quotation.quote?.precioUnitarioSugerido]);
 
   // Personalizado con redondeo a 10 hacia arriba
   const customOut = useMemo(() => {
@@ -165,7 +170,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
 
   const gananciaMin = pvMin - costoUsado;
   const gananciaMed = pvMed - costoUsado;
-  const treintaPorCientoExacto = costoUsado * 0.3;
+  const gananciaPorcentajeExacto = costoUsado * (simpleAccessory ? 0.5 : 0.3);
 
   const toggleHistory = async () => {
     const nextOpen = !historyOpen;
@@ -240,17 +245,17 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
             {/* Sugerencias */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
               <div className="border rounded-lg p-4 bg-gray-50">
-                <div className="text-sm text-gray-500 mb-1">{isAccessory ? 'Precio mínimo' : 'Precio minimo (+20%)'}</div>
+                <div className="text-sm text-gray-500 mb-1">{simpleAccessory ? 'Precio mínimo (+30%)' : isAccessory ? 'Precio mínimo' : 'Precio minimo (+20%)'}</div>
                 <div className="text-2xl font-semibold">{fmtSoles(pvMin)}</div>
                 <div className="text-sm text-gray-700 mt-1">
                   Ganancia: <strong>{fmtSoles(gananciaMin)}</strong>
                 </div>
               </div>
               <div className="border rounded-lg p-4 bg-gray-50">
-                <div className="text-sm text-gray-500 mb-1">{isAccessory ? 'Precio sugerido' : 'Precio medio (+30%)'}</div>
+                <div className="text-sm text-gray-500 mb-1">{simpleAccessory ? 'Precio sugerido (+50%)' : isAccessory ? 'Precio sugerido' : 'Precio medio (+30%)'}</div>
                 <div className="text-2xl font-semibold">{fmtSoles(pvMed)}</div>
                 <div className="text-sm text-gray-700 mt-1">
-                  {isAccessory ? 'Ganancia unitaria al costo +30%:' : '30% exacto:'} <strong>{fmtSoles(treintaPorCientoExacto)}</strong>
+                  {simpleAccessory ? 'Ganancia unitaria al costo +50%:' : isAccessory ? 'Ganancia unitaria al costo +30%:' : '30% exacto:'} <strong>{fmtSoles(gananciaPorcentajeExacto)}</strong>
                 </div>
                 <div className="text-sm text-gray-700 mt-1">
                   {isAccessory ? 'Ganancia unitaria sugerida:' : 'Ganancia redondeada:'} <strong>{fmtSoles(gananciaMed)}</strong>
@@ -261,7 +266,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
             {isAccessory && <div aria-live="polite">{quotation.loading ? 'Cotizando…' : quotation.error ? <p role="alert">{quotation.error}</p> : <p>Margen sobre venta: {quotation.quote?.margenSobreVenta == null ? '—' : quotation.quote.margenSobreVenta.toFixed(2) + '%'}</p>}</div>}
             {/* Personalizado con Tipo de Cambio */}
             <div className="border rounded-lg p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className={`grid grid-cols-1 ${purchaseInSoles ? '' : 'sm:grid-cols-2'} gap-3`}>
                 <div>
                   <label htmlFor="calculadora-precio-personalizado" className="block text-sm font-medium mb-2">{isAccessory ? 'Precio unitario de venta (S/)' : 'Precio personalizado (S/)'}</label>
                   <input
@@ -274,7 +279,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
                     onChange={(e) => setPrecioCustom(e.target.value)}
                   />
                 </div>
-                <div>
+                {!purchaseInSoles && <div>
                   <label htmlFor="calculadora-tipo-cambio" className="block text-sm font-medium mb-2">Tipo de cambio (US$ a S/)</label>
                   <input
                     id="calculadora-tipo-cambio"
@@ -282,22 +287,23 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
                     inputMode="decimal"
                     className="w-full border rounded-lg p-2"
                     placeholder={`Opcional: p.ej. ${TC_FIJO}`}
-                    value={tipoCambio}
+                    value={simpleAccessory ? TC_FIJO : tipoCambio}
+                    readOnly={simpleAccessory}
                     onChange={(e) => setTipoCambio(e.target.value)}
                   />
                   <div className="text-xs text-gray-600 mt-1">
-                    {isAccessory ? 'El costo guardado del lote no se modifica al cotizar.' : 'Si ingresas TC, costo = (valor US$ x TC) + envio.'}
+                    {simpleAccessory ? 'Tipo de cambio fijo: S/ 3.70 por dólar.' : isAccessory ? 'El costo guardado del lote no se modifica al cotizar.' : 'Si ingresas TC, costo = (valor US$ x TC) + envio.'}
                   </div>
-                </div>
+                </div>}
               </div>
 
               <div className="text-sm text-gray-700 mt-3 space-y-1">
-                <div className="flex justify-between"><span>Valor (US$):</span><strong>{isNaN(valorUSD) ? '-' : `$ ${valorUSD.toFixed(2)}`}</strong></div>
-                <div className="flex justify-between"><span>Envio (S/):</span><strong>{fmtSoles(envioSoles)}</strong></div>
-                <div className="flex justify-between"><span>{isAccessory ? 'Costo unitario usado:' : 'Costo usado:'}</span><strong>{fmtSoles(costoUsado)}</strong></div>
+                {!purchaseInSoles && <div className="flex justify-between"><span>Valor (US$):</span><strong>{isNaN(valorUSD) ? '-' : `$ ${valorUSD.toFixed(2)}`}</strong></div>}
+                {(!simpleAccessory || envioSoles > 0) && <div className="flex justify-between"><span>Envio (S/):</span><strong>{fmtSoles(envioSoles)}</strong></div>}
+                <div className="flex justify-between"><span>{purchaseInSoles ? 'Costo unitario de compra (S/):' : isAccessory ? 'Costo unitario usado:' : 'Costo usado:'}</span><strong>{fmtSoles(costoUsado)}</strong></div>
                 <div className="flex justify-between pt-1"><span>{isAccessory ? 'Precio unitario aplicado:' : 'Precio aplicado (x10 arriba):'}</span><strong>{isNaN(customOut.precio) ? '-' : fmtSoles(customOut.precio)}</strong></div>
                 {isAccessory && <div className="flex justify-between"><span>Venta total:</span><strong>{isNaN(customOut.totalVenta) ? '-' : fmtSoles(customOut.totalVenta)}</strong></div>}
-                {isAccessory && <div className="flex justify-between"><span>Costo total:</span><strong>{fmtSoles(customOut.totalCost)}</strong></div>}
+                {isAccessory && (!simpleAccessory || Number(cantidad) > 1) && <div className="flex justify-between"><span>Costo total:</span><strong>{fmtSoles(customOut.totalCost)}</strong></div>}
                 <div className="flex justify-between"><span>Ganancia estimada:</span><strong>{fmtSoles(customOut.ganancia)}</strong></div>
                 <div className="flex justify-between"><span>Margen sobre costo:</span><strong>{isNaN(customOut.pct) ? '-' : `${customOut.pct.toFixed(2)} %`}</strong></div>
               </div>

@@ -54,6 +54,34 @@ test('recalcula precio mínimo y medio con el tipo de cambio ingresado', () => {
   expect(within(mediumCard).getByText('S/ 135.00')).toBeInTheDocument();
 });
 
+test.each([
+  ['PEN', 0, 53], ['PEN', 6, 56], ['USD', 0, 196.1], ['USD', 6, 199.1],
+])('accesorio simple %s con envío %s muestra solo los datos de compra aplicables', async (monedaCompra, costoEnvio, unitCost) => {
+  api.post.mockImplementation(async (_, body) => ({ cotizacionToken: 'a'.repeat(64), costoTotal: unitCost * body.cantidad }));
+  render(<ModalCalculadora producto={{ id: 465, tipo: 'accesorios', soloInventario: true,
+    stockInicial: 2, stockActual: 2, detalle: { modelo: 'Case Macbook Air M1' },
+    valor: { monedaCompra, valorProducto: 106, costoEnvio } }} onClose={jest.fn()} />);
+
+  const costLabel = monedaCompra === 'PEN' ? 'Costo unitario de compra (S/):' : 'Costo unitario usado:';
+  await waitFor(() => expect(screen.getByText(costLabel).parentElement).toHaveTextContent(`S/ ${unitCost.toFixed(2)}`));
+  expect(screen.getByText('Precio mínimo (+30%)').parentElement).toHaveTextContent(`S/ ${(Math.ceil(unitCost * 1.3 * 100 - 1e-9) / 100).toFixed(2)}`);
+  expect(screen.getByText('Precio sugerido (+50%)').parentElement).toHaveTextContent(`S/ ${(Math.ceil(unitCost * 1.5 * 100 - 1e-9) / 100).toFixed(2)}`);
+  if (monedaCompra === 'PEN') {
+    expect(screen.queryByLabelText('Tipo de cambio (US$ a S/)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Valor (US$):')).not.toBeInTheDocument();
+    expect(screen.queryByText(/\$ 53/)).not.toBeInTheDocument();
+  } else {
+    expect(screen.getByLabelText('Tipo de cambio (US$ a S/)')).toHaveValue(3.7);
+    expect(screen.getByLabelText('Tipo de cambio (US$ a S/)')).toHaveAttribute('readonly');
+    expect(screen.getByText('Valor (US$):').parentElement).toHaveTextContent('$ 53.00');
+  }
+  if (costoEnvio > 0) expect(screen.getByText('Envio (S/):').parentElement).toHaveTextContent('S/ 3.00');
+  else expect(screen.queryByText('Envio (S/):')).not.toBeInTheDocument();
+  expect(screen.queryByText('Costo total:')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Unidades a vender'), { target: { value: '2' } });
+  await waitFor(() => expect(screen.getByText('Costo total:').parentElement).toHaveTextContent(`S/ ${(unitCost * 2).toFixed(2)}`));
+});
+
 test('redondea el precio medio hacia arriba para terminar en 00 o 50', () => {
   render(<ModalCalculadora producto={{
     ...producto,
@@ -83,6 +111,8 @@ test('calcula accesorios por cantidad, precio unitario y lote seleccionado', asy
 
   expect(screen.getByLabelText('Lote de compra')).toHaveValue('12');
   await waitFor(() => expect(screen.getByText('Costo unitario usado:').parentElement).toHaveTextContent('S/ 30.00'));
+  expect(screen.getByText('Precio mínimo').parentElement).toHaveTextContent('S/ 36.00');
+  expect(screen.getByText('Precio sugerido').parentElement).toHaveTextContent('S/ 39.00');
   fireEvent.change(screen.getByLabelText('Unidades a vender'), { target: { value: '3' } });
   fireEvent.change(screen.getByLabelText('Precio unitario de venta (S/)'), { target: { value: '50' } });
   expect(screen.getByText('Venta total:').parentElement).toHaveTextContent('S/ 150.00');

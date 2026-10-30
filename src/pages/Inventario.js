@@ -1,3 +1,4 @@
+import { accessoryUnitCost, isSimpleAccessory } from '../utils/accessoryCost';
 import AccessoryInformativeRate from '../components/AccessoryInformativeRate';
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -52,7 +53,6 @@ const EMPTY_SIMPLE_ACCESSORY = {
   nombre: '',
   precioCompra: '',
   monedaCompra: 'PEN',
-  tipoCambioCompra: '3.7',
   tieneEnvio: false,
   costoEnvio: '',
   precioVenta: '',
@@ -668,8 +668,7 @@ export default function Inventario({ setVista }) {
     const cantidad = Number(simpleAccessory.cantidad);
     const costoEnvio = simpleAccessory.tieneEnvio ? Number(simpleAccessory.costoEnvio) : 0;
     const precioVenta = simpleAccessory.precioVenta === '' ? null : Number(simpleAccessory.precioVenta);
-    const rate = Number(simpleAccessory.tipoCambioCompra);
-    if (simpleAccessory.monedaCompra === 'USD' && (!Number.isFinite(rate) || rate < 0.0001)) return setSimpleAccessoryError('Ingresa un tipo de cambio de compra válido.');
+    const rate = INVENTARIO_TIPO_CAMBIO;
     if (!nombre) return setSimpleAccessoryError('El nombre del producto es obligatorio.');
     if (!simpleAccessory.comprador) return setSimpleAccessoryError('Selecciona quién compró el accesorio.');
     if (simpleAccessory.precioCompra === '' || !Number.isFinite(precioCompra) || precioCompra < 0) return setSimpleAccessoryError('Ingresa un precio de compra válido.');
@@ -874,6 +873,7 @@ export default function Inventario({ setVista }) {
             fechaCompra: String(currentValue.fechaCompra || new Date().toISOString()).slice(0, 10),
             costoEnvio: shippingCost,
             monedaCompra: form.monedaCompra,
+            ...(isSimpleAccessory(editing.producto) && form.monedaCompra === 'USD' ? { tipoCambioCompra: INVENTARIO_TIPO_CAMBIO } : {}),
           } } : {}),
         });
       }
@@ -1190,6 +1190,11 @@ export default function Inventario({ setVista }) {
             {filtered.map((entry) => {
               const { producto, ficha } = entry;
               const accessoryStock = String(producto.tipo || '').toLowerCase() === 'accesorios';
+              const simpleStock = isSimpleAccessory(producto);
+              const costLots = simpleStock ? [...(producto.__lots || [producto])].sort((a, b) =>
+                (Date.parse(a.valor?.fechaCompra || '') || Number(a.id)) - (Date.parse(b.valor?.fechaCompra || '') || Number(b.id))) : [];
+              const costLot = costLots.find((lot) => Number(lot.stockActual) > 0) || costLots[0];
+              const unitCost = accessoryUnitCost(costLot);
               const disabled = busyId === producto.id;
               const garantiaResumen = accessoryStock ? '' : warrantySummary(producto, ficha);
               const fichaCompleta = Boolean(
@@ -1228,14 +1233,14 @@ export default function Inventario({ setVista }) {
                       {accessoryStock && (producto.detalle?.modelosCompatibles || []).slice(0, 3).map((item) => <Pill key={item}>Compatible: {item}</Pill>)}
                     </div>
 
-                    <div aria-label="Precios del producto" className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 whitespace-nowrap">
+                    <div aria-label="Precios del producto" className={`mt-3 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 whitespace-nowrap ${simpleStock ? 'flex-wrap' : ''}`}>
                       <span className="flex items-center gap-1.5 text-sm text-slate-700">
-                        <span className="text-xs font-semibold">P</span>
+                        <span className="text-xs font-semibold">{simpleStock ? 'Venta' : 'P'}</span>
                         <strong>{formatSoles(ficha?.primerPrecioSoles) ? `S/ ${formatSoles(ficha.primerPrecioSoles)}` : '—'}</strong>
                       </span>
                       <span className="flex items-center gap-1.5 text-sm text-emerald-800">
-                        <span className="text-xs font-semibold">PU</span>
-                        <strong>{formatSoles(ficha?.ultimoPrecioSoles) ? `S/ ${formatSoles(ficha.ultimoPrecioSoles)}` : '—'}</strong>
+                        <span className="text-xs font-semibold">{simpleStock ? 'Costo unitario' : 'PU'}</span>
+                        <strong>{simpleStock ? (unitCost == null ? '—' : formatInventorySoles(unitCost)) : (formatSoles(ficha?.ultimoPrecioSoles) ? `S/ ${formatSoles(ficha.ultimoPrecioSoles)}` : '—')}</strong>
                       </span>
                     </div>
 
@@ -1315,8 +1320,8 @@ export default function Inventario({ setVista }) {
                 <div className="mt-1 flex"><select aria-label="Moneda de compra" value={simpleAccessory.monedaCompra} onChange={(event) => setSimpleAccessory((current) => ({ ...current, monedaCompra: event.target.value }))} className="h-11 rounded-l-xl border border-r-0 border-slate-200 bg-slate-50 px-2 font-semibold"><option value="PEN">S/</option><option value="USD">$</option></select><input aria-label="Precio de compra por unidad" required type="number" min="0" step="0.01" value={simpleAccessory.precioCompra} onChange={(event) => setSimpleAccessory((current) => ({ ...current, precioCompra: event.target.value }))} className="h-11 min-w-0 flex-1 rounded-r-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></div>
               </label>
               <label className="text-sm font-medium text-slate-700">Cantidad *<input required type="number" min="1" step="1" value={simpleAccessory.cantidad} onChange={(event) => setSimpleAccessory((current) => ({ ...current, cantidad: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></label>
-              {simpleAccessory.monedaCompra === 'USD' && <label className="text-sm font-medium text-slate-700">Tipo de cambio de compra<input required type="number" min="0.0001" step="0.000001" value={simpleAccessory.tipoCambioCompra} onChange={(event) => setSimpleAccessory((current) => ({ ...current, tipoCambioCompra: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border px-3" /></label>}
-              <p className="rounded-xl bg-indigo-50 p-3 text-sm sm:col-span-2">Costo total del lote: {simpleAccessory.monedaCompra === 'USD' ? 'USD' : 'S/'} {(Number(simpleAccessory.precioCompra || 0) * Number(simpleAccessory.cantidad || 0)).toFixed(2)}{simpleAccessory.monedaCompra === 'USD' && <> · Compra en soles: S/ {(Number(simpleAccessory.precioCompra || 0) * Number(simpleAccessory.cantidad || 0) * Number(simpleAccessory.tipoCambioCompra || 0)).toFixed(2)}</>}</p>
+              {simpleAccessory.monedaCompra === 'USD' && <label className="text-sm font-medium text-slate-700">Tipo de cambio de compra<input required type="number" min="0.0001" step="0.000001" value={INVENTARIO_TIPO_CAMBIO} readOnly className="mt-1 h-11 w-full rounded-xl border px-3" /></label>}
+              <p className="rounded-xl bg-indigo-50 p-3 text-sm sm:col-span-2">Costo total del lote: {simpleAccessory.monedaCompra === 'USD' ? 'USD' : 'S/'} {(Number(simpleAccessory.precioCompra || 0) * Number(simpleAccessory.cantidad || 0)).toFixed(2)}{simpleAccessory.monedaCompra === 'USD' && <> · Compra en soles: S/ {(Number(simpleAccessory.precioCompra || 0) * Number(simpleAccessory.cantidad || 0) * INVENTARIO_TIPO_CAMBIO).toFixed(2)}</>}</p>
               <div className="rounded-xl border border-slate-200 p-3 sm:col-span-2">
                 <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={simpleAccessory.tieneEnvio} onChange={(event) => setSimpleAccessory((current) => ({ ...current, tieneEnvio: event.target.checked, costoEnvio: event.target.checked ? current.costoEnvio : '' }))} /> Hubo costo de envío</label>
                 {simpleAccessory.tieneEnvio && <label className="mt-3 block text-sm text-slate-700">Costo de envío (S/)<input required type="number" min="0" step="0.01" value={simpleAccessory.costoEnvio} onChange={(event) => setSimpleAccessory((current) => ({ ...current, costoEnvio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></label>}

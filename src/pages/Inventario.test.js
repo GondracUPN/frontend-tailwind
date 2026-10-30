@@ -55,6 +55,21 @@ test('fusiona en Inventario los lotes de accesorios con el mismo codigo y suma e
   });
 });
 
+test.each([['PEN', 'S/ 12.00'], ['USD', 'S/ 39.00']])('accesorio simple %s muestra venta y costo por unidad con envío, sin usar totales legados', async (monedaCompra, expected) => {
+  api.get.mockResolvedValue([{ producto: { id: 710, tipo: 'accesorios', soloInventario: true,
+    stockInicial: 2, stockActual: 1, detalle: { modelo: 'Cable simple' },
+    valor: { valorProducto: 20, monedaCompra, costoEnvio: 4, costoTotalProrrateado: 999 } },
+    ficha: { enAlmacen: true, primerPrecioSoles: 50, ultimoPrecioSoles: 45 } }]);
+  render(<Inventario setVista={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+  const prices = await screen.findByLabelText('Precios del producto');
+  expect(prices).toHaveTextContent('Venta');
+  expect(prices).toHaveTextContent('S/ 50.00');
+  expect(prices).toHaveTextContent('Costo unitario');
+  expect(prices).toHaveTextContent(expected);
+  expect(prices).not.toHaveTextContent('S/ 45.00');
+});
+
 test('editar una ficha agrupada selecciona un lote y conserva su costo unitario y cantidad propios', async () => {
   const make = (id, count, total) => ({ producto: { id, codigoInventario: 701, tipo: 'accesorios', estado: 'nuevo', vendedor: 'Gonzalo',
     stockInicial: count, stockActual: count, detalle: { modelo: 'Cable' },
@@ -79,7 +94,7 @@ test('editar una ficha agrupada selecciona un lote y conserva su costo unitario 
   expect(api.patch).not.toHaveBeenCalledWith('/productos/702', expect.anything());
 });
 
-test('alta simple con título libre calcula unitario por cantidad y guarda cambio USD editable', async () => {
+test('alta simple con título libre calcula unitario por cantidad y usa cambio USD fijo', async () => {
   api.get.mockResolvedValue([entry]); api.post.mockResolvedValue({ id: 703 }); api.patch.mockResolvedValue({ enAlmacen: true });
   render(<Inventario setVista={jest.fn()} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
@@ -93,12 +108,12 @@ test('alta simple con título libre calcula unitario por cantidad y guarda cambi
   fireEvent.change(within(dialog).getByLabelText('Cantidad *'), { target: { value: '5' } });
   fireEvent.change(within(dialog).getByLabelText('Moneda de compra'), { target: { value: 'USD' } });
   expect(within(dialog).getByLabelText('Tipo de cambio de compra')).toHaveValue(3.7);
-  fireEvent.change(within(dialog).getByLabelText('Tipo de cambio de compra'), { target: { value: '4.1' } });
+  expect(within(dialog).getByLabelText('Tipo de cambio de compra')).toHaveAttribute('readonly');
   expect(dialog).toHaveTextContent('Costo total del lote: USD 50.00');
-  expect(dialog).toHaveTextContent('Compra en soles: S/ 205.00');
+  expect(dialog).toHaveTextContent('Compra en soles: S/ 185.00');
   fireEvent.click(within(dialog).getByRole('button', { name: 'Agregar accesorio' }));
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/productos', expect.objectContaining({ tipo: 'accesorios', soloInventario: true, vendedor: 'Gonzalo', cantidad: 5,
-    detalle: { modelo: 'Soporte plegable Temu', modelosCompatibles: [] }, valor: expect.objectContaining({ valorProducto: 50, monedaCompra: 'USD', tipoCambioCompra: 4.1, valorDec: 0, peso: 0 }) })));
+    detalle: { modelo: 'Soporte plegable Temu', modelosCompatibles: [] }, valor: expect.objectContaining({ valorProducto: 50, monedaCompra: 'USD', tipoCambioCompra: 3.7, valorDec: 0, peso: 0 }) })));
   expect(api.post.mock.calls[0][1]).not.toHaveProperty('referenciaId');
   expect(api.get.mock.calls.some(([path]) => path.startsWith('/accesorios/'))).toBe(false);
 });
