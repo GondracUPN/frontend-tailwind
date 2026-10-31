@@ -29,11 +29,11 @@ beforeEach(() => {
   api.get.mockResolvedValue([entry]);
 });
 
-test('fusiona en Inventario los lotes de accesorios con el mismo codigo y suma el stock', () => {
+test('fusiona en Inventario los lotes con el mismo código y la misma foto y suma el stock', () => {
   const grouped = groupInventoryEntries([
     {
       producto: { id: 421, codigoInventario: 421, tipo: 'accesorios', stockInicial: 5, stockActual: 5, detalle: { modelo: 'Apple Pencil Pro' } },
-      ficha: { enAlmacen: true },
+      ficha: { enAlmacen: true, fotoUrl: '/pencil.jpg' },
     },
     {
       producto: { id: 430, codigoInventario: 421, tipo: 'accesorios', stockInicial: 20, stockActual: 18, detalle: { modelo: 'Apple Pencil Pro' } },
@@ -55,6 +55,32 @@ test('fusiona en Inventario los lotes de accesorios con el mismo codigo y suma e
   });
 });
 
+test.each([['/471.jpg', '/472.jpg'], [null, null], ['/471.jpg', null]])('separa los lotes 471 y 472 con código y título iguales pero fotos %s y %s', (a, b) => {
+  const make = (id, fotoUrl) => ({ producto: { id, codigoInventario: 471, tipo: 'accesorios', soloInventario: true,
+    vendedor: 'Gonzalo', stockInicial: 1, stockActual: 1, detalle: { modelo: 'Mismo título' } }, ficha: { fotoUrl } });
+  const result = groupInventoryEntries([make(471, a), make(472, b)]);
+  expect(result).toHaveLength(2);
+  expect(result.map((row) => row.producto.__lotIds)).toEqual([[471], [472]]);
+  expect(result.every((row) => row.producto.stockActual === 1 && !row.producto.__inventoryGroup)).toBe(true);
+});
+
+test('el editor no ofrece el lote 472 al editar el 471 si las fotos son distintas', async () => {
+  api.get.mockResolvedValue([471, 472].map((id) => ({ producto: { id, codigoInventario: 471,
+    tipo: 'accesorios', soloInventario: true, estado: 'nuevo', vendedor: 'Gonzalo', stockInicial: 1, stockActual: 1,
+    detalle: { modelo: 'Mismo título' }, valor: { valorProducto: 10, monedaCompra: 'PEN', costoEnvio: 0 } },
+    ficha: { enAlmacen: true, fotoUrl: `/${id}.jpg` } })));
+  render(<Inventario setVista={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+  const buttons = await screen.findAllByRole('button', { name: 'Editar stock' });
+  expect(buttons).toHaveLength(2);
+  // El orden inicial muestra primero el lote más reciente (472).
+  fireEvent.click(buttons[1]);
+  const select = screen.getByRole('combobox', { name: 'Lote que se edita' });
+  expect(within(select).getAllByRole('option')).toHaveLength(1);
+  expect(select).toHaveValue('471');
+  expect(within(select).queryByRole('option', { name: /Lote 472/ })).not.toBeInTheDocument();
+});
+
 test.each([['PEN', 'S/ 12.00'], ['USD', 'S/ 39.00']])('accesorio simple %s muestra venta y costo por unidad con envío, sin usar totales legados', async (monedaCompra, expected) => {
   api.get.mockResolvedValue([{ producto: { id: 710, tipo: 'accesorios', soloInventario: true,
     stockInicial: 2, stockActual: 1, detalle: { modelo: 'Cable simple' },
@@ -73,7 +99,7 @@ test.each([['PEN', 'S/ 12.00'], ['USD', 'S/ 39.00']])('accesorio simple %s muest
 test('editar una ficha agrupada selecciona un lote y conserva su costo unitario y cantidad propios', async () => {
   const make = (id, count, total) => ({ producto: { id, codigoInventario: 701, tipo: 'accesorios', estado: 'nuevo', vendedor: 'Gonzalo',
     stockInicial: count, stockActual: count, detalle: { modelo: 'Cable' },
-    valor: { valorProducto: total, monedaCompra: 'PEN', costoEnvio: 0, fechaCompra: '2026-10-20' } }, ficha: { enAlmacen: true } });
+    valor: { valorProducto: total, monedaCompra: 'PEN', costoEnvio: 0, fechaCompra: '2026-10-20' } }, ficha: { enAlmacen: true, fotoUrl: '/cable.jpg' } });
   api.get.mockResolvedValue([make(701, 2, 20), make(702, 3, 45)]);
   api.patch.mockResolvedValue({ enAlmacen: true });
   render(<Inventario setVista={jest.fn()} />);

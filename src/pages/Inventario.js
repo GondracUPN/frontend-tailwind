@@ -292,7 +292,10 @@ export const groupInventoryEntries = (rawEntries) => {
       return;
     }
     if (producto.archivadoAt || producto.cierreMotivo) return;
-    const key = `${Number(producto.codigoInventario || producto.id)}:${text(producto.vendedor).toLowerCase()}`;
+    const photo = text(entry.ficha?.fotoUrl);
+    const identity = producto.referenciaId ? ['ref', producto.referenciaId]
+      : ['code', Number(producto.codigoInventario || producto.id), photo ? ['photo', photo] : ['lot', producto.id]];
+    const key = JSON.stringify([identity, text(producto.vendedor).toLowerCase()]);
     accessoryGroups.set(key, [...(accessoryGroups.get(key) || []), entry]);
   });
 
