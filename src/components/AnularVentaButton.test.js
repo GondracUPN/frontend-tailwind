@@ -84,3 +84,12 @@ test('en accesorios permite anular cada venta del resumen desde Productos', asyn
   expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Venta #52 · 2026-05-02 · S/ 160.00'));
   expect(api.post).toHaveBeenCalledWith('/ventas/52/anular', {});
 });
+
+test('anular un pedido conserva automáticamente el pago como saldo sin motivo ni conversión posterior',async()=>{
+  comoAdmin();api.post.mockResolvedValue({...venta,vendedor:'Gonzalo (Jorge)',estadoComercial:'cancelada'});
+  render(<AnularVentaButton venta={{...venta,vendedor:'Gonzalo (Jorge)'}} />);
+  fireEvent.click(screen.getByRole('button',{name:'Anular venta'}));
+  await waitFor(()=>expect(api.post).toHaveBeenCalledWith('/ventas/42/anular',{}));
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('automáticamente como saldo a favor'));
+  expect(api.post).toHaveBeenCalledTimes(1);
+});

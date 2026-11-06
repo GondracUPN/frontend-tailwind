@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import api from '../api';
+import EbayBuyaModal from '../components/EbayBuyaModal';
 import { getAnalyticsSummary } from '../services/analytics';
 import { TC_FIJO } from '../utils/tipoCambio';
 
@@ -12,6 +13,9 @@ const PRODUCT_SEARCH_MIN_VISIBLE_RESULTS = 14;
 const AUCTION_QUERY_GROUP_BATCH_SIZE = 4;
 const PRODUCT_SEARCH_SCAN_PAGES_PER_REQUEST = 1;
 const EBAY_VIEWED_ITEMS_KEY = 'ebay:viewed-items:v1';
+// eBay usernames are case insensitive. Preserve punctuation and the full name.
+export const normalizeEbaySeller = (seller) => String(seller || '').trim().toLowerCase();
+export const isBlockedEbaySeller = (item, sellers) => sellers.includes(normalizeEbaySeller(item?.seller));
 const EMPTY_RESULT = {
   items: [],
   sellers: [],
@@ -1528,6 +1532,13 @@ function Ebay({ setVista }) {
   const [productMinReviewsOnly, setProductMinReviewsOnly] = useState(false);
   const [productKeyword, setProductKeyword] = useState('');
   const [productResult, setProductResult] = useState(EMPTY_RESULT);
+  const [blockedStores, setBlockedStores] = useState([]);
+  const blockedStoresRef = useRef([]);
+  const [blockedStoresModalOpen, setBlockedStoresModalOpen] = useState(false);
+  const [buyaModalOpen, setBuyaModalOpen] = useState(false);
+  const [blockedStoreName, setBlockedStoreName] = useState('');
+  const [blockedStoresSaving, setBlockedStoresSaving] = useState(false);
+  const [blockedStoresError, setBlockedStoresError] = useState('');
   const [ipadForm, setIpadForm] = useState({ line: '', number: '', screen: '', processor: '', storage: '', connectivity: '' });
   const [iphoneForm, setIphoneForm] = useState({ number: '', model: '' });
   const [macbookForm, setMacbookForm] = useState({ line: '', screen: '', processor: '', ram: '', storage: '', modelNumber: '', orderNumber: '' });
@@ -1687,6 +1698,32 @@ function Ebay({ setVista }) {
   });
   const productQuery = productQueries[0] || 'apple';
 
+  const updateBlockedStores = (data) => {
+    const sellers = Array.isArray(data?.sellers) ? data.sellers.map(normalizeEbaySeller).filter(Boolean) : [];
+    blockedStoresRef.current = sellers;
+    setBlockedStores(sellers);
+  };
+
+  const loadBlockedStores = async () => {
+    const data = await api.get('/utils/ebay/blocked-stores');
+    updateBlockedStores(data);
+  };
+
+  const saveBlockedStore = async (seller, blocked) => {
+    if (blockedStoresSaving) return;
+    setBlockedStoresSaving(true);
+    setBlockedStoresError('');
+    try {
+      const data = await api.post('/utils/ebay/blocked-stores', { seller, blocked });
+      updateBlockedStores(data);
+      if (blocked) setBlockedStoreName('');
+    } catch (err) {
+      setBlockedStoresError(String(err?.message || 'No se pudo guardar el bloqueo.'));
+    } finally {
+      setBlockedStoresSaving(false);
+    }
+  };
+
   const loadProductSearch = async ({ append = false } = {}) => {
     const requestId = beginEbayRequest('product');
     const initialOffset = append ? getNextResultOffset(productResult) : 0;
@@ -1695,6 +1732,7 @@ function Ebay({ setVista }) {
     loadEbayRateLimits({ silent: false });
     setErrors((prev) => ({ ...prev, product: '' }));
     try {
+      await loadBlockedStores();
       const pawnOnlyParam = productPawnOnly ? '&pawnOnly=1' : '';
       const minReviewsParam = productMinReviewsOnly ? '&minSellerReviews=10000' : '';
       const productPriceParams = `${productMinPrice !== '' ? `&minPrice=${encodeURIComponent(productMinPrice)}` : ''}${productMaxPrice !== '' ? `&maxPrice=${encodeURIComponent(productMaxPrice)}` : ''}`;
@@ -1706,6 +1744,7 @@ function Ebay({ setVista }) {
         return `/utils/ebay/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}&cacheOffset=${cacheOffset}&preferCache=${preferCache}&condition=${encodeURIComponent(productCondition)}&buyingOptions=${encodeURIComponent(productBuyingOptions)}${pawnOnlyParam}${minReviewsParam}${productPriceParams}&sort=newlyListed&scanPages=${PRODUCT_SEARCH_SCAN_PAGES_PER_REQUEST}`;
       };
       const filterProductItems = (rawItems) => {
+        rawItems = rawItems.filter((item) => !isBlockedEbaySeller(item, blockedStoresRef.current));
         const allowParts = productCondition === 'for_parts';
         const eligibleItems = rawItems.filter((item) => {
           const isPart = isApplePartTitle(item?.title || '');
@@ -1740,7 +1779,7 @@ function Ebay({ setVista }) {
 
       let filteredItems = sortItemsByListedDate(
         append && Array.isArray(productResult.pendingItems)
-          ? productResult.pendingItems
+          ? productResult.pendingItems.filter((item) => !isBlockedEbaySeller(item, blockedStoresRef.current))
           : [],
       );
       const seen = new Set(
@@ -2037,6 +2076,7 @@ function Ebay({ setVista }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     loadPawnStores();
+    loadBlockedStores().catch(() => setBlockedStoresError('No se pudo cargar la lista. Vuelve a abrir el modal para reintentar.'));
     loadEbayRateLimits({ silent: false });
   }, []);
 
@@ -2182,12 +2222,12 @@ function Ebay({ setVista }) {
     currentHasMore || canRepeatProductSearch || currentAppending || currentLoading || Boolean(currentAppendProgress)
   );
   const currentItems = useMemo(
-    () => currentResult.items.map((item) => ({
+    () => currentResult.items.filter((item) => activeTab !== 'product' || !isBlockedEbaySeller(item, blockedStores)).map((item) => ({
       ...item,
       viewedAt: getViewedAtForItem(viewedItems, item) || item.viewedAt,
       priceReview: buildRecommendationForItem(item, analyticsGroups, activeTab === 'auctions' ? 'bid' : 'standard'),
     })),
-    [activeTab, analyticsGroups, currentResult.items, viewedItems],
+    [activeTab, analyticsGroups, currentResult.items, viewedItems, blockedStores],
   );
 
   const saveSinglePawnStore = async () => {
@@ -2383,7 +2423,7 @@ function Ebay({ setVista }) {
             <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
               <button
                 type="button"
-                onClick={() => setPawnStoresModalOpen(true)}
+                onClick={() => { setPawnStoresModalOpen(true); loadPawnStores(); }}
                 className="rounded-2xl bg-slate-100/80 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
               >
                 {pawnStores.length} pawns guardados
@@ -2495,6 +2535,16 @@ function Ebay({ setVista }) {
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">Buscar por producto</h2>
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button type="button" onClick={() => setBuyaModalOpen(true)} className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100">Buya</button>
+                <button type="button" onClick={() => {
+                  setBlockedStoresModalOpen(true);
+                  setBlockedStoresError('');
+                  loadBlockedStores().catch(() => setBlockedStoresError('No se pudo cargar la lista de tiendas bloqueadas.'));
+                }} className="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+                  Bloquear tiendas{blockedStores.length > 0 ? ` (${blockedStores.length})` : ''}
+                </button>
               </div>
             </div>
 
@@ -2690,7 +2740,7 @@ function Ebay({ setVista }) {
 
         <div className="mb-4 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:rounded-[2rem] sm:px-5 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <div className="mt-1 text-lg font-semibold text-slate-900">{currentLoading && currentResult.items.length === 0 ? 'Cargando resultados...' : `${currentResult.items.length} resultados visibles`}</div>
+            <div className="mt-1 text-lg font-semibold text-slate-900">{currentLoading && currentItems.length === 0 ? 'Cargando resultados...' : `${currentItems.length} resultados visibles`}</div>
             <div className="mt-1 text-sm text-slate-600">
               Orden: <strong>{activeTab === 'auctions' ? 'primeros en terminar' : 'mas nuevos a mas antiguos'}</strong>
             </div>
@@ -2700,7 +2750,7 @@ function Ebay({ setVista }) {
           </div>
         </div>
 
-        {currentResult.items.length > 0 && (
+        {currentItems.length > 0 && (
           <ResultsGrid
             items={currentItems}
             titleSource={activeTab === 'pawns' ? 'store' : 'seller'}
@@ -2739,9 +2789,36 @@ function Ebay({ setVista }) {
           </div>
         )}
 
-        {!currentLoading && !currentError && currentResult.items.length === 0 && (
+        {!currentLoading && !currentError && currentItems.length === 0 && (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 shadow-sm sm:rounded-[2rem] sm:p-10">
             No se encontraron productos para esa combinacion.
+          </div>
+        )}
+
+        {buyaModalOpen && <EbayBuyaModal onClose={() => setBuyaModalOpen(false)} />}
+
+        {blockedStoresModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onKeyDown={(event) => { if (event.key === 'Escape' && !blockedStoresSaving) setBlockedStoresModalOpen(false); }}>
+            <div role="dialog" aria-modal="true" aria-labelledby="blocked-stores-title" className="max-h-[85vh] w-full max-w-lg overflow-auto rounded-2xl bg-white p-5 shadow-2xl">
+              <div className="flex items-center justify-between gap-3">
+                <h3 id="blocked-stores-title" className="text-lg font-semibold text-slate-900">Bloquear tiendas</h3>
+                <button type="button" disabled={blockedStoresSaving} onClick={() => setBlockedStoresModalOpen(false)} className="rounded-xl border px-3 py-2 text-sm">Cerrar</button>
+              </div>
+              <p className="mt-3 text-sm text-slate-600">Escribe el nombre exacto del vendedor que aparece en los resultados. Solo se bloqueará ese nombre completo, sin distinguir mayúsculas. Los nombres parecidos seguirán apareciendo.</p>
+              <form className="mt-4 flex flex-wrap gap-2" onSubmit={(event) => { event.preventDefault(); saveBlockedStore(blockedStoreName, true); }}>
+                <label htmlFor="blocked-store-name" className="w-full text-sm font-semibold text-slate-700">Nombre exacto de la tienda</label>
+                <input autoFocus id="blocked-store-name" value={blockedStoreName} onChange={(event) => setBlockedStoreName(event.target.value)} maxLength={255} required className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2" />
+                <button type="submit" disabled={blockedStoresSaving || !blockedStoreName.trim()} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{blockedStoresSaving ? 'Guardando...' : 'Bloquear'}</button>
+              </form>
+              {blockedStoresError && <p role="alert" className="mt-3 text-sm text-red-700">{blockedStoresError}</p>}
+              <ul className="mt-4 space-y-2">
+                {blockedStores.map((seller) => <li key={seller} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3">
+                  <span className="min-w-0 break-all text-sm">{seller}</span>
+                  <button type="button" disabled={blockedStoresSaving} onClick={() => saveBlockedStore(seller, false)} aria-label={`Desbloquear ${seller}`} className="text-sm font-semibold text-slate-700 disabled:opacity-50">Desbloquear</button>
+                </li>)}
+              </ul>
+              {!blockedStores.length && <p className="mt-4 text-sm text-slate-500">No hay tiendas bloqueadas.</p>}
+            </div>
           </div>
         )}
 

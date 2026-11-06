@@ -1,3 +1,4 @@
+import SaldoClienteVenta from './finanzas/SaldoClienteVenta';
 import { accessorySalePrice } from '../utils/accessoryPrice';
 import useAccessoryQuote from '../hooks/useAccessoryQuote';
 import React, { useEffect, useState, useRef } from 'react';
@@ -67,6 +68,7 @@ export default function ModalVenta({
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const operation = useRef(null);
+  const [creditoCliente, setCreditoCliente] = useState({ valido: true });
   const [incomeBank, setIncomeBank] = useState('bcp');
   const [accessorySummary, setAccessorySummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -123,6 +125,8 @@ export default function ModalVenta({
       })
       : String(producto.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN')
     : consumedLots.some(({ lot }) => String(lot.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN'));
+  const usaCambioSaldo = !venta && Boolean(creditoCliente.saldoCliente);
+  const solicitarTipoCambio = requiresExchangeRate && !usaCambioSaldo;
 
   useEffect(() => {
     setPriceEdited(false);
@@ -214,7 +218,7 @@ export default function ModalVenta({
       return false;
     }
     const exchangeRates = splitModeActive ? [form.tipoCambioGonzalo, form.tipoCambioRenato] : [form.tipoCambio];
-    if (requiresExchangeRate && exchangeRates.some((value) => Number(value) > 1000 || Math.abs(Number(value) * 10000 - Math.round(Number(value) * 10000)) > 0.000001)) {
+    if (solicitarTipoCambio && exchangeRates.some((value) => Number(value) > 1000 || Math.abs(Number(value) * 10000 - Math.round(Number(value) * 10000)) > 0.000001)) {
       alert('El tipo de cambio admite hasta cuatro decimales y un máximo de 1000.');
       return false;
     }
@@ -233,7 +237,7 @@ export default function ModalVenta({
       if (
         !form.fechaVenta ||
         !form.precioVenta ||
-        (requiresExchangeRate && (!Number.isFinite(Number(form.tipoCambioGonzalo)) || Number(form.tipoCambioGonzalo) <= 0 ||
+        (solicitarTipoCambio && (!Number.isFinite(Number(form.tipoCambioGonzalo)) || Number(form.tipoCambioGonzalo) <= 0 ||
           !Number.isFinite(Number(form.tipoCambioRenato)) || Number(form.tipoCambioRenato) <= 0))
       ) {
         alert('Completa Fecha de venta, Precio de venta y tipo de cambio para ambos.');
@@ -241,7 +245,7 @@ export default function ModalVenta({
       }
       return true;
     }
-    if ((requiresExchangeRate && (!Number.isFinite(Number(form.tipoCambio)) || Number(form.tipoCambio) <= 0)) || !form.fechaVenta || !form.precioVenta) {
+    if ((solicitarTipoCambio && (!Number.isFinite(Number(form.tipoCambio)) || Number(form.tipoCambio) <= 0)) || !form.fechaVenta || !form.precioVenta) {
       alert('Completa Tipo de cambio, Fecha de venta y Precio de venta.');
       return false;
     }
@@ -297,6 +301,14 @@ export default function ModalVenta({
         }
       }
 
+      if (!creditoCliente.valido) throw new Error('Completa la aplicación del saldo y confirma si se pagó la diferencia.');
+      if (creditoCliente.clienteId) body.clienteId = creditoCliente.clienteId;
+      if (creditoCliente.saldoCliente) {
+        body.saldoCliente = creditoCliente.saldoCliente;
+        delete body.tipoCambio;
+        delete body.tipoCambioGonzalo;
+        delete body.tipoCambioRenato;
+      }
       const fingerprint = JSON.stringify(body);
       if (!operation.current || operation.current.fingerprint !== fingerprint) operation.current = { fingerprint, key: nuevaClave() };
       body.operacionKey = operation.current.key;
@@ -396,7 +408,7 @@ export default function ModalVenta({
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? n : null;
   };
-  const baseTc =
+  const baseTc = usaCambioSaldo ? Number(creditoCliente.tipoCambioSaldo || 0) :
     requiresExchangeRate ? (toPositiveNumber(form.tipoCambio) ?? toPositiveNumber(venta?.tipoCambio) ?? 0) : 1;
   const tcG =
     toPositiveNumber(form.tipoCambioGonzalo) ??
@@ -480,7 +492,7 @@ export default function ModalVenta({
       <div className="border rounded-lg divide-y">
         <div className="p-3 space-y-2">
           <div className="font-semibold">Gonzalo</div>
-          {requiresExchangeRate && <div>
+          {solicitarTipoCambio && <div>
             <label className="block text-sm font-medium mb-1">Tipo de cambio</label>
             <input
               type="number"
@@ -496,7 +508,7 @@ export default function ModalVenta({
         </div>
         <div className="p-3 space-y-2">
           <div className="font-semibold">Renato</div>
-          {requiresExchangeRate && <div>
+          {solicitarTipoCambio && <div>
             <label className="block text-sm font-medium mb-1">Tipo de cambio</label>
             <input
               type="number"
@@ -518,7 +530,7 @@ export default function ModalVenta({
     <>
       {accessoryLotPicker}
       {accessoryCreate && <label className="block text-sm font-medium">Precio por unidad (S/)<input type="number" min="0" step="0.01" className="w-full rounded border p-2" value={form.precioVenta === '' ? '' : Number((Number(form.precioVenta) / Math.max(1, Number(form.cantidad))).toFixed(2))} onChange={(event) => onChange('precioVenta', event.target.value === '' ? '' : String(Number((Number(event.target.value) * Number(form.cantidad || 1)).toFixed(2))))} /></label>}
-      {requiresExchangeRate && <div>
+      {solicitarTipoCambio && <div>
         <label htmlFor="venta-tipo-cambio" className="block font-medium mb-1">Tipo de cambio</label>
         <input
           id="venta-tipo-cambio"
@@ -558,7 +570,7 @@ export default function ModalVenta({
           <div className="col-span-2 text-xs text-indigo-800">Stock disponible: {producto.stockActual || 0}.</div>
         </div>
       )}
-      {!venta && saleExpenseOwner(form.vendedor || producto?.vendedor || presetVendedor) && (
+      {!venta && !creditoCliente.saldoCliente && saleExpenseOwner(form.vendedor || producto?.vendedor || presetVendedor) && (
         <div>
           <label htmlFor="venta-banco-ingreso" className="block font-medium mb-1">Banco donde ingresó la venta</label>
           <select
@@ -685,6 +697,7 @@ export default function ModalVenta({
           <div className={accessoryCreate ? 'grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]' : ''}>
             <div className="space-y-4">
               {renderSellerField()}
+              <SaldoClienteVenta vendedor={form.vendedor || effectiveSeller} precio={Number(form.precioVenta || 0)} onChange={setCreditoCliente} />
               {accessoryCreate && <div aria-label="Cotización del accesorio" className="rounded-lg border p-3 text-sm" aria-live="polite">
                 {quotation.loading ? <p>Cotizando…</p> : quotation.error ? <p role="alert">{quotation.error}</p> : <>
                   <p>Costo total: S/ {fmtMoney(quotation.quote?.costoTotal)}</p>
@@ -743,7 +756,7 @@ export default function ModalVenta({
               </>
             ) : (
               <>
-                {requiresExchangeRate && <div>
+                {solicitarTipoCambio && <div>
                   <span className="font-medium">Tipo de cambio: </span>
                   <span className="text-gray-700">{Number(venta.tipoCambio).toFixed(4)}</span>
                 </div>}

@@ -1,3 +1,4 @@
+import SaldoClienteVenta from './SaldoClienteVenta';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import VentaRapidaModal from './VentaRapidaModal';
 import PanelVentaCuotas from '../ventas/PanelVentaCuotas';
@@ -311,6 +312,7 @@ export default function PagosVenta({ ventaId, onChanged, compact = false, onOpen
   const porcentaje = Math.round((f.porcentajeLiberado || 0) * 100);
   return (
     <div className="space-y-3">
+      <SaldoClienteVenta ventaId={ventaId} vendedor={data.venta.vendedor} precio={f.saldoPendiente} onDone={refrescar} />
       {data.venta.conciliacionHistorica === 'pendiente' && <Conciliacion ventaId={ventaId} cuentas={cuentas} onDone={refrescar} />}
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
         {data.adelanto?.id && <button type="button" className={`${btnCls} min-h-[44px] focus-visible:ring-2`} onClick={() => onOpenReserva ? onOpenReserva(data.adelanto.id) : setReserva(data.adelanto.id)}>Reserva #{data.adelanto.id}</button>}
@@ -363,7 +365,7 @@ export default function PagosVenta({ ventaId, onChanged, compact = false, onOpen
                   <span className={`absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full ${linea.tipo === 'devolucion' || linea.tipo === 'contracargo' ? 'bg-red-500' : linea.tipo === 'liquidacion' ? 'bg-sky-500' : 'bg-emerald-500'}`} />
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                     <div className="min-w-0 text-sm">
-                      <span className="font-medium text-slate-900">{TIPO_LINEA[linea.tipo] || linea.tipo}</span>
+                      <span className="font-medium text-slate-900">{linea.origen === 'saldo_cliente' ? 'Saldo a favor aplicado' : (TIPO_LINEA[linea.tipo] || linea.tipo)}</span>
                       <span className="ml-2 text-xs text-slate-500">{fecha(linea.fecha)}{linea.cuenta ? ` · ${linea.cuenta}` : ''}{linea.metodo ? ` · ${linea.metodo}` : ''}{linea.referencia ? ` · ${linea.referencia}` : ''}</span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -375,7 +377,7 @@ export default function PagosVenta({ ventaId, onChanged, compact = false, onOpen
                     </div>
                   </div>
                   {linea.tipo === 'liquidacion' && <p className="text-xs text-slate-500">Neto {money(linea.neto)} · comisión {money(linea.comision)}</p>}
-                  {esPago && pago && !linea.anulado && (
+                  {esPago && pago && !linea.anulado && pago.origen !== 'saldo_cliente' && !Number(pago.saldoConvertido) && (
                     <div className="mt-1 flex flex-wrap gap-1.5">
                       {pago.requiereLiquidacion && pendienteLiq > 0 && <button type="button" className="text-xs font-medium text-sky-700 hover:underline" onClick={() => setAccion({ pago, tipo: 'liquidacion', pendiente: pendienteLiq })}>Registrar liquidación</button>}
                       <button type="button" className="text-xs font-medium text-slate-600 hover:underline" onClick={() => setAccion({ pago, tipo: 'devolucion' })}>Devolución</button>

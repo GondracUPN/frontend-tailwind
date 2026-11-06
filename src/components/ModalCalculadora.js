@@ -136,8 +136,9 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
   const [historyError, setHistoryError] = useState('');
   const [similarSales, setSimilarSales] = useState([]);
 
+  // La consulta resuelve costos y lotes; el precio simulado se calcula localmente.
   const quotation = useAccessoryQuote({ enabled: isAccessory, productoId: producto?.id,
-    cantidad: Number(cantidad), comprador: producto?.vendedor, loteInicialId: selectedLot?.id, precioUnitario: precioCustom });
+    cantidad: Number(cantidad), comprador: producto?.vendedor, loteInicialId: selectedLot?.id });
   const costoTotalBase = isAccessory ? (quotation.quote?.costoTotal == null ? NaN : quotation.quote.costoTotal / Math.max(1, Number(cantidad))) : storedCostBase;
 
   // costo usado: si hay TC valido, (valorUSD * TC) + envio; si no, costoBase
@@ -272,16 +273,16 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
               <div className="border rounded-lg p-4 bg-gray-50">
                 <div className="text-sm text-gray-500 mb-1">{simpleAccessory ? 'Precio sugerido (+50%)' : isAccessory ? 'Precio sugerido' : 'Precio medio (+30%)'}</div>
                 <div className="text-2xl font-semibold">{fmtSoles(pvMed)}</div>
-                <div className="text-sm text-gray-700 mt-1">
-                  {simpleAccessory ? 'Ganancia unitaria al costo +50%:' : isAccessory ? 'Ganancia unitaria al costo +30%:' : '30% exacto:'} <strong>{fmtSoles(gananciaPorcentajeExacto)}</strong>
-                </div>
+                {!isAccessory && <div className="text-sm text-gray-700 mt-1">
+                  30% exacto: <strong>{fmtSoles(gananciaPorcentajeExacto)}</strong>
+                </div>}
                 <div className="text-sm text-gray-700 mt-1">
                   {isAccessory ? 'Ganancia unitaria sugerida:' : 'Ganancia redondeada:'} <strong>{fmtSoles(gananciaMed)}</strong>
                 </div>
               </div>
             </div>
 
-            {isAccessory && <div aria-live="polite">{quotation.loading ? 'Cotizando…' : quotation.error ? <p role="alert">{quotation.error}</p> : <p>Margen sobre venta: {margenCotizado == null ? '—' : margenCotizado.toFixed(2) + '%'}</p>}</div>}
+            {isAccessory && <div aria-live="polite">{quotation.loading ? 'Cotizando…' : quotation.error ? <p role="alert">{quotation.error}</p> : null}</div>}
             {/* Personalizado con Tipo de Cambio */}
             <div className="border rounded-lg p-4">
               <div className={`grid grid-cols-1 ${purchaseInSoles ? '' : 'sm:grid-cols-2'} gap-3`}>
@@ -308,22 +309,42 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
                     value={tipoCambio}
                     onChange={(e) => setTipoCambio(e.target.value)}
                   />
-                  <div className="text-xs text-gray-600 mt-1">
-                    {isAccessory ? 'Simula el costo con el tipo de cambio ingresado; la compra guardada no se modifica.' : 'Si ingresas TC, costo = (valor US$ x TC) + envio.'}
-                  </div>
+                  {!isAccessory && <div className="text-xs text-gray-600 mt-1">
+                    Si ingresas TC, costo = (valor US$ x TC) + envio.
+                  </div>}
                 </div>}
               </div>
 
-              <div className="text-sm text-gray-700 mt-3 space-y-1">
+              {isAccessory ? (
+                <section aria-label="Resumen de accesorios" className="mt-4 border-t border-slate-200 pt-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="text-sm text-slate-600"><span>Costo unitario:</span><strong className="block text-lg text-slate-900">{fmtSoles(costoUsado)}</strong></div>
+                    <div className="text-sm text-slate-600"><span>Venta total:</span><strong className="block text-lg text-slate-900">{fmtSoles(customOut.totalVenta)}</strong></div>
+                    <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600"><span>Ganancia estimada:</span><strong className="block text-2xl text-slate-900">{fmtSoles(customOut.ganancia)}</strong>{Number(cantidad) > 1 && <span className="text-xs">Por las {cantidad} unidades</span>}</div>
+                    <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600"><span>Margen sobre costo:</span><strong className="block text-2xl text-slate-900">{Number.isFinite(customOut.pct) ? `${customOut.pct.toFixed(2)} %` : '—'}</strong></div>
+                  </div>
+                  {Number(cantidad) > 1 && <div className="mt-3 space-y-1 border-t border-slate-200 pt-3 text-sm text-slate-600">
+                    <div className="flex justify-between"><span>Costo total:</span><strong>{fmtSoles(customOut.totalCost)}</strong></div>
+                  </div>}
+                  <details className="mt-3 text-sm text-slate-600">
+                    <summary className="cursor-pointer font-medium">Ver detalle del cálculo</summary>
+                    <div className="mt-2 space-y-1">
+                      {(!purchaseInSoles || envioSoles > 0) && <p className="text-xs">Compra del lote seleccionado, por unidad. El costo del resumen incluye todos los lotes utilizados.</p>}
+                      {!purchaseInSoles && <div className="flex justify-between"><span>Valor base del lote (US$):</span><strong>{Number.isFinite(valorUSD) ? `$ ${valorUSD.toFixed(2)}` : '—'}</strong></div>}
+                      {envioSoles > 0 && <div className="flex justify-between"><span>Envío del lote (S/):</span><strong>{fmtSoles(envioSoles)}</strong></div>}
+                      <p>Margen sobre venta: {margenCotizado == null ? '—' : margenCotizado.toFixed(2) + '%'}</p>
+                      {precioCustom === '' && <p className="text-xs">Sin precio ingresado, este margen usa el precio sugerido.</p>}
+                    </div>
+                  </details>
+                </section>
+              ) : <div className="text-sm text-gray-700 mt-3 space-y-1">
                 {!purchaseInSoles && <div className="flex justify-between"><span>Valor (US$):</span><strong>{isNaN(valorUSD) ? '-' : `$ ${valorUSD.toFixed(2)}`}</strong></div>}
                 {(!simpleAccessory || envioSoles > 0) && <div className="flex justify-between"><span>Envio (S/):</span><strong>{fmtSoles(envioSoles)}</strong></div>}
-                <div className="flex justify-between"><span>{purchaseInSoles ? 'Costo unitario de compra (S/):' : isAccessory ? 'Costo unitario usado:' : 'Costo usado:'}</span><strong>{fmtSoles(costoUsado)}</strong></div>
-                <div className="flex justify-between pt-1"><span>{isAccessory ? 'Precio unitario aplicado:' : 'Precio aplicado (x10 arriba):'}</span><strong>{isNaN(customOut.precio) ? '-' : fmtSoles(customOut.precio)}</strong></div>
-                {isAccessory && <div className="flex justify-between"><span>Venta total:</span><strong>{isNaN(customOut.totalVenta) ? '-' : fmtSoles(customOut.totalVenta)}</strong></div>}
-                {isAccessory && (!simpleAccessory || Number(cantidad) > 1) && <div className="flex justify-between"><span>Costo total:</span><strong>{fmtSoles(customOut.totalCost)}</strong></div>}
+                <div className="flex justify-between"><span>Costo usado:</span><strong>{fmtSoles(costoUsado)}</strong></div>
+                <div className="flex justify-between pt-1"><span>Precio aplicado (x10 arriba):</span><strong>{isNaN(customOut.precio) ? '-' : fmtSoles(customOut.precio)}</strong></div>
                 <div className="flex justify-between"><span>Ganancia estimada:</span><strong>{fmtSoles(customOut.ganancia)}</strong></div>
                 <div className="flex justify-between"><span>Margen sobre costo:</span><strong>{isNaN(customOut.pct) ? '-' : `${customOut.pct.toFixed(2)} %`}</strong></div>
-              </div>
+              </div>}
             </div>
           </div>
 

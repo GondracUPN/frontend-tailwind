@@ -9,6 +9,7 @@ jest.mock('../api', () => ({ __esModule: true, API_URL: 'http://audit.invalid',
   default: { post: jest.fn(), get: jest.fn(), patch: jest.fn() } }));
 jest.mock('../services/finanzas', () => ({
   finanzasApi: { accesorios: jest.fn(), cuentas: jest.fn(), ventaRapida: jest.fn() },
+  sesionFinanciera: () => ({ esAdmin: false }),
   nuevaClave: () => 'audit-only-key', esErrorDePermiso: () => false, limpiarError: String,
   METODOS_PAGO: [['efectivo', 'Efectivo']],
 }));

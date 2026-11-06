@@ -36,6 +36,14 @@ export const esErrorDePermiso = (error) => /HTTP (401|403)/.test(String(error?.m
 export const limpiarError = (error) => String(error?.message || error || 'Error inesperado').replace(/^HTTP \d+ - /, '');
 
 export const finanzasApi = {
+  resolverClientePedido: body => api.post('/finanzas/clientes/resolver-pedido',body),
+  clientes: () => api.get('/finanzas/clientes'),
+  crearCliente: body => api.post('/finanzas/clientes', body),
+  saldosCliente: id => api.get('/finanzas/clientes/' + id + '/saldos'),
+  asignarCliente: (id, clienteId) => api.patch('/finanzas/ventas/' + id + '/cliente', { clienteId }),
+  generarSaldo: (id, body) => api.post('/finanzas/ventas/' + id + '/generar-saldo', body),
+  aplicarSaldo: (id, body) => api.post('/finanzas/ventas/' + id + '/aplicar-saldo', body),
+  devolverSaldo: (id, body) => api.post('/finanzas/clientes/' + id + '/devolver-saldo', body),
   costosPendientes: () => api.get('/finanzas/costos-pendientes'),
   completarCosto: (id, body) => api.patch(`/finanzas/ventas/${id}/costo`, body),
   analisis: (params) => api.get(`/finanzas/analisis${qs(params)}`),
@@ -66,7 +74,7 @@ export const finanzasApi = {
 };
 
 // Todas las escrituras financieras invalidan las mismas vistas abiertas.
-for (const name of ['registrarPago', 'registrarEvento', 'anularPago', 'precioPactado', 'conciliar', 'conciliarLote', 'eventoReembolso']) {
+for (const name of ['generarSaldo', 'aplicarSaldo', 'devolverSaldo', 'crearReembolso', 'registrarPago', 'registrarEvento', 'anularPago', 'precioPactado', 'conciliar', 'conciliarLote', 'eventoReembolso']) {
   const write = finanzasApi[name];
   finanzasApi[name] = async (...args) => {
     const result = await write(...args);

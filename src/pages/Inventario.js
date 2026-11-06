@@ -1,6 +1,8 @@
 import { accessoryUnitCost, isSimpleAccessory, accessoryPurchaseTotal, updateAccessoryPurchase } from '../utils/accessoryCost';
 import AccessoryInformativeRate from '../components/AccessoryInformativeRate';
+import AccessoryCatalogModal from '../components/AccessoryCatalogModal';
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   FiArchive,
   FiArrowLeft,
@@ -385,6 +387,12 @@ export default function Inventario({ setVista }) {
   const [ventaRapidaOpen, setVentaRapidaOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('todos');
+  const [accessoryCatalogOpen, setAccessoryCatalogOpen] = useState(false);
+  const [accessoryCatalogReady, setAccessoryCatalogReady] = useState(false);
+  const accessoryCatalogEditorHost = useRef(null);
+  useEffect(() => {
+    if (filter === 'accesorios') setAccessoryCatalogReady(true);
+  }, [filter]);
   const [sortOrder, setSortOrder] = useState('newest');
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -1065,6 +1073,8 @@ export default function Inventario({ setVista }) {
   const accessoryProjectedStock = accessoryEditing
     ? Math.max(0, Number(form.cantidadStock || 0) - accessoryUnitsSold)
     : 0;
+  const renderInventoryEditor = (content) => accessoryCatalogOpen && accessoryCatalogEditorHost.current
+    ? createPortal(content, accessoryCatalogEditorHost.current) : content;
 
   return (
     <div className="min-h-screen bg-slate-50 px-3 py-4 sm:px-6 sm:py-6 lg:px-8">
@@ -1181,9 +1191,23 @@ export default function Inventario({ setVista }) {
                 <FiPlus /> Agregar accesorio simple
               </button>
             )}
+            {filter === 'accesorios' && sesionFinanciera().esAdmin && (
+              <button type="button" onClick={() => setAccessoryCatalogOpen(true)} aria-haspopup="dialog" className="inline-flex whitespace-nowrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100">
+                <FiUploadCloud /> Catálogo de accesorios
+              </button>
+            )}
           </div>
         </section>
 
+        {(filter === 'accesorios' || accessoryCatalogReady) && sesionFinanciera().esAdmin && <AccessoryCatalogModal open={accessoryCatalogOpen} revision={entries} editorHostRef={accessoryCatalogEditorHost} editorOpen={Boolean(editing)} onClose={() => {
+          if (editing) { if (!saving) setEditing(null); }
+          else setAccessoryCatalogOpen(false);
+        }} onEdit={async (id) => {
+          try {
+            const entry = entries.find((item) => item.producto.id === id) || await api.get('/inventario/producto/' + id);
+            if (entry?.producto) openEditor(entry);
+          } catch (err) { setError(err.message || 'No se pudo abrir la ficha.'); }
+        }} />}
         {error && <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
         {loading ? (
@@ -1342,7 +1366,7 @@ export default function Inventario({ setVista }) {
         </div>
       )}
 
-      {editing && (
+      {editing && renderInventoryEditor(
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:p-4 lg:p-6" role="dialog" aria-modal="true" aria-label="Completar ficha de inventario" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setEditing(null); }}>
           <form onSubmit={save} className="h-[100dvh] w-full max-w-5xl overflow-y-auto bg-white shadow-2xl sm:h-auto sm:max-h-[96vh] sm:rounded-2xl">
             <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-5 sm:py-4">

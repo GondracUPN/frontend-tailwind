@@ -123,6 +123,7 @@ function Resumen({ data, abrirTab }) {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           <Cifra label="Por cobrar a clientes" value={money(r.porCobrar)} onClick={() => abrirTab('cobros')} />
           <Cifra label="Retenido por intermediarios" value={money(r.retenidoIntermediarios)} onClick={() => abrirTab('cobros')} />
+          <Cifra label="Saldos a favor de clientes" value={money(r.saldosClientesPendientes)} extra="Obligación con clientes al cierre del período" />
           <Cifra label="Reembolsos por recuperar" value={money(r.reembolsosPendientes)} onClick={() => abrirTab('capital')} />
           <Cifra label="Capital inmovilizado" value={money(r.capitalInmovilizado)} onClick={() => abrirTab('capital')} />
           <Cifra label="Ventas por conciliar" value={r.historicosPendientes.ventas} extra={money(r.historicosPendientes.precio)} onClick={() => abrirTab('conciliacion')} />

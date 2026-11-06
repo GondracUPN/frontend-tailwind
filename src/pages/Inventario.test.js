@@ -970,6 +970,68 @@ test('no mezcla stock del mismo accesorio comprado por personas distintas', () =
   expect(groups.map(row => row.producto.stockActual)).toEqual([2, 2, 2]);
 });
 
+test('precarga el catálogo al entrar en accesorios y conserva los datos al cerrar y reabrir', async () => {
+  const prototype = HTMLDialogElement.prototype;
+  const showModal = Object.getOwnPropertyDescriptor(prototype, 'showModal');
+  const close = Object.getOwnPropertyDescriptor(prototype, 'close');
+  Object.defineProperty(prototype, 'showModal', { configurable: true, value() { this.setAttribute('open', ''); } });
+  Object.defineProperty(prototype, 'close', { configurable: true, value() { this.removeAttribute('open'); } });
+  localStorage.setItem('token', 'test');
+  localStorage.setItem('user', JSON.stringify({ role: 'admin' }));
+  const accessory = { producto: { id: 800, tipo: 'accesorios', estado: 'nuevo', soloInventario: true, stockInicial: 2, stockActual: 2, detalle: { modelo: 'Cable USB-C' } }, ficha: { enAlmacen: true } };
+  api.get.mockImplementation(async (path) => path === '/accesorios/catalogo'
+    ? [{ key: 'lot-800', nombre: 'Cable USB-C', comprador: 'Gonzalo', productoId: 800, referenciaId: null, codigos: [800], disponible: 2, seleccionado: false, faltantes: [] }]
+    : [accessory]);
+  const view = render(<Inventario setVista={jest.fn()} />);
+  try {
+    fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+    expect(screen.queryByRole('region', { name: 'Accesorios en catálogo' })).not.toBeInTheDocument();
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/accesorios/catalogo'));
+    const catalogRequests = () => api.get.mock.calls.filter(([path]) => path === '/accesorios/catalogo').length;
+    const preloadRequests = catalogRequests();
+    const trigger = screen.getByRole('button', { name: 'Catálogo de accesorios' });
+    fireEvent.click(trigger);
+    expect(catalogRequests()).toBe(preloadRequests);
+    const dialog = await screen.findByRole('dialog', { name: 'Catálogo de accesorios' });
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/accesorios/catalogo'));
+    expect(within(dialog).getByLabelText('Buscar en catálogo')).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: /^Pendientes de enviar/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(within(dialog).getByRole('button', { name: /^Enviados al catálogo/ })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Pendientes de enviar/ }));
+    expect(document.body.style.overflow).toBe('hidden');
+    fireEvent.change(within(dialog).getByLabelText('Buscar en catálogo'), { target: { value: 'Cable' } });
+    fireEvent.click(within(dialog).getByLabelText(/Seleccionar Cable USB-C · ACC-/));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Completar ficha' }));
+    const editor = await screen.findByRole('dialog', { name: 'Completar ficha de inventario' });
+    expect(dialog).toHaveAttribute('open');
+    expect(dialog).toContainElement(editor);
+    fireEvent.click(within(editor).getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('dialog', { name: 'Completar ficha de inventario' })).not.toBeInTheDocument();
+    expect(dialog).toHaveAttribute('open');
+    expect(within(dialog).getByLabelText('Buscar en catálogo')).toHaveValue('Cable');
+    expect(within(dialog).getByLabelText(/Seleccionar Cable USB-C · ACC-/)).toBeChecked();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Completar ficha' }));
+    await screen.findByRole('dialog', { name: 'Completar ficha de inventario' });
+    fireEvent(dialog, new Event('cancel', { bubbles: false, cancelable: true }));
+    expect(screen.queryByRole('dialog', { name: 'Completar ficha de inventario' })).not.toBeInTheDocument();
+    expect(dialog).toHaveAttribute('open');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cerrar catálogo de accesorios' }));
+    expect(screen.queryByRole('dialog', { name: 'Catálogo de accesorios' })).not.toBeInTheDocument();
+    expect(document.body.style.overflow).not.toBe('hidden');
+    expect(screen.getByRole('button', { name: 'Catálogo de accesorios' })).toBeVisible();
+    fireEvent.click(trigger);
+    expect(catalogRequests()).toBe(preloadRequests);
+    expect(within(dialog).getByRole('button', { name: /^Pendientes de enviar/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(within(dialog).getByRole('button', { name: /^Enviados al catálogo/ })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent(screen.getByRole('dialog', { name: 'Catálogo de accesorios' }), new Event('cancel', { bubbles: false, cancelable: true }));
+    expect(screen.queryByRole('dialog', { name: 'Catálogo de accesorios' })).not.toBeInTheDocument();
+  } finally {
+    view.unmount(); localStorage.clear();
+    if (showModal) Object.defineProperty(prototype, 'showModal', showModal); else delete prototype.showModal;
+    if (close) Object.defineProperty(prototype, 'close', close); else delete prototype.close;
+  }
+});
+
 
 test.each(['admin','user'])('el alta por referencias no aparece en Inventario para %s', async (role) => {
  localStorage.setItem('token','test');localStorage.setItem('user',JSON.stringify({role}));api.get.mockResolvedValue([entry]);

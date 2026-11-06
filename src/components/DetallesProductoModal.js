@@ -338,7 +338,7 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                   </details>
                 )}
                 <details className="rounded-xl border border-slate-200 p-3" open={Boolean(producto.cierreMotivo)}>
-                  <summary className="cursor-pointer text-sm font-semibold text-slate-900">Reclamaciones y reembolsos</summary>
+                  <summary className="cursor-pointer text-sm font-semibold text-slate-900">Reclamo no llegó</summary>
                   <div className="mt-3"><ReembolsosProducto producto={producto} /></div>
                 </details>
               </div>
