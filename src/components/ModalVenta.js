@@ -71,6 +71,8 @@ export default function ModalVenta({
   const [creditoCliente, setCreditoCliente] = useState({ valido: true });
   const [incomeBank, setIncomeBank] = useState('bcp');
   const [estadoPago, setEstadoPago] = useState('pagado');
+  // Forma de pago del ingreso: mismos tipos que el backend (direct, card, cash; debt = x500).
+  const [formaPago, setFormaPago] = useState('direct');
   const [montoPagado, setMontoPagado] = useState('');
   const [accessorySummary, setAccessorySummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -133,6 +135,7 @@ export default function ModalVenta({
   useEffect(() => {
     setPriceEdited(false);
     setEstadoPago('pagado');
+    setFormaPago('direct');
     setMontoPagado('');
     const initialSeller = resolvedSaleSeller(venta?.vendedor, producto?.vendedor, presetVendedor);
     if (venta) {
@@ -269,7 +272,7 @@ export default function ModalVenta({
 
   const handleSaveCreate = async () => {
     if (saving || !validate()) return;
-    if (!creditoCliente.saldoCliente && estadoPago === 'parcial' &&
+    if (!creditoCliente.saldoCliente && formaPago !== 'debt' && estadoPago === 'parcial' &&
       (!(Number(montoPagado) > 0) || Number(montoPagado) >= Number(form.precioVenta))) {
       alert('Indica cuánto pagó el cliente: debe ser mayor que cero y menor que el precio total.'); return;
     }
@@ -283,13 +286,16 @@ export default function ModalVenta({
         fechaVenta: form.fechaVenta,
         precioVenta: Number(form.precioVenta),
         incomeBank,
-        incomePaymentType: estadoPago === 'pagado' ? 'direct' : 'debt',
       };
-      if (!creditoCliente.saldoCliente && estadoPago === 'parcial') {
-        delete body.incomePaymentType;
-        body.incomeParts = [{ type: 'direct', amount: Number(montoPagado) },
-          { type: 'debt', amount: Number((Number(form.precioVenta) - Number(montoPagado)).toFixed(2)) }];
-      }
+      // x500 o "pendiente": todo queda como cobro x500. Si no, lo pagado va con la forma elegida
+      // y, en pago parcial, el resto queda pendiente (x500).
+      // Directo y x500 usan el mismo camino de siempre (incomePaymentType); tarjeta y efectivo van por partes.
+      const total = Number(form.precioVenta);
+      if (formaPago === 'debt' || estadoPago === 'pendiente') body.incomePaymentType = 'debt';
+      else if (estadoPago === 'parcial') body.incomeParts = [{ type: formaPago, amount: Number(montoPagado) },
+        { type: 'debt', amount: Number((total - Number(montoPagado)).toFixed(2)) }];
+      else if (formaPago === 'direct') body.incomePaymentType = 'direct';
+      else body.incomeParts = [{ type: formaPago, amount: total }];
       if (isAccessory) {
         const cantidad = Number(form.cantidad);
         body.cantidad = cantidad;
@@ -319,6 +325,7 @@ export default function ModalVenta({
       if (creditoCliente.clienteId) body.clienteId = creditoCliente.clienteId;
       if (creditoCliente.saldoCliente) {
         delete body.incomePaymentType;
+        delete body.incomeParts;
         body.saldoCliente = creditoCliente.saldoCliente;
         delete body.tipoCambio;
         delete body.tipoCambioGonzalo;
@@ -587,13 +594,23 @@ export default function ModalVenta({
       )}
       {!venta && !creditoCliente.saldoCliente && saleExpenseOwner(form.vendedor || producto?.vendedor || presetVendedor) && (
         <div>
+          <label htmlFor="venta-forma-pago" className="block font-medium mb-1">Forma de pago</label>
+          <select id="venta-forma-pago" className="mb-3 w-full rounded border p-2" value={formaPago} onChange={e => setFormaPago(e.target.value)}>
+            <option value="direct">Directo (transferencia / Yape)</option>
+            <option value="card">Tarjeta de crédito</option>
+            <option value="cash">Efectivo</option>
+            <option value="debt">x500 (paga en partes)</option>
+          </select>
+          {formaPago !== 'debt' && <>
           <label htmlFor="venta-estado-pago" className="block font-medium mb-1">Estado del pago</label>
           <select id="venta-estado-pago" className="mb-3 w-full rounded border p-2" value={estadoPago} onChange={e => setEstadoPago(e.target.value)}>
             <option value="pagado">Pagado por el cliente</option>
             <option value="parcial">Pago parcial</option>
             <option value="pendiente">Pendiente: el cliente todavía no pagó</option>
           </select>
-          {estadoPago === 'parcial' && <div className="mb-3">
+          </>}
+          {formaPago === 'debt' && <p className="mb-3 text-xs text-gray-600">El total queda como cobro x500; registra cada pago en Gastos cuando llegue.</p>}
+          {formaPago !== 'debt' && estadoPago === 'parcial' && <div className="mb-3">
             <label htmlFor="venta-monto-pagado" className="block font-medium mb-1">Importe pagado por el cliente (S/)</label>
             <input id="venta-monto-pagado" type="number" min="0.01" step="0.01" max={form.precioVenta} className="w-full rounded border p-2" value={montoPagado} onChange={e => setMontoPagado(e.target.value)} />
             <p className="text-sm text-gray-600">Sin pagar: S/ {Math.max(0, Number(form.precioVenta || 0) - Number(montoPagado || 0)).toFixed(2)}</p>

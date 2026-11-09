@@ -362,6 +362,29 @@ test('elige Jorge para pagar un accesorio con saldo conservando el propietario d
 });
 
 
+test.each([
+  ['card', 'pagado', null, { incomeParts: [{ type: 'card', amount: 1000 }] }],
+  ['cash', 'pagado', null, { incomeParts: [{ type: 'cash', amount: 1000 }] }],
+  ['card', 'parcial', '250', { incomeParts: [{ type: 'card', amount: 250 }, { type: 'debt', amount: 750 }] }],
+  ['debt', null, null, { incomePaymentType: 'debt' }],
+])('permite elegir la forma de pago %s (%s) al vender', async (forma, estado, pagado, esperado) => {
+  api.get.mockResolvedValue({ ventas: [] });
+  api.post.mockResolvedValue({ id: 951, vendedor: 'Gonzalo' });
+  const saved = jest.fn();
+  render(<ModalVenta producto={{ id: 991, tipo: 'macbook', vendedor: 'Gonzalo', valor: { monedaCompra: 'PEN', valorProducto: 500 } }} onSaved={saved} onClose={jest.fn()} />);
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-11-01' } });
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1000' } });
+  fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: forma } });
+  if (forma === 'debt') expect(screen.queryByLabelText('Estado del pago')).not.toBeInTheDocument();
+  else fireEvent.change(screen.getByLabelText('Estado del pago'), { target: { value: estado } });
+  if (pagado) fireEvent.change(screen.getByLabelText('Importe pagado por el cliente (S/)'), { target: { value: pagado } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  await waitFor(() => expect(saved).toHaveBeenCalled());
+  const body = api.post.mock.calls.find(([path]) => path === '/ventas')[1];
+  expect(body).toMatchObject(esperado);
+  if (esperado.incomeParts) expect(body.incomePaymentType).toBeUndefined();
+});
+
 test.each(['pagado', 'parcial', 'pendiente'])('registra explícitamente el cobro %s al crear la venta', async (estado) => {
   api.get.mockResolvedValue({ ventas: [] });
   api.post.mockResolvedValue({ id: 950, vendedor: 'Gonzalo (Jorge)' });
