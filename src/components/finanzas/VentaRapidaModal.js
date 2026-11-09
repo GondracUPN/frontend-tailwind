@@ -1,4 +1,5 @@
 import { accessorySalePrice } from '../../utils/accessoryPrice';
+import SaldoClienteVenta from './SaldoClienteVenta';
 import useAccessoryQuote from '../../hooks/useAccessoryQuote';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { esErrorDePermiso, finanzasApi, limpiarError, METODOS_PAGO, nuevaClave } from '../../services/finanzas';
@@ -19,14 +20,15 @@ function AccessoryRow({ row, accesorios, setFila, onQuote, onRemove, revision })
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       <Campo label="Accesorio" className="col-span-2"><select className={inputCls} value={row.productoId} onChange={(event) => setFila(row.key, 'productoId', event.target.value)}>
         <option value="">No está en inventario</option>
-        {accesorios.map((item) => <option key={item.productoId} value={item.productoId}>{item.nombre} · {item.comprador || 'Sin comprador'} · {item.stock} en stock</option>)}
+        {accesorios.map((item) => <option key={item.productoId} value={item.productoId}>{item.codigo ? `ACC-${item.codigo} · ` : ''}{item.nombre} · {item.comprador || 'Sin comprador'} · {item.stock} en stock</option>)}
       </select>{!acc && <input className={inputCls} placeholder="Nombre (p. ej. Mica iPhone 15)" value={row.nombre} onChange={(event) => setFila(row.key, 'nombre', event.target.value)} />}</Campo>
       <Campo label="Cant."><input className={inputCls} inputMode="numeric" value={row.cantidad} onChange={(event) => setFila(row.key, 'cantidad', event.target.value)} /></Campo>
       <Campo label="Precio unit."><input className={inputCls} inputMode="decimal" value={row.precioUnitario} onChange={(event) => setFila(row.key, 'precioUnitario', event.target.value)} /></Campo>
       {!acc && <Campo label="Costo unit."><input className={inputCls} inputMode="decimal" value={row.costoUnitario} placeholder="Desconocido" onChange={(event) => setFila(row.key, 'costoUnitario', event.target.value)} /></Campo>}
     </div>
     <p>Precio por unidad: {money(Number(row.precioUnitario || 0))} · Total: {money(Number(row.precioUnitario || 0) * Number(row.cantidad || 0))}</p>
-    {acc && <p>Costo total cotizado: {loading ? 'Cotizando…' : quote?.costoTotal == null ? 'Pendiente' : money(quote.costoTotal)}</p>}
+    {acc && <p>Costo total cotizado: {loading ? 'Cotizando…' : quote?.costoTotal == null ? 'Pendiente' : money(quote.costoTotal)}
+      {!loading && quote?.costoTotal != null && row.precioUnitario !== '' && <> · Ganancia: <strong>{money(Number(row.precioUnitario || 0) * Number(row.cantidad || 0) - Number(quote.costoTotal))}</strong></>}</p>}
     {acc?.precioMinimo != null && <p>Precio mínimo: {money(acc.precioMinimo)} por unidad</p>}
     {acc?.precioMinimo != null && row.precioUnitario !== '' && Number(row.precioUnitario) < Number(acc.precioMinimo) && <p role="alert" className="text-amber-800">El precio por unidad está por debajo del precio mínimo.</p>}
     {error && <p role="alert">{error}</p>}
@@ -45,6 +47,7 @@ export default function VentaRapidaModal({ onClose, onSaved, ventaRelacionadaId 
   const [error, setError] = useState('');
   const [resultado, setResultado] = useState(null);
   const [quoteRevision, setQuoteRevision] = useState(0);
+  const [creditoCliente, setCreditoCliente] = useState({ valido: true });
   const onQuote = useCallback((key, patch) => setFilas((list) => list.map((row) => row.key !== key ||
     (row.quote === patch.quote && row.quoteError === patch.quoteError && row.quoteLoading === patch.quoteLoading)
     ? row : { ...row, ...patch })), []);
@@ -105,6 +108,7 @@ export default function VentaRapidaModal({ onClose, onSaved, ventaRelacionadaId 
     setError('');
     const items = filas.filter((f) => f.productoId || f.nombre.trim());
     if (!items.length) return setError('Agrega al menos un accesorio.');
+    if (!creditoCliente.valido) return setError('Completa el saldo y el pago de la diferencia.');
     for (const f of items) {
       if (!Number.isInteger(Number(f.cantidad)) || !(Number(f.cantidad) >= 1)) return setError('Cantidad inválida.');
       if (!(Number(f.precioUnitario) > 0) || f.precioUnitario === '') return setError('Indica un precio mayor que cero para cada accesorio.');
@@ -116,7 +120,8 @@ export default function VentaRapidaModal({ onClose, onSaved, ventaRelacionadaId 
     try {
       const res = await finanzasApi.ventaRapida({
         fecha: pago.fecha, metodo: pago.metodo, estadoCobro: pago.estadoCobro,
-        cuentaReceptoraId: pago.cuentaReceptoraId ? Number(pago.cuentaReceptoraId) : undefined,
+        saldoCliente: creditoCliente.saldoCliente,
+        cuentaReceptoraId: !creditoCliente.saldoCliente && pago.cuentaReceptoraId ? Number(pago.cuentaReceptoraId) : undefined,
         vendedor: pago.vendedor || undefined, referencia: pago.referencia || undefined,
         ventaRelacionadaId: ventaRelacionadaId || undefined, idempotencyKey: clave,
         items: items.map((f) => ({
@@ -175,30 +180,37 @@ export default function VentaRapidaModal({ onClose, onSaved, ventaRelacionadaId 
             </div>
             {resumen.costo == null && <p className="text-xs text-amber-800">Hay accesorios sin costo: la venta se guarda con utilidad pendiente de calcular (no se asume costo cero).</p>}
 
+            {ventaRelacionadaId ? (
+              <p className="text-xs text-slate-600">Se registra con la fecha, el vendedor y la cuenta de cobro de la venta #{ventaRelacionadaId}; el ingreso lleva el código del accesorio.</p>
+            ) : <>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Campo label="Fecha"><input type="date" className={inputCls} value={pago.fecha} onChange={(e) => setPago({ ...pago, fecha: e.target.value })} /></Campo>
               <Campo label="Cobro">
-                <select className={inputCls} value={pago.estadoCobro} onChange={(e) => setPago({ ...pago, estadoCobro: e.target.value })}>
+                <select disabled={Boolean(creditoCliente.saldoCliente)} className={inputCls} value={pago.estadoCobro} onChange={(e) => setPago({ ...pago, estadoCobro: e.target.value })}>
                   <option value="pagado">Pagado</option><option value="pendiente">Por cobrar</option>
                 </select>
               </Campo>
               <Campo label="Método">
-                <select className={inputCls} value={pago.metodo} onChange={(e) => setPago({ ...pago, metodo: e.target.value })}>
+                <select disabled={Boolean(creditoCliente.saldoCliente)} className={inputCls} value={pago.metodo} onChange={(e) => setPago({ ...pago, metodo: e.target.value })}>
                   {METODOS_PAGO.filter(([v]) => v !== 'x500').map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </Campo>
               <Campo label="Cuenta">
-                <select className={inputCls} value={pago.cuentaReceptoraId} onChange={(e) => setPago({ ...pago, cuentaReceptoraId: e.target.value })}>
+                <select disabled={Boolean(creditoCliente.saldoCliente)} className={inputCls} value={pago.cuentaReceptoraId} onChange={(e) => setPago({ ...pago, cuentaReceptoraId: e.target.value })}>
                   {cuentasMetodo.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                 </select>
               </Campo>
-              <Campo label="Vendedor">
+              <Campo label="Vendedor / cliente">
                 <select className={inputCls} value={pago.vendedor} onChange={(e) => setPago({ ...pago, vendedor: e.target.value })}>
                   <option value="Gonzalo">Gonzalo</option><option value="Renato">Renato</option><option value="Ambos">Ambos</option><option value="">Sin asignar</option>
+                  {['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian', 'Williams'].map((nombre) => <option key={nombre} value={`Gonzalo (${nombre})`}>Gonzalo ({nombre})</option>)}
                 </select>
               </Campo>
               <Campo label="Referencia" className="col-span-1 sm:col-span-3"><input className={inputCls} value={pago.referencia} onChange={(e) => setPago({ ...pago, referencia: e.target.value })} /></Campo>
             </div>
+            <Campo label="Otro cliente a pedido"><input className={inputCls} placeholder="Nombre del cliente" value={/^gonzalo\s*\(([^)]+)\)$/i.exec(pago.vendedor)?.[1] || ''} onChange={(e) => setPago({ ...pago, vendedor: e.target.value ? `Gonzalo (${e.target.value})` : 'Gonzalo' })} /></Campo>
+            <SaldoClienteVenta vendedor={pago.vendedor} precio={resumen.ingreso} onChange={setCreditoCliente} />
+            </>}
             <ErrorBox error={error} />
             <div className="flex justify-end gap-2">
               <button type="button" className={btnCls} onClick={onClose}>Cancelar</button>

@@ -121,7 +121,7 @@ function FormEvento({ pago, tipo, cuentas, pendiente, onDone, onCancel }) {
   const [error, setError] = useState('');
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const neto = Number(form.montoBruto || 0) - Number(form.comision || 0);
-  const titulos = { liquidacion: 'Registrar liquidación', devolucion: 'Devolver al cliente', contracargo: 'Registrar contracargo', reversion_contracargo: 'Revertir contracargo' };
+  const titulos = { liquidacion: 'Registrar liquidación', devolucion: 'Devolver este pago', contracargo: 'Registrar contracargo', reversion_contracargo: 'Revertir contracargo' };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -157,10 +157,11 @@ function FormEvento({ pago, tipo, cuentas, pendiente, onDone, onCancel }) {
         </Campo>
       </div>
       {tipo === 'liquidacion' && <p className="text-xs text-slate-600">Neto depositado: <strong>{money(neto)}</strong></p>}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {/* Devolver un pago solo pide fecha, importe y cuenta de salida. */}
+      {tipo !== 'devolucion' && <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Campo label="Referencia"><input className={inputCls} value={form.referencia} onChange={set('referencia')} /></Campo>
         <Campo label="Nota"><input className={inputCls} value={form.nota} onChange={set('nota')} /></Campo>
-      </div>
+      </div>}
       <ErrorBox error={error} />
       <div className="flex justify-end gap-2">
         <button type="button" className={btnCls} onClick={onCancel}>Cancelar</button>
@@ -226,36 +227,6 @@ function Conciliacion({ ventaId, cuentas, onDone }) {
   );
 }
 
-function PrecioPactado({ venta, onDone }) {
-  const [abierto, setAbierto] = useState(false);
-  const [precioLista, setPrecioLista] = useState(venta.precioLista != null ? String(venta.precioLista) : String(venta.precio));
-  const [error, setError] = useState('');
-  const descuento = Math.max(0, Math.round((Number(precioLista || 0) - Number(venta.precio)) * 100) / 100);
-  const guardar = async () => {
-    setError('');
-    if (!(Number(precioLista) >= Number(venta.precio))) return setError('El precio pactado no puede ser menor que el precio de venta.');
-    try {
-      await finanzasApi.precioPactado(venta.id, Number(precioLista));
-      setAbierto(false);
-      onDone();
-    } catch (err) {
-      setError(limpiarError(err));
-    }
-  };
-  if (!abierto) {
-    return <button type="button" className="text-xs font-medium text-slate-600 hover:underline" onClick={() => setAbierto(true)}>{venta.descuento ? 'Editar precio pactado' : 'Registrar precio pactado / descuento'}</button>;
-  }
-  return (
-    <div className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 p-2">
-      <Campo label="Precio pactado (antes de descuento)"><input className={inputCls} inputMode="decimal" value={precioLista} onChange={(e) => setPrecioLista(e.target.value)} /></Campo>
-      <p className="pb-2 text-xs text-slate-600">Descuento: <strong>{money(descuento)}</strong> · precio de venta {money(venta.precio)}</p>
-      <button type="button" className={btnPrimaryCls} onClick={guardar}>Guardar</button>
-      <button type="button" className={btnCls} onClick={() => setAbierto(false)}>Cancelar</button>
-      <ErrorBox error={error} />
-    </div>
-  );
-}
-
 export default function PagosVenta({ ventaId, onChanged, compact = false, onOpenReserva }) {
   const [data, setData] = useState(null);
   const [cuentas, setCuentas] = useState([]);
@@ -310,6 +281,10 @@ export default function PagosVenta({ ventaId, onChanged, compact = false, onOpen
   const f = data.finanzas;
   const pagosPorId = new Map(data.pagos.map((p) => [p.id, p]));
   const porcentaje = Math.round((f.porcentajeLiberado || 0) * 100);
+  const costosVenta = (f.comisiones || 0) + (f.costosVinculados || 0) + (f.devoluciones || 0) + (f.contracargosNetos || 0);
+  // Sin comisiones ni costos y con todo liberado, las tres ganancias son la misma cifra: se muestra una sola.
+  const gananciaUnica = f.gananciaComercial != null && !costosVenta && !f.margenPendiente
+    && Math.abs(f.gananciaFinal - f.gananciaComercial) < 0.005 && Math.abs(f.margenLiberado - f.gananciaComercial) < 0.005;
   return (
     <div className="space-y-3">
       <SaldoClienteVenta ventaId={ventaId} vendedor={data.venta.vendedor} precio={f.saldoPendiente} onDone={refrescar} />
@@ -325,7 +300,6 @@ export default function PagosVenta({ ventaId, onChanged, compact = false, onOpen
         {data.venta.grupoOperacion && <span className="text-slate-500">· Operación agrupada</span>}
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <PrecioPactado venta={{ id: data.venta.id, precio: data.venta.precio, precioLista: data.venta.precioLista, descuento: data.venta.descuento }} onDone={refrescar} />
         {data.venta.estadoComercial !== 'cancelada' && !data.venta.ventaRapida && (
           <button type="button" className="text-xs font-medium text-indigo-700 hover:underline" onClick={() => setAccesorios(true)}>+ Agregar accesorios a esta venta</button>
         )}
@@ -335,10 +309,15 @@ export default function PagosVenta({ ventaId, onChanged, compact = false, onOpen
         <Cifra label="Cobrado al cliente" value={money(f.cobradoCliente)} />
         <Cifra label="Saldo por cobrar" value={money(f.saldoPendiente)} tone={f.saldoPendiente > 0 ? 'bad' : undefined} />
         <Cifra label="Retenido por liquidar" value={money(f.pendienteLiquidacion)} />
-        <Cifra label="Ganancia comercial" value={f.gananciaComercial == null ? 'Pendiente' : money(f.gananciaComercial)} hint="Precio menos costo del producto, en la fecha comercial." />
-        <Cifra label="Comisiones y costos" value={money((f.comisiones || 0) + (f.costosVinculados || 0) + (f.devoluciones || 0) + (f.contracargosNetos || 0))} hint="Comisiones (reales y estimadas), gastos vinculados, devoluciones y contracargos." />
-        <Cifra label="Ganancia final" value={f.gananciaFinal == null ? 'Pendiente' : money(f.gananciaFinal)} tone={f.gananciaFinal < 0 ? 'bad' : 'good'} />
-        <Cifra label="Margen liberado" value={f.margenLiberado == null ? 'Pendiente' : money(f.margenLiberado)} extra={f.margenPendiente ? `${porcentaje}% · falta ${money(f.margenPendiente)}` : `${porcentaje}% del neto cobrado`} hint="Indicador gerencial: ganancia final × dinero neto ya disponible / neto esperado." />
+        {gananciaUnica ? (
+          <Cifra label="Ganancia" value={money(f.gananciaFinal)} tone={f.gananciaFinal < 0 ? 'bad' : 'good'} extra="Sin comisiones ni costos · 100% cobrado"
+            hint="Precio menos costo del producto. Coincide con la ganancia final y el margen liberado porque no hay comisiones, costos ni saldo pendiente." />
+        ) : <>
+          <Cifra label="Ganancia comercial" value={f.gananciaComercial == null ? 'Pendiente' : money(f.gananciaComercial)} hint="Precio menos costo del producto, en la fecha comercial." />
+          <Cifra label="Comisiones y costos" value={money(costosVenta)} hint="Comisiones (reales y estimadas), gastos vinculados, devoluciones y contracargos." />
+          <Cifra label="Ganancia final" value={f.gananciaFinal == null ? 'Pendiente' : money(f.gananciaFinal)} tone={f.gananciaFinal < 0 ? 'bad' : 'good'} />
+          <Cifra label="Margen liberado" value={f.margenLiberado == null ? 'Pendiente' : money(f.margenLiberado)} extra={f.margenPendiente ? `${porcentaje}% · falta ${money(f.margenPendiente)}` : `${porcentaje}% del neto cobrado`} hint="Indicador gerencial: ganancia final × dinero neto ya disponible / neto esperado." />
+        </>}
       </div>
 
       <div>
@@ -380,8 +359,7 @@ export default function PagosVenta({ ventaId, onChanged, compact = false, onOpen
                   {esPago && pago && !linea.anulado && pago.origen !== 'saldo_cliente' && !Number(pago.saldoConvertido) && (
                     <div className="mt-1 flex flex-wrap gap-1.5">
                       {pago.requiereLiquidacion && pendienteLiq > 0 && <button type="button" className="text-xs font-medium text-sky-700 hover:underline" onClick={() => setAccion({ pago, tipo: 'liquidacion', pendiente: pendienteLiq })}>Registrar liquidación</button>}
-                      <button type="button" className="text-xs font-medium text-slate-600 hover:underline" onClick={() => setAccion({ pago, tipo: 'devolucion' })}>Devolución</button>
-                      <button type="button" className="text-xs font-medium text-slate-600 hover:underline" onClick={() => setAccion({ pago, tipo: 'contracargo' })}>Contracargo</button>
+                      <button type="button" className="text-xs font-medium text-slate-600 hover:underline" onClick={() => setAccion({ pago, tipo: 'devolucion' })}>Devolver este pago</button>
                       {pago.estado === 'disputado' && <button type="button" className="text-xs font-medium text-slate-600 hover:underline" onClick={() => setAccion({ pago, tipo: 'reversion_contracargo' })}>Revertir contracargo</button>}
                       {(pago.origen === 'manual' || pago.origen === 'conciliacion') && !(pago.liquidaciones || []).length && (
                         <button type="button" className="text-xs font-medium text-red-700 hover:underline" onClick={() => anular(pago)}>Anular</button>

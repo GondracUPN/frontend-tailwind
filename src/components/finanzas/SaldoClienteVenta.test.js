@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import SaldoClienteVenta from './SaldoClienteVenta';
 import { finanzasApi } from '../../services/finanzas';
 jest.mock('../../services/finanzas', () => ({
@@ -118,7 +118,39 @@ test.each(['Gonzalo', 'Renato', 'ambos'])(
     expect(finanzasApi.resolverClientePedido).not.toHaveBeenCalled();
   },
 );
-test('historial de Jorge muestra solo sus saldos, sin listado general de ventas, deudas o motivo', async () => {
+
+test('el historial muestra solo devoluciones y su parte pagada, sin saldos anulados ni las demás compras', async () => {
+  finanzasApi.saldosCliente.mockResolvedValue({ disponible: '250.00',
+    saldos: [{ ...saldo, sku: 455, disponible: '0.00', anulada_at: '2026-11-07' }], movimientos: [],
+    ventas: [{ ventaId: 80, sku: 999, estadoComercial: 'entregada' }],
+    devoluciones: [{ id: 5, sku: 454, fecha: '2026-11-01', precio_venta: '1000.00', saldo_generado: '250.00',
+      importe_sin_pagar: '750.00', disponible: '250.00', motivo: 'No llegó a Eshopex.', estado: 'reclamo_abierto' }] });
+  render(<SaldoClienteVenta vendedor="Gonzalo (Jorge)" />);
+  await screen.findByText('Historial de productos devueltos de Jorge');
+  expect(screen.getByText(/SKU 454/)).toBeInTheDocument();
+  expect(screen.queryByText(/SKU 455/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/SKU 999/)).not.toBeInTheDocument();
+  expect(screen.getByText('Importe sin pagar')).toBeInTheDocument();
+  expect(screen.queryByText('TC histórico / estado')).not.toBeInTheDocument();
+});
+test('en una venta ya pagada el saldo se resume en una línea plegable sin pedir el precio', async () => {
+  render(<SaldoClienteVenta ventaId={50} vendedor="Gonzalo (Jorge)" precio={0} />);
+  const resumen = await screen.findByText(/^Jorge tiene .*1,?000\.00 a favor$/);
+  expect(screen.queryByText(/Ingresa el precio del nuevo producto/)).not.toBeInTheDocument();
+  expect(screen.queryByText('Saldo de Jorge')).not.toBeInTheDocument();
+  const plegable = screen.getByRole('group', { name: 'Saldo de Jorge' });
+  expect(plegable).not.toHaveAttribute('open');
+  fireEvent.click(resumen);
+  expect(within(plegable).getByRole('button', { name: 'Devolver saldo a favor' })).toBeInTheDocument();
+  expect(screen.getAllByRole('group')).toHaveLength(1);
+});
+test('con saldo por cobrar mantiene el bloque completo para aplicar el saldo', async () => {
+  render(<SaldoClienteVenta ventaId={50} vendedor="Gonzalo (Jorge)" precio={500} />);
+  expect(await screen.findByText('Saldo de Jorge')).toBeVisible();
+  expect(screen.getByLabelText('Aplicar saldo a favor')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Devolver saldo a favor' })).toBeVisible();
+});
+test('el historial de devoluciones no muestra el listado general de ventas ni controles de conversión', async () => {
   finanzasApi.saldosCliente.mockResolvedValue({
     disponible: '1000.00',
     saldos: [saldo],
@@ -126,7 +158,7 @@ test('historial de Jorge muestra solo sus saldos, sin listado general de ventas,
     ventas: [{ ventaId: 999, sku: 999, deuda: '5000.00', pagos: [] }],
   });
   render(<SaldoClienteVenta vendedor="Gonzalo (Jorge)" precio={1300} />);
-  await screen.findByText('Historial de Jorge');
+  await screen.findByText('Historial de productos devueltos de Jorge');
   expect(screen.queryByText(/Venta #999/)).not.toBeInTheDocument();
   expect(
     screen.queryByText('Historial de saldos, pagos y deudas'),

@@ -135,6 +135,25 @@ export default function SaldoClienteVenta({
   ]);
   if (!autorizado || (!ventaId && !esPedido)) return null;
   if (!cliente) return error ? <ErrorBox error={error} /> : null;
+  // Venta ya pagada: no hay nada a qué aplicar el saldo; solo se resume y se ofrece el historial plegado.
+  const compacto = Boolean(ventaId) && !(Number(precio) > 0);
+  if (compacto && !externo) return error ? <ErrorBox error={error} /> : null;
+  const Contenedor = compacto ? 'details' : 'section';
+  const historial = <>
+    {(historia?.devoluciones || []).length ? <div className="overflow-x-auto">
+      <table className="mt-2 w-full text-xs">
+        <thead><tr><th>Producto / fecha</th><th>Precio de venta</th><th>Saldo generado por lo pagado</th><th>Importe sin pagar</th><th>Saldo disponible</th><th>Qué pasó</th></tr></thead>
+        <tbody>{historia.devoluciones.map(d => <tr key={d.id}>
+          <td>SKU {d.sku} · {fecha(d.fecha)}</td>
+          <td>{money(d.precio_venta)}</td><td>{money(d.saldo_generado)}</td><td>{money(d.importe_sin_pagar)}</td><td>{money(d.disponible)}</td>
+          <td>{d.motivo} · {d.estado === 'recibido' ? 'Reembolso recibido' : d.estado === 'reclamo_abierto' ? 'Reclamo pendiente' : d.estado}</td>
+        </tr>)}</tbody>
+      </table>
+    </div> : <p className="mt-2 text-sm text-slate-500">No hay productos devueltos.</p>}
+    <ul className="mt-2 space-y-1 text-xs">{(historia?.movimientos || []).filter(m => (historia.devoluciones || []).some(d => Number(d.sku) === Number(m.sku_origen))).map(m => <li key={m.id}>
+      {fecha(m.fecha)} · {m.tipo === 'aplicacion' ? 'Saldo utilizado' : 'Dinero devuelto al cliente'} · SKU {m.sku_origen} → {m.sku_destino || 'cliente'} · {money(m.monto)}
+    </li>)}</ul>
+  </>;
   const ejecutar = async (fn) => {
     setBusy(true);
     setError('');
@@ -152,65 +171,28 @@ export default function SaldoClienteVenta({
     }
   };
   return (
-    <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
-      <p className="font-semibold">Saldo de {cliente.nombre}</p>
+    <Contenedor aria-label={`Saldo de ${cliente.nombre}`} className={`space-y-3 rounded-xl border border-slate-200 bg-slate-50 text-sm ${compacto ? 'px-3 py-2' : 'p-3'}`}>
+      {compacto ? (
+        <summary className="cursor-pointer">
+          <span className="font-medium">{cliente.nombre} tiene {money(historia?.disponible || 0)} a favor</span>
+          <span className="ml-2 text-xs text-slate-500">Ver historial y devolver saldo</span>
+        </summary>
+      ) : <p className="font-semibold">Saldo de {cliente.nombre}</p>}
       {externo && historia && (
         <>
-          <p className="font-semibold">
+          {!compacto && <p className="font-semibold">
             Saldo a favor del cliente: {money(historia.disponible)}
-          </p>
-          {Number(historia.disponible) > 0 && !(Number(precio) > 0) && (
+          </p>}
+          {!compacto && Number(historia.disponible) > 0 && !(Number(precio) > 0) && (
             <p className="text-xs text-slate-600">
               Ingresa el precio del nuevo producto para aplicar el saldo
               disponible.
             </p>
           )}
-          <details>
-            <summary className="cursor-pointer">
-              Historial de {cliente.nombre}
-            </summary>
-            <div className="overflow-x-auto">
-              <table className="mt-2 w-full text-xs">
-                <thead>
-                  <tr>
-                    <th>Origen / fecha</th>
-                    <th>Original</th>
-                    <th>Utilizado o devuelto</th>
-                    <th>Disponible</th>
-                    <th>TC histórico / estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {historia.saldos.map((s) => (
-                    <tr key={s.id}>
-                      <td>
-                        SKU {s.sku} · {fecha(s.fecha)}
-                      </td>
-                      <td>{money(s.original)}</td>
-                      <td>
-                        {money(Number(s.original) - Number(s.disponible))}
-                      </td>
-                      <td>{money(s.disponible)}</td>
-                      <td>
-                        {s.tipo_cambio} · referencia USD {s.equivalente_usd} ·
-                        pago original {s.moneda} {s.monto_original} ·{' '}
-                        {Number(s.disponible) ? 'Disponible' : 'Agotado'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <ul className="mt-2 space-y-1 text-xs">
-              {historia.movimientos.map((m) => (
-                <li key={m.id}>
-                  {fecha(m.fecha)} · {m.tipo} · SKU {m.sku_origen} →{' '}
-                  {m.sku_destino || 'devolución al cliente'} · {money(m.monto)}{' '}
-                  · TC {m.tipo_cambio}
-                </li>
-              ))}
-            </ul>
-          </details>
+          {compacto ? <div><p className="text-xs font-medium text-slate-600">Historial de productos devueltos de {cliente.nombre}</p>{historial}</div> : <details>
+            <summary className="cursor-pointer">Historial de productos devueltos de {cliente.nombre}</summary>
+            {historial}
+          </details>}
           {Number(historia.disponible) > 0 && Number(precio) > 0 && (
             <label className="flex gap-2">
               <input
@@ -356,13 +338,13 @@ export default function SaldoClienteVenta({
                 setMonto('');
               }}
             >
-              Devolver saldo al cliente
+              Devolver saldo a favor
             </button>
           )}
           {devolver && (
             <div className="space-y-2">
               <p>
-                Devolución de {money(monto)} a {cliente.nombre}
+                Devolución de saldo a favor: {money(monto)} a {cliente.nombre}
               </p>
               <Campo label="Importe a devolver (S/)">
                 <input
@@ -424,6 +406,6 @@ export default function SaldoClienteVenta({
         </>
       )}
       <ErrorBox error={error} />
-    </section>
+    </Contenedor>
   );
 }

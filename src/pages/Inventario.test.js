@@ -29,6 +29,23 @@ beforeEach(() => {
   api.get.mockResolvedValue([entry]);
 });
 
+test('al buscar una serie o IMEI de un producto vendido lo muestra como vendido', async () => {
+  const vendido = {
+    producto: { id: 455, tipo: 'ipad', detalle: { gama: 'Pro', procesador: 'M2' }, tracking: [] },
+    ficha: { serial: 'DMPXK123ABCD', imei: '356789012345678', color: 'Gris' },
+    venta: { id: 413, fechaVenta: '2026-11-08', vendedor: 'Gonzalo (Jorge)' },
+  };
+  api.get.mockImplementation(async (path) => (String(path).startsWith('/inventario/buscar') ? [vendido] : [entry]));
+  render(<Inventario setVista={jest.fn()} />);
+  await screen.findAllByText(/iPhone 15 Pro/);
+  fireEvent.change(screen.getByPlaceholderText('Buscar producto, color, serial o IMEI'), { target: { value: 'dmpx k123' } });
+  const seccion = await screen.findByRole('region', { name: 'Productos vendidos o fuera de inventario' });
+  expect(api.get).toHaveBeenCalledWith('/inventario/buscar?q=dmpxk123');
+  expect(within(seccion).getByText(/MS-455/)).toBeInTheDocument();
+  expect(within(seccion).getByText('Vendido 2026-11-08 · Gonzalo (Jorge)')).toBeInTheDocument();
+  expect(screen.queryByText('No hay productos que coincidan con este filtro.')).not.toBeInTheDocument();
+});
+
 test('fusiona en Inventario los lotes con el mismo código y la misma foto y suma el stock', () => {
   const grouped = groupInventoryEntries([
     {

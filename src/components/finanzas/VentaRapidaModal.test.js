@@ -5,6 +5,7 @@ import VentaRapidaModal from './VentaRapidaModal';
 
 jest.mock('../../api', () => ({ __esModule: true, default: { post: jest.fn() } }));
 jest.mock('../../services/finanzas', () => ({ finanzasApi: { accesorios: jest.fn(), cuentas: jest.fn(), ventaRapida: jest.fn() },
+  sesionFinanciera: () => ({ esAdmin: false }),
   nuevaClave: () => 'quick-test-key', esErrorDePermiso: () => false, limpiarError: (error) => error.message,
   METODOS_PAGO: [['efectivo', 'Efectivo']] }));
 
@@ -47,6 +48,22 @@ test('precarga publicado y mínimo, cotiza varios lotes del comprador y permite 
   fireEvent.click(screen.getByRole('button', { name: 'Registrar venta' }));
   await waitFor(() => expect(onSaved).toHaveBeenCalled());
   expect(finanzasApi.ventaRapida).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.objectContaining({ productoId: 101, cantidad: 5, precioUnitario: 19, cotizacionToken: 'a'.repeat(64) })] }));
+});
+
+test('al agregar accesorios a una venta solo pide precio, muestra código, costo y ganancia, y hereda el cobro', async () => {
+  const onSaved = jest.fn();
+  render(<VentaRapidaModal ventaRelacionadaId={414} onClose={jest.fn()} onSaved={onSaved} />);
+  await screen.findByRole('option', { name: /ACC-101 · Cable · Renato/ });
+  ['Fecha', 'Cobro', 'Método', 'Cuenta', 'Vendedor / cliente', 'Referencia', 'Otro cliente a pedido'].forEach((label) =>
+    expect(screen.queryByLabelText(label)).not.toBeInTheDocument());
+  expect(screen.getByText(/fecha, el vendedor y la cuenta de cobro de la venta #414/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Accesorio'), { target: { value: '101' } });
+  await waitFor(() => expect(screen.getByText(/Costo total cotizado:/)).toHaveTextContent('10.00'));
+  expect(screen.getByText(/Costo total cotizado:/)).toHaveTextContent(/Ganancia: .*15\.00/);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Registrar venta' })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar venta' }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  expect(finanzasApi.ventaRapida).toHaveBeenCalledWith(expect.objectContaining({ ventaRelacionadaId: 414 }));
 });
 
 test('si cambia el stock al confirmar, muestra el error y recotiza', async () => {

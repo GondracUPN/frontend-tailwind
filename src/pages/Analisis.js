@@ -8,6 +8,7 @@ import MarginByMonth from '../components/analytics/MarginByMonth';
 import ProfitComparison from '../components/analytics/ProfitComparison';
 import FinancialDashboard from '../components/analytics/FinancialDashboard';
 import FinanzasPanel from '../components/finanzas/FinanzasPanel';
+import SaldosClientesPedido from '../components/finanzas/SaldosClientesPedido';
 import { getAnalyticsSummary, getPedidoSalesSummary, getSunatExchangeRate, invalidateAnalyticsCache } from '../services/analytics';
 
 import { TC_FIJO } from '../utils/tipoCambio';
@@ -3645,6 +3646,7 @@ Activo
 
  {tab === 'pedido' && (
  <div className="space-y-6 mb-8">
+ <SaldosClientesPedido revision={pedidoData} onComprar={setVista ? () => setVista('inventario') : undefined} />
  <div className="bg-white rounded-xl border shadow-sm p-5">
  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
  <div>

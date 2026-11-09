@@ -16,7 +16,7 @@ import ModalEditarEfectivo from '../components/ModalEditarEfectivo';
 import ModalAnalisisGastosMes from '../components/ModalAnalisisGastosMes';
 import ModalCiclosTarjeta from '../components/ModalCiclosTarjeta';
 import ModalImportarOperacionBancaria from '../components/ModalImportarOperacionBancaria';
-import { buildExpenseConceptCategoryMap, isIncomeExpenseConcept, normalizeExpenseConcept, visibleExpenseNotes } from '../utils/expenseConcepts';
+import { buildExpenseConceptCategoryMap, isCardRefundExpense, isIncomeExpenseConcept, normalizeExpenseConcept, visibleExpenseNotes } from '../utils/expenseConcepts';
 import { getAnalyticsSummary } from '../services/analytics';
 import { notifyGastosChanged, subscribeGastosChanges } from '../utils/gastosSync';
 import { notifySalesChanged } from '../utils/salesSync';
@@ -1193,12 +1193,14 @@ export default function GastosPanel({ userId: externalUserId, setVista }) {
                 </thead>
                 <tbody>
                   {creditRowsFiltered.map((g) => {
-                    const detalle = visibleExpenseNotes(g.notas);
-                    const isCashback = normalizeExpenseConcept(g.concepto) === 'cashback';
+                    const isRefund = isCardRefundExpense(g);
+                    // Un reembolso recibido en la tarjeta se muestra como Devo/Cash con el código del producto.
+                    const detalle = isRefund ? (g.saleSku || (g.productoVinculadoId ? `MS-${g.productoVinculadoId}` : '-')) : visibleExpenseNotes(g.notas);
+                    const isCashback = isRefund || normalizeExpenseConcept(g.concepto) === 'cashback';
                       return (
                     <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50/60">
                       <td className="p-2 align-top">{g.fecha}</td>
-                      <td className="p-2 align-top capitalize">{displayConcepto(g.concepto, g.metodoPago)}</td>
+                      <td className="p-2 align-top">{isRefund ? 'Devo/Cash' : <span className="capitalize">{displayConcepto(g.concepto, g.metodoPago)}</span>}</td>
                       <td className="p-2 align-top">{CARD_LABEL[g.tarjeta] || g.tarjeta || '-'}</td>
                       <td className="p-2 align-top">{detalle}</td>
                       <td className={`p-2 align-top font-semibold ${isCashback ? 'text-red-700' : ''}`}>{isCashback ? fmtSignedMoney(g.moneda, g.monto, '-') : fmtMoney(g.moneda, g.monto)}</td>

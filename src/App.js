@@ -420,11 +420,22 @@ const SIDEBAR_SECONDARY_NAV = [
   { id: 'presupuestoGastos', label: 'Presupuesto', icon: FiGrid },
 ];
 
+const VISTAS_VALIDAS = new Set([...SIDEBAR_NAV, ...SIDEBAR_SECONDARY_NAV].map((item) => item.id));
+
+// La vista vive en el hash de cada pestaña (#ganancias): sobrevive a recargar sin sincronizar pestañas por localStorage.
+const readVistaFromUrl = () => {
+  try {
+    const id = decodeURIComponent(window.location.hash.slice(1));
+    return VISTAS_VALIDAS.has(id) ? id : 'home';
+  } catch {
+    return 'home';
+  }
+};
+
 function AuthenticatedApp() {
-  // Leer la última vista guardada; si no hay, usa 'home'
   const menuButtonRef = useRef(null);
   const sidebarRef = useRef(null);
-  const [vista, setVista] = useState('home');
+  const [vista, setVista] = useState(readVistaFromUrl);
   const [analisisBack, setAnalisisBack] = useState('home');
   const [keptVistas, setKeptVistas] = useState(() => ({ home: Date.now() }));
   const [eshopexUi, setEshopexUi] = useState(() => ({
@@ -553,6 +564,17 @@ function AuthenticatedApp() {
       });
       return next;
     });
+  }, [vista]);
+
+  useEffect(() => {
+    try {
+      const hash = vista === 'home' ? '' : `#${vista}`;
+      if (window.location.hash !== hash) {
+        window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${hash}`);
+      }
+    } catch {
+      /* ignore */
+    }
   }, [vista]);
 
   useEffect(() => {

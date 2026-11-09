@@ -290,7 +290,7 @@ test('permite escoger el lote inicial de un accesorio agrupado', async () => {
   api.post.mockImplementation(async (path) => path.endsWith('/cotizar') ? { cotizacionToken: 'a'.repeat(64), costoTotal: 10 } : { id: 92, vendedor });
   render(<ModalVenta producto={{ id: 51, tipo: 'accesorios', vendedor, stockInicial: 5, stockActual: 5, valor: { monedaCompra: 'PEN', costoTotal: 50 } }} onSaved={jest.fn()} onClose={jest.fn()} />);
   expect(screen.queryByText('Tipo de cambio', { exact: true })).not.toBeInTheDocument();
-  expect(screen.getByLabelText('Comprado por')).toHaveValue(vendedor);
+  expect(screen.getByLabelText('Comprador de la venta')).toHaveValue(vendedor);
   fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '30' } });
   const date = document.querySelector('input[type="date"]');
   fireEvent.change(date, { target: { value: '2026-10-19' } });
@@ -336,4 +336,44 @@ test('una venta cubierta con saldo usa el TC guardado sin pedir ni enviar uno ma
   expect(screen.getByLabelText('Cambio histórico del saldo')).toHaveTextContent('3.4000');
   fireEvent.click(screen.getByRole('button',{name:'Guardar'}));await waitFor(()=>expect(saved).toHaveBeenCalled());
   const body=api.post.mock.calls.find(([path])=>path==='/ventas')[1];expect(body.tipoCambio).toBeUndefined();expect(body.saldoCliente.monto).toBe(1000);
+});
+
+
+test('elige Jorge para pagar un accesorio con saldo conservando el propietario del stock', async () => {
+  localStorage.setItem('token', 'test');
+  localStorage.setItem('user', JSON.stringify({ role: 'admin' }));
+  api.post.mockImplementation(async (path, body) => path.includes('resolver-pedido')
+    ? { id: 1, nombre: 'Jorge', clase: 'externo', admite_saldo: true }
+    : path.endsWith('/cotizar') ? { cotizacionToken: 'a'.repeat(64), costoTotal: 10 }
+    : { id: 902, ...body });
+  api.get.mockResolvedValue({ disponible: '1000.00', saldos: [{ id: 1, sku: 476, original: '1000.00', disponible: '1000.00', fecha: '2026-01-01', tipo_cambio: '3.4000' }], movimientos: [], ventas: [] });
+  const saved = jest.fn();
+  render(<ModalVenta producto={{ id: 551, tipo: 'accesorios', vendedor: 'Renato', stockInicial: 5, stockActual: 5, valor: { monedaCompra: 'PEN', costoTotal: 50 } }} onSaved={saved} onClose={jest.fn()} />);
+  fireEvent.change(screen.getByLabelText('Comprador de la venta'), { target: { value: 'Gonzalo (Jorge)' } });
+  fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '30' } });
+  fireEvent.change(document.querySelector('input[type="date"]'), { target: { value: '2026-11-12' } });
+  fireEvent.click(await screen.findByLabelText('Aplicar saldo a favor'));
+  await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  await waitFor(() => expect(saved).toHaveBeenCalled());
+  expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({ vendedor: 'Gonzalo (Jorge)', saldoCliente: expect.objectContaining({ monto: 30 }) }));
+  expect(api.patch).not.toHaveBeenCalled();
+  expect(api.post.mock.calls.find(([path]) => path.endsWith('/cotizar'))[1].comprador).toBe('Renato');
+});
+
+
+test.each(['pagado', 'parcial', 'pendiente'])('registra explícitamente el cobro %s al crear la venta', async (estado) => {
+  api.get.mockResolvedValue({ ventas: [] });
+  api.post.mockResolvedValue({ id: 950, vendedor: 'Gonzalo (Jorge)' });
+  const saved = jest.fn();
+  render(<ModalVenta producto={{ id: 990, tipo: 'macbook', vendedor: 'Gonzalo (Jorge)', valor: { monedaCompra: 'PEN', valorProducto: 500 } }} onSaved={saved} onClose={jest.fn()} />);
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-11-01' } });
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1000' } });
+  fireEvent.change(screen.getByLabelText('Estado del pago'), { target: { value: estado } });
+  if (estado === 'parcial') fireEvent.change(screen.getByLabelText('Importe pagado por el cliente (S/)'), { target: { value: '250' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  await waitFor(() => expect(saved).toHaveBeenCalled());
+  const body = api.post.mock.calls.find(([path]) => path === '/ventas')[1];
+  if (estado === 'parcial') expect(body.incomeParts).toEqual([{ type: 'direct', amount: 250 }, { type: 'debt', amount: 750 }]);
+  else expect(body.incomePaymentType).toBe(estado === 'pagado' ? 'direct' : 'debt');
 });

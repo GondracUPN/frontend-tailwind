@@ -3,7 +3,23 @@ import App from './App';
 import api from './api';
 
 beforeEach(() => localStorage.setItem('token', 'test-session'));
-afterEach(() => localStorage.clear());
+afterEach(() => { localStorage.clear(); window.history.replaceState(null, '', '/'); });
+
+test('al recargar conserva la vista de la URL y la actualiza al navegar', async () => {
+  window.history.replaceState(null, '', '/#inventario');
+  render(<App />);
+  expect(document.documentElement.dataset.activeView).toBe('inventario');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Ganancias' })[0]);
+  await waitFor(() => expect(window.location.hash).toBe('#ganancias'));
+  fireEvent.click(screen.getAllByRole('button', { name: 'Inicio' })[0]);
+  await waitFor(() => expect(window.location.hash).toBe(''));
+});
+
+test('ignora vistas desconocidas en la URL', () => {
+  window.history.replaceState(null, '', '/#no-existe');
+  render(<App />);
+  expect(document.documentElement.dataset.activeView).toBe('home');
+});
 
 test('sin sesión muestra login sin montar las páginas comerciales', () => {
   localStorage.clear();

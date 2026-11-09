@@ -58,8 +58,11 @@ export const isTechnicalBankImportNote = (notes) => {
 
 export const isTechnicalExpenseNote = (notes) => {
   const value = String(notes || '').trim();
-  return isTechnicalBankImportNote(value) || value.startsWith('__SALE_INCOME__:');
+  return isTechnicalBankImportNote(value) || value.startsWith('__SALE_INCOME__:') || value.startsWith('__REFUND__:');
 };
+
+/** Reembolso de un reclamo que llegó a una tarjeta propia (no la devolución de una venta a un cliente). */
+export const isCardRefundExpense = (row) => /^__REFUND__:\d+(:\d+)?$/.test(String(row?.notas || '').trim());
 
 export const visibleExpenseNotes = (notes, fallback = '-') =>
   isTechnicalExpenseNote(notes) ? fallback : (String(notes || '').trim() || fallback);

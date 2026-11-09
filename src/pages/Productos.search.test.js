@@ -49,6 +49,11 @@ test('mantiene la búsqueda parcial por tracking cuando no existe ese código', 
   expect(filterProductsByCodeOrTracking(products, '999999').map((product) => product.id)).toEqual([293]);
 });
 
+test('una serie con pocas cifras no coincide con trackings que contengan esas cifras', () => {
+  expect(filterProductsByCodeOrTracking(products, 'GVQV9VTODG')).toEqual([]);
+  expect(filterProductsByCodeOrTracking(products, 'gxhhgww4tc')).toEqual([]);
+});
+
 test('suma el envío prorrateado una sola vez por producto del paquete', () => {
   const product = { id: 1, valor: { costoEnvio: 100, costoEnvioProrrateado: 35.25 } };
   const pkg = {

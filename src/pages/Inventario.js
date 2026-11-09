@@ -959,6 +959,24 @@ export default function Inventario({ setVista }) {
     maximumSoles: 0,
   }), [entries]);
 
+  // Serie o IMEI de productos que ya no están disponibles (vendidos): se buscan en el servidor.
+  const [fueraDeInventario, setFueraDeInventario] = useState([]);
+  useEffect(() => {
+    const identificador = text(query).replace(/[^A-Za-z0-9]/g, '');
+    if (identificador.length < 4 || !/\d/.test(identificador)) { setFueraDeInventario([]); return undefined; }
+    let activo = true;
+    const timer = setTimeout(() => {
+      api.get(`/inventario/buscar?q=${encodeURIComponent(identificador)}`)
+        .then((rows) => {
+          if (!activo) return;
+          const disponibles = new Set(entries.map((entry) => entry?.producto?.id));
+          setFueraDeInventario((Array.isArray(rows) ? rows : []).filter((row) => row?.producto?.id && !disponibles.has(row.producto.id)));
+        })
+        .catch(() => { if (activo) setFueraDeInventario([]); });
+    }, 350);
+    return () => { activo = false; clearTimeout(timer); };
+  }, [query, entries]);
+
   const filtered = useMemo(() => {
     const needle = text(query).toLowerCase();
     const result = displayEntries.filter((entry) => {
@@ -1213,7 +1231,7 @@ export default function Inventario({ setVista }) {
         {loading ? (
           <div className="py-20 text-center text-sm text-slate-500">Cargando productos disponibles...</div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white py-20 text-center text-sm text-slate-500">No hay productos que coincidan con este filtro.</div>
+          fueraDeInventario.length ? null : <div className="rounded-2xl border border-dashed border-slate-300 bg-white py-20 text-center text-sm text-slate-500">No hay productos que coincidan con este filtro.</div>
         ) : (
           <div className={`grid gap-3 sm:gap-4 ${isTablet ? (isLandscape ? 'grid-cols-4' : 'grid-cols-3') : 'grid-cols-1 sm:grid-cols-2'}`}>
             {filtered.map((entry) => {
@@ -1327,6 +1345,22 @@ export default function Inventario({ setVista }) {
             })}
           </div>
         )}
+        {!loading && filtered.length === 0 && fueraDeInventario.length > 0 && (
+          <section aria-label="Productos vendidos o fuera de inventario" className="mt-5 space-y-2">
+            <h3 className="text-sm font-semibold text-slate-700">Vendidos o fuera de inventario ({fueraDeInventario.length})</h3>
+            {fueraDeInventario.map(({ producto, ficha, venta }) => (
+              <div key={producto.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-900">MS-{producto.codigoInventario || producto.id} · {buildNombre(producto)}</p>
+                  <p className="text-xs text-slate-500">{[ficha?.color, ficha?.serial && `SN ${ficha.serial}`, ficha?.imei && `IMEI ${ficha.imei}`, ficha?.imei2 && `IMEI2 ${ficha.imei2}`].filter(Boolean).join(' · ')}</p>
+                </div>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${venta ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                  {venta ? `Vendido ${String(venta.fechaVenta || '').slice(0, 10)}${venta.vendedor ? ` · ${venta.vendedor}` : ''}` : 'No disponible'}
+                </span>
+              </div>
+            ))}
+          </section>
+        )}
       </div>
 
       {simpleAccessoryOpen && (
@@ -1342,7 +1376,7 @@ export default function Inventario({ setVista }) {
               </label>
               <label className="text-sm font-medium text-slate-700">Comprado por *
                 <select required value={simpleAccessory.comprador} onChange={(event) => setSimpleAccessory((current) => ({ ...current, comprador: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
-                  <option value="">Seleccionar comprador</option><option value="Gonzalo">Gonzalo</option><option value="Renato">Renato</option><option value="ambos">Ambos (50/50)</option>
+                  <option value="">Seleccionar comprador</option><option value="Gonzalo">Gonzalo</option><option value="Renato">Renato</option><option value="ambos">Ambos (50/50)</option>{['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian', 'Williams'].map((nombre) => <option key={nombre} value={`Gonzalo (${nombre})`}>Gonzalo ({nombre})</option>)}
                 </select>
               </label>
               <label className="text-sm font-medium text-slate-700">Precio de compra por unidad *
@@ -1395,7 +1429,7 @@ export default function Inventario({ setVista }) {
                   </label>
                   <label className="block text-sm font-medium text-slate-700">Comprado por
                     <select value={form.compradorAccesorio} onChange={(event) => setForm((current) => ({ ...current, compradorAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
-                      <option value="">Sin asignar</option><option value="Gonzalo">Gonzalo</option><option value="Renato">Renato</option><option value="ambos">Ambos (50/50)</option>
+                      <option value="">Sin asignar</option><option value="Gonzalo">Gonzalo</option><option value="Renato">Renato</option><option value="ambos">Ambos (50/50)</option>{['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian', 'Williams'].map((nombre) => <option key={nombre} value={`Gonzalo (${nombre})`}>Gonzalo ({nombre})</option>)}
                     </select>
                   </label>
                   <p className="mt-1 text-sm text-slate-600">Este tipo usa almacén, cantidad y una sola foto principal; no requiere caja, SN, IMEI ni sesión de fotos.</p>

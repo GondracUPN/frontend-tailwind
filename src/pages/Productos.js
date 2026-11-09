@@ -162,7 +162,9 @@ export const filterProductsByCodeOrTracking = (products, query) => {
     return list.filter((product) => Number(displayProductCode(product)) === requestedCode);
   }
 
-  const qDigits = q.replace(/\D+/g, '');
+  // Con pocas cifras (p. ej. el "9" de una serie) cualquier tracking coincidiría: se exigen al menos 5.
+  const digitsOnly = q.replace(/\D+/g, '');
+  const qDigits = digitsOnly.length >= 5 ? digitsOnly : '';
   return list.filter((product) => {
     const tracking = product.tracking?.[0] || {};
     const usa = String(tracking.trackingUsa || '').trim().toLowerCase();
@@ -566,6 +568,19 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [filtroProc, setFiltroProc] = useState('todos'); // procesador o pantalla (texto libre)
   const [filtroTam, setFiltroTam] = useState('todos');   // tamano adicional para macbook/ipad
   const [trackingQuery, setTrackingQuery] = useState('');
+  const [identificadorIds, setIdentificadorIds] = useState(() => new Set());
+  useEffect(() => {
+    const identificador = String(trackingQuery || '').replace(/[^A-Za-z0-9]/g, '');
+    if (identificador.length < 4 || !/\d/.test(identificador)) { setIdentificadorIds((current) => (current.size ? new Set() : current)); return undefined; }
+    let activo = true;
+    setIdentificadorIds((current) => (current.size ? new Set() : current));
+    const timer = setTimeout(() => {
+      api.get(`/inventario/buscar?q=${encodeURIComponent(identificador)}`)
+        .then((rows) => { if (activo) setIdentificadorIds(new Set((Array.isArray(rows) ? rows : []).map((row) => row?.producto?.id).filter(Boolean))); })
+        .catch(() => { if (activo) setIdentificadorIds(new Set()); });
+    }, 350);
+    return () => { activo = false; clearTimeout(timer); };
+  }, [trackingQuery]);
   const [filtroGama, setFiltroGama] = useState('todos'); // gama (Pro, Air, etc)
   const [filtroAnio, setFiltroAnio] = useState('todos'); // anio de compra: 'todos' | '2026' | 'sin-fecha'
   const setMostrarFiltro = (key, checked) => {
@@ -2165,7 +2180,12 @@ const confirmAction = async () => {
 
     let list = Array.isArray(productos) ? [...productos] : [];
     // --- Filtro por tracking (USA / Eshopex) ---
-    list = filterProductsByCodeOrTracking(list, trackingQuery);
+    const porCodigoOTracking = filterProductsByCodeOrTracking(list, trackingQuery);
+    // La serie y el IMEI están en la ficha de inventario: el servidor devuelve qué productos coinciden.
+    // Una serie o IMEI exacto manda: solo se muestra su producto.
+    list = identificadorIds.size
+      ? list.filter((p) => identificadorIds.has(p.id))
+      : porCodigoOTracking;
 
     if (filtroAnio !== 'todos') {
       list = list.filter((p) => (purchaseYear(p) || 'sin-fecha') === filtroAnio);
@@ -2280,7 +2300,7 @@ const confirmAction = async () => {
       list.sort((a, b) => ts(b) - ts(a)); // mas nuevos arriba (fecha compra)
     }
     return list;
-  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, soloEnCamino, soloEnEshopex, filtroEstado, filtroTipo, filtroProc, filtroTam, filtroGama, filtroAnio, trackingQuery, getFechaVenta, getLastTracking]);
+  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, soloEnCamino, soloEnEshopex, filtroEstado, filtroTipo, filtroProc, filtroTam, filtroGama, filtroAnio, trackingQuery, identificadorIds, getFechaVenta, getLastTracking]);
 
   const paquetesSinVendedor = React.useMemo(() => {
     return (productos || []).filter((p) => !String(p?.vendedor || '').trim());
@@ -2908,11 +2928,11 @@ const confirmAction = async () => {
         {!selectMode ? (
           <>
             <div className="ux-product-filters" role="group" aria-label="Buscar y filtrar productos">
-              <label className="ux-product-search"><span>Buscar por código o tracking</span>
+              <label className="ux-product-search"><span>Buscar por código, tracking, serie o IMEI</span>
               <input
                 type="text"
-                aria-label="Buscar por código o tracking"
-                placeholder="Buscar Code o tracking (MS-123, MS123 o 123)"
+                aria-label="Buscar por código, tracking, serie o IMEI"
+                placeholder="Code, tracking, serie o IMEI (MS-123, 123, C02XK…)"
                 value={trackingQuery}
                 onChange={(e) => setTrackingQuery(e.target.value)}
               />

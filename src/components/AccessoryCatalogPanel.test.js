@@ -63,7 +63,7 @@ test('si el stock baja después de marcarlo, no permite el envío múltiple y a�
     api.get.mockResolvedValue([{ ...row, disponible: 0, seleccionado: true, enviado: true }]);
     await act(async () => { jest.advanceTimersByTime(2000); });
     expect(screen.getByRole('button', { name: 'Retirar del catálogo' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Retirar seleccionados' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Retirar seleccionados (1)' })).toBeEnabled();
   } finally { jest.useRealTimers(); }
 });
 test('explica faltantes, completa la referencia y muestra errores de envío', async () => {
@@ -79,6 +79,49 @@ test('explica faltantes, completa la referencia y muestra errores de envío', as
   expect(await screen.findByText('Catálogo HTTP 503.')).toBeVisible();
   expect(api.patch).toHaveBeenCalledWith('/accesorios/referencias/5', expect.objectContaining({ precioPublicadoSoles: 30 }));
 });
+test('Todos marca los enviables de la tabla, avisa qué falta arreglar y permite desmarcar uno', async () => {
+  api.get.mockResolvedValue([
+    row,
+    { ...row, key: 'ref-6-owner', nombre: 'Cargador', codigos: [12] },
+    { ...row, key: 'ref-7-owner', nombre: 'Funda', codigos: [13], faltantes: ['precio publicado mayor que cero'] },
+    { ...row, key: 'ref-8-owner', nombre: 'Pencil', codigos: [14], disponible: 0 },
+    { ...row, key: 'sent', nombre: 'Cable enviado', codigos: [15], seleccionado: true, enviado: true },
+  ]);
+  api.post.mockResolvedValue([row]);
+  render(<AccessoryCatalogPanel />);
+  fireEvent.click(await screen.findByLabelText('Seleccionar todos: Pendientes de enviar'));
+  expect(screen.getByRole('button', { name: 'Enviar seleccionados (2)' })).toBeEnabled();
+  const notice = screen.getByRole('status', { name: 'Accesorios que no se pueden enviar' });
+  expect(within(notice).getByText('No se pueden enviar 2 accesorios')).toBeVisible();
+  expect(within(notice).getByText('Falta precio publicado')).toBeVisible();
+  expect(within(notice).getByText('Funda · ACC-13')).toBeInTheDocument();
+  expect(within(notice).getByText('Sin stock')).toBeVisible();
+  expect(within(notice).getByText('Pencil · ACC-14')).toBeInTheDocument();
+  expect(screen.getByLabelText('Seleccionar Cable enviado · ACC-15')).not.toBeChecked();
+  fireEvent.click(screen.getByLabelText('Seleccionar Cargador · ACC-12'));
+  expect(screen.getByLabelText('Seleccionar todos: Pendientes de enviar').indeterminate).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Enviar seleccionados (1)' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/accesorios/catalogo/seleccion', { keys: ['ref-5-owner'], seleccionado: true }));
+});
+
+test('Todos en enviados permite retirarlos juntos y al desmarcar limpia la selección', async () => {
+  api.get.mockResolvedValue([
+    { ...row, key: 'a', nombre: 'Cable A', codigos: [1], seleccionado: true, enviado: true },
+    { ...row, key: 'b', nombre: 'Cable B', codigos: [2], disponible: 0, seleccionado: true, enviado: true },
+  ]);
+  api.post.mockResolvedValue([]);
+  render(<AccessoryCatalogPanel />);
+  const all = await screen.findByLabelText('Seleccionar todos: Enviados al catálogo');
+  fireEvent.click(all);
+  expect(screen.queryByRole('status', { name: 'Accesorios que no se pueden enviar' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Retirar seleccionados (2)' })).toBeEnabled();
+  fireEvent.click(all);
+  expect(screen.getByRole('button', { name: 'Retirar seleccionados (0)' })).toBeDisabled();
+  fireEvent.click(all);
+  fireEvent.click(screen.getByRole('button', { name: 'Retirar seleccionados (2)' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/accesorios/catalogo/seleccion', { keys: ['a', 'b'], seleccionado: false }));
+});
+
 test('completa accesorios antiguos usando la ficha de inventario existente', async () => {
   api.get.mockResolvedValue([{ ...row, referenciaId: null }]); const edit = jest.fn();
   render(<AccessoryCatalogPanel onEdit={edit} />);
