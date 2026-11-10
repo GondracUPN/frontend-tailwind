@@ -10,6 +10,7 @@ test('conserva el contenido de Análisis: resumen, clientes, pendientes y entreg
   getPedidoSalesSummary.mockResolvedValue({ rows: [
     { id: 'camino-1', productoId: 507, codigoProducto: 'MS-507', cliente: 'Jorge', producto: 'iPad Pro', fecha: '2026-10-28', estadoPago: 'sin_pago', estadoPedido: 'en_camino_sin_pago' },
     { id: 'venta-2', productoId: 477, codigoProducto: 'MS-477', cliente: 'Jorge', producto: 'iPhone 14 Pro', fecha: '2026-10-27', estadoPago: 'pagado', montoVenta: 1220, montoAdelanto: 1220, saldo: 0, ganancia: 220, costo: 1000 },
+    { id: 'venta-deuda', ventaId: 99, productoId: 519, codigoProducto: 'MS-519', cliente: 'Jorge', producto: 'Equipo sin pago', estadoPago: 'sin_pago', fecha: '2026-10-29', montoVenta: 1000, montoAdelanto: 0, saldo: 1000 },
     { id: 'camino-3', productoId: 454, codigoProducto: 'MS-454', cliente: 'Jorge', producto: 'iPad Air', estadoPago: 'sin_pago', tieneReembolso: true },
   ] });
   render(<VentasPedido />);
@@ -19,6 +20,7 @@ test('conserva el contenido de Análisis: resumen, clientes, pendientes y entreg
   expect(screen.getByRole('heading', { name: 'Productos cancelados y entregados' })).toBeVisible();
   expect(screen.getAllByText('Markup').length).toBeGreaterThan(0);
   expect(screen.getByText('MS-507')).toBeVisible();
+  expect(screen.getByText('Equipo sin pago').closest('tr')).toHaveTextContent('S/ 1,000.00');
   expect(screen.queryByText('MS-454')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-10-28' } });
   expect(screen.queryByText('iPhone 14 Pro')).not.toBeInTheDocument();

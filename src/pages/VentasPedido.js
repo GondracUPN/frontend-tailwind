@@ -130,7 +130,7 @@ export default function VentasPedido({ setVista }) {
  [pedidoResumen.rows],
  );
  const renderPedidoMoney = (row, field) =>
- row.estadoPago === 'sin_pago' ? '-' : <Currency v={row?.[field]} />;
+ row.estadoPago === 'sin_pago' && !row.ventaId ? '-' : <Currency v={row?.[field]} />;
  const renderPedidoEstado = (row) => {
  const estado = row?.estadoPedido || row?.estadoPago;
  if (estado === 'cancelado_entregado') return { label: 'Cancelado y entregado', cls: 'bg-emerald-100 text-emerald-700' };
