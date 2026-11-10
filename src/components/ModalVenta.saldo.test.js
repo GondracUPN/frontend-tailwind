@@ -34,7 +34,7 @@ test('un pedido nuevo empieza pendiente y no supone un cobro directo al guardar'
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1300' } });
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({
-    precioVenta: 1300, incomePaymentType: 'debt',
+    precioVenta: 1300, incomeParts: [{ type: 'cash', amount: 1300 }],
   })));
 });
 

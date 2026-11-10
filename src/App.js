@@ -36,6 +36,7 @@ const Servicios = lazy(() => import('./pages/Servicios'));
 const Calculadora = lazy(() => import('./pages/Calculadora'));
 const Ganancias = lazy(() => import('./pages/Ganancias'));
 const Analisis = lazy(() => import('./pages/Analisis'));
+const VentasPedido = lazy(() => import('./pages/VentasPedido'));
 const Proyeccion = lazy(() => import('./pages/Proyeccion'));
 const GastosIndex = lazy(() => import('./pages/GastosIndex'));
 const AnalisisGastos = lazy(() => import('./pages/AnalisisGastos'));
@@ -406,6 +407,7 @@ const SIDEBAR_NAV = [
   { id: 'home', label: 'Inicio', icon: FiHome },
   { id: 'productos', label: 'Productos', icon: FiBox },
   { id: 'inventario', label: 'Inventario', icon: FiArchive },
+  { id: 'ventasPedido', label: 'Ventas a pedido', icon: FiTruck },
   { id: 'analisis', label: 'Analisis', icon: FiActivity },
   { id: 'proyeccion', label: 'Proyección', icon: FiBarChart2 },
   { id: 'calculadora', label: 'Calculadora', icon: FiHash },
@@ -1288,6 +1290,8 @@ function AuthenticatedApp() {
         return <Ganancias setVista={navigateTo} />;
       case 'gastos':
         return <GastosIndex setVista={navigateTo} />;
+      case 'ventasPedido':
+        return <VentasPedido setVista={navigateTo} />;
       case 'analisis':
         return <Analisis setVista={navigateTo} analisisBack={analisisBack} />;
       case 'proyeccion':
@@ -1488,7 +1492,7 @@ function AuthenticatedApp() {
           <nav aria-label="Navegación principal" className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
             <div className="flex flex-col gap-1 pb-4">
               {renderNavItem(SIDEBAR_NAV.find(item => item.id === 'home'))}
-              {[['Operaciones', ['productos', 'inventario']], ['Finanzas', ['ganancias', 'gastos', 'analisis', 'proyeccion']], ['Administración', ['servicios']]].map(([group, ids]) => (
+              {[['Operaciones', ['productos', 'inventario', 'ventasPedido']], ['Finanzas', ['ganancias', 'gastos', 'analisis', 'proyeccion']], ['Administración', ['servicios']]].map(([group, ids]) => (
                 <div key={group}>
                   <div className="ux-nav-label">{group}</div>
                   <div className="space-y-1">{ids.map(id => renderNavItem(SIDEBAR_NAV.find(item => item.id === id)))}</div>

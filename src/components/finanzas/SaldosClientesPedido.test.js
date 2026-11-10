@@ -32,7 +32,7 @@ test('muestra deuda sin saldo, ambos importes y adelantos, excluyendo ventas anu
     { id: 2, nombre: 'Kenny', clase: 'externo', admite_saldo: true },
   ]);
   finanzasApi.saldosCliente.mockImplementation(async id => ({ disponible: id === 1 ? '995.00' : '0.00', ventas: [
-    { deuda: id === 1 ? '305.00' : '400.00' }, { deuda: '1300.00', anulada: true }, { deuda: '1000.00', afectada: true },
+    { deudaConfirmada: id === 1 ? '305.00' : '400.00' }, { deudaConfirmada: '1300.00', anulada: true }, { deudaConfirmada: '1000.00', afectada: true }, { deuda: '30000.00', pendienteConciliacion: true },
   ] }));
   render(<SaldosClientesPedido revision={{ rows: [
     { adelantoId: 1, cliente: 'Kenny', saldo: 50 },

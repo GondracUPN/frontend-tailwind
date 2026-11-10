@@ -51,6 +51,7 @@ test('al iniciar sesión procesa programaciones y permite reintentar si fallan',
 test('muestra la navegacion principal con inventario', () => {
   render(<App />);
   expect(screen.getAllByRole('button', { name: 'Inventario' })).toHaveLength(2);
+  expect(screen.getAllByRole('button', { name: 'Ventas a pedido' })).toHaveLength(1);
 });
 
 

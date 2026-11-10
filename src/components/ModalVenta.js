@@ -295,11 +295,11 @@ export default function ModalVenta({
         precioVenta: Number(form.precioVenta),
         incomeBank,
       };
-      // x500 o "pendiente": todo queda como cobro x500. Si no, lo pagado va con la forma elegida
-      // y, en pago parcial, el resto queda pendiente (x500).
+      // La deuda pendiente del cliente se registra en efectivo; x500 solo si se elige expresamente.
       // Directo y x500 usan el mismo camino de siempre (incomePaymentType); tarjeta y efectivo van por partes.
       const total = Number(form.precioVenta);
-      if (formaPago === 'debt' || estadoPago === 'pendiente') body.incomePaymentType = 'debt';
+      if (formaPago === 'debt') body.incomePaymentType = 'debt';
+      else if (estadoPago === 'pendiente') body.incomeParts = [{ type: 'cash', amount: total }];
       else if (estadoPago === 'parcial') body.incomeParts = [{ type: formaPago, amount: Number(montoPagado) },
         { type: 'debt', amount: Number((total - Number(montoPagado)).toFixed(2)) }];
       else if (formaPago === 'direct') body.incomePaymentType = 'direct';
@@ -638,7 +638,7 @@ export default function ModalVenta({
             <option value="interbank">Interbank</option>
             <option value="bbva">BBVA</option>
           </select>
-          <div className="mt-1 text-xs text-gray-600">El ingreso automático se registrará en esta cuenta.</div>
+          <div className="mt-1 text-xs text-gray-600">{estadoPago === 'pendiente' && formaPago !== 'debt' ? 'La venta queda como deuda en efectivo del cliente. No se registra dinero recibido.' : 'El ingreso automático se registrará en esta cuenta.'}</div>
           </>}
         </div>
       )}

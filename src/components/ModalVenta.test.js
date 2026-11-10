@@ -400,5 +400,6 @@ test.each(['pagado', 'parcial', 'pendiente'])('registra explícitamente el cobro
   await waitFor(() => expect(saved).toHaveBeenCalled());
   const body = api.post.mock.calls.find(([path]) => path === '/ventas')[1];
   if (estado === 'parcial') expect(body.incomeParts).toEqual([{ type: 'direct', amount: 250 }, { type: 'debt', amount: 750 }]);
-  else expect(body.incomePaymentType).toBe(estado === 'pagado' ? 'direct' : 'debt');
+  else if (estado === 'pendiente') expect(body.incomeParts).toEqual([{ type: 'cash', amount: 1000 }]);
+  else expect(body.incomePaymentType).toBe('direct');
 });
