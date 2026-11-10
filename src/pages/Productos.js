@@ -20,6 +20,7 @@ const ModalCostos = lazy(() => import('../components/ModalCostos'));
 const ModalTracking = lazy(() => import('../components/ModalTracking'));
 const ModalCasillero = lazy(() => import('../components/ModalCasillero'));
 const ModalVenta = lazy(() => import('../components/ModalVenta'));
+const ConstanciaReclamo = lazy(() => import('../components/ConstanciaReclamo'));
 const ModalFotos = lazy(() => import('../components/ModalFotos'));
 const ModalFotosManual = lazy(() => import('../components/ModalFotosManual'));
 const ModalMarcaAgua = lazy(() => import('../components/ModalMarcaAgua'));
@@ -53,6 +54,7 @@ export const purchaseYear = (product) => {
 
 export const onlyProducts = (items) => (Array.isArray(items) ? items : [])
   .filter((product) => !product?.soloInventario && !isLegacySimpleAccessory(product));
+export const esPerdidoReembolso = product => ['perdido', 'cancelado', 'no_comercializable'].includes(product?.cierreMotivo);
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutos para revalidar
 const ESHOPEX_BG_TRIGGER_KEY = 'eshopex-carga-trigger-ts';
 const ESHOPEX_BG_REQUESTED_KEY = 'eshopex-carga-requested';
@@ -546,6 +548,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [personalFechaSaving, setPersonalFechaSaving] = useState(false);
   const [soloDisponibles, setSoloDisponibles] = useState(false);
   const [soloVendidos, setSoloVendidos] = useState(false);
+  const [soloPerdidosRe, setSoloPerdidosRe] = useState(false);
   const [soloAdelanto, setSoloAdelanto] = useState(false);
   const [soloEnCamino, setSoloEnCamino] = useState(false);
   const [soloEnEshopex, setSoloEnEshopex] = useState(false);
@@ -584,6 +587,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const [filtroGama, setFiltroGama] = useState('todos'); // gama (Pro, Air, etc)
   const [filtroAnio, setFiltroAnio] = useState('todos'); // anio de compra: 'todos' | '2026' | 'sin-fecha'
   const setMostrarFiltro = (key, checked) => {
+    setSoloPerdidosRe(key === 'perdidosRe' && checked);
     setSoloVendidos(key === 'vendidos' && checked);
     setSoloAdelanto(key === 'adelanto' && checked);
     setSoloDisponibles(key === 'disponibles' && checked);
@@ -1010,6 +1014,7 @@ const confirmAction = async () => {
   const productosVentaMensaje = React.useMemo(() => {
     return (productos || [])
       .filter((p) => {
+        if (esPerdidoReembolso(p)) return false;
         const t = getLastTracking(p);
         const venta = ventasMap[p?.id] || null;
         const adelanto = adelantosMap[p?.id] || null;
@@ -2178,7 +2183,7 @@ const confirmAction = async () => {
       return Number.isFinite(t) ? t : 0;
     };
 
-    let list = Array.isArray(productos) ? [...productos] : [];
+    let list = (Array.isArray(productos) ? productos : []).filter(p => esPerdidoReembolso(p) === soloPerdidosRe);
     // --- Filtro por tracking (USA / Eshopex) ---
     const porCodigoOTracking = filterProductsByCodeOrTracking(list, trackingQuery);
     // La serie y el IMEI están en la ficha de inventario: el servidor devuelve qué productos coinciden.
@@ -2300,7 +2305,7 @@ const confirmAction = async () => {
       list.sort((a, b) => ts(b) - ts(a)); // mas nuevos arriba (fecha compra)
     }
     return list;
-  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloAdelanto, soloEnCamino, soloEnEshopex, filtroEstado, filtroTipo, filtroProc, filtroTam, filtroGama, filtroAnio, trackingQuery, identificadorIds, getFechaVenta, getLastTracking]);
+  }, [productos, ventasMap, adelantosMap, soloDisponibles, soloVendidos, soloPerdidosRe, soloAdelanto, soloEnCamino, soloEnEshopex, filtroEstado, filtroTipo, filtroProc, filtroTam, filtroGama, filtroAnio, trackingQuery, identificadorIds, getFechaVenta, getLastTracking]);
 
   const paquetesSinVendedor = React.useMemo(() => {
     return (productos || []).filter((p) => !String(p?.vendedor || '').trim());
@@ -2668,7 +2673,7 @@ const confirmAction = async () => {
       };
     }
 
-    const total = productos.length;
+    const total = productos.filter(p => !esPerdidoReembolso(p)).length;
     let sinTracking = 0;
     let enCamino = 0;
     let enEshopex = 0;
@@ -2676,6 +2681,7 @@ const confirmAction = async () => {
     let vendido = 0;
 
     for (const p of productos) {
+      if (esPerdidoReembolso(p)) continue;
       const t = p.tracking?.[0];
       const estado = t?.estado || null;
       const venta = ventasMap[p.id] || null;
@@ -2717,12 +2723,13 @@ const confirmAction = async () => {
   }, [productos]);
 
   const estadoChips = [
-    { key: 'todos', label: 'Todos', count: stats.total, active: !soloDisponibles && !soloEnCamino && !soloEnEshopex && !soloAdelanto && !soloVendidos },
+    { key: 'todos', label: 'Todos', count: stats.total, active: !soloDisponibles && !soloEnCamino && !soloEnEshopex && !soloAdelanto && !soloVendidos && !soloPerdidosRe },
     { key: 'disponibles', label: 'Disponibles', count: stats.disponible, active: soloDisponibles },
     { key: 'enCamino', label: 'En camino', count: stats.enCamino, active: soloEnCamino },
     { key: 'enEshopex', label: 'En Eshopex', count: stats.enEshopex, active: soloEnEshopex },
     { key: 'adelanto', label: 'Con adelanto', count: adelantosActivos, active: soloAdelanto },
     { key: 'vendidos', label: 'Vendidos', count: stats.vendido, active: soloVendidos },
+    { key: 'perdidosRe', label: 'Perdidos/Re', count: productos.filter(p => esPerdidoReembolso(p) && (filtroAnio === 'todos' || (purchaseYear(p) || 'sin-fecha') === filtroAnio)).length, active: soloPerdidosRe },
   ];
 
   const hayFiltrosActivos = !estadoChips[0].active
@@ -2893,12 +2900,15 @@ const confirmAction = async () => {
           <button type="button" className="ux-link-button" onClick={() => setFiltroAnio('todos')}>Ver todos los años</button>
         </div>
       )}
-      <div className="ux-stats" aria-label="Resumen de productos">
+      <div className="ux-stats ux-stats--productos" aria-label="Resumen de productos">
         {[
           ['Total', stats.total, 'neutral'], ['Disponibles', stats.disponible, 'positive'],
           ['En camino US', stats.enCamino, 'neutral'], ['En Eshopex', stats.enEshopex, 'attention'],
           ['Sin tracking', stats.sinTracking, 'attention'], ['Vendidos', stats.vendido, 'neutral'],
         ].map(([title, value, tone]) => <StatCard key={title} title={title} value={value} tone={tone} loading={(cargando && !productos.length) || cargandoResumenAnio} />)}
+        <button type="button" className="text-left" aria-pressed={soloPerdidosRe} onClick={() => setMostrarFiltro('perdidosRe', !soloPerdidosRe)}>
+          <StatCard title="Perdidos/Re" value={estadoChips.find(c => c.key === 'perdidosRe').count} tone="attention" loading={cargando && !productos.length} />
+        </button>
       </div>
 
       {!selectMode && (
@@ -3367,6 +3377,8 @@ const confirmAction = async () => {
                           && Number(p.stockActual || 0) > 0
                           && recogido;
 
+                        if (esPerdidoReembolso(p)) return <button type="button" className="ux-button whitespace-nowrap" onClick={() => { setProductoSeleccionado(p); setModalModo('constancia'); }}>Ver constancia</button>;
+
                         let text = 'Aún no llega';
                         let className = 'bg-gray-100 text-gray-500 border border-gray-200 cursor-not-allowed';
                         let disabled = true;
@@ -3445,6 +3457,8 @@ const confirmAction = async () => {
             <p>
               {soloDisponibles
                 ? 'No hay productos disponibles para venta.'
+                : soloPerdidosRe
+                  ? 'No hay productos perdidos o con reembolso.'
                 : soloVendidos
                   ? 'No hay productos vendidos.'
                   : soloAdelanto
@@ -4400,6 +4414,10 @@ const confirmAction = async () => {
             onAnulada={handleVentaAnulada}
           />
         )}
+        {modalModo === 'constancia' && <ConstanciaReclamo producto={productoSeleccionado} onClose={cerrarModal} onChanged={() => {
+          cerrarModal();
+          refreshProductos({ force: true, useCache: false, silent: true });
+        }} />}
         {adelantoModo === 'select' && (
           <ModalAdelantarTipo
             producto={adelantoProducto}

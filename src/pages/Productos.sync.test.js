@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import api from '../api';
 import Productos from './Productos';
 import { notifySalesChanged } from '../utils/salesSync';
@@ -7,6 +7,40 @@ import { invalidate } from '../services/productosStore';
 jest.mock('../api', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn(), patch: jest.fn(), del: jest.fn() } }));
 
 beforeEach(() => { invalidate(); localStorage.clear(); jest.clearAllMocks(); });
+
+test('el reclamo mueve el producto a Perdidos/Re y permite consultar sus cobros conservados', async () => {
+  let reclamado = false;
+  const producto = { id: 7, tipo: 'iphone', detalle: { numero: '15' }, valor: {}, tracking: [{ estado: 'recogido' }] };
+  api.get.mockImplementation(async url => {
+    if (url === '/productos') return [{ ...producto, cierreMotivo: reclamado ? 'no_comercializable' : null }];
+    if (url === '/ventas/ultimas') return reclamado ? [] : [{ id: 30, productoId: 7, precioVenta: 1000 }];
+    if (url.startsWith('/productos/resumen')) return { total: reclamado ? 0 : 1, vendido: reclamado ? 0 : 1 };
+    if (url === '/ventas/producto/7/constancia') return { ventas: [{
+      id: 30, vendedor: 'Gonzalo (Jorge)', precioVenta: '1000.00', pagado: '1000.00',
+      saldoGenerado: '1000.00', saldoDisponible: '1000.00', fechaVenta: '2026-10-17', estadoComercial: 'cancelada',
+      pagos: [{ id: 1, fecha: '2026-10-17', monto: '1000.00', verificado: true, anulado: false, devuelto: '0.00' }],
+    }] };
+    return [];
+  });
+  render(<Productos />);
+  await screen.findByRole('button', { name: 'Vendido' });
+  reclamado = true;
+  act(() => notifySalesChanged({ action: 'reclamo', productoId: 7 }));
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Vendido' })).not.toBeInTheDocument());
+  // Está fuera de la lista activa, pero accesible desde el recuadro junto a Vendidos.
+  fireEvent.click((await screen.findAllByRole('button', { name: 'Perdidos/Re 1' }))[0]);
+  fireEvent.click(await screen.findByRole('button', { name: 'Ver constancia' }));
+  await screen.findByText('Venta #30 · Gonzalo (Jorge)');
+  expect(screen.getByText('Pagado por el comprador:')).toBeInTheDocument();
+  expect(screen.getByText('Confirmado')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Vender' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }));
+  reclamado = false;
+  act(() => notifySalesChanged({ action: 'reclamo', productoId: 7 }));
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Ver constancia' })).not.toBeInTheDocument());
+  fireEvent.click(screen.getByRole('button', { name: 'Todos 1' }));
+  await screen.findByRole('button', { name: 'Vendido' });
+});
 
 test('volver a Productos antes de 60 segundos no vuelve a pedir la lista', async () => {
   api.get.mockImplementation(async (url) => url === '/productos' ? [{ id: 7, tipo: 'iphone', tracking: [], valor: {}, detalle: {} }] : []);
