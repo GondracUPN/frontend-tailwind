@@ -9,6 +9,7 @@ import ProfitComparison from '../components/analytics/ProfitComparison';
 import FinancialDashboard from '../components/analytics/FinancialDashboard';
 import FinanzasPanel from '../components/finanzas/FinanzasPanel';
 import SaldosClientesPedido from '../components/finanzas/SaldosClientesPedido';
+import ProductosPedidoPendientes from '../components/finanzas/ProductosPedidoPendientes';
 import { getAnalyticsSummary, getPedidoSalesSummary, getSunatExchangeRate, invalidateAnalyticsCache } from '../services/analytics';
 
 import { TC_FIJO } from '../utils/tipoCambio';
@@ -3729,47 +3730,7 @@ Activo
  <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
  <div className="bg-white rounded-xl border shadow-sm p-5">
  <h3 className="text-base font-semibold mb-3">Productos en camino y faltos de pago</h3>
- <div className="overflow-x-auto">
- <table className="min-w-full text-sm">
- <thead>
- <tr className="text-left text-gray-500 border-b">
- <th className="py-2 pr-4">Fecha</th>
- <th className="py-2 pr-4">Cliente</th>
- <th className="py-2 pr-4">Código</th>
- <th className="py-2 pr-4">Producto</th>
- <th className="py-2 pr-4">Estado</th>
- <th className="py-2 pr-4">Venta</th>
- <th className="py-2 pr-4">Adelanto</th>
- <th className="py-2 pr-4">Saldo</th>
- </tr>
- </thead>
- <tbody>
- {pedidoCaminoRows.length ? pedidoCaminoRows.map((row) => {
- const estado = renderPedidoEstado(row);
- return (
- <tr key={row.id} className="border-b last:border-b-0">
- <td className="py-2 pr-4 whitespace-nowrap">{fmtDate(row.fecha)}</td>
- <td className="py-2 pr-4 font-medium">{row.cliente}</td>
- <td className="py-2 pr-4 whitespace-nowrap font-medium">{row.codigoProducto || (row.productoId ? `MS-${row.productoId}` : '-')}</td>
- <td className="py-2 pr-4">{row.producto || '-'}</td>
- <td className="py-2 pr-4">
- <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${estado.cls}`}>
- {estado.label}
- </span>
- </td>
- <td className="py-2 pr-4">{renderPedidoMoney(row, 'montoVenta')}</td>
- <td className="py-2 pr-4">{renderPedidoMoney(row, 'montoAdelanto')}</td>
- <td className="py-2 pr-4">{renderPedidoMoney(row, 'saldo')}</td>
- </tr>
- );
- }) : (
- <tr>
- <td className="py-3 text-gray-500" colSpan={8}>{pedidoLoading ? 'Cargando productos pendientes...' : 'No hay productos en camino o faltos de pago en este rango.'}</td>
- </tr>
- )}
- </tbody>
- </table>
- </div>
+ <ProductosPedidoPendientes rows={pedidoCaminoRows} loading={pedidoLoading} fmtDate={fmtDate} renderEstado={renderPedidoEstado} renderMoney={renderPedidoMoney} />
  </div>
 
  <div className="bg-white rounded-xl border shadow-sm p-5">
