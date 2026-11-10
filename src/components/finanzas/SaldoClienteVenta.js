@@ -1,4 +1,4 @@
-import { cambioSaldoAplicado } from '../../utils/saldoCambio';
+import { cambioSaldoAplicado, cambioVentaConSaldo } from '../../utils/saldoCambio';
 import { SALES_UPDATED_EVENT } from '../../utils/salesSync';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -40,6 +40,7 @@ export default function SaldoClienteVenta({
   const aplicar = aplicarSaldo ?? aplicarInterno;
   const [montoEditado, setMontoEditado] = useState(false);
   const [pagado, setPagado] = useState(''),
+    [tipoCambioAdicional, setTipoCambioAdicional] = useState(''),
     [fechaPago, setFechaPago] = useState(hoy),
     [cuenta, setCuenta] = useState(''),
     [cuentas, setCuentas] = useState([]);
@@ -72,6 +73,7 @@ export default function SaldoClienteVenta({
     setHistoria(null);
     setAplicar(false);
     setMontoEditado(false);
+    setTipoCambioAdicional('');
     setDevolver(false);
     cargar(() => activo);
     const actualizar = () => cargar(() => activo);
@@ -103,11 +105,23 @@ export default function SaldoClienteVenta({
     0,
     Math.round((Number(precio) - Number(monto || 0)) * 100) / 100,
   );
-  const cambio =
+  const cambioEnFecha =
     aplicar && externo
       ? cambioSaldoAplicado(historia?.saldos || [], Number(monto), dia)
       : null;
-  const tipoCambioSaldo = cambio?.tipoCambio;
+  const cambioHistorico = aplicar && externo
+    ? cambioSaldoAplicado(historia?.saldos || [], Number(monto), '9999-12-31') : null;
+  const cambio = cambioEnFecha || cambioHistorico;
+  const fechaInvalida = Boolean(cambioHistorico && !cambioEnFecha);
+  let acumulado = 0;
+  const fechaDisponible = [...(historia?.saldos || [])].filter(s => !s.anulada_at && Number(s.disponible) > 0)
+    .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).find(s => {
+      acumulado += Math.round(Number(s.disponible) * 100);
+      return acumulado >= Math.round(Number(monto) * 100);
+    })?.fecha;
+  const pideCambioAdicional = pagado === 'si' && restante > 0 && Math.round(restante * 100) >= Math.round(Number(monto) * 100);
+  const cambioVenta = pagado === 'si' ? cambioVentaConSaldo(cambio, restante, tipoCambioAdicional) : cambio;
+  const tipoCambioSaldo = cambioVenta?.tipoCambio;
   useEffect(() => {
     onChange?.({
       saldoDisponible: externo ? Number(historia?.disponible || 0) : 0,
@@ -123,12 +137,14 @@ export default function SaldoClienteVenta({
               pagoAdicional: pagado === 'si',
               fechaPago: pagado === 'si' ? fechaPago : undefined,
               cuentaId: pagado === 'si' ? Number(cuenta) : undefined,
+              tipoCambioPagoAdicional: pideCambioAdicional ? Number(tipoCambioAdicional) : undefined,
             }
           : undefined,
       valido:
         !aplicar ||
         Boolean(
           Number(tipoCambioSaldo) > 0 &&
+            !fechaInvalida &&
             Number(monto) > 0 &&
             Number(monto) <= Number(historia?.disponible || 0) &&
             Number(monto) <= Number(precio) &&
@@ -140,6 +156,9 @@ export default function SaldoClienteVenta({
   }, [
     selected,
     tipoCambioSaldo,
+    fechaInvalida,
+    pideCambioAdicional,
+    tipoCambioAdicional,
     aplicar,
     externo,
     monto,
@@ -281,6 +300,13 @@ export default function SaldoClienteVenta({
                 ))}
                 {cambio && <p>Equivalente histórico del saldo utilizado: US$ {cambio.equivalenteUsd.toFixed(2)}</p>}
               </div>
+              {fechaInvalida && <p role="alert" className="text-sm text-amber-800">
+                El saldo conserva su tipo de cambio, pero no hay importe suficiente disponible en la fecha elegida.
+                Revisa las fechas de origen del historial y elige una fecha de aplicación posterior a su recuperación.
+              </p>}
+              {fechaInvalida && fechaDisponible && <button type="button" className={btnCls} onClick={() => setDia(fechaDisponible)}>
+                Usar fecha disponible: {fecha(fechaDisponible)}
+              </button>}
               <Campo label="Fecha de aplicación del saldo">
                 <input
                   type="date"
@@ -313,6 +339,14 @@ export default function SaldoClienteVenta({
               )}
               {restante > 0 && pagado === 'si' && (
                 <>
+                  {pideCambioAdicional && <Campo label="Tipo de cambio del pago adicional">
+                    <input type="number" min="0.0001" step="0.0001" className={inputCls} value={tipoCambioAdicional}
+                      onChange={e => setTipoCambioAdicional(e.target.value)} />
+                  </Campo>}
+                  <p className="text-xs" aria-label="Tipo de cambio total de la venta">Tipo de cambio de la venta:{' '}
+                    <strong>{cambioVenta ? cambioVenta.tipoCambio.toFixed(4) : 'Ingresa el tipo de cambio del adicional'}</strong>
+                    {pideCambioAdicional ? ' · Combinado según el importe de cada parte' : ' · Se conserva el histórico porque el saldo es mayor'}
+                  </p>
                   <Campo label="Fecha del pago adicional">
                     <input
                       required

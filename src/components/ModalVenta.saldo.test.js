@@ -17,7 +17,8 @@ beforeEach(() => {
   localStorage.setItem('user', JSON.stringify({ role: 'admin' }));
   disponible = '2000.00';
   api.get.mockImplementation(async path => path.endsWith('/saldos')
-    ? { disponible, saldos: origenes, movimientos: [], devoluciones: [] } : []);
+    ? { disponible, saldos: origenes, movimientos: [], devoluciones: [] }
+    : path === '/finanzas/cuentas' ? [{ id: 1, nombre: 'BCP', tipo: 'banco', activo: true }] : []);
   api.post.mockImplementation(async (path, body) => path.endsWith('/resolver-pedido')
     ? { id: body.vendedor.includes('Jorge') ? 1 : 2, nombre: 'Jorge', clase: 'externo', admite_saldo: true }
     : { id: 999, ...body });
@@ -73,6 +74,24 @@ test('aplica parte del saldo, confirma la diferencia pendiente y permite volver 
   expect(screen.getByLabelText('Tipo de cambio')).toBeInTheDocument();
   expect(screen.getByLabelText('Banco donde ingresó la venta')).toBeInTheDocument();
   expect(screen.queryByLabelText('Saldo que se utilizará (S/)')).not.toBeInTheDocument();
+});
+
+test('envía el cambio del adicional cuando saldo y dinero nuevo son iguales', async () => {
+  render(<ModalVenta producto={producto} onClose={jest.fn()} onSaved={jest.fn()} />);
+  await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-11-10' } });
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1300' } });
+  fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: 'saldo_cliente' } });
+  fireEvent.change(await screen.findByLabelText('Saldo que se utilizará (S/)'), { target: { value: '650' } });
+  fireEvent.change(screen.getByLabelText(/¿El cliente ya pagó/), { target: { value: 'si' } });
+  fireEvent.change(screen.getByLabelText('Tipo de cambio del pago adicional'), { target: { value: '3.6' } });
+  await screen.findByRole('option', { name: 'BCP' });
+  fireEvent.change(screen.getByLabelText('Cuenta que recibe'), { target: { value: '1' } });
+  expect(screen.getByLabelText('Tipo de cambio total de la venta')).toHaveTextContent('3.4971');
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({
+    saldoCliente: expect.objectContaining({ monto: 650, pagoAdicional: true, tipoCambioPagoAdicional: 3.6 }),
+  })));
 });
 
 test('solo ofrece saldo a clientes con saldo positivo y desactiva su uso al cambiar comprador', async () => {

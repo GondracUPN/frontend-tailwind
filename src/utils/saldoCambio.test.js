@@ -1,4 +1,4 @@
-import { cambioSaldoAplicado } from './saldoCambio';
+import { cambioSaldoAplicado, cambioVentaConSaldo } from './saldoCambio';
 const saldos = [
   {
     id: 1,
@@ -33,4 +33,9 @@ test('consume primero el menor saldo disponible aunque tenga una fecha posterior
     { ...saldos[1], disponible: '500.00' },
   ], 800, '2026-11-12');
   expect(r.partes.map(p => [p.saldoId, p.monto])).toEqual([[2, 500], [1, 300]]);
+});
+test.each([[950, 350, 3.4], [650, 650, 3.4971], [350, 950, 3.5439]])('cambio de venta con saldo %s y adicional %s', (saldo, extra, esperado) => {
+  const historico = cambioSaldoAplicado(saldos, saldo, '2026-11-12');
+  const r = cambioVentaConSaldo(historico, extra, 3.6);
+  expect(r.tipoCambio).toBe(esperado);
 });

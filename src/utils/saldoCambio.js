@@ -1,4 +1,14 @@
 /* global BigInt:readonly */
+export function cambioVentaConSaldo(cambio, adicional, tipoCambioAdicional) {
+  if (!cambio) return null;
+  const saldo = cambio.partes.reduce((n, p) => n + Math.round(p.monto * 100), 0);
+  const extra = Math.round(Number(adicional) * 100);
+  if (extra <= 0 || extra < saldo) return cambio;
+  if (!(Number(tipoCambioAdicional) > 0)) return null;
+  const partes = cambio.partes.map(p => ({ id: p.saldoId, disponible: p.monto, tipo_cambio: p.tipoCambio, fecha: '0001-01-01' }));
+  partes.push({ id: -1, disponible: Number(adicional), tipo_cambio: Number(tipoCambioAdicional), fecha: '0001-01-01' });
+  return cambioSaldoAplicado(partes, (saldo + extra) / 100, '9999-12-31');
+}
 // Vista previa; el servidor vuelve a calcular con sus registros bajo bloqueo transaccional.
 export function cambioSaldoAplicado(saldos, monto, fecha) {
   let pendiente = Math.round(Number(monto) * 100);

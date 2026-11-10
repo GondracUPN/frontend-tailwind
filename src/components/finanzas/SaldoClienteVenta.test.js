@@ -117,6 +117,36 @@ test('Gonzalo (Jorge) consulta su saldo sin pedir otro selector de cliente', asy
     ),
   );
 });
+
+test('muestra el cambio histórico aunque la fecha elegida sea anterior a la recuperación', async () => {
+  finanzasApi.saldosCliente.mockResolvedValue({ disponible: '995.00', saldos: [{ ...saldo, disponible: '995.00', fecha: '2026-11-09' }], movimientos: [] });
+  const changed = jest.fn();
+  render(<SaldoClienteVenta vendedor="Gonzalo (Jorge)" precio={1300} onChange={changed} />);
+  fireEvent.click(await screen.findByLabelText('Aplicar saldo a favor'));
+  fireEvent.change(screen.getByLabelText('Saldo que se utilizará (S/)'), { target: { value: '950' } });
+  fireEvent.change(screen.getByLabelText('Fecha de aplicación del saldo'), { target: { value: '2026-10-27' } });
+  expect(screen.getByLabelText('Cambio histórico del saldo')).toHaveTextContent('3.4000');
+  expect(screen.getByRole('alert')).toHaveTextContent('fecha elegida');
+  await waitFor(() => expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ valido: false })));
+  fireEvent.click(screen.getByRole('button', { name: /Usar fecha disponible/ }));
+  expect(screen.getByLabelText('Fecha de aplicación del saldo')).toHaveValue('2026-11-09');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+test.each([[950, 350, false], [650, 650, true], [350, 950, true]])('pide cambio adicional solo cuando corresponde: saldo %s, adicional %s', async (usado, extra, pide) => {
+  render(<SaldoClienteVenta vendedor="Gonzalo (Jorge)" precio={usado + extra} />);
+  fireEvent.click(await screen.findByLabelText('Aplicar saldo a favor'));
+  fireEvent.change(screen.getByLabelText('Saldo que se utilizará (S/)'), { target: { value: String(usado) } });
+  fireEvent.change(screen.getByLabelText(/¿El cliente ya pagó/), { target: { value: 'si' } });
+  if (pide) {
+    fireEvent.change(screen.getByLabelText('Tipo de cambio del pago adicional'), { target: { value: '3.6' } });
+    const esperado = Number(((usado + extra) / (usado / 3.4 + extra / 3.6)).toFixed(4));
+    expect(screen.getByLabelText('Tipo de cambio total de la venta')).toHaveTextContent(esperado.toFixed(4));
+  } else {
+    expect(screen.queryByLabelText('Tipo de cambio del pago adicional')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Tipo de cambio total de la venta')).toHaveTextContent('3.4000');
+  }
+});
 test.each(['Gonzalo', 'Renato', 'ambos'])(
   '%s no ofrece controles de saldo ni registra otro comprador',
   (vendedor) => {
