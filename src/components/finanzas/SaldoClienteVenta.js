@@ -1,4 +1,5 @@
 import { cambioSaldoAplicado } from '../../utils/saldoCambio';
+import { SALES_UPDATED_EVENT } from '../../utils/salesSync';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   finanzasApi,
@@ -69,8 +70,11 @@ export default function SaldoClienteVenta({
     setAplicar(false);
     setDevolver(false);
     cargar(() => activo);
+    const actualizar = () => cargar(() => activo);
+    window.addEventListener(SALES_UPDATED_EVENT, actualizar);
     return () => {
       activo = false;
+      window.removeEventListener(SALES_UPDATED_EVENT, actualizar);
     };
   }, [cargar]);
   useEffect(() => {

@@ -2,6 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import SaldoClienteVenta from './SaldoClienteVenta';
 import { finanzasApi } from '../../services/finanzas';
+import { notifySalesChanged } from '../../utils/salesSync';
 jest.mock('../../services/finanzas', () => ({
   finanzasApi: {
     resolverClientePedido: jest.fn(),
@@ -53,6 +54,15 @@ beforeEach(() => {
     { id: 1, nombre: 'Banco', activo: true, tipo: 'banco' },
   ]);
 });
+test('actualiza el saldo visible al abrir un reclamo sin remontar el panel', async () => {
+  finanzasApi.saldosCliente.mockResolvedValueOnce({ disponible: '0.00', saldos: [], movimientos: [] });
+  render(<SaldoClienteVenta ventaId={50} vendedor="Gonzalo (Jorge)" precio={0} />);
+  await screen.findByText('Jorge tiene S/ 0.00 a favor');
+  notifySalesChanged({ action: 'reclamo', productoId: 476 });
+  await screen.findByText('Jorge tiene S/ 1,000.00 a favor');
+  expect(finanzasApi.saldosCliente).toHaveBeenCalledTimes(2);
+});
+
 test('Gonzalo (Jorge) consulta su saldo sin pedir otro selector de cliente', async () => {
   const changed = jest.fn();
   render(
