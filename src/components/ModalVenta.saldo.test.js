@@ -72,7 +72,7 @@ test('aplica parte del saldo, confirma la diferencia pendiente y permite volver 
   expect(screen.getByText(/Diferencia pendiente:/)).toHaveTextContent('S/ 1,000.00');
   fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: 'direct' } });
   expect(screen.getByLabelText('Tipo de cambio')).toBeInTheDocument();
-  expect(screen.getByLabelText('Banco donde ingresó la venta')).toBeInTheDocument();
+  expect(screen.queryByLabelText('Banco donde ingresó la venta')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Saldo que se utilizará (S/)')).not.toBeInTheDocument();
 });
 

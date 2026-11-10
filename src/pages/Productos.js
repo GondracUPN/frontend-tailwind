@@ -2098,7 +2098,8 @@ const confirmAction = async () => {
     };
     window.addEventListener('app-view-activated', handleViewActivated);
     window.addEventListener('ventas-updated', salesChanged);
-    return () => { window.removeEventListener('app-view-activated', handleViewActivated); window.removeEventListener('ventas-updated', salesChanged); };
+    window.addEventListener('gastos:changed', salesChanged);
+    return () => { window.removeEventListener('app-view-activated', handleViewActivated); window.removeEventListener('ventas-updated', salesChanged); window.removeEventListener('gastos:changed', salesChanged); };
   }, [refreshProductos, fetchResumen]);
 
   // Carga inicial: intenta cache, pero si no hay data hace fetch
@@ -3383,7 +3384,7 @@ const confirmAction = async () => {
                         let className = 'bg-gray-100 text-gray-500 border border-gray-200 cursor-not-allowed';
                         let disabled = true;
 
-                        if ((accessoryAvailable || recogido) && (accessoryAvailable || !venta) && !adelanto) {
+                        if ((accessoryAvailable || recogido || isPedidoSeller(p.vendedor)) && (accessoryAvailable || !venta) && !adelanto) {
                           text = accessoryAvailable ? `Vender (${p.stockActual})` : 'Vender';
                           className = 'bg-emerald-600 text-white font-semibold hover:bg-emerald-700';
                           disabled = false;
@@ -3394,8 +3395,8 @@ const confirmAction = async () => {
                           disabled = false;
                         }
                         if (venta) {
-                          text = 'Vendido';
-                          className = 'bg-slate-100 text-slate-700 hover:bg-slate-200';
+                          text = Number(venta.deudaCliente) > 0 ? 'Deuda' : 'Vendido';
+                          className = Number(venta.deudaCliente) > 0 ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200';
                           disabled = false;
                         }
 
@@ -4593,7 +4594,7 @@ const confirmAction = async () => {
                           {venta ? (
                             <span className="inline-flex flex-wrap gap-1 items-center">
                               <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs">
-                                Vendido
+                                {Number(venta.deudaCliente) > 0 ? 'Deuda' : 'Vendido'}
                               </span>
                               <span>{ventaNombre || '-'}</span>
                             </span>

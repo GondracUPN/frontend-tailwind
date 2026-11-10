@@ -367,7 +367,6 @@ test('elige Jorge para pagar un accesorio con saldo conservando el propietario d
 test.each([
   ['card', 'pagado', null, { incomeParts: [{ type: 'card', amount: 1000 }] }],
   ['cash', 'pagado', null, { incomeParts: [{ type: 'cash', amount: 1000 }] }],
-  ['card', 'parcial', '250', { incomeParts: [{ type: 'card', amount: 250 }, { type: 'debt', amount: 750 }] }],
   ['debt', null, null, { incomePaymentType: 'debt' }],
 ])('permite elegir la forma de pago %s (%s) al vender', async (forma, estado, pagado, esperado) => {
   api.get.mockResolvedValue({ ventas: [] });
@@ -377,8 +376,7 @@ test.each([
   fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-11-01' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1000' } });
   fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: forma } });
-  if (forma === 'debt') expect(screen.queryByLabelText('Estado del pago')).not.toBeInTheDocument();
-  else fireEvent.change(screen.getByLabelText('Estado del pago'), { target: { value: estado } });
+  expect(screen.queryByLabelText('Estado del pago')).not.toBeInTheDocument();
   if (pagado) fireEvent.change(screen.getByLabelText('Importe pagado por el cliente (S/)'), { target: { value: pagado } });
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
   await waitFor(() => expect(saved).toHaveBeenCalled());
@@ -399,7 +397,8 @@ test.each(['pagado', 'parcial', 'pendiente'])('registra explícitamente el cobro
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
   await waitFor(() => expect(saved).toHaveBeenCalled());
   const body = api.post.mock.calls.find(([path]) => path === '/ventas')[1];
-  if (estado === 'parcial') expect(body.incomeParts).toEqual([{ type: 'direct', amount: 250 }, { type: 'debt', amount: 750 }]);
+  expect(body.incomeBank).toBe('efectivo');
+  if (estado === 'parcial') expect(body.incomeParts).toEqual([{ type: 'direct', amount: 250 }, { type: 'cash', amount: 750 }]);
   else if (estado === 'pendiente') expect(body.incomeParts).toEqual([{ type: 'cash', amount: 1000 }]);
-  else expect(body.incomePaymentType).toBe('direct');
+  else expect(body.incomeParts).toEqual([{ type: 'direct', amount: 1000 }]);
 });

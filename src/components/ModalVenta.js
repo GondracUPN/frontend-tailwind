@@ -129,12 +129,13 @@ export default function ModalVenta({
       })
       : String(producto.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN')
     : consumedLots.some(({ lot }) => String(lot.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN'));
+  const esClientePedido = Boolean(pedidoClientFromSeller(effectiveSeller));
   const usaCambioSaldo = !venta && formaPago === 'saldo_cliente';
   const solicitarTipoCambio = requiresExchangeRate && !usaCambioSaldo;
   useEffect(() => {
     setFormaPago(actual => actual === 'saldo_cliente' ? 'direct' : actual);
     setCreditoCliente({ valido: true });
-    if (!venta && pedidoClientFromSeller(effectiveSeller)) setEstadoPago('pendiente');
+    if (!venta) setEstadoPago(pedidoClientFromSeller(effectiveSeller) ? 'pendiente' : 'pagado');
   }, [effectiveSeller, venta]);
 
   useEffect(() => {
@@ -298,7 +299,16 @@ export default function ModalVenta({
       // La deuda pendiente del cliente se registra en efectivo; x500 solo si se elige expresamente.
       // Directo y x500 usan el mismo camino de siempre (incomePaymentType); tarjeta y efectivo van por partes.
       const total = Number(form.precioVenta);
-      if (formaPago === 'debt') body.incomePaymentType = 'debt';
+      if (esClientePedido && !usaCambioSaldo) {
+        const pagado = estadoPago === 'pagado' ? total : estadoPago === 'parcial' ? Number(montoPagado) : 0;
+        body.incomeBank = 'efectivo';
+        body.incomeMethod = 'efectivo';
+        body.incomeParts = [
+          ...(pagado > 0 ? [{ type: 'direct', amount: pagado }] : []),
+          ...(pagado < total ? [{ type: 'cash', amount: Number((total - pagado).toFixed(2)) }] : []),
+        ];
+      }
+      else if (formaPago === 'debt') body.incomePaymentType = 'debt';
       else if (estadoPago === 'pendiente') body.incomeParts = [{ type: 'cash', amount: total }];
       else if (estadoPago === 'parcial') body.incomeParts = [{ type: formaPago, amount: Number(montoPagado) },
         { type: 'debt', amount: Number((total - Number(montoPagado)).toFixed(2)) }];
@@ -559,6 +569,32 @@ export default function ModalVenta({
 
   const renderSingleFields = () => (
     <>
+      {esClientePedido && !venta && !usaCambioSaldo && (<>
+          <label htmlFor="venta-estado-pago" className="block font-medium mb-1">Estado del pago</label>
+          <select id="venta-estado-pago" className="mb-3 w-full rounded border p-2" value={estadoPago} onChange={e => setEstadoPago(e.target.value)}>
+            <option value="pagado">Pagado</option>
+            <option value="parcial">Pago parcial</option>
+            <option value="pendiente">No pagó</option>
+          </select>
+          </>)}
+      {!accessoryCreate && esClientePedido && <div>
+        <label htmlFor="venta-precio" className="block font-medium mb-1">Precio de venta (S/)</label>
+        <input
+          id="venta-precio"
+          type="number"
+          step="0.01"
+          className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          value={form.precioVenta}
+          onChange={(e) => onChange('precioVenta', e.target.value)}
+        />
+      </div>}
+      {esClientePedido && !venta && !usaCambioSaldo && (estadoPago === 'parcial' && <div className="mb-3">
+            <label htmlFor="venta-monto-pagado" className="block font-medium mb-1">Importe pagado por el cliente (S/)</label>
+            <input id="venta-monto-pagado" type="number" min="0.01" step="0.01" max={form.precioVenta} className="w-full rounded border p-2" value={montoPagado} onChange={e => setMontoPagado(e.target.value)} />
+            <p className="text-sm text-gray-600">Deuda: S/ {Math.max(0, Number(form.precioVenta || 0) - Number(montoPagado || 0)).toFixed(2)}</p>
+          </div>)}
+      {esClientePedido && !venta && !usaCambioSaldo && estadoPago === 'pendiente' && (
+        <p className="mb-3 text-sm text-gray-600">Deuda: S/ {Number(form.precioVenta || 0).toFixed(2)}. No se registra dinero recibido.</p>)}
       {accessoryLotPicker}
       {accessoryCreate && <label className="block text-sm font-medium">Precio por unidad (S/)<input type="number" min="0" step="0.01" className="w-full rounded border p-2" value={form.precioVenta === '' ? '' : Number((Number(form.precioVenta) / Math.max(1, Number(form.cantidad))).toFixed(2))} onChange={(event) => onChange('precioVenta', event.target.value === '' ? '' : String(Number((Number(event.target.value) * Number(form.cantidad || 1)).toFixed(2))))} /></label>}
       {solicitarTipoCambio && <div>
@@ -582,7 +618,7 @@ export default function ModalVenta({
           onChange={(e) => onChange('fechaVenta', e.target.value)}
         />
       </div>
-      {!accessoryCreate && <div>
+      {!accessoryCreate && !esClientePedido && <div>
         <label htmlFor="venta-precio" className="block font-medium mb-1">Precio de venta (S/)</label>
         <input
           id="venta-precio"
@@ -603,30 +639,21 @@ export default function ModalVenta({
       )}
       {!venta && saleExpenseOwner(form.vendedor || producto?.vendedor || presetVendedor) && (
         <div>
+          {(!esClientePedido || Number(creditoCliente.saldoDisponible) > 0) && <>
           <label htmlFor="venta-forma-pago" className="block font-medium mb-1">Forma de pago</label>
           <select id="venta-forma-pago" className="mb-3 w-full rounded border p-2" value={formaPago} onChange={e => setFormaPago(e.target.value)}>
             <option value="direct">Directo (transferencia / Yape)</option>
+            {!esClientePedido && <>
             <option value="card">Tarjeta de crédito</option>
             <option value="cash">Efectivo</option>
             <option value="debt">x500 (paga en partes)</option>
+            </>}
             {creditoCliente.admiteSaldo && creditoCliente.saldoDisponible > 0 && <option value="saldo_cliente">Saldo a favor del cliente</option>}
           </select>
+          </>}
           <SaldoClienteVenta vendedor={effectiveSeller} precio={Number(form.precioVenta || 0)} onChange={setCreditoCliente} aplicarSaldo={usaCambioSaldo} />
           {!usaCambioSaldo && <>
-          {formaPago !== 'debt' && <>
-          <label htmlFor="venta-estado-pago" className="block font-medium mb-1">Estado del pago</label>
-          <select id="venta-estado-pago" className="mb-3 w-full rounded border p-2" value={estadoPago} onChange={e => setEstadoPago(e.target.value)}>
-            <option value="pagado">Pagado por el cliente</option>
-            <option value="parcial">Pago parcial</option>
-            <option value="pendiente">Pendiente: el cliente todavía no pagó</option>
-          </select>
-          </>}
-          {formaPago === 'debt' && <p className="mb-3 text-xs text-gray-600">El total queda como cobro x500; registra cada pago en Gastos cuando llegue.</p>}
-          {formaPago !== 'debt' && estadoPago === 'parcial' && <div className="mb-3">
-            <label htmlFor="venta-monto-pagado" className="block font-medium mb-1">Importe pagado por el cliente (S/)</label>
-            <input id="venta-monto-pagado" type="number" min="0.01" step="0.01" max={form.precioVenta} className="w-full rounded border p-2" value={montoPagado} onChange={e => setMontoPagado(e.target.value)} />
-            <p className="text-sm text-gray-600">Sin pagar: S/ {Math.max(0, Number(form.precioVenta || 0) - Number(montoPagado || 0)).toFixed(2)}</p>
-          </div>}
+          {!esClientePedido && <>
           <label htmlFor="venta-banco-ingreso" className="block font-medium mb-1">Banco donde ingresó la venta</label>
           <select
             id="venta-banco-ingreso"
@@ -639,6 +666,7 @@ export default function ModalVenta({
             <option value="bbva">BBVA</option>
           </select>
           <div className="mt-1 text-xs text-gray-600">{estadoPago === 'pendiente' && formaPago !== 'debt' ? 'La venta queda como deuda en efectivo del cliente. No se registra dinero recibido.' : 'El ingreso automático se registrará en esta cuenta.'}</div>
+          </>}
           </>}
         </div>
       )}
