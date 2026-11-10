@@ -16,7 +16,7 @@ test('el reclamo mueve el producto a Perdidos/Re y permite consultar sus cobros 
     if (url === '/ventas/ultimas') return reclamado ? [] : [{ id: 30, productoId: 7, precioVenta: 1000 }];
     if (url.startsWith('/productos/resumen')) return { total: reclamado ? 0 : 1, vendido: reclamado ? 0 : 1 };
     if (url === '/ventas/producto/7/constancia') return { ventas: [{
-      id: 30, vendedor: 'Gonzalo (Jorge)', precioVenta: '1000.00', pagado: '1000.00',
+      id: 30, vendedor: 'Gonzalo (Jorge)', precioVenta: '1000.00', tipoCambio: '3.4000', pagado: '1000.00',
       saldoGenerado: '1000.00', saldoDisponible: '1000.00', fechaVenta: '2026-10-17', estadoComercial: 'cancelada',
       pagos: [{ id: 1, fecha: '2026-10-17', monto: '1000.00', verificado: true, anulado: false, devuelto: '0.00' }],
     }] };
@@ -33,6 +33,7 @@ test('el reclamo mueve el producto a Perdidos/Re y permite consultar sus cobros 
   await screen.findByText('Venta #30 · Gonzalo (Jorge)');
   expect(screen.getByText('Pagado por el comprador:')).toBeInTheDocument();
   expect(screen.getByText('Confirmado')).toBeInTheDocument();
+  expect(screen.getByText('S/ 3.4000 por US$ 1')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Vender' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }));
   reclamado = false;
