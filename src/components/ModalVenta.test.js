@@ -331,7 +331,8 @@ test('una venta cubierta con saldo usa el TC guardado sin pedir ni enviar uno ma
   api.get.mockResolvedValue({disponible:'1000.00',saldos:[{id:1,sku:476,original:'1000.00',disponible:'1000.00',fecha:'2026-01-01',tipo_cambio:'3.4000'}],movimientos:[],ventas:[]});
   const saved=jest.fn();render(<ModalVenta producto={{id:550,tipo:'macbook',vendedor:'Gonzalo (Jorge)',valor:{monedaCompra:'USD',valorProducto:200,costoEnvio:0}}} onSaved={saved} onClose={jest.fn()} />);
   fireEvent.change(screen.getByLabelText('Fecha de venta'),{target:{value:'2026-11-12'}});fireEvent.change(screen.getByLabelText('Precio de venta (S/)'),{target:{value:'1000'}});
-  fireEvent.click(await screen.findByLabelText('Aplicar saldo a favor'));
+  await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
+  fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: 'saldo_cliente' } });
   await waitFor(()=>expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument());
   expect(screen.getByLabelText('Cambio histórico del saldo')).toHaveTextContent('3.4000');
   fireEvent.click(screen.getByRole('button',{name:'Guardar'}));await waitFor(()=>expect(saved).toHaveBeenCalled());
@@ -352,7 +353,8 @@ test('elige Jorge para pagar un accesorio con saldo conservando el propietario d
   fireEvent.change(screen.getByLabelText('Comprador de la venta'), { target: { value: 'Gonzalo (Jorge)' } });
   fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '30' } });
   fireEvent.change(document.querySelector('input[type="date"]'), { target: { value: '2026-11-12' } });
-  fireEvent.click(await screen.findByLabelText('Aplicar saldo a favor'));
+  await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
+  fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: 'saldo_cliente' } });
   await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
   await waitFor(() => expect(saved).toHaveBeenCalled());

@@ -129,8 +129,11 @@ export default function ModalVenta({
       })
       : String(producto.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN')
     : consumedLots.some(({ lot }) => String(lot.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN'));
-  const usaCambioSaldo = !venta && Boolean(creditoCliente.saldoCliente);
+  const usaCambioSaldo = !venta && formaPago === 'saldo_cliente';
   const solicitarTipoCambio = requiresExchangeRate && !usaCambioSaldo;
+  useEffect(() => {
+    setFormaPago(actual => actual === 'saldo_cliente' ? 'direct' : actual);
+  }, [effectiveSeller]);
 
   useEffect(() => {
     setPriceEdited(false);
@@ -272,6 +275,9 @@ export default function ModalVenta({
 
   const handleSaveCreate = async () => {
     if (saving || !validate()) return;
+    if (usaCambioSaldo && (!creditoCliente.saldoCliente || !creditoCliente.valido)) {
+      alert('Completa el importe de saldo y confirma si se pagó la diferencia.'); return;
+    }
     if (!creditoCliente.saldoCliente && formaPago !== 'debt' && estadoPago === 'parcial' &&
       (!(Number(montoPagado) > 0) || Number(montoPagado) >= Number(form.precioVenta))) {
       alert('Indica cuánto pagó el cliente: debe ser mayor que cero y menor que el precio total.'); return;
@@ -324,6 +330,7 @@ export default function ModalVenta({
       if (!creditoCliente.valido) throw new Error('Completa la aplicación del saldo y confirma si se pagó la diferencia.');
       if (creditoCliente.clienteId) body.clienteId = creditoCliente.clienteId;
       if (creditoCliente.saldoCliente) {
+        delete body.incomeBank;
         delete body.incomePaymentType;
         delete body.incomeParts;
         body.saldoCliente = creditoCliente.saldoCliente;
@@ -592,7 +599,7 @@ export default function ModalVenta({
           <div className="col-span-2 text-xs text-indigo-800">Stock disponible: {producto.stockActual || 0}.</div>
         </div>
       )}
-      {!venta && !creditoCliente.saldoCliente && saleExpenseOwner(form.vendedor || producto?.vendedor || presetVendedor) && (
+      {!venta && saleExpenseOwner(form.vendedor || producto?.vendedor || presetVendedor) && (
         <div>
           <label htmlFor="venta-forma-pago" className="block font-medium mb-1">Forma de pago</label>
           <select id="venta-forma-pago" className="mb-3 w-full rounded border p-2" value={formaPago} onChange={e => setFormaPago(e.target.value)}>
@@ -600,7 +607,10 @@ export default function ModalVenta({
             <option value="card">Tarjeta de crédito</option>
             <option value="cash">Efectivo</option>
             <option value="debt">x500 (paga en partes)</option>
+            {creditoCliente.admiteSaldo && creditoCliente.saldoDisponible > 0 && <option value="saldo_cliente">Saldo a favor del cliente</option>}
           </select>
+          <SaldoClienteVenta vendedor={effectiveSeller} precio={Number(form.precioVenta || 0)} onChange={setCreditoCliente} aplicarSaldo={usaCambioSaldo} />
+          {!usaCambioSaldo && <>
           {formaPago !== 'debt' && <>
           <label htmlFor="venta-estado-pago" className="block font-medium mb-1">Estado del pago</label>
           <select id="venta-estado-pago" className="mb-3 w-full rounded border p-2" value={estadoPago} onChange={e => setEstadoPago(e.target.value)}>
@@ -627,6 +637,7 @@ export default function ModalVenta({
             <option value="bbva">BBVA</option>
           </select>
           <div className="mt-1 text-xs text-gray-600">El ingreso automático se registrará en esta cuenta.</div>
+          </>}
         </div>
       )}
     </>
@@ -740,7 +751,6 @@ export default function ModalVenta({
           <div className={accessoryCreate ? 'grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]' : ''}>
             <div className="space-y-4">
               {renderSellerField()}
-              <SaldoClienteVenta vendedor={form.vendedor || effectiveSeller} precio={Number(form.precioVenta || 0)} onChange={setCreditoCliente} />
               {accessoryCreate && <div aria-label="Cotización del accesorio" className="rounded-lg border p-3 text-sm" aria-live="polite">
                 {quotation.loading ? <p>Cotizando…</p> : quotation.error ? <p role="alert">{quotation.error}</p> : <>
                   <p>Costo total: S/ {fmtMoney(quotation.quote?.costoTotal)}</p>

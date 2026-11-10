@@ -24,6 +24,7 @@ export default function SaldoClienteVenta({
   precio = 0,
   onChange,
   onDone,
+  aplicarSaldo,
 }) {
   const contexto = `${ventaId || ''}:${vendedor || ''}`;
   const contextoActual = useRef(contexto);
@@ -33,9 +34,11 @@ export default function SaldoClienteVenta({
   const [historia, setHistoria] = useState(null),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
-  const [aplicar, setAplicar] = useState(false),
+  const [aplicarInterno, setAplicar] = useState(false),
     [monto, setMonto] = useState(''),
     [dia, setDia] = useState(hoy);
+  const aplicar = aplicarSaldo ?? aplicarInterno;
+  const [montoEditado, setMontoEditado] = useState(false);
   const [pagado, setPagado] = useState(''),
     [fechaPago, setFechaPago] = useState(hoy),
     [cuenta, setCuenta] = useState(''),
@@ -68,6 +71,7 @@ export default function SaldoClienteVenta({
     setCliente(null);
     setHistoria(null);
     setAplicar(false);
+    setMontoEditado(false);
     setDevolver(false);
     cargar(() => activo);
     const actualizar = () => cargar(() => activo);
@@ -77,6 +81,16 @@ export default function SaldoClienteVenta({
       window.removeEventListener(SALES_UPDATED_EVENT, actualizar);
     };
   }, [cargar]);
+  useEffect(() => {
+    if (aplicarSaldo === undefined) return;
+    if (!aplicarSaldo) {
+      setMontoEditado(false);
+      setPagado('');
+      return;
+    }
+    const limite = Math.min(Number(historia?.disponible || 0), Number(precio));
+    if (!montoEditado || Number(monto) > limite) setMonto(limite > 0 ? String(limite) : '');
+  }, [aplicarSaldo, historia?.disponible, precio, montoEditado, monto]);
   useEffect(() => {
     if (!autorizado || !aplicar) return;
     finanzasApi
@@ -96,6 +110,8 @@ export default function SaldoClienteVenta({
   const tipoCambioSaldo = cambio?.tipoCambio;
   useEffect(() => {
     onChange?.({
+      saldoDisponible: externo ? Number(historia?.disponible || 0) : 0,
+      admiteSaldo: Boolean(externo),
       tipoCambioSaldo,
       clienteId: selected ? Number(selected) : undefined,
       saldoCliente:
@@ -139,6 +155,7 @@ export default function SaldoClienteVenta({
   ]);
   if (!autorizado || (!ventaId && !esPedido)) return null;
   if (!cliente) return error ? <ErrorBox error={error} /> : null;
+  if (aplicarSaldo !== undefined && historia && Number(historia.disponible) <= 0) return error ? <ErrorBox error={error} /> : null;
   // Venta ya pagada: no hay nada a qué aplicar el saldo; solo se resume y se ofrece el historial plegado.
   const compacto = Boolean(ventaId) && !(Number(precio) > 0);
   if (compacto && !externo) return error ? <ErrorBox error={error} /> : null;
@@ -197,7 +214,7 @@ export default function SaldoClienteVenta({
             <summary className="cursor-pointer">Historial de productos devueltos de {cliente.nombre}</summary>
             {historial}
           </details>}
-          {Number(historia.disponible) > 0 && Number(precio) > 0 && (
+          {aplicarSaldo === undefined && Number(historia.disponible) > 0 && Number(precio) > 0 && (
             <label className="flex gap-2">
               <input
                 type="checkbox"
@@ -225,7 +242,7 @@ export default function SaldoClienteVenta({
                   max={Math.min(Number(historia.disponible), Number(precio))}
                   className={inputCls}
                   value={monto}
-                  onChange={(e) => setMonto(e.target.value)}
+                  onChange={(e) => { setMontoEditado(true); setMonto(e.target.value); }}
                 />
               </Campo>
               <div
@@ -244,6 +261,7 @@ export default function SaldoClienteVenta({
                     {p.tipoCambio.toFixed(4)}
                   </p>
                 ))}
+                {cambio && <p>Equivalente histórico del saldo utilizado: US$ {cambio.equivalenteUsd.toFixed(2)}</p>}
               </div>
               <Campo label="Fecha de aplicación del saldo">
                 <input
