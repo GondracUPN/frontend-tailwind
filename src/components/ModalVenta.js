@@ -134,14 +134,15 @@ export default function ModalVenta({
   useEffect(() => {
     setFormaPago(actual => actual === 'saldo_cliente' ? 'direct' : actual);
     setCreditoCliente({ valido: true });
-  }, [effectiveSeller]);
+    if (!venta && pedidoClientFromSeller(effectiveSeller)) setEstadoPago('pendiente');
+  }, [effectiveSeller, venta]);
 
   useEffect(() => {
     setPriceEdited(false);
-    setEstadoPago('pagado');
     setFormaPago('direct');
     setMontoPagado('');
     const initialSeller = resolvedSaleSeller(venta?.vendedor, producto?.vendedor, presetVendedor);
+    setEstadoPago(pedidoClientFromSeller(initialSeller) ? 'pendiente' : 'pagado');
     if (venta) {
       setForm({
         tipoCambio: venta.tipoCambio != null ? String(venta.tipoCambio) : '',

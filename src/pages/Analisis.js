@@ -3735,6 +3735,7 @@ Activo
  <tr className="text-left text-gray-500 border-b">
  <th className="py-2 pr-4">Fecha</th>
  <th className="py-2 pr-4">Cliente</th>
+ <th className="py-2 pr-4">Código</th>
  <th className="py-2 pr-4">Producto</th>
  <th className="py-2 pr-4">Estado</th>
  <th className="py-2 pr-4">Venta</th>
@@ -3749,6 +3750,7 @@ Activo
  <tr key={row.id} className="border-b last:border-b-0">
  <td className="py-2 pr-4 whitespace-nowrap">{fmtDate(row.fecha)}</td>
  <td className="py-2 pr-4 font-medium">{row.cliente}</td>
+ <td className="py-2 pr-4 whitespace-nowrap font-medium">{row.codigoProducto || (row.productoId ? `MS-${row.productoId}` : '-')}</td>
  <td className="py-2 pr-4">{row.producto || '-'}</td>
  <td className="py-2 pr-4">
  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${estado.cls}`}>
@@ -3762,7 +3764,7 @@ Activo
  );
  }) : (
  <tr>
- <td className="py-3 text-gray-500" colSpan={7}>{pedidoLoading ? 'Cargando productos pendientes...' : 'No hay productos en camino o faltos de pago en este rango.'}</td>
+ <td className="py-3 text-gray-500" colSpan={8}>{pedidoLoading ? 'Cargando productos pendientes...' : 'No hay productos en camino o faltos de pago en este rango.'}</td>
  </tr>
  )}
  </tbody>

@@ -24,6 +24,19 @@ beforeEach(() => {
   window.alert = jest.fn();
 });
 
+test('un pedido nuevo empieza pendiente y no supone un cobro directo al guardar', async () => {
+  render(<ModalVenta producto={producto} onClose={jest.fn()} onSaved={jest.fn()} />);
+  await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
+  expect(screen.getByLabelText('Estado del pago')).toHaveValue('pendiente');
+  fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.4' } });
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-11-10' } });
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1300' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({
+    precioVenta: 1300, incomePaymentType: 'debt',
+  })));
+});
+
 test('elige saldo como forma de pago y conserva el cambio proporcional de los orígenes consumidos', async () => {
   render(<ModalVenta producto={producto} onClose={jest.fn()} onSaved={jest.fn()} />);
   await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
