@@ -126,11 +126,14 @@ test('muestra el cambio histórico aunque la fecha elegida sea anterior a la rec
   fireEvent.change(screen.getByLabelText('Saldo que se utilizará (S/)'), { target: { value: '950' } });
   fireEvent.change(screen.getByLabelText('Fecha de aplicación del saldo'), { target: { value: '2026-10-27' } });
   expect(screen.getByLabelText('Cambio histórico del saldo')).toHaveTextContent('3.4000');
-  expect(screen.getByRole('alert')).toHaveTextContent('fecha elegida');
-  await waitFor(() => expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ valido: false })));
-  fireEvent.click(screen.getByRole('button', { name: /Usar fecha disponible/ }));
-  expect(screen.getByLabelText('Fecha de aplicación del saldo')).toHaveValue('2026-11-09');
+  fireEvent.change(screen.getByLabelText(/¿El cliente ya pagó/), { target: { value: 'no' } });
+  expect(screen.getByLabelText('Fecha de aplicación del saldo')).toHaveValue('2026-10-27');
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  await waitFor(() => expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({
+    valido: true, tipoCambioSaldo: 3.4,
+    saldoCliente: expect.objectContaining({ monto: 950, fecha: '2026-10-27' }),
+  })));
+
 });
 
 test.each([[950, 350, false], [650, 650, true], [350, 950, true]])('pide cambio adicional solo cuando corresponde: saldo %s, adicional %s', async (usado, extra, pide) => {

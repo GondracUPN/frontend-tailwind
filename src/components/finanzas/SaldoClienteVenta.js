@@ -105,20 +105,9 @@ export default function SaldoClienteVenta({
     0,
     Math.round((Number(precio) - Number(monto || 0)) * 100) / 100,
   );
-  const cambioEnFecha =
-    aplicar && externo
-      ? cambioSaldoAplicado(historia?.saldos || [], Number(monto), dia)
-      : null;
-  const cambioHistorico = aplicar && externo
+  // La fecha efectiva puede preceder al registro tardío del saldo.
+  const cambio = aplicar && externo
     ? cambioSaldoAplicado(historia?.saldos || [], Number(monto), '9999-12-31') : null;
-  const cambio = cambioEnFecha || cambioHistorico;
-  const fechaInvalida = Boolean(cambioHistorico && !cambioEnFecha);
-  let acumulado = 0;
-  const fechaDisponible = [...(historia?.saldos || [])].filter(s => !s.anulada_at && Number(s.disponible) > 0)
-    .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).find(s => {
-      acumulado += Math.round(Number(s.disponible) * 100);
-      return acumulado >= Math.round(Number(monto) * 100);
-    })?.fecha;
   const pideCambioAdicional = pagado === 'si' && restante > 0 && Math.round(restante * 100) >= Math.round(Number(monto) * 100);
   const cambioVenta = pagado === 'si' ? cambioVentaConSaldo(cambio, restante, tipoCambioAdicional) : cambio;
   const tipoCambioSaldo = cambioVenta?.tipoCambio;
@@ -144,7 +133,7 @@ export default function SaldoClienteVenta({
         !aplicar ||
         Boolean(
           Number(tipoCambioSaldo) > 0 &&
-            !fechaInvalida &&
+            Boolean(dia) &&
             Number(monto) > 0 &&
             Number(monto) <= Number(historia?.disponible || 0) &&
             Number(monto) <= Number(precio) &&
@@ -156,7 +145,6 @@ export default function SaldoClienteVenta({
   }, [
     selected,
     tipoCambioSaldo,
-    fechaInvalida,
     pideCambioAdicional,
     tipoCambioAdicional,
     aplicar,
@@ -300,13 +288,6 @@ export default function SaldoClienteVenta({
                 ))}
                 {cambio && <p>Equivalente histórico del saldo utilizado: US$ {cambio.equivalenteUsd.toFixed(2)}</p>}
               </div>
-              {fechaInvalida && <p role="alert" className="text-sm text-amber-800">
-                El saldo conserva su tipo de cambio, pero no hay importe suficiente disponible en la fecha elegida.
-                Revisa las fechas de origen del historial y elige una fecha de aplicación posterior a su recuperación.
-              </p>}
-              {fechaInvalida && fechaDisponible && <button type="button" className={btnCls} onClick={() => setDia(fechaDisponible)}>
-                Usar fecha disponible: {fecha(fechaDisponible)}
-              </button>}
               <Campo label="Fecha de aplicación del saldo">
                 <input
                   type="date"
@@ -318,7 +299,7 @@ export default function SaldoClienteVenta({
               <p>
                 Saldo restante:{' '}
                 {money(Number(historia.disponible) - Number(monto || 0))} ·
-                Diferencia pendiente: {money(restante)}
+                Diferencia {pagado === 'si' ? 'pagada' : 'pendiente'}: {money(restante)}
               </p>
               {restante > 0 && (
                 <Campo

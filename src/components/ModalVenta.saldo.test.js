@@ -94,6 +94,27 @@ test('envía el cambio del adicional cuando saldo y dinero nuevo son iguales', a
   })));
 });
 
+test('guarda saldo y diferencia pagada con fechas anteriores al registro del saldo', async () => {
+  api.get.mockImplementation(async path => path.endsWith('/saldos')
+    ? { disponible: '995.00', saldos: [{ id: 1, sku: 483, fecha: '2026-11-09', disponible: '995.00', tipo_cambio: '3.4010' }], movimientos: [], devoluciones: [] }
+    : path === '/finanzas/cuentas' ? [{ id: 1, nombre: 'BCP', tipo: 'banco', activo: true }] : []);
+  render(<ModalVenta producto={producto} onClose={jest.fn()} onSaved={jest.fn()} />);
+  await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-10-27' } });
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1300' } });
+  fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: 'saldo_cliente' } });
+  fireEvent.change(await screen.findByLabelText('Fecha de aplicación del saldo'), { target: { value: '2026-10-27' } });
+  fireEvent.change(screen.getByLabelText(/¿El cliente ya pagó/), { target: { value: 'si' } });
+  fireEvent.change(screen.getByLabelText('Fecha del pago adicional'), { target: { value: '2026-10-27' } });
+  await screen.findByRole('option', { name: 'BCP' });
+  fireEvent.change(screen.getByLabelText('Cuenta que recibe'), { target: { value: '1' } });
+  expect(screen.getByText(/Diferencia pagada:/)).toHaveTextContent('S/ 305.00');
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({
+    saldoCliente: expect.objectContaining({ monto: 995, fecha: '2026-10-27', pagoAdicional: true, fechaPago: '2026-10-27' }),
+  })));
+});
+
 test('solo ofrece saldo a clientes con saldo positivo y desactiva su uso al cambiar comprador', async () => {
   const view = render(<ModalVenta producto={producto} onClose={jest.fn()} />);
   await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
