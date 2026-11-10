@@ -27,3 +27,10 @@ test('no usa fuentes futuras ni saldo inexistente', () => {
   expect(cambioSaldoAplicado(saldos, 1500, '2026-11-01')).toBeNull();
   expect(cambioSaldoAplicado(saldos, 2100, '2026-11-12')).toBeNull();
 });
+test('consume primero el menor saldo disponible aunque tenga una fecha posterior', () => {
+  const r = cambioSaldoAplicado([
+    { ...saldos[0], disponible: '2000.00' },
+    { ...saldos[1], disponible: '500.00' },
+  ], 800, '2026-11-12');
+  expect(r.partes.map(p => [p.saldoId, p.monto])).toEqual([[2, 500], [1, 300]]);
+});

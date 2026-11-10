@@ -160,6 +160,9 @@ export default function SaldoClienteVenta({
   const compacto = Boolean(ventaId) && !(Number(precio) > 0);
   if (compacto && !externo) return error ? <ErrorBox error={error} /> : null;
   const Contenedor = compacto ? 'details' : 'section';
+  const otrosSaldos = (historia?.saldos || []).filter(s => !s.anulada_at &&
+    !(historia?.devoluciones || []).some(d => d.venta_id != null
+      ? Number(d.venta_id) === Number(s.venta_id) : Number(d.sku) === Number(s.sku)));
   const historial = <>
     {(historia?.devoluciones || []).length ? <div className="overflow-x-auto">
       <table className="mt-2 w-full text-xs">
@@ -171,8 +174,22 @@ export default function SaldoClienteVenta({
         </tr>)}</tbody>
       </table>
     </div> : <p className="mt-2 text-sm text-slate-500">No hay productos devueltos.</p>}
-    <ul className="mt-2 space-y-1 text-xs">{(historia?.movimientos || []).filter(m => (historia.devoluciones || []).some(d => Number(d.sku) === Number(m.sku_origen))).map(m => <li key={m.id}>
+    {otrosSaldos.length > 0 && <div className="mt-3 overflow-x-auto">
+      <p className="text-xs font-semibold">Saldos recuperados de ventas anuladas y otros saldos</p>
+      <table className="mt-2 w-full text-xs" aria-label="Otros orígenes del saldo a favor">
+        <thead><tr><th>Producto / fecha</th><th>Saldo generado</th><th>Saldo disponible</th><th>Origen</th></tr></thead>
+        <tbody>{otrosSaldos.map(s => <tr key={s.id}>
+          <td>SKU {s.sku} · {fecha(s.fecha)}</td><td>{money(s.original)}</td><td>{money(s.disponible)}</td>
+          <td>{s.origen_saldo === 'saldo_recuperado' ? 'Saldo utilizado recuperado al anular la venta'
+            : s.origen_saldo === 'pago_recuperado' ? 'Dinero pagado recuperado al anular la venta'
+              : 'Pago convertido en saldo a favor'}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+    <p className="mt-2 text-xs font-medium">Total disponible de todos los orígenes: {money(historia?.disponible || 0)}</p>
+    <ul className="mt-2 space-y-1 text-xs">{(historia?.movimientos || []).map(m => <li key={m.id}>
       {fecha(m.fecha)} · {m.tipo === 'aplicacion' ? 'Saldo utilizado' : 'Dinero devuelto al cliente'} · SKU {m.sku_origen} → {m.sku_destino || 'cliente'} · {money(m.monto)}
+      {m.tipo === 'aplicacion' && m.saldo_recuperado && ' · Recuperado como saldo al anular la venta'}
     </li>)}</ul>
   </>;
   const ejecutar = async (fn) => {
@@ -204,6 +221,7 @@ export default function SaldoClienteVenta({
           {!compacto && <p className="font-semibold">
             Saldo a favor del cliente: {money(historia.disponible)}
           </p>}
+          {!compacto && Number(historia.disponible) > 0 && <p className="text-xs text-slate-600">Se utiliza primero el saldo disponible más pequeño y después los mayores.</p>}
           {!compacto && Number(historia.disponible) > 0 && !(Number(precio) > 0) && (
             <p className="text-xs text-slate-600">
               Ingresa el precio del nuevo producto para aplicar el saldo

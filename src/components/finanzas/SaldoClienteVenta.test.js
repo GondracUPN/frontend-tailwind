@@ -143,6 +143,22 @@ test('el historial muestra solo devoluciones y su parte pagada, sin saldos anula
   expect(screen.getByText('Importe sin pagar')).toBeInTheDocument();
   expect(screen.queryByText('TC histórico / estado')).not.toBeInTheDocument();
 });
+
+test('el desglose incluye el saldo recuperado al anular y el dinero adicional restituido', async () => {
+  finanzasApi.saldosCliente.mockResolvedValue({ disponible: '3440.00',
+    saldos: [
+      { ...saldo, id: 1, venta_id: 379, sku: 454, disponible: '690.00' },
+      { ...saldo, id: 2, venta_id: 416, sku: 477, original: '2450.00', disponible: '2450.00', origen_saldo: 'saldo_recuperado' },
+      { ...saldo, id: 3, venta_id: 416, sku: 477, original: '300.00', disponible: '300.00', origen_saldo: 'pago_recuperado' },
+    ], movimientos: [], devoluciones: [{ id: 5, venta_id: 379, sku: 454, fecha: '2026-10-17', precio_venta: '2140.00',
+      saldo_generado: '2140.00', disponible: '690.00', importe_sin_pagar: '0.00', estado: 'reclamo_abierto' }] });
+  render(<SaldoClienteVenta vendedor="Gonzalo (Jorge)" />);
+  await screen.findByText('Total disponible de todos los orígenes: S/ 3,440.00');
+  expect(screen.getByLabelText('Otros orígenes del saldo a favor')).toHaveTextContent('S/ 2,450.00');
+  expect(screen.getByLabelText('Otros orígenes del saldo a favor')).toHaveTextContent('S/ 300.00');
+  expect(screen.getByText('Saldo utilizado recuperado al anular la venta')).toBeInTheDocument();
+  expect(screen.getByText('Dinero pagado recuperado al anular la venta')).toBeInTheDocument();
+});
 test('en una venta ya pagada el saldo se resume en una línea plegable sin pedir el precio', async () => {
   render(<SaldoClienteVenta ventaId={50} vendedor="Gonzalo (Jorge)" precio={0} />);
   const resumen = await screen.findByText(/^Jorge tiene .*1,?000\.00 a favor$/);

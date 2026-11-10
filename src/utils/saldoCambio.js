@@ -9,6 +9,7 @@ export function cambioSaldoAplicado(saldos, monto, fecha) {
   const partes = [];
   const ordenados = [...saldos].sort(
     (a, b) =>
+      Math.round(Number(a.disponible) * 100) - Math.round(Number(b.disponible) * 100) ||
       String(a.fecha).localeCompare(String(b.fecha)) ||
       Number(a.id) - Number(b.id),
   );
