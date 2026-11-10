@@ -133,6 +133,7 @@ export default function ModalVenta({
   const solicitarTipoCambio = requiresExchangeRate && !usaCambioSaldo;
   useEffect(() => {
     setFormaPago(actual => actual === 'saldo_cliente' ? 'direct' : actual);
+    setCreditoCliente({ valido: true });
   }, [effectiveSeller]);
 
   useEffect(() => {
@@ -278,7 +279,7 @@ export default function ModalVenta({
     if (usaCambioSaldo && (!creditoCliente.saldoCliente || !creditoCliente.valido)) {
       alert('Completa el importe de saldo y confirma si se pagó la diferencia.'); return;
     }
-    if (!creditoCliente.saldoCliente && formaPago !== 'debt' && estadoPago === 'parcial' &&
+    if (!usaCambioSaldo && formaPago !== 'debt' && estadoPago === 'parcial' &&
       (!(Number(montoPagado) > 0) || Number(montoPagado) >= Number(form.precioVenta))) {
       alert('Indica cuánto pagó el cliente: debe ser mayor que cero y menor que el precio total.'); return;
     }
@@ -327,9 +328,9 @@ export default function ModalVenta({
         }
       }
 
-      if (!creditoCliente.valido) throw new Error('Completa la aplicación del saldo y confirma si se pagó la diferencia.');
+      if (usaCambioSaldo && !creditoCliente.valido) throw new Error('Completa la aplicación del saldo y confirma si se pagó la diferencia.');
       if (creditoCliente.clienteId) body.clienteId = creditoCliente.clienteId;
-      if (creditoCliente.saldoCliente) {
+      if (usaCambioSaldo) {
         delete body.incomeBank;
         delete body.incomePaymentType;
         delete body.incomeParts;

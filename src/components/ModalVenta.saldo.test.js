@@ -69,6 +69,8 @@ test('solo ofrece saldo a clientes con saldo positivo y desactiva su uso al camb
   fireEvent.change(screen.getByLabelText('Vendedor'), { target: { value: 'Gonzalo' } });
   await waitFor(() => expect(screen.queryByRole('option', { name: 'Saldo a favor del cliente' })).not.toBeInTheDocument());
   expect(screen.getByLabelText('Forma de pago')).toHaveValue('direct');
+  fireEvent.change(screen.getByLabelText('Vendedor'), { target: { value: '' } });
+  expect(screen.queryByRole('option', { name: 'Saldo a favor del cliente' })).not.toBeInTheDocument();
   view.unmount();
   disponible = '0.00';
   render(<ModalVenta producto={producto} onClose={jest.fn()} />);
