@@ -3,6 +3,7 @@ import { accessorySalePrice } from '../utils/accessoryPrice';
 import useAccessoryQuote from '../hooks/useAccessoryQuote';
 import React, { useEffect, useState, useRef } from 'react';
 import api from '../api';
+import { localDateInputValue } from '../utils/dates';
 import { notifySalesChanged } from '../utils/salesSync';
 import { accessoryLotDate, consumedAccessoryLots, accessoryLotAvailable } from '../utils/accessorySales';
 import { nuevaClave } from '../services/finanzas';
@@ -131,7 +132,11 @@ export default function ModalVenta({
     : consumedLots.some(({ lot }) => String(lot.valor?.monedaCompra || 'USD').toUpperCase() !== 'PEN'));
   const esClientePedido = Boolean(pedidoClientFromSeller(effectiveSeller));
   const usaCambioSaldo = !venta && formaPago === 'saldo_cliente';
-  const solicitarTipoCambio = requiresExchangeRate && !usaCambioSaldo;
+  const pedidoSinPago = !venta && esClientePedido && estadoPago === 'pendiente' && !usaCambioSaldo;
+  const solicitarTipoCambio = requiresExchangeRate && !usaCambioSaldo && !pedidoSinPago;
+  useEffect(() => {
+    if (pedidoSinPago) setForm(actual => ({ ...actual, fechaVenta: localDateInputValue() }));
+  }, [pedidoSinPago]);
   useEffect(() => {
     setFormaPago(actual => actual === 'saldo_cliente' ? 'direct' : actual);
     setCreditoCliente({ valido: true });
@@ -167,7 +172,7 @@ export default function ModalVenta({
       tipoCambio: '',
       tipoCambioGonzalo: '',
       tipoCambioRenato: '',
-      fechaVenta: '',
+      fechaVenta: pedidoClientFromSeller(initialSeller) ? localDateInputValue() : '',
       precioVenta: initialPrice == null ? '' : String(initialPrice),
       vendedor: initialSeller,
       pedidoCliente: pedidoClientFromSeller(initialSeller),
@@ -340,6 +345,10 @@ export default function ModalVenta({
       }
 
       if (usaCambioSaldo && !creditoCliente.valido) throw new Error('Completa la aplicación del saldo y confirma si se pagó la diferencia.');
+      if (pedidoSinPago) {
+        body.pedidoSinPago = true;
+        delete body.tipoCambio;
+      }
       if (creditoCliente.clienteId) body.clienteId = creditoCliente.clienteId;
       if (usaCambioSaldo) {
         delete body.incomeBank;
@@ -609,7 +618,7 @@ export default function ModalVenta({
         />
       </div>}
       <div>
-        <label htmlFor="venta-fecha" className="block font-medium mb-1">Fecha de venta</label>
+        <label htmlFor="venta-fecha" className="block font-medium mb-1">{pedidoSinPago ? 'Fecha de pedido' : 'Fecha de venta'}</label>
         <input
           id="venta-fecha"
           type="date"
@@ -808,7 +817,7 @@ export default function ModalVenta({
         {venta && isReadOnly && (
           <div className="space-y-3">
             <div>
-              <span className="font-medium">Fecha de venta: </span>
+              <span className="font-medium">{venta.fechaReserva && venta.estadoComercial === 'reservada' ? 'Fecha de pedido: ' : 'Fecha de venta: '}</span>
               <span className="text-gray-700">{venta.fechaVenta}</span>
             </div>
 

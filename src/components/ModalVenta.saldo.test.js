@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import ModalVenta from './ModalVenta';
 import api from '../api';
+import { localDateInputValue } from '../utils/dates';
 
 jest.mock('../api', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn(), patch: jest.fn() } }));
 const producto = { id: 477, tipo: 'iphone', vendedor: 'Gonzalo (Jorge)',
@@ -29,19 +30,20 @@ test('un pedido nuevo empieza pendiente y no supone un cobro directo al guardar'
   render(<ModalVenta producto={producto} onClose={jest.fn()} onSaved={jest.fn()} />);
   await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
   expect(screen.getByLabelText('Estado del pago')).toHaveValue('pendiente');
-  fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.4' } });
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-11-10' } });
+  expect(screen.getByLabelText('Fecha de pedido')).toHaveValue(localDateInputValue());
+  expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-11-10' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1300' } });
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({
-    precioVenta: 1300, incomeParts: [{ type: 'cash', amount: 1300 }],
+    precioVenta: 1300, pedidoSinPago: true, incomeParts: [{ type: 'cash', amount: 1300 }],
   })));
 });
 
 test('elige saldo como forma de pago y conserva el cambio proporcional de los orígenes consumidos', async () => {
   render(<ModalVenta producto={producto} onClose={jest.fn()} onSaved={jest.fn()} />);
   await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-11-09' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-11-09' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1500' } });
   fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: 'saldo_cliente' } });
   await waitFor(() => expect(screen.getByLabelText('Saldo que se utilizará (S/)')).toHaveValue(1500));
@@ -71,7 +73,7 @@ test('aplica parte del saldo, confirma la diferencia pendiente y permite volver 
   expect(screen.getByLabelText('Cambio histórico del saldo')).toHaveTextContent('3.4000');
   expect(screen.getByText(/Diferencia pendiente:/)).toHaveTextContent('S/ 1,000.00');
   fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: 'direct' } });
-  expect(screen.getByLabelText('Tipo de cambio')).toBeInTheDocument();
+  expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Banco donde ingresó la venta')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Saldo que se utilizará (S/)')).not.toBeInTheDocument();
 });
@@ -79,7 +81,7 @@ test('aplica parte del saldo, confirma la diferencia pendiente y permite volver 
 test('envía el cambio del adicional cuando saldo y dinero nuevo son iguales', async () => {
   render(<ModalVenta producto={producto} onClose={jest.fn()} onSaved={jest.fn()} />);
   await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-11-10' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-11-10' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1300' } });
   fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: 'saldo_cliente' } });
   fireEvent.change(await screen.findByLabelText('Saldo que se utilizará (S/)'), { target: { value: '650' } });
@@ -100,7 +102,7 @@ test('guarda saldo y diferencia pagada con fechas anteriores al registro del sal
     : path === '/finanzas/cuentas' ? [{ id: 1, nombre: 'BCP', tipo: 'banco', activo: true }] : []);
   render(<ModalVenta producto={producto} onClose={jest.fn()} onSaved={jest.fn()} />);
   await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-10-27' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-10-27' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1300' } });
   fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: 'saldo_cliente' } });
   fireEvent.change(await screen.findByLabelText('Fecha de aplicación del saldo'), { target: { value: '2026-10-27' } });

@@ -41,7 +41,7 @@ test('precarga el precio publicado, mantiene el unitario al cambiar cantidad y a
   expect(screen.getByLabelText('Precio total de venta (S/)')).toHaveValue(125);
   fireEvent.change(screen.getByLabelText('Precio por unidad (S/)'), { target: { value: '19' } });
   expect(screen.getByRole('alert')).toHaveTextContent('por debajo del precio mínimo');
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-10-25' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-10-25' } });
   await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   expect(screen.getByLabelText('Cotización del accesorio')).toHaveTextContent('Costo total: S/ 65.00');
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
@@ -72,7 +72,7 @@ test('confirma la venta si se pierde la respuesta del guardado', async () => {
   );
 
   fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.75' } });
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-07-20' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-07-20' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1500' } });
   if (screen.queryByLabelText('Cotización del accesorio')) await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
@@ -122,7 +122,7 @@ test('delega la sincronización del ingreso al endpoint de edición de venta', a
   );
 
   fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-07-21' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-07-21' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1550' } });
   fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
 
@@ -153,7 +153,7 @@ test('guarda la venta sin exigir una sesión de Gastos en el navegador', async (
   );
 
   fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.75' } });
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-07-28' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-07-28' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '3000' } });
   if (screen.queryByLabelText('Cotización del accesorio')) await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
@@ -222,8 +222,8 @@ test('sincroniza Gonzalo con cliente hacia la venta y el producto', async () => 
   );
 
   fireEvent.change(screen.getByLabelText('Vendedor'), { target: { value: 'Gonzalo (Jorge)' } });
-  fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.7' } });
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-08-21' } });
+  expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-08-21' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1900' } });
   if (screen.queryByLabelText('Cotización del accesorio')) await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
@@ -256,7 +256,7 @@ test('para accesorios recibe el precio total, calcula el unitario y muestra el r
   expect(screen.getByText('S/ 50.00')).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.75' } });
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-08-14' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-08-14' } });
   if (screen.queryByLabelText('Cotización del accesorio')) await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({
@@ -277,7 +277,7 @@ test('permite escoger el lote inicial de un accesorio agrupado', async () => {
 
   fireEvent.change(screen.getByLabelText('Lote del que se vende primero'), { target: { value: '22' } });
   fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.7' } });
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-08-14' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-08-14' } });
   fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '80' } });
   if (screen.queryByLabelText('Cotización del accesorio')) await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
   fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
@@ -330,7 +330,7 @@ test('una venta cubierta con saldo usa el TC guardado sin pedir ni enviar uno ma
   api.post.mockImplementation(async(path,body)=>path.includes('resolver-pedido')?{id:1,nombre:'Jorge',clase:'externo',admite_saldo:true}:{id:901,...body,tipoCambio:3.4});
   api.get.mockResolvedValue({disponible:'1000.00',saldos:[{id:1,sku:476,original:'1000.00',disponible:'1000.00',fecha:'2026-01-01',tipo_cambio:'3.4000'}],movimientos:[],ventas:[]});
   const saved=jest.fn();render(<ModalVenta producto={{id:550,tipo:'macbook',vendedor:'Gonzalo (Jorge)',valor:{monedaCompra:'USD',valorProducto:200,costoEnvio:0}}} onSaved={saved} onClose={jest.fn()} />);
-  fireEvent.change(screen.getByLabelText('Fecha de venta'),{target:{value:'2026-11-12'}});fireEvent.change(screen.getByLabelText('Precio de venta (S/)'),{target:{value:'1000'}});
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/),{target:{value:'2026-11-12'}});fireEvent.change(screen.getByLabelText('Precio de venta (S/)'),{target:{value:'1000'}});
   await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
   fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: 'saldo_cliente' } });
   await waitFor(()=>expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument());
@@ -373,7 +373,7 @@ test.each([
   api.post.mockResolvedValue({ id: 951, vendedor: 'Gonzalo' });
   const saved = jest.fn();
   render(<ModalVenta producto={{ id: 991, tipo: 'macbook', vendedor: 'Gonzalo', valor: { monedaCompra: 'PEN', valorProducto: 500 } }} onSaved={saved} onClose={jest.fn()} />);
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-11-01' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-11-01' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1000' } });
   fireEvent.change(screen.getByLabelText('Forma de pago'), { target: { value: forma } });
   expect(screen.queryByLabelText('Estado del pago')).not.toBeInTheDocument();
@@ -390,7 +390,7 @@ test.each(['pagado', 'parcial', 'pendiente'])('registra explícitamente el cobro
   api.post.mockResolvedValue({ id: 950, vendedor: 'Gonzalo (Jorge)' });
   const saved = jest.fn();
   render(<ModalVenta producto={{ id: 990, tipo: 'macbook', vendedor: 'Gonzalo (Jorge)', valor: { monedaCompra: 'PEN', valorProducto: 500 } }} onSaved={saved} onClose={jest.fn()} />);
-  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-11-01' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-11-01' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1000' } });
   fireEvent.change(screen.getByLabelText('Estado del pago'), { target: { value: estado } });
   if (estado === 'parcial') fireEvent.change(screen.getByLabelText('Importe pagado por el cliente (S/)'), { target: { value: '250' } });
