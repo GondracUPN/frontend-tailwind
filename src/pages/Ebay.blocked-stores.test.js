@@ -56,3 +56,26 @@ test('el modal persiste bloqueos, los recupera al entrar y permite desbloquear',
   fireEvent.click(await screen.findByRole('button', { name: 'Desbloquear shop.one-2' }));
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Desbloquear shop.one-2' })).not.toBeInTheDocument());
 });
+
+test('el boton de busqueda cancela la busqueda en curso y vuelve a permitir buscar', async () => {
+  getAnalyticsSummary.mockResolvedValue({ productGroups: [] });
+  let searchSignal = null;
+  api.get.mockImplementation((path, opts = {}) => {
+    if (path === '/utils/ebay/blocked-stores') return Promise.resolve({ sellers: [] });
+    if (path.startsWith('/utils/ebay/search?')) {
+      searchSignal = opts.signal;
+      return new Promise((resolve, reject) => {
+        opts.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    }
+    return Promise.resolve({});
+  });
+  render(<Ebay />);
+  fireEvent.click(screen.getByRole('button', { name: 'Buscar producto' }));
+  const cancelButton = await screen.findByRole('button', { name: 'Cancelar busqueda' });
+  await waitFor(() => expect(searchSignal).not.toBeNull());
+  fireEvent.click(cancelButton);
+  expect(searchSignal.aborted).toBe(true);
+  expect(await screen.findByRole('button', { name: 'Buscar producto' })).toBeEnabled();
+  expect(screen.queryByText(/No se pudo cargar|aborted/)).not.toBeInTheDocument();
+});

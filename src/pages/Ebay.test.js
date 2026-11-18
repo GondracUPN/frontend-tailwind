@@ -8,6 +8,7 @@ import {
   isApplePartTitle,
   splitProductSearchBatch,
   matchMacbookItem,
+  matchIphoneItem,
 } from './Ebay';
 
 test.each([
@@ -190,4 +191,40 @@ test('cada busqueda muestra 14 productos y reserva el resto para cargar mas', ()
   expect(batchItems).toHaveLength(14);
   expect(pendingItems).toHaveLength(6);
   expect(pendingItems[0].itemId).toBe('15');
+});
+
+const IPHONE_16_BASE = { number: '16', model: '' };
+
+test.each([
+  'Apple iPhone 16 128GB Black Unlocked',
+  'iPhone 16 - 256GB - Ultramarine (Unlocked)',
+  'Apple iPhone16 128GB Pink',
+  'Apple A3286 128GB Teal Smartphone',
+])('iPhone 16 base acepta: %s', (title) => {
+  expect(matchIphoneItem({ title }, IPHONE_16_BASE)).toBe(true);
+});
+
+test.each([
+  'Apple iPhone 16 Pro Max 256GB Desert UNLOCKED Excellent',
+  'iPhone 16 pro max',
+  'Apple iPhone 16 Pro (UNLOCKED)',
+  'Apple iPhone 16 Plus 128GB',
+  'Apple iPhone 16+ 128GB',
+  'Apple iPhone 16e 128GB Black MD0T4LL/A',
+  'Apple iPhone 16 e 128GB White',
+  'Apple iPhone 14 Pro 256GB Space Black A2650 Unlocked',
+  'APPLE IPHONE 14 - A2632 - 128 GB - RED',
+  'Apple iPhone 14 Pro Max White A2651 128GB',
+  'Apple 128GB White A3212',
+])('iPhone 16 base rechaza: %s', (title) => {
+  expect(matchIphoneItem({ title }, IPHONE_16_BASE)).toBe(false);
+});
+
+test('iPhone por variante y sin numero no filtra', () => {
+  expect(matchIphoneItem({ title: 'Apple iPhone 16 Pro Max 256GB' }, { number: '16', model: 'pro max' })).toBe(true);
+  expect(matchIphoneItem({ title: 'Apple iPhone 16 ProMax 256GB' }, { number: '16', model: 'pro max' })).toBe(true);
+  expect(matchIphoneItem({ title: 'Apple iPhone 16 Pro 256GB' }, { number: '16', model: 'pro max' })).toBe(false);
+  expect(matchIphoneItem({ title: 'Apple iPhone 16e 128GB' }, { number: '16', model: 'e' })).toBe(true);
+  expect(matchIphoneItem({ title: 'Apple iPhone 14 Plus 128GB' }, { number: '14', model: 'plus' })).toBe(true);
+  expect(matchIphoneItem({ title: 'Apple iPhone 14 Pro 128GB' }, { number: '', model: '' })).toBe(true);
 });

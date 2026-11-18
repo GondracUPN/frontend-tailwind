@@ -964,6 +964,57 @@ const matchIpadItem = (item, form) => {
   return true;
 };
 
+// Apple model numbers per iPhone variant, so titles that only carry the
+// A-number (e.g. "A3212") still map to the right model.
+const IPHONE_MODEL_NUMBER_VARIANTS = [
+  { number: '13', model: 'mini', ids: ['a2481', 'a2626', 'a2628', 'a2629', 'a2630'] },
+  { number: '13', model: '', ids: ['a2482', 'a2631', 'a2633', 'a2634', 'a2635'] },
+  { number: '13', model: 'pro', ids: ['a2483', 'a2636', 'a2638', 'a2639', 'a2640'] },
+  { number: '13', model: 'pro max', ids: ['a2484', 'a2641', 'a2643', 'a2644', 'a2645'] },
+  { number: '14', model: '', ids: ['a2649', 'a2881', 'a2882', 'a2883', 'a2884'] },
+  { number: '14', model: 'plus', ids: ['a2632', 'a2885', 'a2886', 'a2887', 'a2888'] },
+  { number: '14', model: 'pro', ids: ['a2650', 'a2889', 'a2890', 'a2891', 'a2892'] },
+  { number: '14', model: 'pro max', ids: ['a2651', 'a2893', 'a2894', 'a2895', 'a2896'] },
+  { number: '15', model: '', ids: ['a2846', 'a3089', 'a3090', 'a3092'] },
+  { number: '15', model: 'plus', ids: ['a2847', 'a3093', 'a3094', 'a3096'] },
+  { number: '15', model: 'pro', ids: ['a2848', 'a3101', 'a3102', 'a3104'] },
+  { number: '15', model: 'pro max', ids: ['a2849', 'a3105', 'a3106', 'a3108'] },
+  { number: '16', model: '', ids: ['a3081', 'a3286', 'a3287', 'a3288'] },
+  { number: '16', model: 'plus', ids: ['a3082', 'a3289', 'a3290', 'a3291'] },
+  { number: '16', model: 'pro', ids: ['a3083', 'a3292', 'a3293', 'a3294'] },
+  { number: '16', model: 'pro max', ids: ['a3084', 'a3295', 'a3296', 'a3297'] },
+  { number: '16', model: 'e', ids: ['a3212', 'a3408', 'a3409', 'a3410'] },
+  { number: '17', model: '', ids: ['a3258', 'a3519', 'a3520', 'a3521'] },
+  { number: '17', model: 'pro', ids: ['a3256', 'a3522', 'a3523', 'a3524'] },
+  { number: '17', model: 'pro max', ids: ['a3257', 'a3525', 'a3526', 'a3527'] },
+  { number: '17', model: 'e', ids: ['a3575', 'a3634', 'a3635'] },
+  { number: 'air', model: '', ids: ['a3260', 'a3516', 'a3517', 'a3518'] },
+];
+
+const getIphoneVariantFromTitle = (normalizedTitle) => {
+  const match = normalizedTitle.match(/\biphone[\s-]*(\d{2})(?:[\s-]*(?:(pro[\s-]*max|promax|pro|plus|mini|e)\b|(\+)))?/);
+  if (match) {
+    const raw = match[3] ? 'plus' : String(match[2] || '').replace(/[\s-]+/g, ' ');
+    const model = raw === 'promax' ? 'pro max' : raw;
+    return { number: match[1], model };
+  }
+  const bareE = normalizedTitle.match(/\b(1[67])e\b/);
+  if (bareE) return { number: bareE[1], model: 'e' };
+  if (/\biphone[\s-]*air\b/.test(normalizedTitle)) return { number: 'air', model: '' };
+  const byModelNumber = IPHONE_MODEL_NUMBER_VARIANTS.find((variant) => hasTargetModelNumber(normalizedTitle, variant.ids));
+  return byModelNumber ? { number: byModelNumber.number, model: byModelNumber.model } : null;
+};
+
+// The eBay search is fuzzy ("iphone 16" also returns 14 Pro, 16 Pro Max...),
+// so keep only titles of the selected number and variant (Base = no variant).
+export const matchIphoneItem = (item, form = {}) => {
+  const wantedNumber = compactValue(form.number);
+  if (!wantedNumber) return true;
+  const variant = getIphoneVariantFromTitle(normalizeTitleText(item?.title || ''));
+  if (!variant) return false;
+  return variant.number === String(wantedNumber) && variant.model === String(compactValue(form.model) || '');
+};
+
 export const matchMacbookItem = (item, form, options = {}) => {
   const title = normalizeTitleText(item?.title || '');
   const identifierRule = MACBOOK_IDENTIFIER_RULES.find((rule) =>
@@ -1555,6 +1606,8 @@ function Ebay({ setVista }) {
   const sentinelRef = useRef(null);
   const appendRequestKeyRef = useRef('');
   const requestSeqRef = useRef({ pawns: 0, product: 0, auctions: 0 });
+  const productAbortRef = useRef(null);
+  useEffect(() => () => productAbortRef.current?.abort(), []);
   const progressHideTimeoutRef = useRef(null);
   const activeProgressTab = appendLoadingTab || loadingTab;
   const activeProgressMode = appendLoadingTab ? 'append' : loadingTab ? 'initial' : '';
@@ -1724,8 +1777,22 @@ function Ebay({ setVista }) {
     }
   };
 
+  const cancelProductSearch = () => {
+    // Invalidating the request id makes the running loop discard its results
+    // and stop; aborting cuts the eBay request that is still in flight.
+    beginEbayRequest('product');
+    productAbortRef.current?.abort();
+    productAbortRef.current = null;
+    setLoadingTab((current) => (current === 'product' ? '' : current));
+    setAppendLoadingTab((current) => (current === 'product' ? '' : current));
+  };
+
   const loadProductSearch = async ({ append = false } = {}) => {
+    productAbortRef.current?.abort();
+    const abortController = new AbortController();
+    productAbortRef.current = abortController;
     const requestId = beginEbayRequest('product');
+    const isProductSearchActive = () => isCurrentEbayRequest('product', requestId);
     const initialOffset = append ? getNextResultOffset(productResult) : 0;
     if (append) setAppendLoadingTab('product');
     else setLoadingTab('product');
@@ -1774,7 +1841,9 @@ function Ebay({ setVista }) {
           ? familyFilteredItems.filter((item) => matchIpadItem(item, ipadForm))
           : productType === 'macbook'
             ? familyFilteredItems.filter((item) => matchMacbookItem(item, macbookForm, { allowParts }))
-            : familyFilteredItems;
+            : productType === 'iphone'
+              ? familyFilteredItems.filter((item) => matchIphoneItem(item, iphoneForm))
+              : familyFilteredItems;
       };
 
       let filteredItems = sortItemsByListedDate(
@@ -1820,6 +1889,7 @@ function Ebay({ setVista }) {
         : filteredItems;
 
       while (
+        isProductSearchActive() &&
         queryStates.some((state) => !state.exhausted) &&
         getAppendableProductItems().length < PRODUCT_SEARCH_MIN_VISIBLE_RESULTS
       ) {
@@ -1827,6 +1897,7 @@ function Ebay({ setVista }) {
         let requestsInBatch = 0;
 
         while (
+          isProductSearchActive() &&
           requestsInBatch < PRODUCT_SEARCH_BATCH_REQUEST_LIMIT &&
           queryStates.some((state) => !state.exhausted) &&
           getAppendableProductItems().length < PRODUCT_SEARCH_MIN_VISIBLE_RESULTS
@@ -1847,7 +1918,8 @@ function Ebay({ setVista }) {
           const result = await api.get(buildEndpoint(state.query, state.offset, {
             cacheOffset: isMultiQuerySearch ? 0 : state.cacheOffset,
             preferCache: isMultiQuerySearch ? false : state.preferCache,
-          }));
+          }), { signal: abortController.signal });
+          if (!isProductSearchActive()) return;
           requestsInBatch += 1;
           latestResult = result;
           const previousOffset = Number(state.offset || 0);
@@ -1971,6 +2043,7 @@ function Ebay({ setVista }) {
       }
       setErrors((prev) => ({ ...prev, product: String(err?.message || 'No se pudo cargar la busqueda por producto.') }));
     } finally {
+      if (productAbortRef.current === abortController) productAbortRef.current = null;
       loadEbayRateLimits({ silent: false });
       clearLoadingForRequest('product', requestId, append);
     }
@@ -2720,11 +2793,21 @@ function Ebay({ setVista }) {
               </label>
               <button
                 type="button"
-                onClick={() => { setActiveTab('product'); loadProductSearch({ append: false }); }}
-                disabled={loadingTab === 'product'}
-                className="w-full rounded-2xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                onClick={() => {
+                  if (loadingTab === 'product' || appendLoadingTab === 'product') {
+                    cancelProductSearch();
+                    return;
+                  }
+                  setActiveTab('product');
+                  loadProductSearch({ append: false });
+                }}
+                className={`w-full rounded-2xl px-5 py-2.5 text-sm font-semibold text-white transition sm:w-auto ${
+                  loadingTab === 'product' || appendLoadingTab === 'product'
+                    ? 'bg-red-500 hover:bg-red-400'
+                    : 'bg-amber-500 hover:bg-amber-400'
+                }`}
               >
-                {loadingTab === 'product' ? 'Buscando...' : 'Buscar producto'}
+                {loadingTab === 'product' || appendLoadingTab === 'product' ? 'Cancelar busqueda' : 'Buscar producto'}
               </button>
             </div>
           </div>
