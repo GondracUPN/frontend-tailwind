@@ -75,6 +75,8 @@ export default function ModalVenta({
   const [cobros, setCobros] = useState([]);
   const [cobroAbierto, setCobroAbierto] = useState(null);
   const [cobroError, setCobroError] = useState('');
+  const [detalleCobros, setDetalleCobros] = useState(null);
+  const [partesEditadas, setPartesEditadas] = useState(null);
   const [estadoPago, setEstadoPago] = useState('pagado');
   // Forma de pago del ingreso: mismos tipos que el backend (direct, card, cash; debt = x500).
   const [formaPago, setFormaPago] = useState('direct');
@@ -196,9 +198,12 @@ export default function ModalVenta({
     setCobros([]);
     setCobroAbierto(null);
     setCobroError('');
+    setDetalleCobros(null);
+    setPartesEditadas(null);
     Promise.resolve(api.get(`/ventas/${venta.id}/cobros`)).then((data) => {
       if (active && data?.incomeBank) setIncomeBank(data.incomeBank);
       if (active) setCobros(data?.incomes || []);
+      if (active) setDetalleCobros(data || null);
     }).catch(() => { if (active) setCobroError('No se pudieron cargar los pagos. Cierra y vuelve a abrir la venta.'); });
     return () => { active = false; };
   }, [venta?.id]);
@@ -212,6 +217,8 @@ export default function ModalVenta({
     try {
       const data = await api.get(`/ventas/${venta.id}/cobros`);
       setCobros(data?.incomes || []);
+      setDetalleCobros(data || null);
+      setPartesEditadas(null);
       if (data?.venta) notifySalesChanged({ action: 'sale-payment', productoId: producto.id, venta: data.venta });
     } catch {
       setCobroError('Pago registrado. No se pudo actualizar el resumen; vuelve a abrir la venta.');
@@ -234,8 +241,20 @@ export default function ModalVenta({
 
   if (!producto) return null;
 
+  const precioCambiado = venta && Math.round(Number(form.precioVenta) * 100) !== Math.round(Number(venta.precioVenta) * 100);
+  const partesOriginales = detalleCobros?.parts || [];
+  const saldoNuevo = Math.round(Number(form.precioVenta || 0) * 100) - Math.round(Number(detalleCobros?.advanceAmount || 0) * 100);
+  const totalOriginal = partesOriginales.reduce((sum, part) => sum + Math.round(Number(part.amount) * 100), 0);
+  const parteAjustable = partesOriginales.length === 1 ? partesOriginales[0].type
+    : (venta?.clienteId || esClientePedido) && partesOriginales.some(part => part.type === 'cash') ? 'cash' : null;
+  const partesPrecio = partesEditadas || Object.fromEntries(partesOriginales.map(part => [part.type,
+    String((Math.round(Number(part.amount) * 100) + (part.type === parteAjustable ? saldoNuevo - totalOriginal : 0)) / 100),
+  ]));
+  const nombreCobro = (type) => ({ direct: 'Pago directo', card: 'Tarjeta', debt: 'x500', cash: venta?.clienteId || esClientePedido ? 'Deuda del cliente' : 'Efectivo' }[type] || type);
+
   const onChange = (field, value) => {
     if (field === 'precioVenta') setPriceEdited(true);
+    if (field === 'precioVenta') setPartesEditadas(null);
     setForm((prev) => ({ ...prev, [field]: value, ...(accessoryCreate && field === 'cantidad' && prev.precioVenta !== '' ? { precioVenta: String(Number((Number(prev.precioVenta) / Math.max(1, Number(prev.cantidad)) * Number(value || 1)).toFixed(2))) } : {}) }));
   };
   const onSellerChange = (value) => {
@@ -438,6 +457,24 @@ export default function ModalVenta({
         fechaVenta: form.fechaVenta,
         precioVenta: Number(form.precioVenta),
       };
+
+      if (precioCambiado && !detalleCobros) {
+        alert('Espera a que carguen los cobros antes de cambiar el precio. Si no cargan, vuelve a abrir la venta.');
+        return;
+      }
+      if (precioCambiado && partesOriginales.length) {
+        const parts = partesOriginales.map(part => ({ type: part.type, amount: Number(partesPrecio[part.type]) }));
+        if (parts.some(part => !Number.isFinite(part.amount) || part.amount < 0 || Math.abs(Math.round(part.amount * 100) / 100 - part.amount) > 0.000001)
+          || parts.reduce((sum, part) => sum + Math.round(part.amount * 100), 0) !== saldoNuevo || saldoNuevo <= 0) {
+          alert('Los importes de cobro deben sumar el nuevo precio menos los adelantos.');
+          return;
+        }
+        if (partesOriginales.some(part => part.type !== 'direct' && Math.round(Number(part.received || 0) * 100) > Math.round(Number(partesPrecio[part.type]) * 100))) {
+          alert('El nuevo importe no puede ser menor que los pagos ya recibidos.');
+          return;
+        }
+        payload.incomeParts = parts.filter(part => part.amount > 0);
+      }
 
       if (splitModeActive) {
         const tcG = requiresExchangeRate ? Number(form.tipoCambioGonzalo || form.tipoCambio || 0) : 1;
@@ -929,6 +966,13 @@ export default function ModalVenta({
           <div className="space-y-4">
             {renderSellerField()}
             {splitModeActive ? renderSplitFields() : renderSingleFields()}
+            {precioCambiado && partesOriginales.length > 0 && <section className="space-y-2 rounded-lg border p-3">
+              <h3 className="text-sm font-semibold">Importes de cobro del nuevo precio</h3>
+              {partesOriginales.map(part => <label key={part.type} className="block text-sm">{nombreCobro(part.type)} (S/)
+                <input aria-label={`${nombreCobro(part.type)} del nuevo precio`} type="number" min="0" step="0.01" className="mt-1 w-full rounded border p-2" value={partesPrecio[part.type]} onChange={event => setPartesEditadas({ ...partesPrecio, [part.type]: event.target.value })} />
+              </label>)}
+              <p className="text-xs text-gray-600">Los importes deben sumar S/ {(saldoNuevo / 100).toFixed(2)} después de los adelantos. Se conservan los pagos y sus cuentas.</p>
+            </section>}
             <div className="flex items-center justify-end gap-2">
               <button
                 className="bg-gray-200 text-gray-800 px-6 py-2 rounded hover:bg-gray-300"

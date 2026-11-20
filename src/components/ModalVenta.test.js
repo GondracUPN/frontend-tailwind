@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import api from '../api';
 import ModalVenta from './ModalVenta';
 
@@ -43,6 +43,37 @@ test('cobra la deuda del cliente desde el detalle y actualiza Gastos y el saldo 
   expect(screen.queryByRole('button', { name: 'Pagar deuda' })).not.toBeInTheDocument();
   window.removeEventListener('ventas-updated', salesChanged);
   window.removeEventListener('gastos:changed', gastosChanged);
+});
+
+test.each([0, 400])('cambiar el precio de un pedido conserva el abono de %s y ajusta la deuda', async (abono) => {
+  const venta = { id: 15, productoId: 7, vendedor: 'Gonzalo (Jorge)', precioVenta: 1000, fechaVenta: '2026-11-19' };
+  api.get.mockResolvedValue({ parts: [...(abono ? [{ type: 'direct', amount: abono, received: abono }] : []), { type: 'cash', amount: 1000 - abono, received: 0 }], incomes: [] });
+  api.patch.mockResolvedValue({ ...venta, precioVenta: 1200 });
+  const onSaved = jest.fn();
+  render(<ModalVenta producto={{ id: 7, vendedor: venta.vendedor, valor: { monedaCompra: 'PEN' } }} venta={venta} onSaved={onSaved} onClose={jest.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1200' } });
+  expect(await screen.findByLabelText('Deuda del cliente del nuevo precio')).toHaveValue(1200 - abono);
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/ventas/15', expect.objectContaining({ precioVenta: 1200,
+    incomeParts: [...(abono ? [{ type: 'direct', amount: abono }] : []), { type: 'cash', amount: 1200 - abono }],
+  })));
+  expect(api.patch.mock.calls[0][1].incomeBank).toBeUndefined();
+  await waitFor(() => expect(onSaved).toHaveBeenCalled());
+});
+
+test('permite repartir el nuevo precio de una venta combinada sin inventar cobros', async () => {
+  const venta = { id: 15, productoId: 7, vendedor: 'Gonzalo', precioVenta: 1000, fechaVenta: '2026-11-19' };
+  api.get.mockResolvedValue({ parts: [{ type: 'direct', amount: 400, received: 400 }, { type: 'card', amount: 600, received: 200 }], incomes: [] });
+  api.patch.mockResolvedValue(venta);
+  render(<ModalVenta producto={{ id: 7, vendedor: venta.vendedor, valor: { monedaCompra: 'PEN' } }} venta={venta} onClose={jest.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1200' } });
+  const tarjeta = await screen.findByLabelText('Tarjeta del nuevo precio');
+  expect(tarjeta).toHaveValue(600);
+  fireEvent.change(tarjeta, { target: { value: '800' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/ventas/15', expect.objectContaining({ incomeParts: [{ type: 'direct', amount: 400 }, { type: 'card', amount: 800 }] })));
 });
 
 test('precarga mayorista al alcanzar la cantidad mínima y vuelve a publicado bajo el umbral', async () => {
@@ -156,6 +187,7 @@ test('delega la sincronización del ingreso al endpoint de edición de venta', a
   fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
   fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-07-21' } });
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1550' } });
+  await act(async () => {});
   fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
 
   await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/ventas/15', expect.objectContaining({
@@ -348,11 +380,13 @@ test('solicita cambio si la cantidad cruza de un lote en soles a uno en dólares
 });
 
 test('edita una venta de accesorio en soles aunque el lote ya esté agotado', async () => {
+  api.get.mockReset().mockResolvedValue({ parts: [], incomes: [] });
   api.patch.mockResolvedValue({ id: 95, vendedor: 'Renato', precioVenta: 35 });
   render(<ModalVenta producto={{ id: 70, tipo: 'accesorios', vendedor: 'Renato', stockActual: 0, valor: { monedaCompra: 'PEN' } }} venta={{ id: 95, vendedor: 'Renato', cantidad: 1, tipoCambio: 1, fechaVenta: '2026-10-19', precioVenta: 30, ganancia: 10 }} onSaved={jest.fn()} onClose={jest.fn()} />);
   fireEvent.click(screen.getByRole('button', { name: 'Editar', exact: true }));
   expect(screen.queryByLabelText('Tipo de cambio')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '35' } });
+  await act(async () => {});
   fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
   await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/ventas/95', expect.objectContaining({ tipoCambio: 1, precioVenta: 35 })));
 });
