@@ -7,7 +7,7 @@ export const COBRO_BANCOS = { bcp: 'BCP', interbank: 'Interbank', bbva: 'BBVA', 
 // Cobros de venta y depósitos de efectivo. Se usa en Gastos y dentro de D.Extra.
 export default function CobroVentaForm({ gasto, onCancel, onSaved, compact = false }) {
   const isX500 = gasto.salePaymentType === 'debt';
-  const isCash = gasto.salePaymentType === 'cash';
+  const isCash = gasto.salePaymentType === 'cash' && !gasto.saleClientDebt;
   const total = Number(gasto.monto || 0);
   const received = Number(gasto.saleReceivedAmount || 0);
   const remaining = Math.max(0, Math.round((total - received) * 100) / 100);
@@ -73,7 +73,7 @@ export default function CobroVentaForm({ gasto, onCancel, onSaved, compact = fal
       <div className="grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3 text-center text-xs text-slate-600">
         <div>Total<strong className="block text-sm tabular-nums text-slate-900">{money(total)}</strong></div>
         <div>{isCash ? 'Depositado' : 'Recibido'}<strong className="block text-sm tabular-nums text-emerald-700">{money(received)}</strong></div>
-        <div>{isCash ? 'Por depositar' : 'Pendiente'}<strong className="block text-sm tabular-nums text-amber-800">{money(remaining)}</strong></div>
+        <div>{isCash ? 'Por depositar' : gasto.saleClientDebt ? 'Deuda' : 'Pendiente'}<strong className="block text-sm tabular-nums text-amber-800">{money(remaining)}</strong></div>
       </div>
       {history.length > 0 && <div className={compact ? '' : 'rounded-xl border border-slate-200 p-3'}>
         <h3 className="mb-2 text-sm font-semibold">{isCash ? 'Depósitos registrados' : 'Pagos registrados'}</h3>

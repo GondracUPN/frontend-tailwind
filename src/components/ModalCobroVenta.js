@@ -3,7 +3,7 @@ import CobroVentaForm from './CobroVentaForm';
 
 export default function ModalCobroVenta({ gasto, onClose, onSaved }) {
   const isX500 = gasto.salePaymentType === 'debt';
-  const isCash = gasto.salePaymentType === 'cash';
+  const isCash = gasto.salePaymentType === 'cash' && !gasto.saleClientDebt;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label={`Cobro de venta ${gasto.saleSku || gasto.saleId}`}>
       <div className="max-h-[90vh] w-full max-w-md space-y-4 overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-2xl sm:p-6">

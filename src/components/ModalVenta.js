@@ -8,6 +8,7 @@ import { notifySalesChanged } from '../utils/salesSync';
 import { accessoryLotDate, consumedAccessoryLots, accessoryLotAvailable } from '../utils/accessorySales';
 import { nuevaClave } from '../services/finanzas';
 import AnularVentaButton from './AnularVentaButton';
+import CobroVentaForm from './CobroVentaForm';
 
 const normalizeSeller = (value) =>
   value == null ? '' : String(value).trim().toLowerCase();
@@ -71,6 +72,9 @@ export default function ModalVenta({
   const operation = useRef(null);
   const [creditoCliente, setCreditoCliente] = useState({ valido: true });
   const [incomeBank, setIncomeBank] = useState('bcp');
+  const [cobros, setCobros] = useState([]);
+  const [cobroAbierto, setCobroAbierto] = useState(null);
+  const [cobroError, setCobroError] = useState('');
   const [estadoPago, setEstadoPago] = useState('pagado');
   // Forma de pago del ingreso: mismos tipos que el backend (direct, card, cash; debt = x500).
   const [formaPago, setFormaPago] = useState('direct');
@@ -189,11 +193,30 @@ export default function ModalVenta({
   useEffect(() => {
     if (!venta?.id) return undefined;
     let active = true;
+    setCobros([]);
+    setCobroAbierto(null);
+    setCobroError('');
     Promise.resolve(api.get(`/ventas/${venta.id}/cobros`)).then((data) => {
       if (active && data?.incomeBank) setIncomeBank(data.incomeBank);
-    }).catch(() => {});
+      if (active) setCobros(data?.incomes || []);
+    }).catch(() => { if (active) setCobroError('No se pudieron cargar los pagos. Cierra y vuelve a abrir la venta.'); });
     return () => { active = false; };
   }, [venta?.id]);
+
+  const handleCobroSaved = async (updated) => {
+    // El pago ya fue confirmado: actualizar el saldo visible aun si falla la recarga.
+    setCobros(rows => rows.map(row => row.id === updated.id ? { ...row, ...updated } : row));
+    setCobroAbierto(null);
+    setCobroError('');
+    notifySalesChanged({ action: 'sale-payment', productoId: producto.id, ventaId: venta.id });
+    try {
+      const data = await api.get(`/ventas/${venta.id}/cobros`);
+      setCobros(data?.incomes || []);
+      if (data?.venta) notifySalesChanged({ action: 'sale-payment', productoId: producto.id, venta: data.venta });
+    } catch {
+      setCobroError('Pago registrado. No se pudo actualizar el resumen; vuelve a abrir la venta.');
+    }
+  };
 
   useEffect(() => {
     if (!accessoryCreate || !producto?.id) {
@@ -872,6 +895,18 @@ export default function ModalVenta({
               <span className="text-gray-700">{sellerLabel}</span>
             </div>
 
+            {cobroError && <p role="alert" className="text-sm text-red-700">{cobroError}</p>}
+            {cobros.filter(row => ['cash', 'debt', 'card'].includes(row.salePaymentType)).map(row => {
+              const pendiente = Math.max(0, Number(row.monto) - Number(row.saleReceivedAmount || 0));
+              const deposito = row.salePaymentType === 'cash' && !row.saleClientDebt;
+              return <section key={row.id} className="rounded-xl border border-amber-200 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium">{deposito ? 'Por depositar' : row.salePaymentType === 'debt' ? 'x500' : 'Deuda'}: S/ {pendiente.toFixed(2)}</p>
+                  <button type="button" className="rounded bg-emerald-700 px-3 py-2 text-sm font-semibold text-white" onClick={() => setCobroAbierto(row.id)}>{pendiente > 0 ? deposito ? 'Registrar depósito' : 'Pagar deuda' : 'Ver pagos'}</button>
+                </div>
+                {cobroAbierto === row.id && <CobroVentaForm key={`${row.id}:${row.saleReceivedAmount}:${row.saleExchangeRate}`} gasto={row} compact onCancel={() => setCobroAbierto(null)} onSaved={handleCobroSaved} />}
+              </section>;
+            })}
             <div className="text-right pt-2 flex items-center justify-end gap-2">
               {onAnulada && <AnularVentaButton venta={venta} onAnulada={onAnulada} />}
               <button

@@ -13,6 +13,38 @@ beforeEach(() => {
   api.post.mockReset();
 });
 
+test('cobra la deuda del cliente desde el detalle y actualiza Gastos y el saldo de Productos', async () => {
+  const venta = { id: 15, productoId: 7, vendedor: 'Gonzalo (Jorge)', precioVenta: 1000, fechaVenta: '2026-11-19', deudaCliente: 600 };
+  let ingreso = { id: 50, saleId: 15, saleSku: 'MS-7', salePaymentType: 'cash', saleClientDebt: true, monto: '600.00', saleReceivedAmount: '0.00' };
+  api.get.mockImplementation(async () => ({ incomes: [ingreso], venta: { ...venta, deudaCliente: 600 - Number(ingreso.saleReceivedAmount) } }));
+  api.patch.mockImplementation(async (_, body) => {
+    ingreso = { ...ingreso, saleReceivedAmount: String(Number(ingreso.saleReceivedAmount) + body.paymentAmount) };
+    return ingreso;
+  });
+  const salesChanged = jest.fn();
+  const gastosChanged = jest.fn();
+  window.addEventListener('ventas-updated', salesChanged);
+  window.addEventListener('gastos:changed', gastosChanged);
+  render(<ModalVenta producto={{ id: 7, vendedor: venta.vendedor, valor: { monedaCompra: 'PEN' } }} venta={venta} onClose={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Pagar deuda' }));
+  expect(screen.queryByText('Por depositar')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Nuevo pago recibido'), { target: { value: '200' } });
+  fireEvent.change(screen.getByLabelText('Fecha del pago'), { target: { value: '2026-11-19' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
+  await screen.findByText('Deuda: S/ 400.00');
+  expect(api.patch).toHaveBeenCalledWith('/gastos/sale-income/50', { paymentAmount: 200, paidAt: '2026-11-19', bank: 'bcp' });
+  await waitFor(() => expect(salesChanged).toHaveBeenCalledWith(expect.objectContaining({ detail: expect.objectContaining({ venta: expect.objectContaining({ deudaCliente: 400 }) }) })));
+  expect(gastosChanged).toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Pagar deuda' }));
+  fireEvent.change(screen.getByLabelText('Nuevo pago recibido'), { target: { value: '400' } });
+  fireEvent.change(screen.getByLabelText('Fecha del pago'), { target: { value: '2026-11-19' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar pago' }));
+  await screen.findByRole('button', { name: 'Ver pagos' });
+  expect(screen.queryByRole('button', { name: 'Pagar deuda' })).not.toBeInTheDocument();
+  window.removeEventListener('ventas-updated', salesChanged);
+  window.removeEventListener('gastos:changed', gastosChanged);
+});
+
 test('precarga mayorista al alcanzar la cantidad mínima y vuelve a publicado bajo el umbral', async () => {
   api.get.mockResolvedValue({ ventas: [] });
   api.post.mockResolvedValue({ cotizacionToken: 'a'.repeat(64), costoTotal: 10 });
