@@ -64,9 +64,15 @@ const EMPTY_SIMPLE_ACCESSORY = {
   costoEnvio: '',
   precioVenta: '',
   cantidad: 1,
+  esMica: false,
+  estado: 'nuevo',
   empaqueAccesorio: '',
   modelosCompatibles: [],
 };
+
+// Las micas se marcan con detalle.gama = 'Mica' y no usan estado ni empaque.
+export const isMicaAccessory = (producto) => /^micas?$/i.test(text(producto?.detalle?.gama));
+const ACCESSORY_STATES = [['nuevo', 'Nuevo'], ['usado', 'Usado']];
 
 const EMPTY_FORM = {
   enAlmacen: false,
@@ -280,6 +286,8 @@ const toForm = (entry) => {
     accesorios: ficha.accesorios?.length ? ficha.accesorios : sourceAccessories,
     cantidadStock: entry?.producto?.stockInicial ?? 1,
     empaqueAccesorio: entry?.producto?.empaqueAccesorio || '',
+    esMica: isMicaAccessory(entry?.producto),
+    estadoAccesorio: text(entry?.producto?.estado).toLowerCase() || 'nuevo',
     primerPrecioSoles: ficha.primerPrecioSoles ?? '',
     ultimoPrecioSoles: ficha.ultimoPrecioSoles ?? '',
     nombreAccesorio: entry?.producto?.detalle?.modelo || '',
@@ -749,18 +757,23 @@ export default function Inventario({ setVista }) {
     if (!Number.isInteger(cantidad) || cantidad < 1) return setSimpleAccessoryError('La cantidad debe ser al menos 1.');
     if (!Number.isFinite(costoEnvio) || costoEnvio < 0) return setSimpleAccessoryError('Ingresa un costo de envío válido.');
     if (precioVenta !== null && (!Number.isFinite(precioVenta) || precioVenta < 0)) return setSimpleAccessoryError('Ingresa un precio de venta válido.');
+    const esMica = Boolean(simpleAccessory.esMica);
+    if (esMica && precioVenta === null) return setSimpleAccessoryError('Ingresa el precio de venta de la mica.');
+    if (esMica && !simpleAccessory.modelosCompatibles.length) return setSimpleAccessoryError('Elige la familia y los modelos compatibles de la mica.');
+    const estado = esMica ? 'nuevo' : (simpleAccessory.estado || 'nuevo');
+    const empaqueAccesorio = esMica ? '' : estado === 'nuevo' ? 'con_caja' : simpleAccessory.empaqueAccesorio;
 
     setSimpleAccessorySaving(true);
     setSimpleAccessoryError('');
     try {
       const producto = await api.post('/productos', {
         tipo: 'accesorios',
-        estado: 'nuevo',
-        ...(simpleAccessory.empaqueAccesorio ? { empaqueAccesorio: simpleAccessory.empaqueAccesorio } : {}),
+        estado,
+        ...(empaqueAccesorio ? { empaqueAccesorio } : {}),
         soloInventario: true,
         vendedor: simpleAccessory.comprador,
         cantidad,
-        detalle: { modelo: nombre, modelosCompatibles: simpleAccessory.modelosCompatibles },
+        detalle: { modelo: nombre, modelosCompatibles: simpleAccessory.modelosCompatibles, ...(esMica ? { gama: 'Mica' } : {}) },
         valor: {
           valorProducto: Number(Number(accessoryPurchaseTotal(simpleAccessory, 'cantidad')).toFixed(2)),
           valorDec: 0,
@@ -937,13 +950,23 @@ export default function Inventario({ setVista }) {
           ? Number(Number(accessoryPurchaseTotal(form, 'cantidadStock')).toFixed(2))
           : Number((purchasePrice * Number(form.cantidadStock || 1)).toFixed(2));
         const costChanged = totalPurchase !== Number(currentValue.valorProducto || 0) || shippingCost !== Number(currentValue.costoEnvio || 0) || form.monedaCompra !== (currentValue.monedaCompra || 'USD');
+        const eraMica = isMicaAccessory(editing.producto);
+        const esMica = Boolean(form.esMica);
+        if (esMica && form.primerPrecioSoles === '') throw new Error('Ingresa el precio de venta de la mica.');
+        if (esMica && !form.modelosCompatibles?.length) throw new Error('Elige la familia y los modelos compatibles de la mica.');
+        const estadoAccesorio = esMica ? text(editing.producto.estado).toLowerCase() || 'nuevo' : (form.estadoAccesorio || 'nuevo');
+        // Lotes fusionados y legados de catálogo (referencia sin empaque) conservan su identidad.
+        const identidadFija = Boolean(editing.producto.fusionAccesorioId) || (editing.producto.referenciaId && !editing.producto.empaqueAccesorio);
+        const empaqueAccesorio = esMica || identidadFija ? form.empaqueAccesorio : estadoAccesorio === 'nuevo' ? 'con_caja' : form.empaqueAccesorio;
         updatedProduct = await api.patch(`/productos/${id}`, {
           vendedor: form.compradorAccesorio || null,
-          ...(form.empaqueAccesorio && form.empaqueAccesorio !== editing.producto.empaqueAccesorio
-            ? { empaqueAccesorio: form.empaqueAccesorio } : {}),
+          ...(estadoAccesorio !== text(editing.producto.estado).toLowerCase() ? { estado: estadoAccesorio } : {}),
+          ...(empaqueAccesorio && empaqueAccesorio !== editing.producto.empaqueAccesorio
+            ? { empaqueAccesorio } : {}),
           detalle: {
             modelo: text(form.nombreAccesorio),
             modelosCompatibles: form.modelosCompatibles,
+            ...(esMica !== eraMica ? { gama: esMica ? 'Mica' : null } : {}),
           },
           ...(costChanged ? { valor: {
             valorProducto: totalPurchase,
@@ -1371,7 +1394,9 @@ export default function Inventario({ setVista }) {
                       {ficha?.saludBateria != null && fieldVisible(entry.reglas, 'saludBateria') && <Pill>{ficha.saludBateria}% batería</Pill>}
                       {!accessoryStock && entry.reglas?.completitud && !entry.reglas.completitud.complete && <Pill tone="amber">Falta {entry.reglas.completitud.missing.map((key) => FIELD_LABELS[key] || key).join(', ') || 'modelo'}</Pill>}
                       {(ficha?.accesorios || []).slice(0, 3).map((item) => <Pill key={item}>{item}</Pill>)}
-                      {accessoryStock && <Pill>{accessoryPackaging[producto.empaqueAccesorio] || 'Empaque sin indicar'}</Pill>}
+                      {accessoryStock && <Pill>{isMicaAccessory(producto) ? 'Mica'
+                        : (!producto.empaqueAccesorio || producto.empaqueAccesorio === 'sin_indicar') && text(producto.estado).toLowerCase() === 'nuevo' ? 'Con caja'
+                        : accessoryPackaging[producto.empaqueAccesorio] || 'Empaque sin indicar'}</Pill>}
                       {producto.accesoriosStock?.accesorios?.map((item) => <Pill key={`stock-${item.productoId}`}>{item.nombre}</Pill>)}
                       {accessoryStock && (producto.detalle?.modelosCompatibles || []).slice(0, 3).map((item) => <Pill key={item}>Compatible: {item}</Pill>)}
                     </div>
@@ -1494,11 +1519,23 @@ export default function Inventario({ setVista }) {
                 <div className="mt-1 flex"><select aria-label="Moneda de compra" value={simpleAccessory.monedaCompra} onChange={(event) => setSimpleAccessory((current) => ({ ...current, monedaCompra: event.target.value }))} className="h-11 rounded-l-xl border border-r-0 border-slate-200 bg-slate-50 px-2 font-semibold"><option value="PEN">S/</option><option value="USD">$</option></select><input aria-label="Precio de compra por unidad" required type="number" min="0" step="any" value={simpleAccessory.precioCompra} onChange={(event) => setSimpleAccessory((current) => updateAccessoryPurchase(current, 'precioCompra', event.target.value, 'cantidad'))} className="h-11 min-w-0 flex-1 rounded-r-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></div>
               </label>
               <label className="text-sm font-medium text-slate-700">Cantidad *<input required type="number" min="1" step="1" value={simpleAccessory.cantidad} onChange={(event) => setSimpleAccessory((current) => updateAccessoryPurchase(current, 'cantidad', event.target.value, 'cantidad'))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></label>
-              <label className="text-sm font-medium text-slate-700">Empaque
-                <select value={simpleAccessory.empaqueAccesorio} onChange={(event) => setSimpleAccessory((current) => ({ ...current, empaqueAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
-                  <option value="">Sin indicar</option><option value="con_caja">Con caja</option><option value="sin_caja">Sin caja</option>
-                </select>
+              <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-700 sm:col-span-2">
+                <input type="checkbox" checked={Boolean(simpleAccessory.esMica)} onChange={(event) => setSimpleAccessory((current) => ({ ...current, esMica: event.target.checked }))} className="h-5 w-5" />
+                Es mica <span className="font-normal text-slate-500">(solo requiere costo, precio y familia compatible)</span>
               </label>
+              {!simpleAccessory.esMica && <>
+                <label className="text-sm font-medium text-slate-700">Estado *
+                  <select aria-label="Estado del accesorio" value={simpleAccessory.estado} onChange={(event) => setSimpleAccessory((current) => ({ ...current, estado: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
+                    {ACCESSORY_STATES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm font-medium text-slate-700">Empaque
+                  <select disabled={simpleAccessory.estado === 'nuevo'} value={simpleAccessory.estado === 'nuevo' ? 'con_caja' : simpleAccessory.empaqueAccesorio} onChange={(event) => setSimpleAccessory((current) => ({ ...current, empaqueAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 disabled:bg-slate-100">
+                    <option value="">Sin indicar</option><option value="con_caja">Con caja</option><option value="sin_caja">Sin caja</option>
+                  </select>
+                  {simpleAccessory.estado === 'nuevo' && <span className="mt-1 block text-xs font-normal text-slate-500">Los accesorios nuevos siempre vienen con caja.</span>}
+                </label>
+              </>}
               {simpleAccessory.monedaCompra === 'USD' && <label className="text-sm font-medium text-slate-700">Tipo de cambio de compra<input required type="number" min="0.0001" step="0.000001" value={INVENTARIO_TIPO_CAMBIO} readOnly className="mt-1 h-11 w-full rounded-xl border px-3" /></label>}
               <label className="text-sm font-medium text-slate-700">Costo total del lote ({simpleAccessory.monedaCompra === 'USD' ? 'USD' : 'S/'})<input aria-label="Costo total del lote" required type="number" min="0" step="0.01" value={accessoryPurchaseTotal(simpleAccessory, 'cantidad')} onChange={(event) => setSimpleAccessory((current) => updateAccessoryPurchase(current, 'totalCompra', event.target.value, 'cantidad'))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3" /></label>
               <p className="rounded-xl bg-indigo-50 p-3 text-sm sm:col-span-2">Costo total del lote: {simpleAccessory.monedaCompra === 'USD' ? 'USD' : 'S/'} {(Number(simpleAccessory.precioCompra || 0) * Number(simpleAccessory.cantidad || 0)).toFixed(2)}{simpleAccessory.monedaCompra === 'USD' && <> · Compra en soles: S/ {(Number(simpleAccessory.precioCompra || 0) * Number(simpleAccessory.cantidad || 0) * INVENTARIO_TIPO_CAMBIO).toFixed(2)}</>}</p>
@@ -1506,7 +1543,7 @@ export default function Inventario({ setVista }) {
                 <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={simpleAccessory.tieneEnvio} onChange={(event) => setSimpleAccessory((current) => ({ ...current, tieneEnvio: event.target.checked, costoEnvio: event.target.checked ? current.costoEnvio : '' }))} /> Hubo costo de envío</label>
                 {simpleAccessory.tieneEnvio && <label className="mt-3 block text-sm text-slate-700">Costo de envío (S/)<input required type="number" min="0" step="0.01" value={simpleAccessory.costoEnvio} onChange={(event) => setSimpleAccessory((current) => ({ ...current, costoEnvio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></label>}
               </div>
-              <label className="text-sm font-medium text-slate-700">Precio de venta (opcional)<div className="relative mt-1"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">S/</span><input type="number" min="0" step="0.01" value={simpleAccessory.precioVenta} onChange={(event) => setSimpleAccessory((current) => ({ ...current, precioVenta: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-3 outline-none focus:border-indigo-400" placeholder="Se puede completar después" /></div></label>
+              <label className="text-sm font-medium text-slate-700">Precio de venta {simpleAccessory.esMica ? '*' : '(opcional)'}<div className="relative mt-1"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">S/</span><input type="number" min="0" step="0.01" required={Boolean(simpleAccessory.esMica)} value={simpleAccessory.precioVenta} onChange={(event) => setSimpleAccessory((current) => ({ ...current, precioVenta: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-3 outline-none focus:border-indigo-400" placeholder="Se puede completar después" /></div></label>
               <label className="text-sm font-medium text-slate-700">Una foto (opcional)<input type="file" accept="image/*" capture="environment" onChange={chooseSimpleAccessoryPhoto} className="mt-1 block w-full text-xs text-slate-600" />{simpleAccessoryPhoto && <img src={simpleAccessoryPhoto} alt="Vista previa" className="mt-2 h-24 w-full rounded-xl object-cover" />}</label>
               <AccessoryCompatibility value={simpleAccessory.modelosCompatibles} disabled={simpleAccessorySaving}
                 onChange={(modelosCompatibles) => setSimpleAccessory((current) => ({ ...current, modelosCompatibles }))} />
@@ -1555,11 +1592,23 @@ export default function Inventario({ setVista }) {
                       <option value="">Sin asignar</option><option value="Gonzalo">Gonzalo</option><option value="Renato">Renato</option><option value="ambos">Ambos (50/50)</option>{['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian', 'Williams'].map((nombre) => <option key={nombre} value={`Gonzalo (${nombre})`}>Gonzalo ({nombre})</option>)}
                     </select>
                   </label>
-                  <label className="block text-sm font-medium text-slate-700">Empaque
-                    <select disabled={!!editing.producto.fusionAccesorioId} value={form.empaqueAccesorio || 'sin_indicar'} onChange={(event) => setForm((current) => ({ ...current, empaqueAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
-                      {Object.entries(accessoryPackaging).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                    </select>
+                  <label className="mt-3 flex min-h-11 items-center gap-2 text-sm font-semibold text-slate-700">
+                    <input type="checkbox" disabled={!!editing.producto.fusionAccesorioId} checked={Boolean(form.esMica)} onChange={(event) => setForm((current) => ({ ...current, esMica: event.target.checked }))} className="h-5 w-5" />
+                    Es mica
                   </label>
+                  {!form.esMica && <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-sm font-medium text-slate-700">Estado
+                      <select aria-label="Estado del accesorio" disabled={!!editing.producto.fusionAccesorioId} value={form.estadoAccesorio || 'nuevo'} onChange={(event) => setForm((current) => ({ ...current, estadoAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
+                        {ACCESSORY_STATES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        {!ACCESSORY_STATES.some(([value]) => value === form.estadoAccesorio) && form.estadoAccesorio && <option value={form.estadoAccesorio}>{form.estadoAccesorio}</option>}
+                      </select>
+                    </label>
+                    <label className="block text-sm font-medium text-slate-700">Empaque
+                      <select disabled={!!editing.producto.fusionAccesorioId || form.estadoAccesorio === 'nuevo'} value={form.estadoAccesorio === 'nuevo' ? 'con_caja' : (form.empaqueAccesorio || 'sin_indicar')} onChange={(event) => setForm((current) => ({ ...current, empaqueAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 disabled:bg-slate-100">
+                        {Object.entries(accessoryPackaging).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                    </label>
+                  </div>}
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <label className="flex min-h-14 items-center justify-between rounded-xl bg-white px-4 text-sm font-medium text-slate-700 ring-1 ring-slate-200">En almacén<input type="checkbox" checked={Boolean(form.enAlmacen)} onChange={(event) => setForm((current) => ({ ...current, enAlmacen: event.target.checked }))} className="h-7 w-7" /></label>
                     <label className="text-sm font-medium text-slate-700">Cantidad comprada<input type="number" min={Math.max(1, accessoryUnitsSold)} step="1" value={form.cantidadStock}  onChange={(event) => setForm((current) => isSimpleAccessory(editing.producto) ? updateAccessoryPurchase(current, 'cantidadStock', event.target.value, 'cantidadStock') : ({ ...current, cantidadStock: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 disabled:cursor-not-allowed disabled:bg-slate-100" /></label>

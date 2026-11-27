@@ -388,6 +388,31 @@ test('alta simple en soles con envío y compatibilidad libre, sin catálogo Appl
   expect(api.patch).toHaveBeenCalledWith('/inventario/503', { enAlmacen: true, fotosTomadas: false, primerPrecioSoles: 35 });
 });
 
+test('alta simple: nuevo va con caja, usado permite elegir empaque y la mica oculta estado y empaque', async () => {
+  api.get.mockResolvedValue([entry]); api.post.mockResolvedValue({ id: 505 }); api.patch.mockResolvedValue({ enAlmacen: true });
+  render(<Inventario setVista={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Agregar accesorio simple' }));
+  const dialog = within(screen.getByRole('dialog', { name: 'Agregar accesorio simple' }));
+  expect(dialog.getByLabelText('Estado del accesorio')).toHaveValue('nuevo');
+  expect(dialog.getByLabelText(/^Empaque/)).toBeDisabled();
+  fireEvent.change(dialog.getByLabelText('Estado del accesorio'), { target: { value: 'usado' } });
+  expect(dialog.getByLabelText(/^Empaque/)).toBeEnabled();
+  fireEvent.click(dialog.getByLabelText(/Es mica/));
+  expect(dialog.queryByLabelText('Estado del accesorio')).toBeNull();
+  expect(dialog.queryByLabelText(/^Empaque/)).toBeNull();
+  fireEvent.change(dialog.getByLabelText('Nombre / título del accesorio *'), { target: { value: 'Mica templada' } });
+  fireEvent.change(dialog.getByLabelText('Comprado por *'), { target: { value: 'Gonzalo' } });
+  fireEvent.change(dialog.getByLabelText('Precio de compra por unidad'), { target: { value: '3' } });
+  fireEvent.change(dialog.getByLabelText('Familia compatible'), { target: { value: 'otro' } });
+  fireEvent.change(dialog.getByLabelText('Modelos personalizados'), { target: { value: 'iPhone 15' } });
+  fireEvent.change(dialog.getByLabelText(/Precio de venta \*/), { target: { value: '20' } });
+  fireEvent.click(dialog.getByRole('button', { name: 'Agregar accesorio' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/productos', expect.objectContaining({ estado: 'nuevo',
+    detalle: { modelo: 'Mica templada', modelosCompatibles: ['iPhone 15'], gama: 'Mica' } })));
+  expect(api.post.mock.calls[0][1]).not.toHaveProperty('empaqueAccesorio');
+});
+
 test('agrega un accesorio con dos tamaños compatibles de la misma familia', async () => {
   api.get.mockImplementation(async (path) => path === '/apple-catalog/accessory-compatibility' ? [
     { id: 'ipad-pro-m4:11', family: 'ipad', range: 'Pro', label: 'iPad Pro 11″ (M4)', screen: '11″', chip: 'M4', year: 2024 },
