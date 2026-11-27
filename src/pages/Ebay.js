@@ -15,6 +15,7 @@ const PRODUCT_SEARCH_MIN_VISIBLE_RESULTS = 14;
 const AUCTION_QUERY_GROUP_BATCH_SIZE = 4;
 const PRODUCT_SEARCH_SCAN_PAGES_PER_REQUEST = 1;
 const EBAY_VIEWED_ITEMS_KEY = 'ebay:viewed-items:v1';
+const EBAY_VIEWED_PRICES_KEY = 'ebay:viewed-prices:v1';
 const EBAY_PRODUCT_TASK = 'ebay-product';
 const EBAY_REQUEST_SEQ = { current: { pawns: 0, product: 0, auctions: 0 } };
 const EBAY_PRODUCT_ABORT = { current: null };
@@ -1262,6 +1263,43 @@ const mergeViewedMaps = (...maps) => {
   return merged;
 };
 
+// Primer precio visto por clave de artículo: { price, currency }.
+const readViewedEbayPrices = () => {
+  try {
+    const raw = localStorage.getItem(EBAY_VIEWED_PRICES_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeViewedEbayPrices = (prices) => {
+  try {
+    const entries = Object.entries(prices || {}).filter(([key, value]) => key && Number(value?.price) > 0).slice(-3000);
+    localStorage.setItem(EBAY_VIEWED_PRICES_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    /* ignore */
+  }
+};
+
+const getItemPriceForMode = (item, priceMode = 'standard') => {
+  const value = Number(priceMode === 'bid' ? item?.currentBidPriceUSD : item?.priceUSD);
+  return Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
+};
+
+const getViewedPriceForItem = (viewedPrices, item) =>
+  getItemViewedKeys(item).map((key) => viewedPrices?.[key]).find((entry) => Number(entry?.price) > 0) || null;
+
+export const buildPriceChange = (viewedPrice, currentPrice) => {
+  const before = Number(viewedPrice?.price);
+  const now = Number(currentPrice);
+  if (!(before > 0) || !(now > 0)) return null;
+  const diff = Math.round((now - before) * 100) / 100;
+  if (Math.abs(diff) < 0.01) return { direction: 'same', before, diff: 0 };
+  return { direction: diff < 0 ? 'down' : 'up', before, diff: Math.abs(diff) };
+};
+
 const mergeUniqueItems = (prevItems, nextItems) => {
   const seen = new Set(prevItems.map((item) => getItemKey(item)));
   const merged = [...prevItems];
@@ -1372,10 +1410,10 @@ function ResultsGrid({ items, titleSource = 'store', dateField = 'origin', price
             target="_blank"
             rel="noopener noreferrer"
             onMouseDown={(event) => {
-              if (event.button === 0 || event.button === 1) onItemOpen?.(item);
+              if (event.button === 0 || event.button === 1) onItemOpen?.(item, priceMode);
             }}
-            onAuxClick={() => onItemOpen?.(item)}
-            onClick={() => onItemOpen?.(item)}
+            onAuxClick={() => onItemOpen?.(item, priceMode)}
+            onClick={() => onItemOpen?.(item, priceMode)}
             className={`group relative overflow-hidden rounded-xl border shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md sm:rounded-2xl ${
               isViewed ? 'border-slate-300 bg-slate-50 opacity-80' : 'border-slate-200 bg-white'
             }`}
@@ -1419,6 +1457,23 @@ function ResultsGrid({ items, titleSource = 'store', dateField = 'origin', price
               <div className="rounded-lg bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700 sm:rounded-xl sm:px-2.5 sm:py-1.5 sm:text-sm">
                 {priceMode === 'bid' ? `Oferta: ${formatPrice(bidAmount, item.currency)}` : formatPrice(item.priceUSD, item.currency)}
               </div>
+
+              {item.priceChange && (
+                <div
+                  data-testid="ebay-price-change"
+                  className={`rounded-lg px-2 py-1 text-[10px] font-semibold sm:text-[11px] ${
+                    item.priceChange.direction === 'down'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : item.priceChange.direction === 'up'
+                        ? 'bg-rose-100 text-rose-800'
+                        : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {item.priceChange.direction === 'down' && `Bajó ${formatPrice(item.priceChange.diff, item.currency)} · antes ${formatPrice(item.priceChange.before, item.currency)}`}
+                  {item.priceChange.direction === 'up' && `Subió ${formatPrice(item.priceChange.diff, item.currency)} · antes ${formatPrice(item.priceChange.before, item.currency)}`}
+                  {item.priceChange.direction === 'same' && 'Mismo precio que cuando lo viste'}
+                </div>
+              )}
 
               <div className="space-y-0.5 break-words text-[10px] text-slate-500 sm:space-y-1 sm:text-[11px]">
                 <div>{item.condition || 'Sin condicion'}</div>
@@ -1566,7 +1621,7 @@ function Ebay({ setVista }) {
 
   const [pawnQuery, setPawnQuery] = useSharedState('ebay:pawnQuery', 'apple');
   const [pawnCondition, setPawnCondition] = useSharedState('ebay:pawnCondition', '');
-  const [pawnBuyingOptions, setPawnBuyingOptions] = useSharedState('ebay:pawnBuyingOptions', '');
+  const [pawnBuyingOptions, setPawnBuyingOptions] = useSharedState('ebay:pawnBuyingOptions', 'BEST_OFFER');
   const [pawnMinPrice, setPawnMinPrice] = useSharedState('ebay:pawnMinPrice', '');
   const [pawnMaxPrice, setPawnMaxPrice] = useSharedState('ebay:pawnMaxPrice', '');
   const [pawnResult, setPawnResult] = useSharedState('ebay:pawnResult', EMPTY_RESULT);
@@ -1607,6 +1662,7 @@ function Ebay({ setVista }) {
   const [ebayRateLoading, setEbayRateLoading] = useState(false);
   const [ebayRateError, setEbayRateError] = useState('');
   const [viewedItems, setViewedItems] = useState(readViewedEbayItems);
+  const [viewedPrices, setViewedPrices] = useState(readViewedEbayPrices);
 
   const sentinelRef = useRef(null);
   const appendRequestKeyRef = useRef('');
@@ -2250,8 +2306,15 @@ function Ebay({ setVista }) {
       .then((data) => {
         if (!alive) return;
         const fromDb = {};
+        const pricesFromDb = {};
         (Array.isArray(data?.items) ? data.items : []).forEach((row) => {
           const viewedAt = row?.viewedAt || '';
+          const viewedPrice = Number(row?.viewedPrice);
+          if (viewedPrice > 0) {
+            const entry = { price: viewedPrice, currency: row?.viewedCurrency || 'USD' };
+            if (row?.itemKey) pricesFromDb[String(row.itemKey)] = entry;
+            if (row?.itemUrl) getItemViewedKeys({ itemWebUrl: row.itemUrl }).forEach((key) => { pricesFromDb[key] = entry; });
+          }
           if (row?.itemKey && viewedAt) fromDb[String(row.itemKey)] = viewedAt;
           if (row?.itemUrl && viewedAt) {
             getItemViewedKeys({ itemWebUrl: row.itemUrl }).forEach((key) => {
@@ -2262,6 +2325,10 @@ function Ebay({ setVista }) {
         const merged = mergeViewedMaps(readViewedEbayItems(), fromDb);
         setViewedItems(merged);
         writeViewedEbayItems(merged);
+        // El backend conserva el primer precio visto; prevalece sobre el local.
+        const mergedPrices = { ...readViewedEbayPrices(), ...pricesFromDb };
+        setViewedPrices(mergedPrices);
+        writeViewedEbayPrices(mergedPrices);
       })
       .catch(() => {
         /* localStorage remains as fallback */
@@ -2271,10 +2338,23 @@ function Ebay({ setVista }) {
     };
   }, []);
 
-  const markItemViewed = (item) => {
+  const markItemViewed = (item, priceMode = 'standard') => {
     const keys = getItemViewedKeys(item);
     if (!keys.length) return;
     const viewedAt = new Date().toISOString();
+    const price = getItemPriceForMode(item, priceMode);
+    const currency = item?.currency || 'USD';
+    if (price) {
+      setViewedPrices((prev) => {
+        const known = keys.map((key) => prev?.[key]).find((entry) => Number(entry?.price) > 0);
+        const entry = known || { price, currency };
+        if (keys.every((key) => prev?.[key] === entry)) return prev;
+        const next = { ...prev };
+        keys.forEach((key) => { next[key] = entry; });
+        writeViewedEbayPrices(next);
+        return next;
+      });
+    }
     setViewedItems((prev) => {
       const next = { ...prev };
       keys.forEach((key) => {
@@ -2287,6 +2367,7 @@ function Ebay({ setVista }) {
       keys,
       itemUrl: item?.itemWebUrl || '',
       title: item?.title || '',
+      ...(price ? { price, currency } : {}),
     }).catch(() => {
       /* localStorage keeps the visible marker if the network save fails */
     });
@@ -2315,9 +2396,13 @@ function Ebay({ setVista }) {
     () => currentResult.items.filter((item) => activeTab !== 'product' || !isBlockedEbaySeller(item, blockedStores)).map((item) => ({
       ...item,
       viewedAt: getViewedAtForItem(viewedItems, item) || item.viewedAt,
+      priceChange: buildPriceChange(
+        getViewedPriceForItem(viewedPrices, item),
+        getItemPriceForMode(item, activeTab === 'auctions' ? 'bid' : 'standard'),
+      ),
       priceReview: buildRecommendationForItem(item, analyticsGroups, activeTab === 'auctions' ? 'bid' : 'standard'),
     })),
-    [activeTab, analyticsGroups, currentResult.items, viewedItems, blockedStores],
+    [activeTab, analyticsGroups, currentResult.items, viewedItems, viewedPrices, blockedStores],
   );
 
   const saveSinglePawnStore = async () => {
