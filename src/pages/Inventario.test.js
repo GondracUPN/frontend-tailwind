@@ -469,7 +469,7 @@ test('agrega un accesorio con dos tamaños compatibles de la misma familia', asy
   })));
 });
 
-test('filtra la gama y el tamaño del iPhone por la serie disponible', async () => {
+test('en iPhone basta serie y gama: sin tamaño y el modelo queda seleccionado', async () => {
   api.get.mockImplementation(async (path) => path === '/apple-catalog/accessory-compatibility' ? [
     { id: 'iphone-13-mini', family: 'iphone', range: 'Mini', label: 'iPhone 13 mini', screen: '5.4″', chip: 'A15', year: 2021 },
     { id: 'iphone-13-normal', family: 'iphone', series: '13', range: 'Normal', label: 'iPhone 13', screen: '6.1″', chip: 'A15', year: 2021 },
@@ -487,8 +487,8 @@ test('filtra la gama y el tamaño del iPhone por la serie disponible', async () 
   const range = dialog.getByLabelText('Gama');
   expect(within(range).getAllByRole('option').map((option) => option.textContent)).toEqual(['Elige la gama', 'Normal', 'Mini']);
   fireEvent.change(range, { target: { value: 'Mini' } });
-  fireEvent.change(dialog.getByLabelText('Tamaño de pantalla'), { target: { value: '5.4″' } });
-  fireEvent.click(dialog.getByRole('checkbox', { name: /iPhone 13 mini/ }));
+  expect(dialog.queryByLabelText('Tamaño de pantalla')).not.toBeInTheDocument();
+  expect(dialog.getByRole('checkbox', { name: /iPhone 13 mini/ })).toBeChecked();
 
   fireEvent.change(series, { target: { value: '14' } });
   expect(range).toHaveValue('');
@@ -498,8 +498,8 @@ test('filtra la gama y el tamaño del iPhone por la serie disponible', async () 
 
   fireEvent.change(series, { target: { value: 'Air' } });
   expect(dialog.queryByLabelText('Gama')).not.toBeInTheDocument();
-  fireEvent.change(dialog.getByLabelText('Tamaño de pantalla'), { target: { value: '6.5″' } });
-  expect(dialog.getByRole('checkbox', { name: /iPhone Air/ })).toBeInTheDocument();
+  expect(dialog.queryByLabelText('Tamaño de pantalla')).not.toBeInTheDocument();
+  expect(dialog.getByRole('checkbox', { name: /iPhone Air/ })).toBeChecked();
 });
 
 test('guarda precio de venta del accesorio simple sin precio mínimo ni id interno de detalle', async () => {

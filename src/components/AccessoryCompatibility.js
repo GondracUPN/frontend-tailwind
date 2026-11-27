@@ -55,7 +55,18 @@ export default function AccessoryCompatibility({ value, onChange, disabled = fal
   const namedIphone = isIphone && Boolean(series) && !/^\d+$/.test(series) && ranges.length === 1;
   const rangeModels = namedIphone ? seriesModels : seriesModels.filter((row) => row.range === range);
   const sizes = [...new Set(rangeModels.map(screenSize))].sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
-  const models = rangeModels.filter((row) => screenSize(row) === size);
+  // En iPhone cada gama ya define su tamaño: basta serie + gama.
+  const iphoneReady = isIphone && (Boolean(range) || namedIphone);
+  const models = isIphone ? (iphoneReady ? rangeModels : []) : rangeModels.filter((row) => screenSize(row) === size);
+  const addModels = (rows) => {
+    const labels = rows.map((row) => row.label).filter((label) => !selected.has(normalize(label)));
+    if (labels.length) onChange([...value, ...labels]);
+  };
+  const iphoneRangeModels = (nextSeries, nextRange) => {
+    const rows = familyModels.filter((row) => iphoneSeries(row) === nextSeries);
+    const single = !/^\d+$/.test(nextSeries) && new Set(rows.map((row) => row.range)).size === 1;
+    return single ? rows : nextRange ? rows.filter((row) => row.range === nextRange) : [];
+  };
 
   return <fieldset disabled={disabled} className="min-w-0 space-y-2 text-sm font-medium text-slate-700 sm:col-span-2">
     <legend>Modelos compatibles (opcional)</legend>
@@ -72,6 +83,7 @@ export default function AccessoryCompatibility({ value, onChange, disabled = fal
           setSeries(event.target.value);
           setRange('');
           setSize('');
+          if (event.target.value) addModels(iphoneRangeModels(event.target.value, ''));
         }}>
           <option value="">Elige la serie</option>
           {seriesOptions.map((item) => <option key={item} value={item}>iPhone {item}</option>)}
@@ -81,12 +93,13 @@ export default function AccessoryCompatibility({ value, onChange, disabled = fal
         <select className={input} value={range} onChange={(event) => {
           setRange(event.target.value);
           setSize('');
+          if (isIphone && event.target.value) addModels(iphoneRangeModels(series, event.target.value));
         }} disabled={!ranges.length}>
           <option value="">{ranges.length ? 'Elige la gama' : 'Sin gamas disponibles'}</option>
           {ranges.map((item) => <option key={item} value={item}>{isIphone && item === 'E' ? 'e' : item}</option>)}
         </select>
       </label>}
-      {(range || namedIphone) && <label className="block">Tamaño de pantalla
+      {!isIphone && range && <label className="block">Tamaño de pantalla
         <select className={input} value={size} onChange={(event) => setSize(event.target.value)}>
           <option value="">Elige el tamaño</option>
           {sizes.map((item) => <option key={item} value={item}>{item}</option>)}
@@ -108,7 +121,7 @@ export default function AccessoryCompatibility({ value, onChange, disabled = fal
           onClick={() => onChange(value.filter((item) => item !== label))}
           className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-indigo-800">{label} ×</button>)}
       </div>
-      {size && <fieldset>
+      {(isIphone ? iphoneReady : size) && <fieldset>
         <legend className="mb-1">Modelos</legend>
         <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
           {models.map((row) => <label key={row.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50">
