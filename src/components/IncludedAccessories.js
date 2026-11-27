@@ -37,7 +37,7 @@ export const defaultSealedAccessories = (type, model) => {
     if (value.includes('pro')) return ['Caja', 'Eartips'];
     return ['Caja'];
   }
-  return defaults[type] || [];
+  return defaults[type] || ['Caja'];
 };
 
 export const normalizeIncludedAccessories = (type, selected, model, state) => {
