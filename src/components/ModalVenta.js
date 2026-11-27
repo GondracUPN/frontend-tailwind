@@ -61,6 +61,9 @@ export default function ModalVenta({
   venta,
   onClose,
   onSaved,
+  onSubmitted,
+  onSettled,
+  onFailed,
   allowVendedorOnCreate = false,
   presetVendedor = '',
   precioPublicado,
@@ -440,9 +443,13 @@ export default function ModalVenta({
             producto: productoVenta,
             productoId: productoVenta.id,
           });
+          onSettled?.({ operacionKey });
           onSaved?.(saved);
         },
+        onError: () => onFailed?.({ operacionKey }),
       });
+      // Aviso inmediato (antes de que termine la cola) para reflejar el stock al instante.
+      onSubmitted?.({ operacionKey, productoId: productoVenta.id, cantidad: isAccessory ? Number(form.cantidad) : 1, loteInicialId: body.loteInicialId ?? productoVenta.id });
       setSaving(false);
       onClose?.();
     } catch (e) {

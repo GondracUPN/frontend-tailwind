@@ -70,6 +70,34 @@ const EMPTY_SIMPLE_ACCESSORY = {
   modelosCompatibles: [],
 };
 
+// Descuenta stock de un accesorio vendido: primero el lote inicial y luego los lotes fusionados (por id).
+export const discountAccessoryStock = (entries, producto, loteInicialId, cantidad) => {
+  const fusionId = producto?.fusionAccesorioId;
+  const group = entries.filter((entry) => entry.producto?.id === producto?.id
+    || (fusionId && entry.producto?.fusionAccesorioId === fusionId))
+    .map((entry) => entry.producto)
+    .sort((a, b) => (a.id === Number(loteInicialId) ? -1 : b.id === Number(loteInicialId) ? 1 : a.id - b.id));
+  let pending = Math.max(0, Number(cantidad) || 0);
+  const updates = new Map();
+  group.forEach((lot) => {
+    const available = Math.max(0, Number(lot.stockActual || 0));
+    const take = Math.min(available, pending);
+    if (take > 0) { updates.set(lot.id, available - take); pending -= take; }
+  });
+  if (!updates.size) return entries;
+  return entries.map((entry) => updates.has(entry.producto?.id)
+    ? { ...entry, producto: { ...entry.producto, stockActual: updates.get(entry.producto.id) } } : entry);
+};
+
+// Ventas confirmadas que aún no terminan en segundo plano: se aplican sobre cada recarga.
+const pendingInventorySales = new Map();
+const applyPendingSales = (entries) => [...pendingInventorySales.values()].reduce((current, sale) => {
+  const sold = current.find((entry) => entry.producto?.id === sale.productoId);
+  if (!sold) return current;
+  if (text(sold.producto.tipo).toLowerCase() !== 'accesorios') return current.filter((entry) => entry.producto?.id !== sale.productoId);
+  return discountAccessoryStock(current, sold.producto, sale.loteInicialId, sale.cantidad);
+}, entries);
+
 // Las micas se marcan con detalle.gama = 'Mica' y no usan estado ni empaque.
 export const isMicaAccessory = (producto) => /^micas?$/i.test(text(producto?.detalle?.gama));
 const ACCESSORY_STATES = [['nuevo', 'Nuevo'], ['usado', 'Usado']];
@@ -459,15 +487,20 @@ export default function Inventario({ setVista }) {
   const [simpleAccessoryError, setSimpleAccessoryError] = useState('');
   const [simpleAccessorySaving, setSimpleAccessorySaving] = useState(false);
 
-  const load = useCallback(async ({ silent = false } = {}) => {
+  const load = useCallback(async ({ silent = false, force = false } = {}) => {
     if (!silent) setLoading(true);
     setError('');
     try {
-      if (!inventarioRequest) {
-        inventarioRequest = api.get('/inventario').finally(() => { inventarioRequest = null; });
+      // force: tras una venta no se reutiliza una petición iniciada antes (traería stock viejo).
+      if (!inventarioRequest || force) {
+        const request = api.get('/inventario').finally(() => { if (inventarioRequest === request) inventarioRequest = null; });
+        inventarioRequest = request;
       }
-      const data = await inventarioRequest;
-      const next = (Array.isArray(data) ? data : []).filter((entry) => entry?.producto?.id);
+      const request = inventarioRequest;
+      const data = await request;
+      // Si mientras tanto empezó una petición más nueva, esta respuesta es vieja: se descarta.
+      if (inventarioRequest && inventarioRequest !== request) return;
+      const next = applyPendingSales((Array.isArray(data) ? data : []).filter((entry) => entry?.producto?.id));
       setEntries(next);
       writeInventarioCache(next);
     } catch (err) {
@@ -487,7 +520,7 @@ export default function Inventario({ setVista }) {
     const handleViewActivated = (event) => {
       if (event?.detail?.view === 'inventario') load({ silent: true });
     };
-    const handleSaleUpdated = () => load({ silent: true });
+    const handleSaleUpdated = () => load({ silent: true, force: true });
     window.addEventListener('app-view-activated', handleViewActivated);
     window.addEventListener('ventas-updated', handleSaleUpdated);
     return () => {
@@ -646,7 +679,7 @@ export default function Inventario({ setVista }) {
     setSelling((current) => (current ? { ...current, step: 'client' } : current));
   };
 
-  const handleInventoryVentaSaved = (venta) => {
+  const handleInventoryVentaSaved = () => {
     const soldEntry = selling?.entry;
     const accessorySale = text(soldEntry?.producto?.tipo).toLowerCase() === 'accesorios';
     if (soldEntry && !accessorySale) {
@@ -658,7 +691,22 @@ export default function Inventario({ setVista }) {
     }
     // Termina en segundo plano: solo cierra si sigue abierta la misma venta.
     setSelling((current) => (current?.entry === soldEntry ? null : current));
-    if (accessorySale || soldEntry?.producto?.accesoriosStock?.accesorios?.length) load({ silent: true });
+    if (accessorySale || soldEntry?.producto?.accesoriosStock?.accesorios?.length) load({ silent: true, force: true });
+  };
+
+  // Al confirmar la venta (antes de que termine en segundo plano) descuenta el stock en pantalla.
+  const handleInventoryVentaSubmitted = ({ operacionKey, productoId, cantidad, loteInicialId }) => {
+    if (operacionKey) pendingInventorySales.set(operacionKey, { productoId, cantidad, loteInicialId });
+    setEntries((current) => {
+      const sold = current.find((entry) => entry.producto?.id === productoId);
+      if (!sold) return current;
+      if (text(sold.producto.tipo).toLowerCase() !== 'accesorios') {
+        return current.filter((entry) => entry.producto?.id !== productoId);
+      }
+      const next = discountAccessoryStock(current, sold.producto, loteInicialId, cantidad);
+      writeInventarioCache(next);
+      return next;
+    });
   };
 
   const guardarAccesoriosStock = async (productoIds) => {
@@ -1219,7 +1267,7 @@ export default function Inventario({ setVista }) {
         </header>
         {ventaRapidaOpen && (
           <Suspense fallback={null}>
-            <VentaRapidaModal onClose={() => setVentaRapidaOpen(false)} onSaved={() => load()} />
+            <VentaRapidaModal onClose={() => setVentaRapidaOpen(false)} onSaved={() => load({ force: true })} />
           </Suspense>
         )}
 
@@ -1909,6 +1957,9 @@ export default function Inventario({ setVista }) {
                         allowVendedorOnCreate
                         onClose={() => setSelling(null)}
                         onSaved={handleInventoryVentaSaved}
+                        onSubmitted={handleInventoryVentaSubmitted}
+                        onSettled={({ operacionKey } = {}) => pendingInventorySales.delete(operacionKey)}
+                        onFailed={({ operacionKey } = {}) => { pendingInventorySales.delete(operacionKey); load({ silent: true, force: true }); }}
                       />
                     )}
                   </Suspense>
