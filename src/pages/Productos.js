@@ -1,10 +1,12 @@
 import { getProductos, subscribeProductos } from '../services/productosStore';
-import { setStoredValue, removeStoredValue, subscribeStorage, subscribePolling } from '../utils/storageEvents';
+import { setStoredValue, removeStoredValue, subscribeStorage } from '../utils/storageEvents';
 // src/pages/Productos.js
 import React, { Suspense, lazy, useState, useEffect, useCallback, useRef } from 'react';
 import { ActionButton, PageHeader, StatCard, Disclosure, LoadingState, ErrorState, formatDisplayMoney } from '../components/ui/VisualUI';
 import api from '../api';  // cliente fetch centralizado
 import { notifySalesChanged } from '../utils/salesSync';
+import { enqueueOperation } from '../services/backgroundOps';
+import { subscribeEshopexProgress } from '../services/eshopexProgress';
 import { showsRam } from '../utils/commercialSpecs';
 import { notifyGastosChanged } from '../utils/gastosSync';
 import ResumenCasilleros from '../components/ResumenCasilleros';
@@ -361,6 +363,7 @@ export default function Productos({ setVista, setAnalisisBack }) {
   const resumenRef = useRef(resumen);
   useEffect(() => { resumenRef.current = resumen; }, [resumen]);
   const didInitRef = useRef(false);
+  const ventasPrefetchRef = useRef(null);
 
   useEffect(() => {
     const handleExternalProductUpdate = (event) => {
@@ -440,7 +443,8 @@ export default function Productos({ setVista, setAnalisisBack }) {
     }
     writeCache(productosRef.current, nextVentas, resumenRef.current, nextAdelantos);
     fetchResumen({ refresh: true });
-    cerrarModal();
+    // No cerrar aquí: la venta termina en segundo plano y el usuario puede tener otro modal abierto.
+    // ModalVenta ya se cerró al enviar.
   };
 
   // El evento ventas-updated (notifySalesChanged) ya quitó la venta y refresca stock y resumen.
@@ -963,9 +967,14 @@ export default function Productos({ setVista, setAnalisisBack }) {
     });
   }, [personalEshopex]);
 
+  // Perdidos/reembolsados solo se ven en Perdidos/Re: no ocupan casilleros, recojo ni "en camino".
+  const productosActivos = React.useMemo(
+    () => (productos || []).filter((p) => !esPerdidoReembolso(p)),
+    [productos],
+  );
   const productosConPersonal = React.useMemo(
-    () => [...(productos || []), ...personalProductos],
-    [productos, personalProductos],
+    () => [...productosActivos, ...personalProductos],
+    [productosActivos, personalProductos],
   );
 
   // Accion ACEPTAR (flujo unico: marcar recogidos + WhatsApp)
@@ -1031,7 +1040,7 @@ const confirmAction = async () => {
   }, [productos, ventasMap, adelantosMap, getLastTracking]);
 
   const recojoList = React.useMemo(() => {
-    return (productos || []).filter((p) => {
+    return productosActivos.filter((p) => {
       const t = getLastTracking(p);
       const estado = String(t?.estado || '').toLowerCase();
       return estado === 'en_eshopex';
@@ -1043,7 +1052,7 @@ const confirmAction = async () => {
       if (ta && tb) return ta - tb;
       return ta - tb;
     });
-  }, [productos, getLastTracking]);
+  }, [productosActivos, getLastTracking]);
 
   const recojoPackages = React.useMemo(() => {
     const map = new Map();
@@ -1147,14 +1156,14 @@ const confirmAction = async () => {
   }, [productos, getLastTracking, getUsaCode]);
   const casillerosEnCamino = React.useMemo(() => {
     const set = new Set();
-    for (const p of productos || []) {
+    for (const p of productosActivos) {
       const t = getLastTracking(p);
       if (String(t?.estado || '').toLowerCase() !== 'comprado_en_camino') continue;
       const cas = String(t?.casillero || '').trim().toLowerCase();
       if (cas) set.add(cas);
     }
     return set;
-  }, [productos, getLastTracking]);
+  }, [productosActivos, getLastTracking]);
   const normalizeEshopexStatus = (status) => {
     const s = String(status || '').toUpperCase();
     if (s.includes('CONFIRMACION DE EMBARQUE CONSOLIDADO')) return { key: 'confirmacion', label: 'Confirmacion consolidado' };
@@ -1252,19 +1261,8 @@ const confirmAction = async () => {
 
   useEffect(() => {
     if (!eshopexCargaLoading) return () => {};
-    let alive = true;
-    const pullProgress = async () => {
-      if (document.hidden || (document.documentElement.dataset.activeView && document.documentElement.dataset.activeView !== 'productos')) return;
-      try {
-        const data = await api.get('/tracking/eshopex-carga-progress');
-        if (!alive) return;
-        setEshopexCargaProgress(normalizeEshopexProgress(data));
-      } catch {
-        /* ignore */
-      }
-    };
-    const stopPolling = subscribePolling(pullProgress, 700, 'productos');
-    return () => { alive = false; stopPolling(); };
+    // Comparte el sondeo con App: una sola petición de progreso a la vez.
+    return subscribeEshopexProgress((data) => setEshopexCargaProgress(normalizeEshopexProgress(data)));
   }, [eshopexCargaLoading]);
 
   const eshopexCargaProgressLabel = React.useMemo(() => {
@@ -2070,20 +2068,30 @@ const confirmAction = async () => {
   // SWR helpers: cache + refresh
   const [salesRevision, setSalesRevision] = useState(0);
   const productosSignature = React.useMemo(() => productos.map((item) => item.id).filter(Boolean).sort((a, b) => a - b).join(','), [productos]);
-  const refreshProductos = useCallback(async ({ force = false, useCache = true, silent = false } = {}) => {
+  const refreshProductos = useCallback(async ({ force = false, useCache = true, silent = false, withResumen = true } = {}) => {
     if (!silent) { setCargando(true); setError(null); }
     try {
       const data = await getProductos({ maxAgeMs: force || !useCache ? 0 : 60_000 });
       const lista = onlyProducts(data);
       setProductos(lista);
       writeCache(lista, ventasRef.current, resumenRef.current, adelantosRef.current);
-      fetchResumen({ refresh: false });
+      if (withResumen) fetchResumen({ refresh: false });
       return lista;
     } catch (error) {
       setError(`No se pudieron cargar los productos. ${error?.message || ''}`);
       return null;
     } finally { if (!silent) setCargando(false); }
   }, [fetchResumen]);
+
+  // Varios guardados seguidos (cola en segundo plano) comparten una sola recarga de /productos.
+  const refreshTimerRef = useRef(null);
+  const scheduleProductosRefresh = useCallback(() => {
+    clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshProductos({ force: true, useCache: false, silent: true });
+    }, 600);
+  }, [refreshProductos]);
+  useEffect(() => () => clearTimeout(refreshTimerRef.current), []);
 
   useEffect(() => {
     const handleViewActivated = (event) => {
@@ -2092,6 +2100,7 @@ const confirmAction = async () => {
       }
     };
     const salesChanged = () => {
+      ventasPrefetchRef.current = null; // una venta nueva invalida la precarga
       fetchResumen({ refresh: true });
       Promise.resolve().then(() => refreshProductos({ force: true, useCache: false, silent: true }));
       setSalesRevision((value) => value + 1);
@@ -2107,9 +2116,17 @@ const confirmAction = async () => {
     if (didInitRef.current) return;
     didInitRef.current = true;
     let mounted = true;
+    // Resumen, ventas y adelantos no dependen de /productos: salen en paralelo con él
+    // en vez de esperar a que llegue la lista (antes eran 2 rondas en serie).
+    fetchResumen({ refresh: false });
+    ventasPrefetchRef.current = Promise.all([
+      api.get('/ventas/ultimas'),
+      api.get('/ventas/adelantos/ultimos'),
+    ]);
+    ventasPrefetchRef.current.catch(() => {});
     (async () => {
       if (!mounted) return;
-      await refreshProductos({ useCache: true, force: productos.length === 0 });
+      await refreshProductos({ useCache: true, force: productos.length === 0, withResumen: false });
     })();
     return () => { mounted = false; };
   }, [fetchResumen, refreshProductos, productos.length]);
@@ -2131,10 +2148,13 @@ const confirmAction = async () => {
       try {
         const ids = productosSignature.split(',').map(Number);
 
-        const [ventasData, adelantosData] = await Promise.all([
+        // La primera vez reutiliza la petición lanzada al montar.
+        const prefetch = ventasPrefetchRef.current;
+        ventasPrefetchRef.current = null;
+        const [ventasData, adelantosData] = await (prefetch || Promise.all([
           api.get('/ventas/ultimas'),
           api.get('/ventas/adelantos/ultimos'),
-        ]);
+        ]));
         const ventasArr = Array.isArray(ventasData)
           ? ventasData
           : (Array.isArray(ventasData?.items) ? ventasData.items
@@ -2383,7 +2403,7 @@ const confirmAction = async () => {
       const next = isNuevo
         ? [updated, ...list]
         : list.map(p => (p.id === updated.id ? updated : p));
-      writeCache(next, ventasMap, resumenRef.current, adelantosRef.current);
+      writeCache(next, ventasRef.current, resumenRef.current, adelantosRef.current);
       return next;
     });
     window.dispatchEvent(new CustomEvent('productos-updated', { detail: { producto: updated } }));
@@ -2482,44 +2502,47 @@ const confirmAction = async () => {
     });
   };
 
-  const guardarDetalleProducto = async (id, payload) => {
-    let yaGuardando = false;
-    setSavingProductos((prev) => {
-      if (prev.has(id)) {
-        yaGuardando = true;
-        return prev;
-      }
+  const guardarDetalleProducto = (id, payload, { extraLinks = [] } = {}) => {
+    const target = (productosRef.current || []).find((item) => item.id === id);
+    const markSaving = (on) => setSavingProductos((prev) => {
+      if (on === prev.has(id)) return prev;
       const next = new Set(prev);
-      next.add(id);
+      if (on) next.add(id); else next.delete(id);
       return next;
     });
-    if (yaGuardando) return;
-
-    try {
-      const res = await api.patch('/productos/' + id, payload);
-      const updated = res?.data ?? res;
-      applyProductoUpdate(updated, { isNuevo: false, closeModal: false });
-      const nextSeller = String(updated?.vendedor || payload?.vendedor || '').trim();
-      if (isPedidoSeller(nextSeller)) {
-        setVentasMap((prev) => {
-          const current = prev?.[id];
-          if (!current || !shouldSyncVentaSeller(current.vendedor)) return prev;
-          const next = { ...prev, [id]: { ...current, vendedor: nextSeller } };
-          writeCache(productosRef.current, next, resumenRef.current, adelantosRef.current);
-          return next;
-        });
-      }
-    } catch (e) {
-      console.error('[Productos] Error al guardar producto', e);
-      alert('No se pudo actualizar el producto.');
-    } finally {
-      setSavingProductos((prev) => {
-        if (!prev.has(id)) return prev;
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    }
+    markSaving(true);
+    // Cola global: el modal ya se cerró; varias ediciones del mismo producto se aplican en orden.
+    enqueueOperation({
+      label: `Editar MS-${target ? (displayProductCode(target) ?? id) : id}`,
+      lockKey: `producto:${id}`,
+      run: async (state) => {
+        if (!state.updated) {
+          const res = await api.patch('/productos/' + id, payload);
+          state.updated = res?.data ?? res;
+        }
+        if (extraLinks.length && !state.linksDone) {
+          await Promise.allSettled(extraLinks.map((linkId) => api.patch(`/productos/${linkId}`, { vincularCon: id })));
+          state.linksDone = true;
+        }
+        return state.updated;
+      },
+      onSuccess: (updated) => {
+        markSaving(false);
+        applyProductoUpdate(updated, { isNuevo: false, closeModal: false });
+        const nextSeller = String(updated?.vendedor || payload?.vendedor || '').trim();
+        if (isPedidoSeller(nextSeller)) {
+          setVentasMap((prev) => {
+            const current = prev?.[id];
+            if (!current || !shouldSyncVentaSeller(current.vendedor)) return prev;
+            const next = { ...prev, [id]: { ...current, vendedor: nextSeller } };
+            writeCache(productosRef.current, next, resumenRef.current, adelantosRef.current);
+            return next;
+          });
+        }
+        if (extraLinks.length) scheduleProductosRefresh();
+      },
+      onError: () => markSaving(false),
+    });
   };
 
   const handleSaved = (updated, trackingUpdate) => {
@@ -2539,7 +2562,7 @@ const confirmAction = async () => {
     if (trackingUpdate && updated?.id) {
       applyTrackingUpdate(updated.id, trackingUpdate);
     }
-    refreshProductos({ force: true, useCache: false, silent: true });
+    scheduleProductosRefresh();
   };
 
   const handleSavedBatch = (created) => {
@@ -2547,10 +2570,10 @@ const confirmAction = async () => {
     if (!items.length) return;
     setProductos((list) => {
       const next = [...items, ...list];
-      writeCache(next, ventasMap, resumenRef.current, adelantosRef.current);
+      writeCache(next, ventasRef.current, resumenRef.current, adelantosRef.current);
       return next;
     });
-    refreshProductos({ force: true, useCache: false, silent: true });
+    scheduleProductosRefresh();
   };
 
   const handleSavedEnCasillero = (updated) => {
@@ -4288,7 +4311,7 @@ const confirmAction = async () => {
               const row = eshopexVincularRow || {};
               const accountKey = String(row?.account || '').trim().toLowerCase();
               const cas = String(casilleroByAccount[accountKey] || '').trim().toLowerCase();
-              const candidates = (productos || []).filter((p) => {
+              const candidates = productosActivos.filter((p) => {
                 const t = getLastTracking(p);
                 if (String(t?.estado || '').toLowerCase() !== 'comprado_en_camino') return false;
                 if (!cas) return false;

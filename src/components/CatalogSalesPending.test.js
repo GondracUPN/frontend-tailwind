@@ -88,6 +88,24 @@ test('permite confirmar una venta con cobro directo', async () => {
   }));
 });
 
+test('permite a Servicios quitar un accesorio antes de confirmar una venta recibida', async () => {
+  const row = { id: 'kit', eventType: 'sale.created', sku: 'MS-4', amount: 2000, exchangeRate: 1, status: 'pending_confirmation',
+    payload: { accesoriosStockIds: [433], accesoriosStockRevision: 4 },
+    accesoriosStock: { accesorios: [{ productoId: 433, nombre: 'Cable USB-C' }], revision: 4 } };
+  api.get.mockImplementation(async (path) => path.endsWith('/pending') ? [row] : { seller: 'Gonzalo', cards: [{ tipo: 'bcp' }] });
+  api.post.mockResolvedValue({});
+  jest.spyOn(window, 'confirm').mockReturnValue(true);
+  render(<CatalogSalesPending />);
+  const cable = await screen.findByRole('checkbox', { name: 'Cable USB-C' });
+  expect(cable).toBeChecked();
+  fireEvent.click(cable);
+  fireEvent.change(screen.getByLabelText('Agregar forma de cobro para MS-4'), { target: { value: 'direct' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Confirmar venta' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/integrations/catalog-sales/kit/confirm', expect.objectContaining({
+    accesoriosStockIds: [], accesoriosStockRevision: 4,
+  })));
+});
+
 test('recalcula ambos medios al editar cualquiera y limita el total de la venta', async () => {
   api.get.mockImplementation((path) => path.endsWith('/pending')
     ? Promise.resolve([{ id: 6, eventType: 'sale.created', sku: 'MS-6', amount: 2000, exchangeRate: 3.7, soldAt: '2026-10-08', status: 'pending_confirmation' }])

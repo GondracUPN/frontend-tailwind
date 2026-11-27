@@ -8,6 +8,7 @@ import MarginByMonth from '../components/analytics/MarginByMonth';
 import ProfitComparison from '../components/analytics/ProfitComparison';
 import FinancialDashboard from '../components/analytics/FinancialDashboard';
 import FinanzasPanel from '../components/finanzas/FinanzasPanel';
+import ProductAnalysisPanel from '../components/analytics/ProductAnalysisPanel';
 import { getAnalyticsSummary, getSunatExchangeRate, invalidateAnalyticsCache } from '../services/analytics';
 
 import { TC_FIJO } from '../utils/tipoCambio';
@@ -336,23 +337,6 @@ const countAccessoryCategories = (series = []) => {
 
 
 
-const avgLocal = (arr = []) => {
-
-
-
- const clean = arr.filter((n) => isFinite(n) && n > 0);
-
-
-
- if (!clean.length) return null;
-
-
-
-  return +(clean.reduce((s, n) => s + n, 0) / clean.length).toFixed(2);
-
-
-
-  };
 
  const quantileLocal = (arr, q) => {
 
@@ -414,23 +398,6 @@ const buildTrendStats = (series = []) => {
 
 };
 
-const roundUp10 = (value) => {
-
-
-
- const n = Number(value);
-
-
-
- if (!isFinite(n)) return null;
-
-
-
- return Math.ceil(n / 10) * 10;
-
-
-
- };
 
  const buildSeries = (rows = [], { dateKey, valueKey } = {}) => {
   return rows
@@ -708,6 +675,18 @@ const [isStale, setIsStale] = useState(false);
     accesoriosCounts,
   });
  };
+ // Curvas de un modelo del panel de análisis (compras y ventas ya etiquetadas con estado y presentación).
+ const openProductModelCurves = (model) => {
+  const compras = (model?.compras || []).map((row) => ({ ...row, estado: row.estadoNorm }));
+  const ventas = (model?.ventas || []).map((row) => ({ ...row, estado: row.estadoNorm }));
+  openCurvaModal({
+   title: model?.label || model?.tipo || 'Producto',
+   costSeries: buildSeries(compras, { dateKey: 'fechaCompra', valueKey: 'precioUSD' }),
+   saleSeries: buildSeries(ventas, { dateKey: 'fechaVenta', valueKey: 'precioVenta' }),
+   comprasDetalle: compras,
+  });
+ };
+
 
  const curvaDerived = (() => {
   const selectedEstado = curvaModal.estadoFiltro || 'todos';
@@ -4271,344 +4250,14 @@ Activo
 
 
 
- <div className="grid grid-cols-1 gap-5">
-
-
- {filtered.length === 0 && (
-  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
-   No hay productos para esta combinación de filtros. Prueba limpiando uno de ellos.
-  </div>
- )}
-
-
-
- {filtered.map((g, idx) => {
-
-
-
-const comprasDetalle = [...(g.comprasDetalle || [])].sort(
- (a, b) => {
-   const ta = a?.fechaCompra ? Date.parse(a.fechaCompra) : 0;
-   const tb = b?.fechaCompra ? Date.parse(b.fechaCompra) : 0;
-   if (ta && tb) return ta - tb;
-   return ta - tb;
- },
-);
-
-
-
- const ventasDetalleRaw = [...(g.ventasDetalle || [])];
- const ventasByProducto = new Map(ventasDetalleRaw.map((v) => [v.productoId, v]));
- const ventasDetalle = comprasDetalle.map((c) => ventasByProducto.get(c.productoId) || null);
-
- const estadoByProducto = new Map(comprasDetalle.map((c) => [c.productoId, normalizeEstado(c.estado)]));
-const costSeriesBase = buildSeries(comprasDetalle, { dateKey: 'fechaCompra', valueKey: 'precioUSD' });
-const costSeries = costSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.get(p.productoId) || p.estado || '' }));
-const saleSeriesBase = buildSeries(ventasDetalleRaw, { dateKey: 'fechaVenta', valueKey: 'precioVenta' });
-const saleSeries = saleSeriesBase.map((p) => ({ ...p, estado: estadoByProducto.get(p.productoId) || p.estado || '' }));
-
-
-
- const tcPromedio = (() => {
-
-
-
- const ratios = comprasDetalle
-
-
-
- .map((row) => {
-
-
-
- const usd = Number(row?.precioUSD || 0);
-
-
-
- const costo = Number(row?.costoTotal || 0);
-
-
-
- if (usd > 0 && costo > 0) return costo / usd;
-
-
-
- return null;
-
-
-
- })
-
-
-
- .filter((n) => isFinite(n) && n > 0);
-
-
-
- if (!ratios.length) return null;
-
-
-
- return +(ratios.reduce((s, n) => s + n, 0) / ratios.length).toFixed(4);
-
-
-
- })();
-
-
-
- const tcReferencia = tcPromedio || TC_FIJO || null;
-
- const presentationMeta = [
-  { key: 'caja', label: 'Con caja' },
-  { key: 'accesorios', label: 'Solo accesorios' },
-  { key: 'sin_nada', label: 'Sin nada' },
- ];
- const presentationRecommendations = presentationMeta.map((meta) => {
-  const purchases = comprasDetalle.filter((row) => (row.accesoriosCategoria || 'sin_nada') === meta.key);
-  const sales = ventasDetalleRaw.filter((row) => (row.accesoriosCategoria || 'sin_nada') === meta.key);
-  const categorySaleSeries = sanitizeSeries(buildSeries(sales, { dateKey: 'fechaVenta', valueKey: 'precioVenta' })).series;
-  const trend = buildTrendStats(categorySaleSeries);
-  const latest = categorySaleSeries.at(-1) || null;
-  const daysSinceLatest = latest ? Math.max(0, Math.round((Date.now() - latest.ts) / (1000 * 60 * 60 * 24))) : 0;
-  const averageCostSoles = avgLocal(purchases.map((row) => Number(row.costoTotal || 0)));
-  const averagePurchaseUsd = avgLocal(purchases.map((row) => Number(row.precioUSD || 0)));
-  const historicalSale = medianLocal(sales.map((row) => Number(row.precioVenta || 0)).filter((value) => value > 0));
-  const suggestedSale = latest
-   ? roundUp10(Math.max(0, latest.val + ((trend?.per30 || 0) * daysSinceLatest / 30)))
-   : roundUp10(historicalSale || (averageCostSoles ? averageCostSoles * 1.3 : 0));
-  const saleRange = averageCostSoles ? {
-   min: roundUp10(averageCostSoles * 1.2),
-   max: roundUp10(averageCostSoles * 1.4),
-  } : null;
-  const buyRange = suggestedSale && tcReferencia ? {
-   min: +((suggestedSale / 1.4 / tcReferencia).toFixed(2)),
-   max: +((suggestedSale / 1.2 / tcReferencia).toFixed(2)),
-  } : null;
-  const expectedMargin = suggestedSale && averageCostSoles
-   ? +((((suggestedSale - averageCostSoles) / averageCostSoles) * 100).toFixed(2))
-   : null;
-  return { ...meta, purchases, sales, trend, averagePurchaseUsd, historicalSale, suggestedSale, saleRange, buyRange, expectedMargin };
- });
-
-
-
- return (
-
-
-
- <div key={`${g.gama}-${g.proc}-${g.pantalla}-${g.estado}-${g.ram}-${g.ssd}-${idx}`} className="border rounded-xl p-4 space-y-4">
-
-
-
- <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-
-
-
- <div>
-
-
-
- <div className="text-sm text-gray-500 capitalize">{g.tipo}</div>
-
-
-
- <div className="text-lg font-semibold">
-
-
-
- {(g.tipo === 'iphone'
-   ? (() => {
-       const labelRaw = String(g?.label || '').trim();
-       const gamaRaw = String(g?.gama || '').trim();
-       const numFromLabel = labelRaw.match(/iphone\s*(\d+)/i)?.[1] || labelRaw.match(/\b(\d{2})\b/)?.[1] || '';
-       const numFromGama = gamaRaw.match(/(\d+)/)?.[1] || '';
-       const num = numFromGama || numFromLabel;
-       const rest = gamaRaw.replace(/\d+/g, '').trim() || (labelRaw.replace(/iphone\s*\d*/i, '').trim());
-       if (num) return rest ? `iPhone ${num} ${rest}` : `iPhone ${num}`;
-       return gamaRaw ? `iPhone ${gamaRaw}` : 'iPhone';
-     })()
-   : g.label)}{' '}
-
-
-
- <span className="text-sm text-gray-500 font-normal">
-
-
-
- ({g.compras?.count || 0} compras)
-
-
-
- </span>
-
-
-
- </div>
-
-
-
- <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
-  <span className={`rounded-full px-2.5 py-1 font-semibold ${g.estado === 'nuevo' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-   {g.estado === 'nuevo' ? 'Nuevo' : g.estado === 'usado' ? 'Usado' : (g.estado || 'Sin estado')}
-  </span>
-  {g.ram && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">RAM {g.ram}</span>}
-  {g.ssd && <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">{g.tipo === 'iphone' || g.tipo === 'ipad' ? 'Almacenamiento' : 'SSD'} {g.ssd}</span>}
- </div>
-
-
-
- <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-  <div>
-   Promedios historicos: compra <Currency v={g.compras?.mean} /> - venta <Currency v={g.ventas?.mean} /> - margen <Percent v={g.ventas?.margenPromedio || 0} />
-  </div>
-  <button
-   type="button"
-   className="px-2 py-1 rounded border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50"
-   onClick={() => {
-    openCurvaModal({
-     title: g.label || g.tipo || 'Producto',
-     costSeries,
-     saleSeries,
-     comprasDetalle,
-    });
-   }}
-  >
-   Ver curvas
-  </button>
- </div>
-
-
-
- </div>
-
-
-
- <div className="w-full lg:w-auto rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-gray-700">
-
-
-
- <div className="font-semibold text-gray-800">Recomendacion</div>
-
-
-
- <div className="text-xs text-gray-600">Basado en lo que se pago (USD) y se vendio (S/) para mantener margenes del 20%-40%.</div>
-
- <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
-  <div className="rounded-lg border border-emerald-200 bg-white/70 p-3">
-   <div className="text-xs font-semibold uppercase text-emerald-800">Compra objetivo (USD)</div>
-   <div className="mt-1 text-[11px] text-slate-500">Rango calculado desde el precio de venta estimado para conservar entre 20% y 40%.</div>
-   <div className="mt-3 space-y-2">
-    {presentationRecommendations.map((item) => (
-     <div key={`buy-${item.key}`} className="rounded-lg border border-slate-200 bg-white p-2">
-      <div className="flex items-center justify-between gap-3">
-       <strong>{item.label}</strong>
-       <strong className="whitespace-nowrap text-emerald-800">{item.buyRange ? `${fmtUSD(item.buyRange.min)} - ${fmtUSD(item.buyRange.max)}` : '-'}</strong>
-      </div>
-      <div className="mt-1 text-[11px] text-slate-500">Promedio pagado: {item.averagePurchaseUsd ? fmtUSD(item.averagePurchaseUsd) : '-'} · {item.purchases.length} compras</div>
-     </div>
-    ))}
-   </div>
-   <div className="mt-2 text-[11px] text-slate-500">TC usado: {tcReferencia ? tcReferencia.toFixed(2) : '-'}</div>
-  </div>
-
-  <div className="rounded-lg border border-blue-200 bg-white/70 p-3">
-   <div className="text-xs font-semibold uppercase text-blue-800">Venta objetivo (S/)</div>
-   <div className="mt-1 text-[11px] text-slate-500">Estimación actual y rango de venta con 20%-40% sobre el costo de cada presentación.</div>
-   <div className="mt-3 space-y-2">
-    {presentationRecommendations.map((item) => (
-     <div key={`sale-${item.key}`} className="rounded-lg border border-slate-200 bg-white p-2">
-      <div className="flex items-center justify-between gap-3"><strong>{item.label}</strong><strong className="whitespace-nowrap text-blue-800">{item.suggestedSale ? fmtSolesLocal(item.suggestedSale) : '-'}</strong></div>
-      <div className="mt-1 flex flex-wrap justify-between gap-x-3 text-[11px] text-slate-600">
-       <span>Rango: {item.saleRange ? `${fmtSolesLocal(item.saleRange.min)} - ${fmtSolesLocal(item.saleRange.max)}` : '-'}</span>
-       <span>Margen esperado: {item.expectedMargin != null ? `${item.expectedMargin.toFixed(2)} %` : '-'}</span>
-       <span>Variación/30 días: {item.trend ? fmtSignedSoles(item.trend.per30) : '-'}</span>
-      </div>
-      <div className="mt-1 text-[11px] text-slate-400">{item.sales.length} ventas de referencia</div>
-     </div>
-    ))}
-   </div>
-  </div>
- </div>
-
-
-
- </div>
-
-
-
- </div>
-
-
-
- <div>
- <div className="text-sm font-semibold mb-1">Compras y ventas del modelo</div>
-<div className="text-xs text-gray-500 mb-2">Compras ordenadas por fecha y su venta correspondiente en la misma fila.</div>
- {(comprasDetalle.length || ventasDetalle.length) ? (
- <div className="max-h-64 overflow-auto rounded border">
- <table className="min-w-[900px] w-full text-xs text-gray-700">
- <thead className="bg-gray-50 text-gray-500">
- <tr>
- <th className="py-1 px-2 text-left" colSpan={4}>Compras</th>
- <th className="py-1 px-2 text-left" colSpan={5}>Ventas</th>
- </tr>
- <tr>
- <th className="py-1 px-2 text-left">Fecha</th>
- <th className="py-1 px-2 text-left">Estado</th>
- <th className="py-1 px-2 text-left">Precio (USD)</th>
- <th className="py-1 px-2 text-left">Costo total (S/)</th>
- <th className="py-1 px-2 text-left">Fecha venta</th>
- <th className="py-1 px-2 text-left">Precio (S/)</th>
- <th className="py-1 px-2 text-left">Ganancia</th>
- <th className="py-1 px-2 text-left">% margen</th>
- <th className="py-1 px-2 text-left">Dias</th>
- </tr>
- </thead>
- <tbody>
- {comprasDetalle.map((row, rowIdx) => {
- const venta = ventasDetalle[rowIdx];
- return (
- <tr key={`compra-venta-${g.label}-${row.productoId}`} className="border-t">
- <td className="py-1 px-2">{fmtDate(row.fechaCompra)}</td>
- <td className="py-1 px-2 capitalize">{row.estado || '-'}</td>
- <td className="py-1 px-2">{fmtUSD(row.precioUSD)}</td>
- <td className="py-1 px-2 font-semibold">{fmtSolesLocal(row.costoTotal)}</td>
- <td className="py-1 px-2">{venta ? fmtDate(venta.fechaVenta) : '-'}</td>
- <td className="py-1 px-2">{venta ? fmtSolesLocal(venta.precioVenta) : '-'}</td>
- <td className="py-1 px-2">{venta ? fmtSolesLocal(venta.ganancia) : '-'}</td>
- <td className="py-1 px-2">{venta && isFinite(Number(venta.porcentaje)) ? `${Number(venta.porcentaje).toFixed(2)} %` : '-'}</td>
- <td className="py-1 px-2">{venta && venta.dias != null ? `${venta.dias} d` : '-'}</td>
- </tr>
- );
- })}
- {!comprasDetalle.length && ventasDetalle.length ? (
- <tr className="border-t">
- <td className="py-2 px-2 text-center text-gray-500" colSpan={9}>No hay compras registradas para este grupo.</td>
- </tr>
- ) : null}
- </tbody>
- </table>
- </div>
- ) : (
- <div className="text-xs text-gray-500">No hay compras ni ventas registradas para este grupo.</div>
- )}
- </div>
-
-
-
- </div>
-
-
-
- );
-
-
-
- })}
-
-
-
- </div>
+ <ProductAnalysisPanel
+  groups={filtered}
+  allGroups={groups}
+  estadoFilter={productFilters.estado}
+  tc={Number(sunatFx?.sell) || TC_FIJO}
+  tcLabel={sunatFx?.fallback ? 'TC fijo' : `SUNAT venta${sunatFx?.date ? ` ${sunatFx.date}` : ''}`}
+  onOpenCurves={openProductModelCurves}
+ />
 
 
 

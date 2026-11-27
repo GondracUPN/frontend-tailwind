@@ -8,6 +8,7 @@ jest.mock('../api', () => ({
     get: jest.fn(),
     patch: jest.fn(),
     post: jest.fn(),
+    put: jest.fn(),
     del: jest.fn(),
   },
 }));
@@ -27,6 +28,140 @@ const entry = {
 beforeEach(() => {
   jest.clearAllMocks();
   api.get.mockResolvedValue([entry]);
+});
+
+test('agrega un Apple Pencil a otro tipo de equipo y lo retira desde la misma ficha', async () => {
+  const pencil = { producto: { id: 815, tipo: 'accesorios', stockActual: 1, stockInicial: 1, detalle: { modelo: 'Apple Pencil Pro' } } };
+  api.get.mockResolvedValue([entry, pencil]);
+  api.put.mockResolvedValueOnce({ revision: 1, accesorios: [{ productoId: 815, nombre: 'Apple Pencil Pro' }] })
+    .mockResolvedValueOnce({ revision: 2, accesorios: [] });
+  render(<Inventario setVista={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Completar ficha' }));
+  const editor = within(screen.getByRole('dialog', { name: 'Completar ficha de inventario' }));
+  fireEvent.click(editor.getByRole('button', { name: 'Agregar accesorio del stock' }));
+  fireEvent.change(editor.getByRole('textbox', { name: 'Buscar accesorio del stock' }), { target: { value: 'pencil' } });
+  fireEvent.click(editor.getByRole('button', { name: /Apple Pencil Pro/ }));
+  const quitar = await editor.findByRole('button', { name: 'Quitar Apple Pencil Pro del equipo' });
+  expect(api.put).toHaveBeenNthCalledWith(1, '/inventario/42/accesorios-stock', { productoIds: [815], revision: 0 });
+  await waitFor(() => expect(quitar).toBeEnabled());
+  fireEvent.click(quitar);
+  await waitFor(() => expect(quitar).not.toBeInTheDocument());
+  expect(api.put).toHaveBeenNthCalledWith(2, '/inventario/42/accesorios-stock', { productoIds: [], revision: 1 });
+});
+
+test('encuentra ACC-435 y permite ordenar accesorios por fecha reciente o código ACC', async () => {
+  const accesorio = (id, referenciaId, llegada, alta, empaqueAccesorio) => ({
+    producto: { id, codigoInventario: id, referenciaId, empaqueAccesorio, tipo: 'accesorios', stockActual: 1,
+      detalle: { modelo: `Accesorio ${id}` }, tracking: llegada ? [{ fechaRecogido: llegada }] : [] },
+    ficha: { createdAt: alta },
+  });
+  api.get.mockResolvedValue([
+    entry,
+    accesorio(435, null, '2026-09-02', '2026-11-02'),
+    accesorio(900, 1, '2026-06-01', '2026-06-01', 'con_caja'),
+    accesorio(101, 2, null, '2026-10-01', 'sin_caja'),
+  ]);
+  render(<Inventario setVista={jest.fn()} />);
+  await screen.findByText('MS-42');
+  fireEvent.change(screen.getByPlaceholderText('Buscar producto, color, serial o IMEI'), { target: { value: 'acc-435' } });
+  expect(screen.getByText('ACC-435')).toBeVisible();
+  expect(screen.queryByText('ACC-101')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByPlaceholderText('Buscar accesorio por nombre, código ACC o comprador'), { target: { value: '' } });
+  const codigos = () => screen.getAllByText(/^ACC-/).map((element) => element.textContent);
+  expect(codigos()).toEqual(['ACC-101', 'ACC-435', 'ACC-900']);
+  const orden = screen.getByLabelText('Ordenar inventario');
+  expect(within(orden).getAllByRole('option').map((item) => item.textContent)).toEqual([
+    'Más recientes', 'Código ACC: menor a mayor', 'Código ACC: mayor a menor',
+  ]);
+  fireEvent.change(orden, { target: { value: 'codeDesc' } });
+  expect(codigos()).toEqual(['ACC-900', 'ACC-435', 'ACC-101']);
+  const empaque = screen.getByLabelText('Empaque');
+  fireEvent.change(empaque, { target: { value: 'con_caja' } });
+  expect(codigos()).toEqual(['ACC-900']);
+  fireEvent.change(empaque, { target: { value: 'sin_caja' } });
+  expect(codigos()).toEqual(['ACC-101']);
+  fireEvent.change(empaque, { target: { value: 'sin_indicar' } });
+  expect(codigos()).toEqual(['ACC-435']);
+});
+
+test('el selector muestra más de veinte accesorios disponibles, incluidos los que no tienen referencia', async () => {
+  const disponibles = Array.from({ length: 21 }, (_, i) => ({
+    producto: { id: i + 435, tipo: 'accesorios', stockActual: 1, detalle: { modelo: `Cable ${i + 435}` } },
+  }));
+  api.get.mockResolvedValue([entry, ...disponibles]);
+  render(<Inventario setVista={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Completar ficha' }));
+  const editor = within(screen.getByRole('dialog', { name: 'Completar ficha de inventario' }));
+  fireEvent.click(editor.getByRole('button', { name: 'Agregar accesorio del stock' }));
+  expect(editor.getAllByRole('button', { name: /^Cable \d/ })).toHaveLength(21);
+  fireEvent.change(editor.getByRole('textbox', { name: 'Buscar accesorio del stock' }), { target: { value: 'acc 435' } });
+  expect(editor.getByRole('button', { name: /Cable 435/ })).toBeVisible();
+  expect(editor.queryByRole('button', { name: /Cable 436/ })).not.toBeInTheDocument();
+});
+
+test('fusiona al confirmar y permite separar los lotes desde Editar stock', async () => {
+  localStorage.setItem('token', 'test');
+  localStorage.setItem('user', JSON.stringify({ role: 'admin' }));
+  const lote = (id, empaqueAccesorio, stockInicial, costoTotal) => ({
+    producto: { id, tipo: 'accesorios', vendedor: 'Gonzalo', estado: 'nuevo', empaqueAccesorio, stockInicial,
+      stockActual: stockInicial, detalle: { modelo: 'Cable USB-C' }, valor: { costoTotal } }, ficha: null,
+  });
+  let rows = [lote(433, 'sin_caja', 2, 20), lote(435, 'sin_caja', 3, 60), lote(436, 'con_caja', 1, 5)];
+  api.get.mockImplementation(async (path) => path === '/inventario' ? rows : []);
+  api.post.mockImplementation(async (path) => {
+    if (path === '/accesorios/fusionar') rows = rows.map((row) => row.producto.id === 436 ? row : ({
+      ...row, producto: { ...row.producto, fusionAccesorioId: 433 },
+    }));
+    return { fusionAccesorioId: 433 };
+  });
+  api.del.mockImplementation(async () => {
+    rows = rows.map((row) => ({ ...row, producto: { ...row.producto, fusionAccesorioId: null } }));
+    return { ok: true };
+  });
+  const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
+  try {
+    render(<Inventario setVista={jest.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+    const origen = (await screen.findByText('ACC-433')).closest('article');
+    expect(screen.getAllByRole('button', { name: 'Fusionar con otro lote' })).toHaveLength(3);
+    fireEvent.click(within(origen).getByRole('button', { name: 'Fusionar con otro lote' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Fusionar lotes de accesorios' }));
+    expect(dialog.getAllByRole('checkbox')).toHaveLength(1);
+    fireEvent.click(dialog.getByRole('checkbox', { name: /ACC-435/ }));
+    expect(dialog.getAllByText('S/ 16.00')).toHaveLength(2);
+    expect(dialog.getByText('S/ 80.00')).toBeVisible();
+    expect(api.post).not.toHaveBeenCalled();
+    fireEvent.click(dialog.getByRole('button', { name: 'Confirmar fusión' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Fusionar lotes de accesorios' })).not.toBeInTheDocument());
+    expect(api.post).toHaveBeenCalledWith('/accesorios/fusionar', { productoIds: [433, 435] });
+    expect(screen.getByText('Costo promedio')).toBeVisible();
+    const fusionado = screen.getByText('Costo promedio').closest('article');
+    expect(within(fusionado).queryByRole('button', { name: 'Fusionar con otro lote' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Desfusionar lotes' })).not.toBeInTheDocument();
+    fireEvent.click(within(fusionado).getByRole('button', { name: 'Editar stock' }));
+    const editor = within(screen.getByRole('dialog', { name: 'Completar ficha de inventario' }));
+    fireEvent.click(editor.getByRole('button', { name: 'Desfusionar lotes' }));
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Fusionar con otro lote' })).toHaveLength(3));
+    expect(api.del).toHaveBeenCalledWith('/accesorios/fusiones/433');
+  } finally {
+    confirm.mockRestore();
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  }
+});
+
+test('muestra en el historial la ganancia de un accesorio incluido aunque ya no tenga stock', async () => {
+  const cubo = { producto: { id: 815, tipo: 'accesorios', stockActual: 0, stockInicial: 1, detalle: { modelo: 'Cubo USB-C' } } };
+  api.get.mockImplementation(async (path) => path === '/ventas/accesorio-resumen?productoId=815'
+    ? { unidadesVendidas: 1, unidadesDisponibles: 0, ventaBruta: 19.8, gananciaNeta: 9.8,
+      ventas: [{ id: 296, equipoId: 42, cantidad: 1, fechaVenta: '2026-11-26', precioUnitario: 19.8, ventaBruta: 19.8, costo: 10, gananciaNeta: 9.8 }] }
+    : [cubo]);
+  render(<Inventario setVista={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Editar stock' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Ver historial de ventas' }));
+  const venta = await screen.findByText('Incluido en equipo MS-42');
+  expect(venta.parentElement).toHaveTextContent(/Ganancia\s*S\/ 9\.80/);
 });
 
 test('al buscar una serie o IMEI de un producto vendido lo muestra como vendido', async () => {
@@ -239,7 +374,8 @@ test('alta simple en soles con envío y compatibilidad libre, sin catálogo Appl
   fireEvent.change(within(dialog).getByLabelText('Comprado por *'), { target: { value: 'Renato' } });
   fireEvent.change(within(dialog).getByLabelText('Precio de compra por unidad'), { target: { value: '15' } });
   fireEvent.change(within(dialog).getByLabelText('Cantidad *'), { target: { value: '2' } });
-  fireEvent.change(within(dialog).getByLabelText(/Modelos compatibles \(opcional\)/), { target: { value: 'Galaxy S25, Pixel 10' } });
+  fireEvent.change(within(dialog).getByLabelText('Familia compatible'), { target: { value: 'otro' } });
+  fireEvent.change(within(dialog).getByLabelText('Modelos personalizados'), { target: { value: 'Galaxy S25, Pixel 10' } });
   fireEvent.click(within(dialog).getByLabelText('Hubo costo de envío'));
   fireEvent.change(within(dialog).getByLabelText('Costo de envío (S/)'), { target: { value: '8' } });
   fireEvent.change(within(dialog).getByLabelText(/Precio de venta \(opcional\)/), { target: { value: '35' } });
@@ -250,6 +386,95 @@ test('alta simple en soles con envío y compatibilidad libre, sin catálogo Appl
     detalle: { modelo: 'Case marca libre', modelosCompatibles: ['Galaxy S25', 'Pixel 10'] }, valor: expect.objectContaining({ valorProducto: 30, monedaCompra: 'PEN', costoEnvio: 8 }) })));
   expect(api.post.mock.calls[0][1].valor).not.toHaveProperty('tipoCambioCompra');
   expect(api.patch).toHaveBeenCalledWith('/inventario/503', { enAlmacen: true, fotosTomadas: false, primerPrecioSoles: 35 });
+});
+
+test('agrega un accesorio con dos tamaños compatibles de la misma familia', async () => {
+  api.get.mockImplementation(async (path) => path === '/apple-catalog/accessory-compatibility' ? [
+    { id: 'ipad-pro-m4:11', family: 'ipad', range: 'Pro', label: 'iPad Pro 11″ (M4)', screen: '11″', chip: 'M4', year: 2024 },
+    { id: 'ipad-pro-m4:13', family: 'ipad', range: 'Pro', label: 'iPad Pro 13″ (M4)', screen: '13″', chip: 'M4', year: 2024 },
+    { id: 'ipad-air-m2:11', family: 'ipad', range: 'Air', label: 'iPad Air 11″ (M2)', screen: '11″', chip: 'M2', year: 2024 },
+    { id: 'iphone-13-mini', family: 'iphone', range: 'Mini', label: 'iPhone 13 mini', screen: '5.4″', chip: 'A15', year: 2021 },
+  ] : [entry]);
+  api.post.mockResolvedValue({ id: 504 });
+  api.patch.mockResolvedValue({ enAlmacen: true });
+  render(<Inventario setVista={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Agregar accesorio simple' }));
+  const dialog = within(screen.getByRole('dialog', { name: 'Agregar accesorio simple' }));
+  fireEvent.change(dialog.getByLabelText('Nombre / título del accesorio *'), { target: { value: 'Apple Pencil Pro' } });
+  fireEvent.change(dialog.getByLabelText('Comprado por *'), { target: { value: 'Gonzalo' } });
+  fireEvent.change(dialog.getByLabelText('Precio de compra por unidad'), { target: { value: '15' } });
+  fireEvent.change(dialog.getByLabelText('Cantidad *'), { target: { value: '2' } });
+  const family = dialog.getByLabelText('Familia compatible');
+  expect(dialog.queryByLabelText('Gama')).not.toBeInTheDocument();
+  fireEvent.change(family, { target: { value: 'ipad' } });
+  const range = await dialog.findByLabelText('Gama');
+  expect(dialog.queryByRole('group', { name: 'Modelos' })).not.toBeInTheDocument();
+  expect(dialog.queryByLabelText('Tamaño de pantalla')).not.toBeInTheDocument();
+  expect(within(range).queryByRole('option', { name: 'Mini' })).not.toBeInTheDocument();
+  fireEvent.change(range, { target: { value: 'Pro' } });
+  const size = dialog.getByLabelText('Tamaño de pantalla');
+  expect(dialog.queryByRole('group', { name: 'Modelos' })).not.toBeInTheDocument();
+  fireEvent.change(size, { target: { value: '11″' } });
+  expect(dialog.queryByRole('checkbox', { name: /iPad Air/ })).not.toBeInTheDocument();
+  expect(dialog.queryByRole('checkbox', { name: /iPad Pro 13″/ })).not.toBeInTheDocument();
+  fireEvent.click(dialog.getByRole('checkbox', { name: /iPad Pro 11″/ }));
+  fireEvent.change(size, { target: { value: '13″' } });
+  expect(dialog.queryByRole('checkbox', { name: /iPad Pro 11″/ })).not.toBeInTheDocument();
+  fireEvent.click(dialog.getByRole('checkbox', { name: /iPad Pro 13″/ }));
+  expect(dialog.queryByRole('checkbox', { name: /iPhone 13/ })).not.toBeInTheDocument();
+  fireEvent.change(range, { target: { value: 'Air' } });
+  expect(size).toHaveValue('');
+  expect(within(size).queryByRole('option', { name: '13″' })).not.toBeInTheDocument();
+  fireEvent.change(size, { target: { value: '11″' } });
+  expect(dialog.getByRole('checkbox', { name: /iPad Air/ })).toBeInTheDocument();
+  expect(dialog.queryByRole('checkbox', { name: /iPad Pro/ })).not.toBeInTheDocument();
+  expect(dialog.getByRole('button', { name: /Quitar iPad Pro 13″/ })).toBeVisible();
+
+  const confirmation = jest.spyOn(window, 'confirm').mockReturnValue(false);
+  try {
+    fireEvent.change(family, { target: { value: 'iphone' } });
+    expect(confirmation).toHaveBeenCalled();
+    expect(family).toHaveValue('ipad');
+  } finally { confirmation.mockRestore(); }
+
+  fireEvent.click(dialog.getByRole('button', { name: 'Agregar accesorio' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/productos', expect.objectContaining({
+    detalle: { modelo: 'Apple Pencil Pro', modelosCompatibles: ['iPad Pro 11″ (M4)', 'iPad Pro 13″ (M4)'] },
+  })));
+});
+
+test('filtra la gama y el tamaño del iPhone por la serie disponible', async () => {
+  api.get.mockImplementation(async (path) => path === '/apple-catalog/accessory-compatibility' ? [
+    { id: 'iphone-13-mini', family: 'iphone', range: 'Mini', label: 'iPhone 13 mini', screen: '5.4″', chip: 'A15', year: 2021 },
+    { id: 'iphone-13-normal', family: 'iphone', series: '13', range: 'Normal', label: 'iPhone 13', screen: '6.1″', chip: 'A15', year: 2021 },
+    { id: 'iphone-14-plus', family: 'iphone', series: '14', range: 'Plus', label: 'iPhone 14 Plus', screen: '6.7″', chip: 'A15', year: 2022 },
+    { id: 'iphone-x-air', family: 'iphone', series: 'Air', range: 'Air', label: 'iPhone Air', screen: '6.5″', chip: 'A19 Pro', year: 2025 },
+  ] : [entry]);
+  render(<Inventario setVista={jest.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Accesorios' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Agregar accesorio simple' }));
+  const dialog = within(screen.getByRole('dialog', { name: 'Agregar accesorio simple' }));
+  fireEvent.change(dialog.getByLabelText('Familia compatible'), { target: { value: 'iphone' } });
+  const series = await dialog.findByLabelText('Serie de iPhone');
+  expect(dialog.queryByLabelText('Gama')).not.toBeInTheDocument();
+  fireEvent.change(series, { target: { value: '13' } });
+  const range = dialog.getByLabelText('Gama');
+  expect(within(range).getAllByRole('option').map((option) => option.textContent)).toEqual(['Elige la gama', 'Normal', 'Mini']);
+  fireEvent.change(range, { target: { value: 'Mini' } });
+  fireEvent.change(dialog.getByLabelText('Tamaño de pantalla'), { target: { value: '5.4″' } });
+  fireEvent.click(dialog.getByRole('checkbox', { name: /iPhone 13 mini/ }));
+
+  fireEvent.change(series, { target: { value: '14' } });
+  expect(range).toHaveValue('');
+  expect(within(range).getAllByRole('option').map((option) => option.textContent)).toEqual(['Elige la gama', 'Plus']);
+  expect(dialog.queryByLabelText('Tamaño de pantalla')).not.toBeInTheDocument();
+  expect(dialog.getByRole('button', { name: 'Quitar iPhone 13 mini' })).toBeVisible();
+
+  fireEvent.change(series, { target: { value: 'Air' } });
+  expect(dialog.queryByLabelText('Gama')).not.toBeInTheDocument();
+  fireEvent.change(dialog.getByLabelText('Tamaño de pantalla'), { target: { value: '6.5″' } });
+  expect(dialog.getByRole('checkbox', { name: /iPhone Air/ })).toBeInTheDocument();
 });
 
 test('guarda precio de venta del accesorio simple sin precio mínimo ni id interno de detalle', async () => {

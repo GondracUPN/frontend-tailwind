@@ -1,5 +1,6 @@
-import { accessoryUnitCost, isSimpleAccessory, accessoryPurchaseTotal, updateAccessoryPurchase } from '../utils/accessoryCost';
+import { accessoryUnitCost, accessoryPurchaseSummary, isSimpleAccessory, accessoryPurchaseTotal, updateAccessoryPurchase } from '../utils/accessoryCost';
 import AccessoryInformativeRate from '../components/AccessoryInformativeRate';
+import AccessoryCompatibility from '../components/AccessoryCompatibility';
 import AccessoryCatalogModal from '../components/AccessoryCatalogModal';
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -34,6 +35,10 @@ import parseSnImeiIds, { OCR_REQUEST_TIMEOUT_MS, createScanSession, planAutofill
 import OcrCandidateReview from '../components/OcrCandidateReview';
 import OcrCropSelector from '../components/OcrCropSelector';
 import IncludedAccessories, { normalizeIncludedAccessories } from '../components/IncludedAccessories';
+import AccesoriosStockInventario from '../components/AccesoriosStockInventario';
+import HistorialVentasAccesorio from '../components/HistorialVentasAccesorio';
+import FusionAccesorios from '../components/FusionAccesorios';
+import { accessoryCodeQuery, accessoryInventoryDates, accessoryPackaging, compareAccessoryDates, matchesAccessoryQuery } from '../utils/accessoryInventory';
 import { formatAppleWatchName } from '../utils/productName';
 import { showsRam } from '../utils/commercialSpecs';
 import { sesionFinanciera } from '../services/finanzas';
@@ -59,6 +64,7 @@ const EMPTY_SIMPLE_ACCESSORY = {
   costoEnvio: '',
   precioVenta: '',
   cantidad: 1,
+  empaqueAccesorio: '',
   modelosCompatibles: [],
 };
 
@@ -75,6 +81,7 @@ const EMPTY_FORM = {
   imei2: '',
   accesorios: [],
   cantidadStock: 1,
+  empaqueAccesorio: '',
   observaciones: '',
   fotosTomadas: false,
   marketplaceSubido: false,
@@ -272,6 +279,7 @@ const toForm = (entry) => {
     observaciones: ficha.observaciones || '',
     accesorios: ficha.accesorios?.length ? ficha.accesorios : sourceAccessories,
     cantidadStock: entry?.producto?.stockInicial ?? 1,
+    empaqueAccesorio: entry?.producto?.empaqueAccesorio || '',
     primerPrecioSoles: ficha.primerPrecioSoles ?? '',
     ultimoPrecioSoles: ficha.ultimoPrecioSoles ?? '',
     nombreAccesorio: entry?.producto?.detalle?.modelo || '',
@@ -295,7 +303,9 @@ export const groupInventoryEntries = (rawEntries) => {
     }
     if (producto.archivadoAt || producto.cierreMotivo) return;
     const photo = text(entry.ficha?.fotoUrl);
-    const identity = producto.referenciaId ? ['ref', producto.referenciaId]
+    const identity = producto.fusionAccesorioId ? ['fusion', producto.fusionAccesorioId]
+      : producto.empaqueAccesorio ? ['lot', producto.id]
+      : producto.referenciaId ? ['ref', producto.referenciaId]
       : ['code', Number(producto.codigoInventario || producto.id), photo ? ['photo', photo] : ['lot', producto.id]];
     const key = JSON.stringify([identity, text(producto.vendedor).toLowerCase()]);
     accessoryGroups.set(key, [...(accessoryGroups.get(key) || []), entry]);
@@ -311,8 +321,11 @@ export const groupInventoryEntries = (rawEntries) => {
     const representative = ranked[0];
     const fichas = group.map((item) => item?.ficha).filter(Boolean);
     const baseFicha = representative?.ficha || fichas[0] || null;
+    const fechas = group.map(accessoryInventoryDates);
+    const fechaReciente = [...fechas].sort((a, b) => compareAccessoryDates(a.date, b.date))[0];
     result.push({
       ...representative,
+      accessoryDates: fechaReciente,
       ficha: baseFicha ? {
         ...baseFicha,
         enAlmacen: fichas.some((item) => item?.enAlmacen),
@@ -327,6 +340,7 @@ export const groupInventoryEntries = (rawEntries) => {
         __inventoryGroup: group.length > 1,
         __lotIds: group.map((item) => item.producto.id),
         __lots: group.map((item) => item.producto),
+        __codigos: [...new Set(group.map(({ producto }) => Number(producto.codigoInventario || producto.id)))],
       },
     });
   });
@@ -394,6 +408,8 @@ export default function Inventario({ setVista }) {
     if (filter === 'accesorios') setAccessoryCatalogReady(true);
   }, [filter]);
   const [sortOrder, setSortOrder] = useState('newest');
+  const [empaqueFiltro, setEmpaqueFiltro] = useState('');
+  const [fusionando, setFusionando] = useState(null);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [photoData, setPhotoData] = useState('');
@@ -428,6 +444,7 @@ export default function Inventario({ setVista }) {
   const [downloadingPhotos, setDownloadingPhotos] = useState(false);
   const [showInventoryCosts, setShowInventoryCosts] = useState(false);
   const [selling, setSelling] = useState(null);
+  const [accessoryHistoryOpen, setAccessoryHistoryOpen] = useState(false);
   const [simpleAccessoryOpen, setSimpleAccessoryOpen] = useState(false);
   const [simpleAccessory, setSimpleAccessory] = useState(EMPTY_SIMPLE_ACCESSORY);
   const [simpleAccessoryPhoto, setSimpleAccessoryPhoto] = useState('');
@@ -564,6 +581,7 @@ export default function Inventario({ setVista }) {
   };
 
   const openEditor = (entry) => {
+    setAccessoryHistoryOpen(false);
     const lots = entry.producto?.__lots;
     const selected = lots?.length ? (entries.find((item) => item.producto.id === entry.producto.id) || entry) : entry;
     setEditing({ ...selected, lotOptions: lots });
@@ -581,6 +599,22 @@ export default function Inventario({ setVista }) {
     setScanImageName('');
     setScanDragActive(false);
     setCopied(false);
+  };
+
+  const desfusionarLotes = async () => {
+    const id = editing?.producto?.fusionAccesorioId;
+    if (!id || saving || !window.confirm('¿Separar todos los lotes de este accesorio?')) return;
+    setSaving(true);
+    setNotice('');
+    try {
+      await api.del(`/accesorios/fusiones/${id}`);
+      setEditing(null);
+      await load({ silent: true });
+    } catch (error) {
+      setNotice(error?.message || 'No se pudieron separar los lotes.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const copyProductData = async () => {
@@ -614,8 +648,37 @@ export default function Inventario({ setVista }) {
         return next;
       });
     }
-    setSelling(null);
-    if (accessorySale) load({ silent: true });
+    // Termina en segundo plano: solo cierra si sigue abierta la misma venta.
+    setSelling((current) => (current?.entry === soldEntry ? null : current));
+    if (accessorySale || soldEntry?.producto?.accesoriosStock?.accesorios?.length) load({ silent: true });
+  };
+
+  const guardarAccesoriosStock = async (productoIds) => {
+    if (!editing || saving) return false;
+    const id = editing.producto.id;
+    const replaceStock = (entry, stock) => ({
+      ...entry, producto: { ...entry.producto, accesoriosStock: stock },
+    });
+    setSaving(true);
+    setNotice('');
+    try {
+      const stock = await api.put(`/inventario/${id}/accesorios-stock`, {
+        productoIds, revision: editing.producto.accesoriosStock?.revision ?? 0,
+      });
+      setEditing((current) => current?.producto.id === id ? replaceStock(current, stock) : current);
+      await load({ silent: true });
+      return true;
+    } catch (error) {
+      setNotice(error?.data?.message || error?.message || 'No se pudieron actualizar los accesorios incluidos.');
+      if (error?.status === 409) {
+        const actual = await api.get(`/inventario/producto/${id}`).catch(() => null);
+        if (actual) setEditing((current) => current?.producto.id === id ? replaceStock(current, actual.producto.accesoriosStock) : current);
+        await load({ silent: true });
+      }
+      return false;
+    } finally {
+      setSaving(false);
+    }
   };
 
   const openPhotoViewer = (url, nombre) => {
@@ -693,6 +756,7 @@ export default function Inventario({ setVista }) {
       const producto = await api.post('/productos', {
         tipo: 'accesorios',
         estado: 'nuevo',
+        ...(simpleAccessory.empaqueAccesorio ? { empaqueAccesorio: simpleAccessory.empaqueAccesorio } : {}),
         soloInventario: true,
         vendedor: simpleAccessory.comprador,
         cantidad,
@@ -875,6 +939,8 @@ export default function Inventario({ setVista }) {
         const costChanged = totalPurchase !== Number(currentValue.valorProducto || 0) || shippingCost !== Number(currentValue.costoEnvio || 0) || form.monedaCompra !== (currentValue.monedaCompra || 'USD');
         updatedProduct = await api.patch(`/productos/${id}`, {
           vendedor: form.compradorAccesorio || null,
+          ...(form.empaqueAccesorio && form.empaqueAccesorio !== editing.producto.empaqueAccesorio
+            ? { empaqueAccesorio: form.empaqueAccesorio } : {}),
           detalle: {
             modelo: text(form.nombreAccesorio),
             modelosCompatibles: form.modelosCompatibles,
@@ -963,7 +1029,7 @@ export default function Inventario({ setVista }) {
   const [fueraDeInventario, setFueraDeInventario] = useState([]);
   useEffect(() => {
     const identificador = text(query).replace(/[^A-Za-z0-9]/g, '');
-    if (identificador.length < 4 || !/\d/.test(identificador)) { setFueraDeInventario([]); return undefined; }
+    if (filter === 'accesorios' || accessoryCodeQuery(query) || identificador.length < 4 || !/\d/.test(identificador)) { setFueraDeInventario([]); return undefined; }
     let activo = true;
     const timer = setTimeout(() => {
       api.get(`/inventario/buscar?q=${encodeURIComponent(identificador)}`)
@@ -975,7 +1041,7 @@ export default function Inventario({ setVista }) {
         .catch(() => { if (activo) setFueraDeInventario([]); });
     }, 350);
     return () => { activo = false; clearTimeout(timer); };
-  }, [query, entries]);
+  }, [query, entries, filter]);
 
   const filtered = useMemo(() => {
     const needle = text(query).toLowerCase();
@@ -985,6 +1051,11 @@ export default function Inventario({ setVista }) {
       const accessoryStock = String(producto?.tipo || '').toLowerCase() === 'accesorios';
       if (filter === 'accesorios') {
         if (!accessoryStock) return false;
+        if (empaqueFiltro && (producto.empaqueAccesorio || 'sin_indicar') !== empaqueFiltro) return false;
+        return matchesAccessoryQuery(query, producto.__lots || [producto], [
+          buildNombre(producto), buildSpecs(producto), producto.vendedor, producto.referencia?.compatibilidad, accessoryPackaging[producto.empaqueAccesorio],
+          ...(producto.detalle?.modelosCompatibles || []),
+        ].join(' '));
       } else if (accessoryStock) return false;
       if (filter === 'almacen' && !ficha?.enAlmacen) return false;
       if (filter === 'pendientes' && ficha?.enAlmacen) return false;
@@ -994,10 +1065,7 @@ export default function Inventario({ setVista }) {
       if (!needle) return true;
       const compactCodeQuery = needle.replace(/[\s_-]+/g, '');
       const codeQueryMatch = compactCodeQuery.match(/^(?:ms(?:code)?|code)?(\d+)$/i);
-      const visibleCode = String(producto?.tipo || '').toLowerCase() === 'accesorios'
-        ? (producto?.codigoInventario || producto?.id)
-        : producto?.id;
-      if (codeQueryMatch && Number(visibleCode) === Number(codeQueryMatch[1])) return true;
+      if (codeQueryMatch && Number(producto.id) === Number(codeQueryMatch[1])) return true;
       const haystack = [
         producto?.id,
         buildNombre(producto),
@@ -1020,6 +1088,11 @@ export default function Inventario({ setVista }) {
         return ((Number(codeOf(a)) || 0) - (Number(codeOf(b)) || 0)) * direction;
       }
 
+      if (filter === 'accesorios') {
+        return compareAccessoryDates(a.accessoryDates?.date, b.accessoryDates?.date)
+          || Number(b.producto.id) - Number(a.producto.id);
+      }
+
       const aDate = Date.parse(lastPickupDate(a.producto) || '');
       const bDate = Date.parse(lastPickupDate(b.producto) || '');
       const aHasDate = Number.isFinite(aDate);
@@ -1030,7 +1103,7 @@ export default function Inventario({ setVista }) {
       if (aHasDate && aDate !== bDate) return (aDate - bDate) * direction;
       return ((Number(a.producto?.id) || 0) - (Number(b.producto?.id) || 0)) * direction;
     });
-  }, [displayEntries, filter, query, sortOrder]);
+  }, [displayEntries, empaqueFiltro, filter, query, sortOrder]);
 
   const downloadablePhotoCoverCount = useMemo(
     () => filtered.filter((entry) => entry.ficha?.fotosTomadas).length,
@@ -1168,7 +1241,11 @@ export default function Inventario({ setVista }) {
 
         <label className="relative mb-3 block rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
           <FiSearch className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar producto, color, serial o IMEI" className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100" />
+          <input value={query} onChange={(event) => {
+            const value = event.target.value;
+            setQuery(value);
+            if (accessoryCodeQuery(value)) setFilter('accesorios');
+          }} placeholder={filter === 'accesorios' ? 'Buscar accesorio por nombre, código ACC o comprador' : 'Buscar producto, color, serial o IMEI'} className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100" />
         </label>
 
         <section className="mb-5 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -1176,17 +1253,27 @@ export default function Inventario({ setVista }) {
             <label className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600">
               Orden
               <select
-                value={sortOrder}
+                value={filter === 'accesorios' && sortOrder === 'oldest' ? 'newest' : sortOrder}
                 onChange={(event) => setSortOrder(event.target.value)}
                 className="h-10 cursor-pointer bg-transparent pr-1 text-sm font-semibold text-slate-800 outline-none"
                 aria-label="Ordenar inventario"
               >
-                <option value="newest">Más nuevos primero</option>
-                <option value="oldest">Más antiguos primero</option>
-                <option value="codeAsc">Código MS: menor a mayor</option>
-                <option value="codeDesc">Código MS: mayor a menor</option>
+                <option value="newest">{filter === 'accesorios' ? 'Más recientes' : 'Más nuevos primero'}</option>
+                {filter !== 'accesorios' && <option value="oldest">Más antiguos primero</option>}
+                <option value="codeAsc">Código {filter === 'accesorios' ? 'ACC' : 'MS'}: menor a mayor</option>
+                <option value="codeDesc">Código {filter === 'accesorios' ? 'ACC' : 'MS'}: mayor a menor</option>
               </select>
             </label>
+            {filter === 'accesorios' && (
+              <label className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600">
+                Empaque
+                <select value={empaqueFiltro} onChange={(event) => setEmpaqueFiltro(event.target.value)}
+                  className="h-10 cursor-pointer bg-transparent pr-1 text-sm font-semibold text-slate-800 outline-none">
+                  <option value="">Todos</option>
+                  {Object.entries(accessoryPackaging).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+            )}
             <button type="button" onClick={() => setFacuOpen(true)} className="inline-flex whitespace-nowrap items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100">
               <FiFileText /> Factura US
             </button>
@@ -1242,6 +1329,7 @@ export default function Inventario({ setVista }) {
                 (Date.parse(a.valor?.fechaCompra || '') || Number(a.id)) - (Date.parse(b.valor?.fechaCompra || '') || Number(b.id))) : [];
               const costLot = costLots.find((lot) => Number(lot.stockActual) > 0) || costLots[0];
               const unitCost = accessoryUnitCost(costLot);
+              const fusion = producto.fusionAccesorioId && producto.__lots ? accessoryPurchaseSummary(producto.__lots) : null;
               const disabled = busyId === producto.id;
               const garantiaResumen = accessoryStock ? '' : warrantySummary(producto, ficha);
               const fichaCompleta = Boolean(
@@ -1265,6 +1353,12 @@ export default function Inventario({ setVista }) {
                       <div className="min-w-0">
                         <h2 className="text-base font-semibold leading-5 text-slate-950">{buildNombre(producto)}</h2>
                         <p className="mt-1 text-xs leading-4 text-slate-500">{buildSpecs(producto) || 'Sin especificaciones'}</p>
+                        {producto.__codigos?.length > 1 && (
+                          <p className="mt-1 text-xs text-slate-500">{producto.__codigos.filter((code) => code !== producto.codigoInventario).map((code) => `ACC-${code}`).join(' · ')}</p>
+                        )}
+                        {accessoryStock && entry.accessoryDates?.date && (
+                          <p className="mt-1 text-xs text-slate-500">{entry.accessoryDates.label} {entry.accessoryDates.date}</p>
+                        )}
                       </div>
                       <Pill tone={accessoryStock ? 'blue' : ficha?.fotosTomadas ? 'green' : ficha?.enAlmacen ? 'blue' : 'amber'}>
                         {accessoryStock ? 'Accesorio' : ficha?.fotosTomadas ? 'Disponible' : ficha?.enAlmacen ? 'En almacén' : 'Por cotejar'}
@@ -1277,6 +1371,8 @@ export default function Inventario({ setVista }) {
                       {ficha?.saludBateria != null && fieldVisible(entry.reglas, 'saludBateria') && <Pill>{ficha.saludBateria}% batería</Pill>}
                       {!accessoryStock && entry.reglas?.completitud && !entry.reglas.completitud.complete && <Pill tone="amber">Falta {entry.reglas.completitud.missing.map((key) => FIELD_LABELS[key] || key).join(', ') || 'modelo'}</Pill>}
                       {(ficha?.accesorios || []).slice(0, 3).map((item) => <Pill key={item}>{item}</Pill>)}
+                      {accessoryStock && <Pill>{accessoryPackaging[producto.empaqueAccesorio] || 'Empaque sin indicar'}</Pill>}
+                      {producto.accesoriosStock?.accesorios?.map((item) => <Pill key={`stock-${item.productoId}`}>{item.nombre}</Pill>)}
                       {accessoryStock && (producto.detalle?.modelosCompatibles || []).slice(0, 3).map((item) => <Pill key={item}>Compatible: {item}</Pill>)}
                     </div>
 
@@ -1286,10 +1382,17 @@ export default function Inventario({ setVista }) {
                         <strong>{formatSoles(ficha?.primerPrecioSoles) ? `S/ ${formatSoles(ficha.primerPrecioSoles)}` : '—'}</strong>
                       </span>
                       <span className="flex items-center gap-1.5 text-sm text-emerald-800">
-                        <span className="text-xs font-semibold">{simpleStock ? 'Costo unitario' : 'PU'}</span>
-                        <strong>{simpleStock ? (unitCost == null ? '—' : formatInventorySoles(unitCost)) : (formatSoles(ficha?.ultimoPrecioSoles) ? `S/ ${formatSoles(ficha.ultimoPrecioSoles)}` : '—')}</strong>
+                        <span className="text-xs font-semibold">{fusion ? 'Costo promedio' : simpleStock ? 'Costo unitario' : 'PU'}</span>
+                        <strong>{fusion ? (fusion.average == null ? 'Pendiente' : formatInventorySoles(fusion.average))
+                          : simpleStock ? (unitCost == null ? '—' : formatInventorySoles(unitCost)) : (formatSoles(ficha?.ultimoPrecioSoles) ? `S/ ${formatSoles(ficha.ultimoPrecioSoles)}` : '—')}</strong>
                       </span>
                     </div>
+                    {fusion && <p className="mt-2 text-xs text-slate-600">
+                      {producto.__lots.length} lotes · Costo total {fusion.total == null ? 'pendiente' : formatInventorySoles(fusion.total)}
+                      {fusion.available > 0 && fusion.availableAverage?.toFixed(2) !== fusion.average?.toFixed(2) && (
+                        <> · Promedio del stock disponible {fusion.availableAverage == null ? 'pendiente' : formatInventorySoles(fusion.availableAverage)}</>
+                      )}
+                    </p>}
 
                     {accessoryStock && <p className="mt-3 text-xs font-medium text-indigo-800">Comprado por: {text(producto.vendedor).toLowerCase() === 'ambos' ? 'Ambos (50/50)' : (producto.vendedor || 'Sin asignar')}</p>}
                     {accessoryStock ? (
@@ -1338,6 +1441,12 @@ export default function Inventario({ setVista }) {
                           <FiDollarSign /> Vender
                         </button>
                       )}
+                      {accessoryStock && !producto.fusionAccesorioId && ['con_caja', 'sin_caja'].includes(producto.empaqueAccesorio) && sesionFinanciera().esAdmin && (
+                        <button type="button" onClick={() => setFusionando(producto)}
+                          className="col-span-2 min-h-10 rounded-xl border border-indigo-200 text-sm font-semibold text-indigo-700 hover:bg-indigo-50">
+                          Fusionar con otro lote
+                        </button>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -1363,6 +1472,8 @@ export default function Inventario({ setVista }) {
         )}
       </div>
 
+      {fusionando && <FusionAccesorios producto={fusionando} entries={displayEntries} nombre={buildNombre(fusionando)}
+        onClose={() => setFusionando(null)} onSaved={async () => { await load({ silent: true }); setFusionando(null); }} />}
       {simpleAccessoryOpen && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Agregar accesorio simple" onMouseDown={(event) => { if (event.target === event.currentTarget && !simpleAccessorySaving) setSimpleAccessoryOpen(false); }}>
           <form onSubmit={saveSimpleAccessory} className="max-h-[95vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
@@ -1383,6 +1494,11 @@ export default function Inventario({ setVista }) {
                 <div className="mt-1 flex"><select aria-label="Moneda de compra" value={simpleAccessory.monedaCompra} onChange={(event) => setSimpleAccessory((current) => ({ ...current, monedaCompra: event.target.value }))} className="h-11 rounded-l-xl border border-r-0 border-slate-200 bg-slate-50 px-2 font-semibold"><option value="PEN">S/</option><option value="USD">$</option></select><input aria-label="Precio de compra por unidad" required type="number" min="0" step="any" value={simpleAccessory.precioCompra} onChange={(event) => setSimpleAccessory((current) => updateAccessoryPurchase(current, 'precioCompra', event.target.value, 'cantidad'))} className="h-11 min-w-0 flex-1 rounded-r-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></div>
               </label>
               <label className="text-sm font-medium text-slate-700">Cantidad *<input required type="number" min="1" step="1" value={simpleAccessory.cantidad} onChange={(event) => setSimpleAccessory((current) => updateAccessoryPurchase(current, 'cantidad', event.target.value, 'cantidad'))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-indigo-400" /></label>
+              <label className="text-sm font-medium text-slate-700">Empaque
+                <select value={simpleAccessory.empaqueAccesorio} onChange={(event) => setSimpleAccessory((current) => ({ ...current, empaqueAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
+                  <option value="">Sin indicar</option><option value="con_caja">Con caja</option><option value="sin_caja">Sin caja</option>
+                </select>
+              </label>
               {simpleAccessory.monedaCompra === 'USD' && <label className="text-sm font-medium text-slate-700">Tipo de cambio de compra<input required type="number" min="0.0001" step="0.000001" value={INVENTARIO_TIPO_CAMBIO} readOnly className="mt-1 h-11 w-full rounded-xl border px-3" /></label>}
               <label className="text-sm font-medium text-slate-700">Costo total del lote ({simpleAccessory.monedaCompra === 'USD' ? 'USD' : 'S/'})<input aria-label="Costo total del lote" required type="number" min="0" step="0.01" value={accessoryPurchaseTotal(simpleAccessory, 'cantidad')} onChange={(event) => setSimpleAccessory((current) => updateAccessoryPurchase(current, 'totalCompra', event.target.value, 'cantidad'))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3" /></label>
               <p className="rounded-xl bg-indigo-50 p-3 text-sm sm:col-span-2">Costo total del lote: {simpleAccessory.monedaCompra === 'USD' ? 'USD' : 'S/'} {(Number(simpleAccessory.precioCompra || 0) * Number(simpleAccessory.cantidad || 0)).toFixed(2)}{simpleAccessory.monedaCompra === 'USD' && <> · Compra en soles: S/ {(Number(simpleAccessory.precioCompra || 0) * Number(simpleAccessory.cantidad || 0) * INVENTARIO_TIPO_CAMBIO).toFixed(2)}</>}</p>
@@ -1392,7 +1508,8 @@ export default function Inventario({ setVista }) {
               </div>
               <label className="text-sm font-medium text-slate-700">Precio de venta (opcional)<div className="relative mt-1"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">S/</span><input type="number" min="0" step="0.01" value={simpleAccessory.precioVenta} onChange={(event) => setSimpleAccessory((current) => ({ ...current, precioVenta: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-3 outline-none focus:border-indigo-400" placeholder="Se puede completar después" /></div></label>
               <label className="text-sm font-medium text-slate-700">Una foto (opcional)<input type="file" accept="image/*" capture="environment" onChange={chooseSimpleAccessoryPhoto} className="mt-1 block w-full text-xs text-slate-600" />{simpleAccessoryPhoto && <img src={simpleAccessoryPhoto} alt="Vista previa" className="mt-2 h-24 w-full rounded-xl object-cover" />}</label>
-              <label className="text-sm font-medium text-slate-700 sm:col-span-2">Modelos compatibles (opcional)<textarea rows="3" value={simpleAccessory.modelosCompatibles.join(', ')} onChange={(event) => setSimpleAccessory((current) => ({ ...current, modelosCompatibles: event.target.value.split(',').map(text).filter(Boolean) }))} className="mt-1 w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-indigo-400" placeholder="Ej. iPhone 15, iPhone 15 Pro" /><span className="mt-1 block text-xs font-normal text-slate-500">Sepáralos con comas.</span></label>
+              <AccessoryCompatibility value={simpleAccessory.modelosCompatibles} disabled={simpleAccessorySaving}
+                onChange={(modelosCompatibles) => setSimpleAccessory((current) => ({ ...current, modelosCompatibles }))} />
               {simpleAccessoryError && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 sm:col-span-2">{simpleAccessoryError}</div>}
             </div>
             <div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4"><button type="button" disabled={simpleAccessorySaving} onClick={() => setSimpleAccessoryOpen(false)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700">Cancelar</button><button type="submit" disabled={simpleAccessorySaving} className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{simpleAccessorySaving ? 'Guardando...' : 'Agregar accesorio'}</button></div>
@@ -1415,6 +1532,12 @@ export default function Inventario({ setVista }) {
               {accessoryEditing && (
                 <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 lg:col-span-2">
                   <h3 className="text-base font-semibold text-slate-950">Stock del accesorio</h3>
+                  {editing.producto.fusionAccesorioId && sesionFinanciera().esAdmin && (
+                    <button type="button" disabled={saving} onClick={desfusionarLotes}
+                      className="mt-2 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-50">
+                      Desfusionar lotes
+                    </button>
+                  )}
                   {sesionFinanciera().esAdmin && <AccessoryInformativeRate key={editing.producto.id} producto={editing.producto} onSaved={(rate) => {
                     setEditing((current) => current?.producto?.id === editing.producto.id ? { ...current, producto: { ...current.producto, valor: { ...current.producto.valor, tipoCambioCompra: rate } } } : current);
                     load({ silent: true });
@@ -1428,25 +1551,35 @@ export default function Inventario({ setVista }) {
                     </select>
                   </label>
                   <label className="block text-sm font-medium text-slate-700">Comprado por
-                    <select value={form.compradorAccesorio} onChange={(event) => setForm((current) => ({ ...current, compradorAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
+                    <select disabled={!!editing.producto.fusionAccesorioId} value={form.compradorAccesorio} onChange={(event) => setForm((current) => ({ ...current, compradorAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
                       <option value="">Sin asignar</option><option value="Gonzalo">Gonzalo</option><option value="Renato">Renato</option><option value="ambos">Ambos (50/50)</option>{['Jorge', 'Rodrigo', 'Miguel', 'Carlos', 'Kenny', 'Sebastian', 'Williams'].map((nombre) => <option key={nombre} value={`Gonzalo (${nombre})`}>Gonzalo ({nombre})</option>)}
                     </select>
                   </label>
-                  <p className="mt-1 text-sm text-slate-600">Este tipo usa almacén, cantidad y una sola foto principal; no requiere caja, SN, IMEI ni sesión de fotos.</p>
+                  <label className="block text-sm font-medium text-slate-700">Empaque
+                    <select disabled={!!editing.producto.fusionAccesorioId} value={form.empaqueAccesorio || 'sin_indicar'} onChange={(event) => setForm((current) => ({ ...current, empaqueAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3">
+                      {Object.entries(accessoryPackaging).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                  </label>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <label className="flex min-h-14 items-center justify-between rounded-xl bg-white px-4 text-sm font-medium text-slate-700 ring-1 ring-slate-200">En almacén<input type="checkbox" checked={Boolean(form.enAlmacen)} onChange={(event) => setForm((current) => ({ ...current, enAlmacen: event.target.checked }))} className="h-7 w-7" /></label>
                     <label className="text-sm font-medium text-slate-700">Cantidad comprada<input type="number" min={Math.max(1, accessoryUnitsSold)} step="1" value={form.cantidadStock}  onChange={(event) => setForm((current) => isSimpleAccessory(editing.producto) ? updateAccessoryPurchase(current, 'cantidadStock', event.target.value, 'cantidadStock') : ({ ...current, cantidadStock: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 disabled:cursor-not-allowed disabled:bg-slate-100" /></label>
-                    <label className="text-sm font-medium text-slate-700 sm:col-span-2">Nombre del accesorio<input value={form.nombreAccesorio} onChange={(event) => setForm((current) => ({ ...current, nombreAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" /></label>
+                    <label className="text-sm font-medium text-slate-700 sm:col-span-2">Nombre del accesorio<input disabled={!!editing.producto.fusionAccesorioId} value={form.nombreAccesorio} onChange={(event) => setForm((current) => ({ ...current, nombreAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" /></label>
                     <div className="text-sm font-medium text-slate-700"><label htmlFor="accessory-unit-cost">Costo por unidad</label><div className="mt-1 flex"><select aria-label="Moneda de compra" value={form.monedaCompra} onChange={(event) => setForm((current) => ({ ...current, monedaCompra: event.target.value }))} className="h-11 rounded-l-xl border border-r-0 border-slate-200 bg-slate-50 px-2 font-semibold"><option value="PEN">S/</option><option value="USD">$</option></select><input id="accessory-unit-cost" type="number" min="0" step="any" value={form.precioCompra} onChange={(event) => setForm((current) => isSimpleAccessory(editing.producto) ? updateAccessoryPurchase(current, 'precioCompra', event.target.value, 'cantidadStock') : ({ ...current, precioCompra: event.target.value }))} className="h-11 min-w-0 flex-1 rounded-r-xl border border-slate-200 bg-white px-3" /></div></div>
                     <label className="text-sm font-medium text-slate-700">Costo total del lote<input aria-label="Costo total del lote" type={isSimpleAccessory(editing.producto) ? 'number' : 'text'} min="0" step="0.01" readOnly={!isSimpleAccessory(editing.producto)} value={accessoryPurchaseTotal(form, 'cantidadStock')} onChange={(event) => setForm((current) => updateAccessoryPurchase(current, 'totalCompra', event.target.value, 'cantidadStock'))} className="mt-1 h-11 w-full rounded-xl border bg-slate-50 px-3" /></label>
                     <label className="text-sm font-medium text-slate-700">Costo de envío (S/)<input type="number" min="0" step="0.01" value={form.costoEnvioAccesorio} onChange={(event) => setForm((current) => ({ ...current, costoEnvioAccesorio: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" placeholder="0 si no tuvo" /></label>
                     <label className="text-sm font-medium text-slate-700">Precio de venta (S/)<input type="number" min="0" step="0.01" value={form.primerPrecioSoles} onChange={(event) => setForm((current) => ({ ...current, primerPrecioSoles: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" placeholder="Puede quedar vacío" /></label>
                     {!isSimpleAccessory(editing.producto) && <label className="text-sm font-medium text-slate-700">Precio mínimo (S/)<input type="number" min="0" step="0.01" value={form.ultimoPrecioSoles} onChange={(event) => setForm((current) => ({ ...current, ultimoPrecioSoles: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3" placeholder="Puede quedar vacío" /></label>}
-                    <label className="text-sm font-medium text-slate-700 sm:col-span-2">Modelos compatibles<textarea rows="2" value={form.modelosCompatibles.join(', ')} onChange={(event) => setForm((current) => ({ ...current, modelosCompatibles: event.target.value.split(',').map(text).filter(Boolean) }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-3" placeholder="Separados por comas" /></label>
+                    <AccessoryCompatibility key={editing.producto.id} value={form.modelosCompatibles} disabled={saving}
+                      onChange={(modelosCompatibles) => setForm((current) => ({ ...current, modelosCompatibles }))} />
                   </div>
                   <div className="mt-3 text-sm font-medium text-indigo-800">Disponibles después de guardar: {accessoryProjectedStock}</div>
                   {editing.producto.__inventoryGroup && <div className="mt-1 text-xs text-slate-600">Stock agrupado de {editing.producto.__lotIds?.length || 1} compras. La cantidad se actualiza automáticamente con nuevas compras y ventas.</div>}
-                  {accessoryUnitsSold > 0 && <div className="mt-1 text-xs text-slate-600">Ya se vendieron {accessoryUnitsSold}; la compra no puede quedar por debajo de esa cantidad.</div>}
+                  {accessoryUnitsSold > 0 && <div className="mt-1 text-xs text-slate-600">Hay {accessoryUnitsSold} unidades vendidas o reservadas. La compra debe cubrirlas.</div>}
+                  <button type="button" aria-expanded={accessoryHistoryOpen} onClick={() => setAccessoryHistoryOpen((open) => !open)}
+                    className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg border border-indigo-200 px-3 text-sm font-semibold text-indigo-800 hover:bg-indigo-50">
+                    <FiFileText aria-hidden="true" /> {accessoryHistoryOpen ? 'Ocultar historial de ventas' : 'Ver historial de ventas'}
+                  </button>
+                  {accessoryHistoryOpen && <div className="mt-3"><HistorialVentasAccesorio producto={editing.producto} /></div>}
                   <div className="mt-4 flex flex-col gap-3 rounded-xl border border-indigo-100 bg-white p-3 sm:flex-row sm:items-center">
                     {photoPreview ? (
                       <button type="button" onClick={() => openPhotoViewer(photoPreview, buildNombre(editing.producto))} className="h-20 w-28 shrink-0 overflow-hidden rounded-lg bg-slate-100">
@@ -1632,6 +1765,8 @@ export default function Inventario({ setVista }) {
                   <h3 className="mb-1 text-sm font-semibold text-slate-950">Accesorios incluidos</h3>
                   <p className="mb-3 text-xs text-slate-500">Marca exactamente lo que acompaña a este producto.</p>
                   <IncludedAccessories type={editing.producto.tipo} model={editing.producto.detalle?.modelo} state={editing.producto.estado} value={form.accesorios} onChange={(accesorios) => setForm((current) => ({ ...current, accesorios }))} />
+                  <AccesoriosStockInventario key={editing.producto.id} stock={editing.producto.accesoriosStock}
+                    entries={entries} buildNombre={buildNombre} onChange={guardarAccesoriosStock} saving={saving} />
                 </section>
 
                 <label className="block text-xs font-medium text-slate-600">Observaciones<textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} rows="4" placeholder="Golpes, rayones, pruebas realizadas, piezas faltantes u otros datos..." className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-slate-400" /></label>

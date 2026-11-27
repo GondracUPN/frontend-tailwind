@@ -14,12 +14,22 @@ const Currency = ({v}) => <>{money(v)}</>;
 const Percent = ({v}) => <>{Number(v || 0).toFixed(2)}%</>;
 const fmtDate = fecha;
 const fmtSolesLocal = money;
+const nombresDeMes = new Intl.DateTimeFormat('es-PE', { month: 'long', timeZone: 'UTC' });
+const meses = Array.from({ length: 12 }, (_, i) => ({
+  value: String(i + 1).padStart(2, '0'),
+  label: nombresDeMes.format(new Date(Date.UTC(2000, i, 1))),
+}));
+const totalesEnCero = {
+  productos: 0, compras: 0, unidadesVendidas: 0, totalVendido: 0, pagados: 0, pendientes: 0,
+  ventaTotal: 0, adelantos: 0, saldo: 0, costo: 0, ganancia: 0,
+};
 function Card({title,value,sub}) { return <div className="rounded-xl border bg-white p-4 shadow-sm"><div className="text-sm text-gray-500">{title}</div><div className="text-2xl font-semibold mt-1">{value}</div><div className="text-xs text-gray-500 mt-1">{sub}</div></div>; }
 
 export default function VentasPedido({ setVista }) {
   const [revision, setRevision] = useState(null);
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [mes, setMes] = useState('');
+  const [anio, setAnio] = useState('');
+  const [clienteFiltro, setClienteFiltro] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const solicitud = useRef({ version: 0 });
@@ -50,46 +60,27 @@ export default function VentasPedido({ setVista }) {
     };
   }, [cargar]);
   const pedidoData = revision, pedidoLoading = loading, pedidoError = error, loadPedido = cargar;
+ const anios = useMemo(() => [...new Set((pedidoData?.rows || []).map((row) => String(row.fecha || '').slice(0, 4))
+  .filter((value) => /^\d{4}$/.test(value)))].sort((a, b) => Number(b) - Number(a)), [pedidoData]);
  const pedidoResumen = useMemo(() => {
  const rowsAll = Array.isArray(pedidoData?.rows) ? pedidoData.rows : [];
  const inRange = (row) => {
- const fecha = String(row?.fecha || '').slice(0, 10);
- if (!fecha) return true;
- if (fromDate && fecha < fromDate) return false;
- if (toDate && fecha > toDate) return false;
- return true;
+ const fecha = String(row?.fecha || '');
+ return (!mes || fecha.slice(5, 7) === mes) && (!anio || fecha.slice(0, 4) === anio);
  };
  const rows = rowsAll.filter(inRange);
- const totals = {
- productos: 0,
- pagados: 0,
- pendientes: 0,
- ventaTotal: 0,
- adelantos: 0,
- saldo: 0,
- costo: 0,
- ganancia: 0,
- utilidadPct: 0,
- markupPct: 0,
- };
+ const totals = { ...totalesEnCero };
  const byClient = new Map();
  rows.forEach((row) => {
  const cliente = row.cliente || 'Sin cliente';
- const current = byClient.get(cliente) || {
- cliente,
- productos: 0,
- pagados: 0,
- pendientes: 0,
- ventaTotal: 0,
- adelantos: 0,
- saldo: 0,
- costo: 0,
- ganancia: 0,
- utilidadPct: 0,
- markupPct: 0,
- };
+ const current = byClient.get(cliente) || { cliente, ...totalesEnCero };
  const add = (target) => {
  target.productos += 1;
+ if (row.ventaId && row.estadoComercial !== 'reservada') {
+   target.compras += 1;
+   target.unidadesVendidas += Number(row.cantidad ?? 1);
+   target.totalVendido += Number(row.montoVenta || 0);
+ }
  target.pagados += row.estadoPago === 'pagado' ? 1 : 0;
  target.pendientes += row.estadoPago === 'pagado' ? 0 : 1;
  target.ventaTotal += Number(row.montoVenta || 0);
@@ -116,11 +107,11 @@ export default function VentasPedido({ setVista }) {
  };
  };
  return {
- totals: finalize(totals),
- clients: Array.from(byClient.values()).map(finalize).sort((a, b) => b.ventaTotal - a.ventaTotal),
- rows,
+ totals: finalize(clienteFiltro ? (byClient.get(clienteFiltro) || totalesEnCero) : totals),
+ clients: Array.from(byClient.values()).map(finalize).sort((a, b) => b.totalVendido - a.totalVendido),
+ rows: clienteFiltro ? rows.filter((row) => row.cliente === clienteFiltro) : rows,
  };
- }, [fromDate, toDate, pedidoData]);
+ }, [mes, anio, clienteFiltro, pedidoData]);
  const pedidoVendidosRows = useMemo(
  () => (pedidoResumen.rows || []).filter((row) => row.estadoPago === 'pagado'),
  [pedidoResumen.rows],
@@ -151,14 +142,23 @@ export default function VentasPedido({ setVista }) {
 
 
  return <main className="min-h-screen bg-gray-50 p-4 sm:p-6"><div className="mx-auto max-w-7xl">
-<div className="mb-4 flex flex-wrap gap-3"><label className="text-sm">Desde<input type="date" className="ml-2 rounded border p-2" value={fromDate} onChange={e=>setFromDate(e.target.value)} /></label><label className="text-sm">Hasta<input type="date" className="ml-2 rounded border p-2" value={toDate} onChange={e=>setToDate(e.target.value)} /></label></div>
+<div className="mb-4 flex flex-wrap items-center gap-3">
+  <label className="text-sm">Mes<select className="ml-2 rounded border bg-white p-2" value={mes} onChange={(event) => { setMes(event.target.value); setClienteFiltro(''); }}>
+    <option value="">Todos los meses</option>{meses.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+  </select></label>
+  <label className="text-sm">Año<select className="ml-2 rounded border bg-white p-2" value={anio} onChange={(event) => { setAnio(event.target.value); setClienteFiltro(''); }}>
+    <option value="">Todos los años</option>{anios.map((value) => <option key={value}>{value}</option>)}
+  </select></label>
+  <button type="button" className="rounded border bg-white px-3 py-2 text-sm disabled:opacity-50" disabled={!mes && !anio && !clienteFiltro}
+    onClick={() => { setMes(''); setAnio(''); setClienteFiltro(''); }}>Limpiar filtros</button>
+</div>
  <div className="space-y-6 mb-8">
  <SaldosClientesPedido revision={pedidoData} onComprar={setVista ? () => setVista('inventario') : undefined} />
  <div className="bg-white rounded-xl border shadow-sm p-5">
  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
  <div>
  <h2 className="text-lg font-semibold">Ventas a pedido</h2>
- <div className="text-sm text-gray-500">Solo ventas y adelantos con vendedor tipo Gonzalo (Cliente).</div>
+ <div className="text-sm text-gray-500">{clienteFiltro || 'Todos los clientes'} · {pedidoResumen.totals.compras} {pedidoResumen.totals.compras === 1 ? 'compra' : 'compras'} · {pedidoResumen.totals.unidadesVendidas} {pedidoResumen.totals.unidadesVendidas === 1 ? 'unidad vendida' : 'unidades vendidas'}</div>
  </div>
  <button
  className="px-3 py-1.5 rounded border text-sm bg-white hover:bg-gray-50 disabled:opacity-60"
@@ -179,7 +179,7 @@ export default function VentasPedido({ setVista }) {
  />
  <Card
  title="Vendido"
- value={<Currency v={pedidoResumen.totals.ventaTotal} />}
+ value={<Currency v={pedidoResumen.totals.totalVendido} />}
  sub={`Adelantos: ${fmtSolesLocal(pedidoResumen.totals.adelantos)} - Saldo: ${fmtSolesLocal(pedidoResumen.totals.saldo)}`}
  />
  <Card
@@ -196,12 +196,17 @@ export default function VentasPedido({ setVista }) {
  </div>
 
  <div className="bg-white rounded-xl border shadow-sm p-5">
- <h3 className="text-base font-semibold mb-3">Clientes</h3>
+ <div className="mb-3 flex items-center justify-between gap-3">
+   <h3 className="text-base font-semibold">Clientes</h3>
+   {clienteFiltro && <button type="button" onClick={() => setClienteFiltro('')} className="rounded border px-3 py-1.5 text-sm">Todos los clientes</button>}
+ </div>
  <div className="overflow-x-auto">
  <table className="min-w-full text-sm">
  <thead>
  <tr className="text-left text-gray-500 border-b">
  <th className="py-2 pr-4">Cliente</th>
+ <th className="py-2 pr-4">Compras</th>
+ <th className="py-2 pr-4">Unidades vendidas</th>
  <th className="py-2 pr-4">Productos</th>
  <th className="py-2 pr-4">Vendido</th>
  <th className="py-2 pr-4">Adelantos</th>
@@ -214,9 +219,12 @@ export default function VentasPedido({ setVista }) {
  <tbody>
  {pedidoResumen.clients.length ? pedidoResumen.clients.map((client) => (
  <tr key={client.cliente} className="border-b last:border-b-0">
- <td className="py-2 pr-4 font-medium">{client.cliente}</td>
+ <td className="py-2 pr-4"><button type="button" onClick={() => setClienteFiltro((actual) => actual === client.cliente ? '' : client.cliente)}
+   aria-pressed={clienteFiltro === client.cliente} className={`rounded-full px-3 py-1 font-medium ${clienteFiltro === client.cliente ? 'bg-slate-900 text-white' : 'bg-slate-100 hover:bg-slate-200'}`}>{client.cliente}</button></td>
+ <td className="py-2 pr-4">{client.compras}</td>
+ <td className="py-2 pr-4">{client.unidadesVendidas}</td>
  <td className="py-2 pr-4">{client.productos} <span className="text-xs text-gray-500">({client.pagados} pagados, {client.pendientes} pendientes)</span></td>
- <td className="py-2 pr-4"><Currency v={client.ventaTotal} /></td>
+ <td className="py-2 pr-4"><Currency v={client.totalVendido} /></td>
  <td className="py-2 pr-4"><Currency v={client.adelantos} /></td>
  <td className="py-2 pr-4"><Currency v={client.saldo} /></td>
  <td className="py-2 pr-4"><Currency v={client.ganancia} /></td>
@@ -225,7 +233,7 @@ export default function VentasPedido({ setVista }) {
  </tr>
  )) : (
  <tr>
- <td className="py-3 text-gray-500" colSpan={8}>{pedidoLoading ? 'Cargando ventas a pedido...' : 'No hay ventas a pedido en este rango.'}</td>
+ <td className="py-3 text-gray-500" colSpan={10}>{pedidoLoading ? 'Cargando ventas a pedido...' : 'No hay ventas a pedido en este período.'}</td>
  </tr>
  )}
  </tbody>
@@ -247,7 +255,9 @@ export default function VentasPedido({ setVista }) {
  <tr className="text-left text-gray-500 border-b">
  <th className="py-2 pr-4">Fecha</th>
  <th className="py-2 pr-4">Cliente</th>
+ <th className="py-2 pr-4">SKU</th>
  <th className="py-2 pr-4">Producto</th>
+ <th className="py-2 pr-4">Unidades</th>
  <th className="py-2 pr-4">Estado</th>
  <th className="py-2 pr-4">Venta</th>
  <th className="py-2 pr-4">Adelanto</th>
@@ -263,7 +273,12 @@ export default function VentasPedido({ setVista }) {
  <tr key={row.id} className="border-b last:border-b-0">
  <td className="py-2 pr-4 whitespace-nowrap">{fmtDate(row.fecha)}</td>
  <td className="py-2 pr-4 font-medium">{row.cliente}</td>
+ <td className="py-2 pr-4 whitespace-nowrap">
+   {row.codigoProducto || (row.productoId ? `MS-${row.productoId}` : '-')}
+   {row.codigosAccesorios?.map((sku) => <div key={sku} className="text-xs text-gray-500">{sku}</div>)}
+ </td>
  <td className="py-2 pr-4">{row.producto || '-'}</td>
+ <td className="py-2 pr-4">{row.cantidad ?? 1}</td>
  <td className="py-2 pr-4">
  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${estado.cls}`}>
  {estado.label}
@@ -278,7 +293,7 @@ export default function VentasPedido({ setVista }) {
  );
  }) : (
  <tr>
- <td className="py-3 text-gray-500" colSpan={9}>{pedidoLoading ? 'Cargando vendidos...' : 'No hay productos vendidos y entregados en este rango.'}</td>
+ <td className="py-3 text-gray-500" colSpan={11}>{pedidoLoading ? 'Cargando vendidos...' : 'No hay productos vendidos y entregados en este período.'}</td>
  </tr>
  )}
  </tbody>

@@ -1,10 +1,14 @@
 import { getProductos, subscribeProductos } from './services/productosStore';
-import { setStoredValue, removeStoredValue, subscribeStorage, subscribePolling } from './utils/storageEvents';
+import { setStoredValue, removeStoredValue, subscribeStorage } from './utils/storageEvents';
 import { notifySalesChanged } from './utils/salesSync';
 import React, { Suspense, lazy, useState, useEffect, useMemo, useRef } from 'react';
 import Home from './pages/Home';
 import LoginGastos from './pages/LoginGastos';
 import SaleResultNotice from './components/SaleResultNotice';
+import BackgroundOpsTray from './components/BackgroundOpsTray';
+import DetachedModalsHost from './components/DetachedModalsHost';
+import { finishTask, startTask, updateTask } from './services/backgroundOps';
+import { subscribeEshopexProgress } from './services/eshopexProgress';
 import api, { API_URL } from './api';
 import { normalizeProductLookupUrl } from './utils/productUrl';
 import { formatAppleWatchName } from './utils/productName';
@@ -52,6 +56,7 @@ const ESHOPEX_CARGA_CACHE_KEY = 'eshopex-carga-cache';
 const ESHOPEX_BG_OPEN_MODAL_KEY = 'eshopex-carga-open-modal';
 const ESHOPEX_BG_COUNT_KEY = 'eshopex-carga-pendientes-count';
 const ESHOPEX_BG_CONSUMED_KEY = 'eshopex-carga-trigger-consumed-ts';
+const ESHOPEX_TASK = 'eshopex-carga';
 const SIDEBAR_HIDDEN_KEY = 'app-sidebar-hidden';
 const PRODUCTOS_CACHE_KEY = 'productos:cache:v2';
 const CALCU_RAPIDA_DEC_USD = 90;
@@ -531,10 +536,15 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     const unsubscribe = subscribeProductos((list) => setProductosGlobal((current) => current === list ? current : list));
-    const handleProductUpdated = () => { getProductos().catch(() => {}); };
+    // Varios guardados seguidos comparten una sola recarga de /productos.
+    let refreshTimer = null;
+    const handleProductUpdated = () => {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => { getProductos().catch(() => {}); }, 600);
+    };
     window.addEventListener('productos-updated', handleProductUpdated);
     window.addEventListener('auth:changed', handleProductUpdated);
-    return () => { unsubscribe(); window.removeEventListener('productos-updated', handleProductUpdated); window.removeEventListener('auth:changed', handleProductUpdated); };
+    return () => { clearTimeout(refreshTimer); unsubscribe(); window.removeEventListener('productos-updated', handleProductUpdated); window.removeEventListener('auth:changed', handleProductUpdated); };
   }, []);
 
   useEffect(() => {
@@ -738,6 +748,8 @@ function AuthenticatedApp() {
       if (inFlight) return;
 
       inFlight = true;
+      let taskError = '';
+      startTask(ESHOPEX_TASK, { label: 'Pendientes Eshopex', progress: 'Buscando...' });
       try {
         setStoredValue(ESHOPEX_BG_LOADING_KEY, '1');
         removeStoredValue(ESHOPEX_BG_ERROR_KEY);
@@ -783,6 +795,7 @@ function AuthenticatedApp() {
           /* el resultado Eshopex sigue guardado aunque falle esta recarga local */
         }
       } catch (e) {
+        taskError = 'No se pudo cargar la informacion de Eshopex.';
         if (!alive) return;
         try {
           setStoredValue(ESHOPEX_BG_ERROR_KEY, 'No se pudo cargar la informacion de Eshopex.');
@@ -791,6 +804,7 @@ function AuthenticatedApp() {
         }
       } finally {
         inFlight = false;
+        finishTask(ESHOPEX_TASK, { error: taskError, ...(taskError ? {} : { progress: 'Búsqueda terminada' }) });
         if (!alive) return;
         try {
           setStoredValue(ESHOPEX_BG_CONSUMED_KEY, String(trigger));
@@ -833,19 +847,7 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     if (!eshopexUi.loading) return () => {};
-    let alive = true;
-    const pullProgress = async () => {
-      if (document.hidden) return;
-      try {
-        const data = await api.get('/tracking/eshopex-carga-progress');
-        if (!alive) return;
-        setEshopexProgress(normalizeEshopexProgress(data));
-      } catch {
-        /* ignore */
-      }
-    };
-    const stopPolling = subscribePolling(pullProgress, 700);
-    return () => { alive = false; stopPolling(); };
+    return subscribeEshopexProgress((data) => setEshopexProgress(normalizeEshopexProgress(data)));
   }, [eshopexUi.loading]);
 
   const eshopexModalPendientes = useMemo(
@@ -1237,6 +1239,9 @@ function AuthenticatedApp() {
     }
     return target ? `${target} · faltan ${remaining}` : 'Buscando...';
   }, [eshopexUi.loading, eshopexProgress]);
+  useEffect(() => {
+    if (eshopexUi.loading && eshopexProgressText) updateTask(ESHOPEX_TASK, { progress: eshopexProgressText });
+  }, [eshopexUi.loading, eshopexProgressText]);
 
   const navigateTo = (nextVista) => {
     if (nextVista === 'analisis') {
@@ -1910,6 +1915,8 @@ function AuthenticatedApp() {
           />
         </Suspense>
       )}
+      <DetachedModalsHost />
+      <BackgroundOpsTray activeView={vista} />
     </>
   );
 }

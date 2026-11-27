@@ -187,7 +187,8 @@ export default function SaldoClienteVenta({
         <thead><tr><th>Producto / fecha</th><th>Saldo generado</th><th>Saldo disponible</th><th>Origen</th></tr></thead>
         <tbody>{otrosSaldos.map(s => <tr key={s.id}>
           <td>SKU {s.sku} · {fecha(s.fecha)}</td><td>{money(s.original)}</td><td>{money(s.disponible)}</td>
-          <td>{s.origen_saldo === 'saldo_recuperado' ? 'Saldo utilizado recuperado al anular la venta'
+          <td>{s.origen_saldo === 'reclamo_parcial' ? 'Devolución parcial por equipo dañado'
+            : s.origen_saldo === 'saldo_recuperado' ? 'Saldo utilizado recuperado al anular la venta'
             : s.origen_saldo === 'pago_recuperado' ? 'Dinero pagado recuperado al anular la venta'
               : 'Pago convertido en saldo a favor'}</td>
         </tr>)}</tbody>

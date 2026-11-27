@@ -1,6 +1,8 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import api from '../api';
+import useSharedState from '../hooks/useSharedState';
+import { cancelTask, finishTask, startTask, updateTask } from '../services/backgroundOps';
 import EbayBuyaModal from '../components/EbayBuyaModal';
 import { getAnalyticsSummary } from '../services/analytics';
 import { TC_FIJO } from '../utils/tipoCambio';
@@ -13,6 +15,9 @@ const PRODUCT_SEARCH_MIN_VISIBLE_RESULTS = 14;
 const AUCTION_QUERY_GROUP_BATCH_SIZE = 4;
 const PRODUCT_SEARCH_SCAN_PAGES_PER_REQUEST = 1;
 const EBAY_VIEWED_ITEMS_KEY = 'ebay:viewed-items:v1';
+const EBAY_PRODUCT_TASK = 'ebay-product';
+const EBAY_REQUEST_SEQ = { current: { pawns: 0, product: 0, auctions: 0 } };
+const EBAY_PRODUCT_ABORT = { current: null };
 // eBay usernames are case insensitive. Preserve punctuation and the full name.
 export const normalizeEbaySeller = (seller) => String(seller || '').trim().toLowerCase();
 export const isBlockedEbaySeller = (item, sellers) => sellers.includes(normalizeEbaySeller(item?.seller));
@@ -1553,18 +1558,18 @@ function EbayLoadingPanel({ progress, tab, compact = false }) {
 }
 
 function Ebay({ setVista }) {
-  const [activeTab, setActiveTab] = useState('product');
-  const [loadingTab, setLoadingTab] = useState('');
-  const [appendLoadingTab, setAppendLoadingTab] = useState('');
+  const [activeTab, setActiveTab] = useSharedState('ebay:activeTab', 'product');
+  const [loadingTab, setLoadingTab] = useSharedState('ebay:loadingTab', '');
+  const [appendLoadingTab, setAppendLoadingTab] = useSharedState('ebay:appendLoadingTab', '');
   const [loadingProgress, setLoadingProgress] = useState({ visible: false, tab: '', mode: '', percent: 0 });
-  const [errors, setErrors] = useState({ pawns: '', product: '', auctions: '' });
+  const [errors, setErrors] = useSharedState('ebay:errors', { pawns: '', product: '', auctions: '' });
 
-  const [pawnQuery, setPawnQuery] = useState('apple');
-  const [pawnCondition, setPawnCondition] = useState('');
-  const [pawnBuyingOptions, setPawnBuyingOptions] = useState('');
-  const [pawnMinPrice, setPawnMinPrice] = useState('');
-  const [pawnMaxPrice, setPawnMaxPrice] = useState('');
-  const [pawnResult, setPawnResult] = useState(EMPTY_RESULT);
+  const [pawnQuery, setPawnQuery] = useSharedState('ebay:pawnQuery', 'apple');
+  const [pawnCondition, setPawnCondition] = useSharedState('ebay:pawnCondition', '');
+  const [pawnBuyingOptions, setPawnBuyingOptions] = useSharedState('ebay:pawnBuyingOptions', '');
+  const [pawnMinPrice, setPawnMinPrice] = useSharedState('ebay:pawnMinPrice', '');
+  const [pawnMaxPrice, setPawnMaxPrice] = useSharedState('ebay:pawnMaxPrice', '');
+  const [pawnResult, setPawnResult] = useSharedState('ebay:pawnResult', EMPTY_RESULT);
   const [pawnStores, setPawnStores] = useState([]);
   const [pawnStoreMode, setPawnStoreMode] = useState('');
   const [pawnStoreUrl, setPawnStoreUrl] = useState('');
@@ -1574,15 +1579,15 @@ function Ebay({ setVista }) {
   const [pawnStoreError, setPawnStoreError] = useState('');
   const [pawnStoresModalOpen, setPawnStoresModalOpen] = useState(false);
 
-  const [productType, setProductType] = useState('all');
-  const [productCondition, setProductCondition] = useState('');
-  const [productBuyingOptions, setProductBuyingOptions] = useState('BEST_OFFER');
-  const [productMinPrice, setProductMinPrice] = useState('');
-  const [productMaxPrice, setProductMaxPrice] = useState('');
-  const [productPawnOnly, setProductPawnOnly] = useState(false);
-  const [productMinReviewsOnly, setProductMinReviewsOnly] = useState(false);
-  const [productKeyword, setProductKeyword] = useState('');
-  const [productResult, setProductResult] = useState(EMPTY_RESULT);
+  const [productType, setProductType] = useSharedState('ebay:productType', 'all');
+  const [productCondition, setProductCondition] = useSharedState('ebay:productCondition', '');
+  const [productBuyingOptions, setProductBuyingOptions] = useSharedState('ebay:productBuyingOptions', 'BEST_OFFER');
+  const [productMinPrice, setProductMinPrice] = useSharedState('ebay:productMinPrice', '');
+  const [productMaxPrice, setProductMaxPrice] = useSharedState('ebay:productMaxPrice', '');
+  const [productPawnOnly, setProductPawnOnly] = useSharedState('ebay:productPawnOnly', false);
+  const [productMinReviewsOnly, setProductMinReviewsOnly] = useSharedState('ebay:productMinReviewsOnly', false);
+  const [productKeyword, setProductKeyword] = useSharedState('ebay:productKeyword', '');
+  const [productResult, setProductResult] = useSharedState('ebay:productResult', EMPTY_RESULT);
   const [blockedStores, setBlockedStores] = useState([]);
   const blockedStoresRef = useRef([]);
   const [blockedStoresModalOpen, setBlockedStoresModalOpen] = useState(false);
@@ -1590,13 +1595,13 @@ function Ebay({ setVista }) {
   const [blockedStoreName, setBlockedStoreName] = useState('');
   const [blockedStoresSaving, setBlockedStoresSaving] = useState(false);
   const [blockedStoresError, setBlockedStoresError] = useState('');
-  const [ipadForm, setIpadForm] = useState({ line: '', number: '', screen: '', processor: '', storage: '', connectivity: '' });
-  const [iphoneForm, setIphoneForm] = useState({ number: '', model: '' });
-  const [macbookForm, setMacbookForm] = useState({ line: '', screen: '', processor: '', ram: '', storage: '', modelNumber: '', orderNumber: '' });
+  const [ipadForm, setIpadForm] = useSharedState('ebay:ipadForm', { line: '', number: '', screen: '', processor: '', storage: '', connectivity: '' });
+  const [iphoneForm, setIphoneForm] = useSharedState('ebay:iphoneForm', { number: '', model: '' });
+  const [macbookForm, setMacbookForm] = useSharedState('ebay:macbookForm', { line: '', screen: '', processor: '', ram: '', storage: '', modelNumber: '', orderNumber: '' });
 
-  const [auctionFamily, setAuctionFamily] = useState('all');
-  const [auctionCondition, setAuctionCondition] = useState('auction_normal');
-  const [auctionResult, setAuctionResult] = useState({ ...EMPTY_RESULT, groups: [], buyingOptions: 'AUCTION' });
+  const [auctionFamily, setAuctionFamily] = useSharedState('ebay:auctionFamily', 'all');
+  const [auctionCondition, setAuctionCondition] = useSharedState('ebay:auctionCondition', 'auction_normal');
+  const [auctionResult, setAuctionResult] = useSharedState('ebay:auctionResult', { ...EMPTY_RESULT, groups: [], buyingOptions: 'AUCTION' });
   const [analyticsGroups, setAnalyticsGroups] = useState([]);
   const [ebayRateLimits, setEbayRateLimits] = useState(null);
   const [ebayRateLoading, setEbayRateLoading] = useState(false);
@@ -1605,9 +1610,10 @@ function Ebay({ setVista }) {
 
   const sentinelRef = useRef(null);
   const appendRequestKeyRef = useRef('');
-  const requestSeqRef = useRef({ pawns: 0, product: 0, auctions: 0 });
-  const productAbortRef = useRef(null);
-  useEffect(() => () => productAbortRef.current?.abort(), []);
+  // Módulo, no componente: la búsqueda sigue aunque se cambie de página y
+  // la cancelación funciona desde cualquier montaje de la vista.
+  const requestSeqRef = EBAY_REQUEST_SEQ;
+  const productAbortRef = EBAY_PRODUCT_ABORT;
   const progressHideTimeoutRef = useRef(null);
   const activeProgressTab = appendLoadingTab || loadingTab;
   const activeProgressMode = appendLoadingTab ? 'append' : loadingTab ? 'initial' : '';
@@ -1785,6 +1791,7 @@ function Ebay({ setVista }) {
     productAbortRef.current = null;
     setLoadingTab((current) => (current === 'product' ? '' : current));
     setAppendLoadingTab((current) => (current === 'product' ? '' : current));
+    cancelTask(EBAY_PRODUCT_TASK);
   };
 
   const loadProductSearch = async ({ append = false } = {}) => {
@@ -1796,6 +1803,13 @@ function Ebay({ setVista }) {
     const initialOffset = append ? getNextResultOffset(productResult) : 0;
     if (append) setAppendLoadingTab('product');
     else setLoadingTab('product');
+    startTask(EBAY_PRODUCT_TASK, {
+      label: append ? 'eBay: cargando más productos' : 'eBay: búsqueda por producto',
+      progress: 'Buscando...',
+      view: 'ebay',
+      onCancel: cancelProductSearch,
+    });
+    let taskError = '';
     loadEbayRateLimits({ silent: false });
     setErrors((prev) => ({ ...prev, product: '' }));
     try {
@@ -1991,6 +2005,7 @@ function Ebay({ setVista }) {
             nextQueryIndex,
             pendingItems,
           });
+          updateTask(EBAY_PRODUCT_TASK, { progress: `${visibleItems.length} resultados (ronda ${completedBatches})` });
         }
         if (
           lastRateLimited ||
@@ -2041,10 +2056,12 @@ function Ebay({ setVista }) {
       if (/429|limitando|too many requests/i.test(String(err?.message || err))) {
         setProductResult((prev) => ({ ...prev, hasMore: true, rateLimited: true }));
       }
-      setErrors((prev) => ({ ...prev, product: String(err?.message || 'No se pudo cargar la busqueda por producto.') }));
+      taskError = String(err?.message || 'No se pudo cargar la busqueda por producto.');
+      setErrors((prev) => ({ ...prev, product: taskError }));
     } finally {
       if (productAbortRef.current === abortController) productAbortRef.current = null;
       loadEbayRateLimits({ silent: false });
+      if (isProductSearchActive()) finishTask(EBAY_PRODUCT_TASK, { error: taskError, ...(taskError ? {} : { progress: 'Búsqueda terminada' }) });
       clearLoadingForRequest('product', requestId, append);
     }
   };

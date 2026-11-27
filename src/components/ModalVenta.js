@@ -5,7 +5,10 @@ import React, { useEffect, useState, useRef } from 'react';
 import api from '../api';
 import { localDateInputValue } from '../utils/dates';
 import { notifySalesChanged } from '../utils/salesSync';
+import { enqueueOperation } from '../services/backgroundOps';
 import { accessoryLotDate, consumedAccessoryLots, accessoryLotAvailable } from '../utils/accessorySales';
+import AccesoriosStockVenta, { seleccionAccesoriosStock } from './AccesoriosStockVenta';
+import HistorialVentasAccesorio, { importeVentaAccesorio } from './HistorialVentasAccesorio';
 import { nuevaClave } from '../services/finanzas';
 import AnularVentaButton from './AnularVentaButton';
 import CobroVentaForm from './CobroVentaForm';
@@ -81,8 +84,7 @@ export default function ModalVenta({
   // Forma de pago del ingreso: mismos tipos que el backend (direct, card, cash; debt = x500).
   const [formaPago, setFormaPago] = useState('direct');
   const [montoPagado, setMontoPagado] = useState('');
-  const [accessorySummary, setAccessorySummary] = useState(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [accesoriosExcluidos, setAccesoriosExcluidos] = useState([]);
   const [form, setForm] = useState({
     tipoCambio: '',
     tipoCambioGonzalo: '',
@@ -110,13 +112,16 @@ export default function ModalVenta({
   const splitModeActive = venta ? isSplitVenta : isSplitCreate;
   const isAccessory = String(producto?.tipo || '').toLowerCase() === 'accesorios';
   const accessoryCreate = !venta && isAccessory;
+  const isFusedAccessory = isAccessory && Boolean(producto?.fusionAccesorioId);
+  const stockIncluido = !venta && !isAccessory ? producto?.accesoriosStock : undefined;
   const accessoryLots = (Array.isArray(producto?.__lots) && producto.__lots.length ? producto.__lots : [producto])
     .filter((lot) => lot?.id && accessoryLotAvailable(lot))
     .sort((a, b) => accessoryLotDate(a) - accessoryLotDate(b) || Number(a.id) - Number(b.id));
   const selectedLot = accessoryLots.find((lot) => String(lot.id) === form.loteInicialId) || accessoryLots[0];
-  const consumedLots = consumedAccessoryLots(accessoryLots, selectedLot?.id, form.cantidad);
+  const firstLotId = isFusedAccessory ? undefined : selectedLot?.id;
+  const consumedLots = consumedAccessoryLots(accessoryLots, firstLotId, form.cantidad);
   const quotation = useAccessoryQuote({ enabled: accessoryCreate, productoId: producto?.id,
-    comprador: producto?.vendedor || undefined, cantidad: Number(form.cantidad), loteInicialId: selectedLot?.id,
+    comprador: producto?.vendedor || undefined, cantidad: Number(form.cantidad), loteInicialId: firstLotId,
     precioUnitario: form.precioVenta === '' ? '' : Number(form.precioVenta) / Math.max(1, Number(form.cantidad)) });
   const minimum = producto?.referencia?.precioMinimoSoles ?? precioMinimo ?? quotation.quote?.precioMinimo;
   const referencePricing = producto?.referencia || quotation.quote;
@@ -146,15 +151,16 @@ export default function ModalVenta({
   useEffect(() => {
     setFormaPago(actual => actual === 'saldo_cliente' ? 'direct' : actual);
     setCreditoCliente({ valido: true });
-    if (!venta) setEstadoPago(pedidoClientFromSeller(effectiveSeller) ? 'pendiente' : 'pagado');
-  }, [effectiveSeller, venta]);
+    if (!venta) setEstadoPago(!isAccessory && pedidoClientFromSeller(effectiveSeller) ? 'pendiente' : 'pagado');
+  }, [effectiveSeller, isAccessory, venta]);
 
   useEffect(() => {
     setPriceEdited(false);
+    setAccesoriosExcluidos([]);
     setFormaPago('direct');
     setMontoPagado('');
     const initialSeller = resolvedSaleSeller(venta?.vendedor, producto?.vendedor, presetVendedor);
-    setEstadoPago(pedidoClientFromSeller(initialSeller) ? 'pendiente' : 'pagado');
+    setEstadoPago(!isAccessory && pedidoClientFromSeller(initialSeller) ? 'pendiente' : 'pagado');
     if (venta) {
       setForm({
         tipoCambio: venta.tipoCambio != null ? String(venta.tipoCambio) : '',
@@ -186,7 +192,7 @@ export default function ModalVenta({
       modalidad: 'unidad',
       loteInicialId: '',
     });
-  }, [venta, producto?.id, producto?.vendedor, presetVendedor, allowVendedorOnCreate, precioPublicado, producto?.referencia]);
+  }, [venta, producto?.id, producto?.vendedor, presetVendedor, allowVendedorOnCreate, precioPublicado, producto?.referencia, isAccessory]);
 
   useEffect(() => {
     setEditMode(false);
@@ -225,19 +231,6 @@ export default function ModalVenta({
     }
   };
 
-  useEffect(() => {
-    if (!accessoryCreate || !producto?.id) {
-      setAccessorySummary(null);
-      return;
-    }
-    let active = true;
-    setSummaryLoading(true);
-    Promise.resolve(api.get(`/ventas/accesorio-resumen?productoId=${producto.id}`))
-      .then((data) => { if (active) setAccessorySummary(data || null); })
-      .catch(() => { if (active) setAccessorySummary(null); })
-      .finally(() => { if (active) setSummaryLoading(false); });
-    return () => { active = false; };
-  }, [accessoryCreate, producto?.id]);
 
   if (!producto) return null;
 
@@ -268,7 +261,7 @@ export default function ModalVenta({
     setForm((prev) => ({
       ...prev,
       pedidoCliente: value,
-      vendedor: value.trim() ? pedidoSeller(value) : '',
+      vendedor: value.trim() ? pedidoSeller(value) : (isAccessory ? producto?.vendedor || '' : ''),
     }));
   };
 
@@ -342,6 +335,7 @@ export default function ModalVenta({
         fechaVenta: form.fechaVenta,
         precioVenta: Number(form.precioVenta),
         incomeBank,
+        ...seleccionAccesoriosStock(stockIncluido, accesoriosExcluidos),
       };
       // La deuda pendiente del cliente se registra en efectivo; x500 solo si se elige expresamente.
       // Directo y x500 usan el mismo camino de siempre (incomePaymentType); tarjeta y efectivo van por partes.
@@ -366,7 +360,7 @@ export default function ModalVenta({
         body.cantidad = cantidad;
         body.cotizacionToken = quotation.quote.cotizacionToken;
         body.modalidad = cantidad > 1 ? 'mayor' : 'unidad';
-        body.loteInicialId = Number(selectedLot?.id || producto.id);
+        if (firstLotId != null) body.loteInicialId = Number(firstLotId);
       }
 
       if (splitModeActive) {
@@ -403,47 +397,57 @@ export default function ModalVenta({
       }
       const fingerprint = JSON.stringify(body);
       if (!operation.current || operation.current.fingerprint !== fingerprint) operation.current = { fingerprint, key: nuevaClave() };
+      // La misma clave viaja en cada reintento: el backend no duplica la venta.
       body.operacionKey = operation.current.key;
-      const saved = await api.post('/ventas', body);
-      await syncProductSeller(saved?.vendedor || body.vendedor);
+      const operacionKey = body.operacionKey;
+      const productoVenta = producto;
+      const sellerSolicitado = requestedSeller;
 
-      notifySalesChanged({
-        action: 'create',
-        venta: { ...saved, producto: saved?.producto || producto },
-        producto,
-        productoId: producto.id,
+      const run = async () => {
+        try {
+          const saved = await api.post('/ventas', body);
+          await syncProductSeller(saved?.vendedor || body.vendedor);
+          return { saved, action: 'create' };
+        } catch (e) {
+          if (/Los accesorios incluidos cambiaron/i.test(e.message || '')) {
+            throw new Error('Los accesorios incluidos cambiaron. Actualiza el inventario y abre de nuevo la venta.');
+          }
+          if (/409|cotización cambió|Stock insuficiente/i.test(e.message || '')) {
+            throw new Error('El stock o los costos cambiaron. Abre de nuevo la venta y revisa la cotización.');
+          }
+          // Si se perdio la respuesta despues de guardar, confirmar antes de pedir repetir.
+          try {
+            const ventas = await api.get(`/ventas/producto/${productoVenta.id}`);
+            const existing = Array.isArray(ventas) ? ventas.find((row) => row.operacionKey === operacionKey) : null;
+            if (existing) {
+              await syncProductSeller(existing?.vendedor || sellerSolicitado);
+              return { saved: existing, action: 'create-confirmed' };
+            }
+          } catch (confirmError) {
+            console.error('[ModalVenta] No se pudo confirmar la venta:', confirmError);
+          }
+          throw e;
+        }
+      };
+      enqueueOperation({
+        label: `Venta ${productoVenta?.codigoInventario ? `MS-${productoVenta.codigoInventario}` : `#${productoVenta.id}`}`,
+        lockKey: `venta:producto:${productoVenta.id}`,
+        run,
+        onSuccess: ({ saved, action }) => {
+          notifySalesChanged({
+            action,
+            venta: { ...saved, producto: saved?.producto || productoVenta },
+            producto: productoVenta,
+            productoId: productoVenta.id,
+          });
+          onSaved?.(saved);
+        },
       });
-      onSaved?.(saved);
+      setSaving(false);
       onClose?.();
     } catch (e) {
-      console.error('[ModalVenta] Error al guardar venta:', e);
-      if (/409|cotización cambió|Stock insuficiente/i.test(e.message || '')) {
-        quotation.refresh();
-        alert('El stock o los costos cambiaron. Revisa la nueva cotización antes de confirmar.');
-        return;
-      }
-      // Si se perdio la respuesta despues de guardar, confirmar antes de pedir repetir.
-      try {
-        const ventas = await api.get(`/ventas/producto/${producto.id}`);
-        const existing = Array.isArray(ventas) ? ventas.find((row) => row.operacionKey === operation.current?.key) : null;
-        if (existing) {
-          await syncProductSeller(existing?.vendedor || requestedSeller);
-
-          notifySalesChanged({
-            action: 'create-confirmed',
-            venta: { ...existing, producto: existing?.producto || producto },
-            producto,
-            productoId: producto.id,
-          });
-          onSaved?.(existing);
-          onClose?.();
-          return;
-        }
-      } catch (confirmError) {
-        console.error('[ModalVenta] No se pudo confirmar la venta:', confirmError);
-      }
-      alert('No se pudo guardar la venta. Intenta nuevamente.');
-    } finally {
+      console.error('[ModalVenta] Error al preparar venta:', e);
+      alert(e?.message || 'No se pudo guardar la venta. Intenta nuevamente.');
       setSaving(false);
     }
   };
@@ -489,16 +493,26 @@ export default function ModalVenta({
         payload.vendedor = String(form.pedidoCliente || '').trim() ? pedidoSeller(form.pedidoCliente) : (form.vendedor?.trim() || null);
       }
 
-      const updated = await api.patch(`/ventas/${venta.id}`, payload);
-      await syncProductSeller(updated?.vendedor || payload.vendedor);
-
-      notifySalesChanged({
-        action: 'update',
-        venta: { ...updated, producto: updated?.producto || producto },
-        producto,
-        productoId: producto.id,
+      const ventaId = venta.id;
+      const productoVenta = producto;
+      enqueueOperation({
+        label: `Editar venta ${productoVenta?.codigoInventario ? `MS-${productoVenta.codigoInventario}` : `#${ventaId}`}`,
+        lockKey: `venta:producto:${productoVenta.id}`,
+        run: async () => {
+          const updated = await api.patch(`/ventas/${ventaId}`, payload);
+          await syncProductSeller(updated?.vendedor || payload.vendedor);
+          return updated;
+        },
+        onSuccess: (updated) => {
+          notifySalesChanged({
+            action: 'update',
+            venta: { ...updated, producto: updated?.producto || productoVenta },
+            producto: productoVenta,
+            productoId: productoVenta.id,
+          });
+          onSaved?.(updated);
+        },
       });
-      onSaved?.(updated);
       onClose?.();
     } catch (e) {
       console.error('[ModalVenta] Error al actualizar venta:', e);
@@ -556,7 +570,7 @@ export default function ModalVenta({
     ? accessoryTotalPrice / accessoryQuantity
     : null;
 
-  const accessoryLotPicker = accessoryCreate && (
+  const accessoryLotPicker = accessoryCreate && !isFusedAccessory && (
     <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
       <label htmlFor="venta-lote-inicial" className="block text-sm font-medium mb-1">Lote del que se vende primero</label>
       <select id="venta-lote-inicial" className="w-full rounded border bg-white p-2" value={selectedLot?.id || ''} onChange={(e) => onChange('loteInicialId', e.target.value)}>
@@ -756,7 +770,7 @@ export default function ModalVenta({
   const renderSellerField = () => (
     <div className="rounded-lg border p-3 bg-gray-50 space-y-3">
       <div>
-        <label htmlFor="venta-vendedor" className="block font-medium mb-1">{isAccessory ? 'Comprador de la venta' : 'Vendedor'}</label>
+        <label htmlFor="venta-vendedor" className="block font-medium mb-1">{isAccessory ? 'Cliente de la venta' : 'Vendedor'}</label>
         <select
           id="venta-vendedor"
           className="w-full border p-2 rounded bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -766,11 +780,10 @@ export default function ModalVenta({
         >
           {sellerOptions.map((opt) => (
             <option key={opt.label} value={opt.value}>
-              {isAccessory && !opt.value ? 'Seleccionar comprador' : opt.label}
+              {isAccessory ? (pedidoClientFromSeller(opt.value) || (opt.value ? `Venta general · ${opt.label}` : 'Seleccionar cliente')) : opt.label}
             </option>
           ))}
         </select>
-        {accessoryCreate && producto.vendedor && <p className="mt-1 text-xs text-gray-600">Stock comprado por {producto.vendedor}. El cliente de esta venta se elige arriba.</p>}
       </div>
       <div>
         <label htmlFor="venta-cliente-pedido" className="block text-sm font-medium mb-1">Otro cliente a pedido</label>
@@ -785,39 +798,6 @@ export default function ModalVenta({
         />
       </div>
     </div>
-  );
-
-  const summaryMoney = (value) => value == null ? 'Pendiente' : `S/ ${Number(value).toFixed(2)}`;
-  const summaryPanel = accessoryCreate && (
-    <aside className="rounded-xl border border-slate-200 bg-slate-50 p-4" aria-label="Resumen de ventas del accesorio">
-      <h3 className="font-semibold text-slate-950">Ventas del accesorio</h3>
-      {summaryLoading ? <p className="mt-3 text-sm text-slate-500">Cargando resumen...</p> : (
-        <>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-            <div className="rounded-lg bg-white p-3"><span className="block text-xs text-slate-500">Unidades vendidas</span><strong>{accessorySummary?.unidadesVendidas || 0}</strong></div>
-            <div className="rounded-lg bg-white p-3"><span className="block text-xs text-slate-500">Disponibles</span><strong>{accessorySummary?.unidadesDisponibles ?? producto.stockActual ?? 0}</strong></div>
-            <div className="rounded-lg bg-emerald-50 p-3 text-emerald-800"><span className="block text-xs">Ingreso total</span><strong className="text-lg">{summaryMoney(accessorySummary?.ventaBruta)}</strong></div>
-            <div className="rounded-lg bg-indigo-50 p-3 text-indigo-800"><span className="block text-xs">Ganancia general</span><strong className="text-lg">{summaryMoney(accessorySummary?.gananciaNeta)}</strong></div>
-          </div>
-          {requiresExchangeRate && <p className="mt-3 text-xs text-slate-600">Tipo de cambio promedio: <strong>{accessorySummary?.tipoCambioPromedio != null ? Number(accessorySummary.tipoCambioPromedio).toFixed(4) : '--'}</strong></p>}
-          <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
-            {(accessorySummary?.ventas || []).map((item) => (
-              <div key={item.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-                <div className="flex justify-between gap-2"><strong>{item.fechaVenta}</strong><span>{item.cantidad} und.</span></div>
-                {onAnulada && <div className="mt-1 flex justify-end"><AnularVentaButton venta={{ ...item, productoId: producto.id }} onAnulada={onAnulada}
-                  className="rounded border border-red-300 px-2 py-1 text-red-700 hover:bg-red-50 disabled:opacity-60" /></div>}
-                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1">
-                  <span>Cada uno: <strong>{summaryMoney(item.precioUnitario)}</strong></span>
-                  <span className="text-right">Total: <strong>{summaryMoney(item.ventaBruta)}</strong></span>
-                  <span>Costo: <strong>{summaryMoney(item.costo)}</strong></span>
-                  <span className="text-right text-emerald-700">Ganancia: <strong>{summaryMoney(item.gananciaNeta)}</strong></span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-    </aside>
   );
 
   const content = (
@@ -837,7 +817,8 @@ export default function ModalVenta({
         </div>
 
         <div className="rounded-lg border bg-gray-50 px-3 py-2 text-sm text-gray-700 mb-4">
-          {isAccessory ? 'Comprado por' : 'Vendedor del producto'}: <span className="font-medium">{sellerLabel}</span>
+          {isAccessory ? 'Comprado por' : 'Vendedor del producto'}: <span className="font-medium">{isAccessory ? formatSeller(producto.vendedor) || 'Sin asignar' : sellerLabel}</span>
+          {isAccessory && isReadOnly && esClientePedido && <p className="mt-1">Cliente de la venta <strong>{pedidoClientFromSeller(effectiveSeller)}</strong></p>}
         </div>
 
         {!venta && !sellerSlug && !isAccessory && (
@@ -860,6 +841,7 @@ export default function ModalVenta({
                 {minimum != null && form.precioVenta !== '' && Number(form.precioVenta) / Number(form.cantidad || 1) < Number(minimum) && <p role="alert" className="text-amber-800">El precio por unidad está por debajo del precio mínimo.</p>}
               </div>}
               {splitModeActive ? renderSplitFields() : renderSingleFields()}
+              <AccesoriosStockVenta stock={stockIncluido} excluidos={accesoriosExcluidos} setExcluidos={setAccesoriosExcluidos} disabled={saving} />
               <div className="text-right">
               <button
                 className={`bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 ${saving ? 'opacity-60 cursor-not-allowed' : ''}`}
@@ -870,12 +852,35 @@ export default function ModalVenta({
               </button>
               </div>
             </div>
-            {summaryPanel}
+            {accessoryCreate && <HistorialVentasAccesorio producto={producto} onAnulada={onAnulada} mostrarTipoCambio={requiresExchangeRate} />}
           </div>
         )}
 
         {venta && isReadOnly && (
           <div className="space-y-3">
+            {!!venta.desgloseAccesorios?.length && (
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full text-left text-sm">
+                  <caption className="px-3 py-2 text-left font-medium">Reparto del precio de venta</caption>
+                  <thead className="bg-slate-50 text-xs text-slate-600">
+                    <tr>{['Artículo', 'Costo', 'Ingreso', 'Ganancia'].map((label) => <th key={label} scope="col" className="px-2 py-2">{label}</th>)}</tr>
+                  </thead>
+                  <tbody>{venta.desgloseAccesorios.map((item) => (
+                    <tr key={item.productoId} className="border-t border-slate-100">
+                      <th scope="row" className="px-2 py-2 font-medium">{item.nombre || 'Equipo'}</th>
+                      <td className="whitespace-nowrap px-2 py-2">{importeVentaAccesorio(item.costo)}</td>
+                      <td className="whitespace-nowrap px-2 py-2">{importeVentaAccesorio(item.ingreso)}</td>
+                      <td className="whitespace-nowrap px-2 py-2">{importeVentaAccesorio(item.ganancia)}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+            {!venta.desgloseAccesorios?.length && venta.distribucionStock?.some((item) => item.nombre) && (
+              <div className="text-sm"><span className="font-medium">Accesorios entregados: </span>
+                {venta.distribucionStock.filter((item) => item.nombre).map((item) => item.nombre).join(', ')}
+              </div>
+            )}
             <div>
               <span className="font-medium">{venta.fechaReserva && venta.estadoComercial === 'reservada' ? 'Fecha de pedido: ' : 'Fecha de venta: '}</span>
               <span className="text-gray-700">{venta.fechaVenta}</span>

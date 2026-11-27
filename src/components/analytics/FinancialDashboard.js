@@ -108,6 +108,9 @@ export default function FinancialDashboard({ view = 'resumen', from, to, filters
   }, [paramsKey, retry]);
 
   const summary = data?.summary || {};
+  const hasRange = !!(range.from || range.to);
+  const inventoryValue = summary.inventoryCapitalAtEnd !== undefined ? summary.inventoryCapitalAtEnd : summary.inventoryCapital;
+  const periodPurchases = (data?.purchases || []).filter((row) => row.purchaseDate && (!range.from || row.purchaseDate >= range.from) && (!range.to || row.purchaseDate <= range.to));
   const sales = data?.sales || [];
   const inventory = data?.inventory?.records || [];
   const categories = useMemo(() => [...(data?.categories || [])].sort((a, b) => {
@@ -154,8 +157,18 @@ export default function FinancialDashboard({ view = 'resumen', from, to, filters
     {advancedOpen && <div className="grid gap-2 rounded-2xl border bg-white p-3 sm:grid-cols-3 lg:grid-cols-6">{[['gama', 'Modelo / gama'], ['procesador', 'Procesador'], ['pantalla', 'Pantalla'], ['ram', 'RAM'], ['ssd', 'SSD'], ['estadoTracking', 'Tracking']].map(([key, title]) => <label key={key} className="text-xs text-slate-600">{title}<input className="mt-1 w-full rounded-lg border p-2 text-sm" value={advanced[key]} onChange={(e) => setAdvanced((current) => ({ ...current, [key]: e.target.value }))} /></label>)}</div>}
 
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-      <Kpi title="Capital invertido" value={money(summary.capitalInvested)} tip={`${data.definitions.capital} Compras del período: ${money(summary.purchaseCapitalInPeriod)}.`} onClick={() => show('Todos los productos comprados', data.purchases)} />
-      <Kpi title="Capital inmovilizado" value={money(summary.inventoryCapital)} tip={data.definitions.inventory} onClick={() => show('Stock actual', inventory)} tone={summary.inventoryCapital > 0 ? 'slate' : 'good'} />
+      {hasRange
+        ? <Kpi title="Capital invertido en el período" value={money(summary.purchaseCapitalInPeriod)} tip={`Lo que costaron las compras con fecha dentro del período. Acumulado de todas las compras: ${money(summary.capitalInvested)}.`} onClick={() => show('Compras del período', periodPurchases)} current={summary.purchaseCapitalInPeriod} previous={data.comparison?.purchaseCapitalInPeriod} />
+        : <Kpi title="Capital invertido" value={money(summary.capitalInvested)} tip={data.definitions.capital} onClick={() => show('Todos los productos comprados', data.purchases)} />}
+      <Kpi
+        title={summary.periodEnd ? `Capital inmovilizado al ${summary.periodEnd}` : 'Capital inmovilizado'}
+        value={money(inventoryValue)}
+        tip={hasRange
+          ? `${summary.periodEnd ? data.definitions.inventoryAtEnd || '' : 'Stock sin vender hoy.'} De lo comprado en el período sigue sin vender: ${money(summary.inventoryFromPeriodPurchases)}.${summary.periodEnd ? ` Stock de hoy: ${money(summary.inventoryCapital)}.` : ''}`
+          : data.definitions.inventory}
+        onClick={() => show('Stock actual', inventory)}
+        tone={inventoryValue > 0 ? 'slate' : 'good'}
+      />
       <Kpi title="Capital recuperado" value={money(summary.recoveredCapital)} tip="Costo histórico de lo vendido en este período." onClick={() => show('Ventas del período', sales)} current={summary.recoveredCapital} previous={data.comparison?.cost} />
       <Kpi title="Ingresos por ventas" value={money(summary.income)} tip={data.definitions.income} onClick={() => show('Ventas del período', sales)} current={summary.income} previous={data.comparison?.income} />
       <Kpi title="Rotación mediana" value={summary.medianDays == null ? 'No disponible' : `${number(summary.medianDays)} días`} tip="Días entre compra y venta, sobre registros con ambas fechas." onClick={() => show('Ventas con fechas', sales.filter((row) => row.days != null))} />

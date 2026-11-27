@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../api';
 import { notifySalesChanged } from '../utils/salesSync';
+import AccesoriosStockVenta, { seleccionAccesoriosStock } from './AccesoriosStockVenta';
 
 const eventLabel = (event) => event.eventType === 'sale.cancelled' ? 'Anulación' : 'Venta';
 const statusLabel = (status) => ({
@@ -13,6 +14,12 @@ const PAYMENT_LABELS = { direct: 'Pago directo', card: 'Tarjeta de crédito', de
 const PAYMENT_TYPES = Object.keys(PAYMENT_LABELS);
 const POLL_MS = 20000;
 const toCents = (value) => Math.round(Number(value || 0) * 100);
+const accesoriosExcluidosPorCatalogo = (event) => {
+  const ids = event.payload?.accesoriosStockIds;
+  return Array.isArray(ids)
+    ? (event.accesoriosStock?.accesorios || []).filter((item) => !ids.includes(item.productoId)).map((item) => item.productoId)
+    : [];
+};
 const selectedParts = (values) => PAYMENT_TYPES.filter((type) => String(values?.[type] ?? '') !== '')
   .map((type) => ({ type, amount: Number(values[type]) }));
 const validParts = (parts, total) => parts.length > 0
@@ -85,6 +92,7 @@ export default function CatalogSalesPending() {
   const [incomeBanks, setIncomeBanks] = useState({});
   const [payments, setPayments] = useState({});
   const [paymentSelections, setPaymentSelections] = useState({});
+  const [accesoriosRevisados, setAccesoriosRevisados] = useState({});
   const [showManual, setShowManual] = useState(false);
   const [manualProducts, setManualProducts] = useState([]);
   const [manualLoading, setManualLoading] = useState(false);
@@ -164,12 +172,26 @@ export default function CatalogSalesPending() {
     setBusyIds(new Set(next));
   };
 
+  const listaExcluidos = (event, revisados = accesoriosRevisados) => {
+    const local = revisados[event.id];
+    return local && local.revision === event.accesoriosStock?.revision
+      ? local.excluidos : accesoriosExcluidosPorCatalogo(event);
+  };
+
   const act = async (event, action) => {
     if (busyIdsRef.current.has(event.id)) return;
     const isCancellation = event.eventType === 'sale.cancelled';
     const exchangeRate = Number(exchangeRates[event.id]);
     const incomeBank = incomeBanks[event.id];
     const incomeParts = selectedParts(payments[event.id]);
+    const stock = event.accesoriosStock;
+    const excluidos = listaExcluidos(event);
+    const revisados = accesoriosRevisados[event.id]?.revision === stock?.revision && accesoriosRevisados[event.id];
+    const enviarSeleccion = stock?.accesorios?.length || revisados;
+    const entregados = (stock?.accesorios || []).filter((item) => !excluidos.includes(item.productoId)).map((item) => item.nombre);
+    const detalleEntrega = enviarSeleccion
+      ? entregados.length ? `\nSe entregan ${entregados.join(', ')}.` : '\nSe entrega solo el equipo.'
+      : '';
     if (action === 'confirm' && !isCancellation && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
       alert('Ingresa un tipo de cambio válido.');
       return;
@@ -184,15 +206,18 @@ export default function CatalogSalesPending() {
     }
     const message = action === 'confirm'
       ? isCancellation
-        ? `¿Confirmar la anulación de la venta ${event.sku}? Esto eliminará la venta de Servicios y restaurará su stock.`
-        : `¿Confirmar la venta ${event.sku} por S/ ${Number(event.amount).toFixed(2)} con tipo de cambio ${exchangeRate.toFixed(4)}?`
+        ? `¿Confirmar la anulación de la venta ${event.sku}? Servicios restaurará el stock correspondiente.`
+        : `¿Confirmar la venta ${event.sku} por S/ ${Number(event.amount).toFixed(2)} con tipo de cambio ${exchangeRate.toFixed(4)}?${detalleEntrega}`
       : `¿Rechazar esta ${isCancellation ? 'anulación' : 'venta'}?`;
     if (!window.confirm(message)) return;
     if (!startBusy(event.id)) return;
     try {
       await api.post(
         `/integrations/catalog-sales/${event.id}/${action}`,
-        action === 'confirm' && !isCancellation ? { exchangeRate, incomeBank, incomeParts } : {},
+        action === 'confirm' && !isCancellation ? {
+          exchangeRate, incomeBank, incomeParts,
+          ...seleccionAccesoriosStock(enviarSeleccion ? stock : undefined, excluidos),
+        } : {},
       );
       await refresh();
       notifySalesChanged({ source: 'catalog-sync', action, sku: event.sku });
@@ -363,10 +388,40 @@ export default function CatalogSalesPending() {
               {items.map((event) => (
                 <tr key={event.id} className="border-t border-amber-100">
                   <td className="p-3 font-semibold text-slate-900">
-                    {event.costUsd == null ? '-' : `$ ${Number(event.costUsd).toFixed(2)}`}
+                    {event.costUsd == null ? '-' : `${event.monedaCompra === 'PEN' ? 'S/' : '$'} ${Number(event.costUsd).toFixed(2)}`}
                   </td>
                   <td className="p-3 font-medium">{eventLabel(event)}</td>
-                  <td className="p-3">{event.sku}</td>
+                  <td className="p-3">
+                    {event.sku}
+                    {event.eventType === 'sale.created' && event.accesoriosStock && (
+                      <div className="mt-1 min-w-40">
+                        {event.payload?.accesoriosStockRevision != null && event.payload.accesoriosStockRevision !== event.accesoriosStock.revision && (
+                          <div className="mb-1 text-xs text-amber-800">
+                            <p>La ficha cambió desde el registro en Catálogo. Revisa los accesorios antes de confirmar.</p>
+                            {!event.accesoriosStock.accesorios.length && event.payload?.accesoriosStockIds?.length > 0 && (
+                              <label className="mt-1 flex items-center gap-2">
+                                <input type="checkbox" disabled={busyIds.has(event.id)}
+                                  checked={accesoriosRevisados[event.id]?.revision === event.accesoriosStock.revision}
+                                  onChange={(input) => {
+                                    const marcado = input.target.checked;
+                                    setAccesoriosRevisados((current) => ({
+                                      ...current, [event.id]: marcado ? { revision: event.accesoriosStock.revision, excluidos: [] } : undefined,
+                                    }));
+                                  }} />
+                                Confirmar solo el equipo
+                              </label>
+                            )}
+                          </div>
+                        )}
+                        <AccesoriosStockVenta stock={event.accesoriosStock} excluidos={listaExcluidos(event)}
+                          disabled={busyIds.has(event.id)} setExcluidos={(update) => setAccesoriosRevisados((current) => ({
+                            ...current, [event.id]: {
+                              revision: event.accesoriosStock.revision, excluidos: update(listaExcluidos(event, current)),
+                            },
+                          }))} />
+                      </div>
+                    )}
+                  </td>
                   <td className="p-3">S/ {Number(event.amount).toFixed(2)}</td>
                   <td className="p-3 align-top">{event.eventType === 'sale.created' ? <PaymentParts sku={event.sku} values={payments[event.id]}
                     selectedTypes={paymentSelections[event.id] || []} total={event.amount}

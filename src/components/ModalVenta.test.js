@@ -13,6 +13,22 @@ beforeEach(() => {
   api.post.mockReset();
 });
 
+test('permite desmarcar el accesorio reservado y envía una selección vacía al guardar', async () => {
+  api.post.mockResolvedValue({ id: 55, productoId: 7, vendedor: 'Gonzalo' });
+  render(<ModalVenta producto={{ id: 7, tipo: 'macbook', vendedor: 'Gonzalo', valor: { monedaCompra: 'PEN' },
+    accesoriosStock: { revision: 3, accesorios: [{ productoId: 815, nombre: 'Apple Pencil Pro' }] } }}
+    precioPublicado={3000} onClose={jest.fn()} />);
+  const pencil = screen.getByRole('checkbox', { name: 'Apple Pencil Pro' });
+  expect(pencil).toBeChecked();
+  fireEvent.click(pencil);
+  expect(pencil).not.toBeChecked();
+  fireEvent.change(screen.getByLabelText('Fecha de venta'), { target: { value: '2026-11-26' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({
+    productoId: 7, accesoriosStockIds: [], accesoriosStockRevision: 3,
+  })));
+});
+
 test('cobra la deuda del cliente desde el detalle y actualiza Gastos y el saldo de Productos', async () => {
   const venta = { id: 15, productoId: 7, vendedor: 'Gonzalo (Jorge)', precioVenta: 1000, fechaVenta: '2026-11-19', deudaCliente: 600 };
   let ingreso = { id: 50, saleId: 15, saleSku: 'MS-7', salePaymentType: 'cash', saleClientDebt: true, monto: '600.00', saleReceivedAmount: '0.00' };
@@ -349,12 +365,37 @@ test('permite escoger el lote inicial de un accesorio agrupado', async () => {
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({ loteInicialId: 22 })));
 });
 
+test('vende el accesorio fusionado usando ambos lotes sin pedir una selección', async () => {
+  api.get.mockResolvedValue({ ventas: [] });
+  api.post.mockImplementation(async (path) => path.endsWith('/cotizar')
+    ? { cotizacionToken: 'a'.repeat(64), costoTotal: 36, disponible: 7 }
+    : { id: 91, precioVenta: 80, cantidad: 3 });
+  const lots = [
+    { id: 12, stockActual: 2, valor: { monedaCompra: 'PEN', fechaCompra: '2026-06-01' } },
+    { id: 13, stockActual: 5, valor: { monedaCompra: 'PEN', fechaCompra: '2026-07-01' } },
+  ];
+  render(<ModalVenta producto={{
+    id: 13, tipo: 'accesorios', fusionAccesorioId: 12, vendedor: 'Gonzalo', stockActual: 7, __lots: lots,
+  }} />);
+
+  expect(screen.queryByLabelText('Lote del que se vende primero')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Cantidad'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '80' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-08-14' } });
+  await waitFor(() => expect(screen.queryByText('Cotizando…')).not.toBeInTheDocument());
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/ventas', expect.objectContaining({ cantidad: 3, precioVenta: 80 })));
+  const [, sale] = api.post.mock.calls.find(([path]) => path === '/ventas');
+  expect(sale).not.toHaveProperty('loteInicialId');
+});
+
  test.each(['Gonzalo', 'Renato', 'ambos'])('vende accesorios en soles de %s sin solicitar cambio', async (vendedor) => {
   api.get.mockResolvedValue({ ventas: [] });
   api.post.mockImplementation(async (path) => path.endsWith('/cotizar') ? { cotizacionToken: 'a'.repeat(64), costoTotal: 10 } : { id: 92, vendedor });
   render(<ModalVenta producto={{ id: 51, tipo: 'accesorios', vendedor, stockInicial: 5, stockActual: 5, valor: { monedaCompra: 'PEN', costoTotal: 50 } }} onSaved={jest.fn()} onClose={jest.fn()} />);
   expect(screen.queryByText('Tipo de cambio', { exact: true })).not.toBeInTheDocument();
-  expect(screen.getByLabelText('Comprador de la venta')).toHaveValue(vendedor);
+  expect(screen.getByLabelText('Cliente de la venta')).toHaveValue(vendedor);
   fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '30' } });
   const date = document.querySelector('input[type="date"]');
   fireEvent.change(date, { target: { value: '2026-10-19' } });
@@ -416,7 +457,9 @@ test('elige Jorge para pagar un accesorio con saldo conservando el propietario d
   api.get.mockResolvedValue({ disponible: '1000.00', saldos: [{ id: 1, sku: 476, original: '1000.00', disponible: '1000.00', fecha: '2026-01-01', tipo_cambio: '3.4000' }], movimientos: [], ventas: [] });
   const saved = jest.fn();
   render(<ModalVenta producto={{ id: 551, tipo: 'accesorios', vendedor: 'Renato', stockInicial: 5, stockActual: 5, valor: { monedaCompra: 'PEN', costoTotal: 50 } }} onSaved={saved} onClose={jest.fn()} />);
-  fireEvent.change(screen.getByLabelText('Comprador de la venta'), { target: { value: 'Gonzalo (Jorge)' } });
+  fireEvent.change(screen.getByLabelText('Cliente de la venta'), { target: { value: 'Gonzalo (Jorge)' } });
+  expect(screen.getByText(/Comprado por/)).toHaveTextContent('Renato');
+  expect(screen.getByLabelText('Estado del pago')).toHaveValue('pagado');
   fireEvent.change(screen.getByLabelText('Precio total de venta (S/)'), { target: { value: '30' } });
   fireEvent.change(document.querySelector('input[type="date"]'), { target: { value: '2026-11-12' } });
   await screen.findByRole('option', { name: 'Saldo a favor del cliente' });
@@ -467,4 +510,30 @@ test.each(['pagado', 'parcial', 'pendiente'])('registra explícitamente el cobro
   if (estado === 'parcial') expect(body.incomeParts).toEqual([{ type: 'direct', amount: 250 }, { type: 'cash', amount: 750 }]);
   else if (estado === 'pendiente') expect(body.incomeParts).toEqual([{ type: 'cash', amount: 1000 }]);
   else expect(body.incomeParts).toEqual([{ type: 'direct', amount: 1000 }]);
+});
+
+test('la venta se guarda en segundo plano y el reintento usa la misma operacionKey', async () => {
+  const { __resetBackgroundOps, getBackgroundOps, retryOperation } = require('../services/backgroundOps');
+  __resetBackgroundOps();
+  const keys = [];
+  api.post
+    .mockImplementationOnce(async (_, body) => { keys.push(body.operacionKey); throw new Error('network error'); })
+    .mockImplementationOnce(async (_, body) => { keys.push(body.operacionKey); return { id: 16, productoId: 8 }; });
+  api.get.mockResolvedValue([]);
+  const onSaved = jest.fn();
+  const onClose = jest.fn();
+  render(<ModalVenta producto={{ id: 8, vendedor: 'Gonzalo', valor: { valorProducto: 300 } }} onSaved={onSaved} onClose={onClose} />);
+  fireEvent.change(screen.getByLabelText('Tipo de cambio'), { target: { value: '3.75' } });
+  fireEvent.change(screen.getByLabelText(/Fecha de (venta|pedido)/), { target: { value: '2026-07-20' } });
+  fireEvent.change(screen.getByLabelText('Precio de venta (S/)'), { target: { value: '1500' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  // El modal se cierra sin esperar la respuesta.
+  expect(onClose).toHaveBeenCalled();
+  await waitFor(() => expect(getBackgroundOps()[0]?.status).toBe('error'));
+  expect(onSaved).not.toHaveBeenCalled();
+  await act(async () => { retryOperation(getBackgroundOps()[0].id); });
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ id: 16, productoId: 8 }));
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).toBeTruthy();
+  expect(keys[1]).toBe(keys[0]);
 });

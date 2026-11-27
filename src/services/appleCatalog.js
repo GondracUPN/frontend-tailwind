@@ -89,3 +89,27 @@ export const selectorOptions = (model, field, detalle = {}) => {
 };
 
 export const modelDisplayName = (model) => (model ? `${model.title}${model.retired ? ' (retirado de la fuente)' : ''}` : '');
+
+/** Importaciones: conservar opciones válidas y completar lo desconocido con la base del modelo. */
+export function catalogImportDetalle(catalog, tipo, detalle) {
+  const next = { ...detalle };
+  const model = findCatalogModel(catalog.models, tipo, next);
+  const fields = ['tamano', 'ram', 'almacenamiento', 'conexion'];
+  const capacity = (value) => {
+    const amount = parseFloat(value);
+    return Number.isFinite(amount) ? amount * (/tb/i.test(value) ? 1024 : 1) : Infinity;
+  };
+  for (const field of fields) {
+    if (model?.detalle?.[field]) {
+      next[field] = model.detalle[field];
+      continue;
+    }
+    const selector = model?.selectors?.find((item) => item.field === field);
+    const options = selector?.status === 'confirmed' ? selectorOptions(model, field, next) : [];
+    if (!options.some((option) => option.value === String(next[field] || ''))) {
+      const base = [...options].sort((a, b) => capacity(a.value) - capacity(b.value))[0];
+      next[field] = base?.value || '';
+    }
+  }
+  return next;
+}

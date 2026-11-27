@@ -99,6 +99,7 @@ const buildSoldSpecs = (product) => {
 
 export default function ModalCalculadora({ producto, onClose, embedded = false }) {
   const isAccessory = clean(producto?.tipo).toLowerCase() === 'accesorios';
+  const isFusedAccessory = isAccessory && Boolean(producto?.fusionAccesorioId);
   const accessoryLots = useMemo(() => {
     const source = Array.isArray(producto?.__lots) && producto.__lots.length
       ? producto.__lots
@@ -114,10 +115,14 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
   const [selectedLotId, setSelectedLotId] = useState(() => String(accessoryLots[0]?.id || ''));
   const [cantidad, setCantidad] = useState('1');
   const selectedLot = accessoryLots.find((lot) => String(lot.id) === selectedLotId) || accessoryLots[0] || producto;
+  const firstLotId = isFusedAccessory ? undefined : selectedLot?.id;
+  const fusedStock = accessoryLots.reduce((sum, lot) => sum + Number(lot.stockActual || 0), 0);
   // Valores base del producto
   const selectedValue = selectedLot?.valor || {};
   const simpleAccessory = isSimpleAccessory(selectedLot);
-  const purchaseInSoles = simpleAccessory && String(selectedValue.monedaCompra || 'USD').toUpperCase() === 'PEN';
+  const purchaseInSoles = isFusedAccessory
+    ? accessoryLots.every((lot) => String(lot.valor?.monedaCompra || 'USD').toUpperCase() === 'PEN')
+    : simpleAccessory && String(selectedValue.monedaCompra || 'USD').toUpperCase() === 'PEN';
   const selectedShipping = Number(selectedValue.costoEnvioProrrateado ?? selectedValue.costoEnvio ?? 0);
   const selectedStoredCost = Number(selectedValue.costoTotalProrrateado ?? selectedValue.costoTotal ?? 0);
   const selectedTotalCost = selectedStoredCost > 0
@@ -138,7 +143,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
 
   // La consulta resuelve costos y lotes; el precio simulado se calcula localmente.
   const quotation = useAccessoryQuote({ enabled: isAccessory, productoId: producto?.id,
-    cantidad: Number(cantidad), comprador: producto?.vendedor, loteInicialId: selectedLot?.id });
+    cantidad: Number(cantidad), comprador: producto?.vendedor, loteInicialId: firstLotId });
   const costoTotalBase = isAccessory ? (quotation.quote?.costoTotal == null ? NaN : quotation.quote.costoTotal / Math.max(1, Number(cantidad))) : storedCostBase;
 
   // costo usado: si hay TC valido, (valorUSD * TC) + envio; si no, costoBase
@@ -146,7 +151,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
     const tc = Number(tipoCambio);
     if (isAccessory) {
       if (!Number.isFinite(tc) || tc <= 0 || !quotation.quote) return costoTotalBase;
-      const parts = quotation.quote.lotes || consumedAccessoryLots(accessoryLots, selectedLot?.id, cantidad)
+      const parts = quotation.quote.lotes || consumedAccessoryLots(accessoryLots, firstLotId, cantidad)
         .map(({ lot, quantity }) => ({ productoId: lot.id, cantidad: quantity }));
       const total = parts.reduce((sum, part) => {
         const lot = accessoryLots.find((item) => Number(item.id) === Number(part.productoId));
@@ -162,7 +167,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
     }
     if (isFinite(tc) && tc > 0) return valorUSD * tc + envioSoles;
     return costoTotalBase;
-  }, [tipoCambio, valorUSD, envioSoles, costoTotalBase, isAccessory, quotation.quote, accessoryLots, selectedLot?.id, cantidad]);
+  }, [tipoCambio, valorUSD, envioSoles, costoTotalBase, isAccessory, quotation.quote, accessoryLots, firstLotId, cantidad]);
 
   // Sugerencias basadas en el costo recalculado con el TC ingresado.
   const { pvMin, pvMed } = useMemo(() => {
@@ -226,7 +231,7 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
           <div>
             <h2 className="text-xl font-semibold mb-1">Calculadora rapida</h2>
             <p className="text-sm text-gray-600 mb-4">
-              Producto: <span className="font-medium">{buildCalculatorProductSummary(producto) || producto?.tipo}</span> - {isAccessory ? 'Costo unitario del lote' : 'Costo total base'}:{' '}
+              Producto: <span className="font-medium">{buildCalculatorProductSummary(producto) || producto?.tipo}</span> - {isFusedAccessory ? 'Costo unitario' : isAccessory ? 'Costo unitario del lote' : 'Costo total base'}:{' '}
               <span className="font-semibold">{fmtSoles(costoTotalBase)}</span>
             </p>
           </div>
@@ -244,7 +249,12 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
           <div>
             {isAccessory && (
               <div className="mb-4 grid gap-3 rounded-lg border border-indigo-200 bg-indigo-50 p-4 sm:grid-cols-2">
-                <div>
+                {isFusedAccessory ? (
+                  <div>
+                    <p className="mb-2 text-sm font-medium">Stock disponible</p>
+                    <p>{quotation.quote?.disponible ?? fusedStock} unidades</p>
+                  </div>
+                ) : <div>
                   <label htmlFor="calculadora-lote" className="block text-sm font-medium mb-2">Lote de compra</label>
                   <select id="calculadora-lote" value={selectedLotId} onChange={(event) => setSelectedLotId(event.target.value)} className="w-full rounded-lg border bg-white p-2">
                     {accessoryLots.map((lot) => {
@@ -253,12 +263,12 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
                       return <option key={lot.id} value={lot.id}>{`Lote ${lot.id} · compra ${fmtDate(purchase)} · recojo ${fmtDate(pickup)} · ${lot.stockActual || 0} disponibles`}</option>;
                     })}
                   </select>
-                </div>
+                </div>}
                 <div>
                   <label htmlFor="calculadora-cantidad" className="block text-sm font-medium mb-2">Unidades a vender</label>
-                  <input id="calculadora-cantidad" type="number" min="1" max={quotation.quote?.disponible ?? producto.stockActual ?? 1} step="1" value={cantidad} onChange={(event) => setCantidad(event.target.value)} className="w-full rounded-lg border bg-white p-2" />
+                  <input id="calculadora-cantidad" type="number" min="1" max={quotation.quote?.disponible ?? (isFusedAccessory ? fusedStock : producto.stockActual ?? 1)} step="1" value={cantidad} onChange={(event) => setCantidad(event.target.value)} className="w-full rounded-lg border bg-white p-2" />
                 </div>
-                <p className="sm:col-span-2 text-xs text-indigo-800">Se usa primero el lote elegido y se completa con las siguientes compras. El costo total incluye todos los lotes necesarios.</p>
+                {!isFusedAccessory && <p className="sm:col-span-2 text-xs text-indigo-800">Se usa primero el lote elegido y se completa con las siguientes compras. El costo total incluye todos los lotes necesarios.</p>}
               </div>
             )}
             {/* Sugerencias */}
@@ -329,9 +339,9 @@ export default function ModalCalculadora({ producto, onClose, embedded = false }
                   <details className="mt-3 text-sm text-slate-600">
                     <summary className="cursor-pointer font-medium">Ver detalle del cálculo</summary>
                     <div className="mt-2 space-y-1">
-                      {(!purchaseInSoles || envioSoles > 0) && <p className="text-xs">Compra del lote seleccionado, por unidad. El costo del resumen incluye todos los lotes utilizados.</p>}
-                      {!purchaseInSoles && <div className="flex justify-between"><span>Valor base del lote (US$):</span><strong>{Number.isFinite(valorUSD) ? `$ ${valorUSD.toFixed(2)}` : '—'}</strong></div>}
-                      {envioSoles > 0 && <div className="flex justify-between"><span>Envío del lote (S/):</span><strong>{fmtSoles(envioSoles)}</strong></div>}
+                      {!isFusedAccessory && (!purchaseInSoles || envioSoles > 0) && <p className="text-xs">Compra del lote seleccionado, por unidad. El costo del resumen incluye todos los lotes utilizados.</p>}
+                      {!isFusedAccessory && !purchaseInSoles && <div className="flex justify-between"><span>Valor base del lote (US$):</span><strong>{Number.isFinite(valorUSD) ? `$ ${valorUSD.toFixed(2)}` : '—'}</strong></div>}
+                      {!isFusedAccessory && envioSoles > 0 && <div className="flex justify-between"><span>Envío del lote (S/):</span><strong>{fmtSoles(envioSoles)}</strong></div>}
                       <p>Margen sobre venta: {margenCotizado == null ? '—' : margenCotizado.toFixed(2) + '%'}</p>
                       {precioCustom === '' && <p className="text-xs">Sin precio ingresado, este margen usa el precio sugerido.</p>}
                     </div>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../../api';
+import AccesoriosStockVenta, { seleccionAccesoriosStock } from '../AccesoriosStockVenta';
 import { btnCls, btnPrimaryCls, Campo, Cifra, hoy, inputCls, money } from '../finanzas/ui';
 import { notifyGastosChanged } from '../../utils/gastosSync';
 import { notifySalesChanged } from '../../utils/salesSync';
@@ -18,6 +19,7 @@ export default function PanelVentaCuotas({ adelantoId, onClose, onChanged, inici
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(null);
   const [confirmacion, setConfirmacion] = useState(null);
+  const [accesoriosExcluidos, setAccesoriosExcluidos] = useState([]);
   const dialog = useRef(null);
   const title = useRef(null);
   const closeRef = useRef(onClose);
@@ -56,6 +58,7 @@ export default function PanelVentaCuotas({ adelantoId, onClose, onChanged, inici
 
   const openForm = (mode, pago) => {
     setError(''); setSuccess(''); setConfirmacion(null);
+    setAccesoriosExcluidos([]);
     setForm(pago ? { mode: 'edit', index: pago.index, monto: String(pago.monto), fecha: String(pago.fecha).slice(0, 10), banco: bancoEditable(pago.banco), tipoPago: pago.tipoPago }
       : { mode, monto: resumen.estado === 'vendido' ? '' : String(resumen.falta), fecha: hoy(), banco: 'bcp', tipoPago: 'direct', cerrar: true, fechaVenta: hoy(), tipoCambio: '' });
   };
@@ -83,12 +86,13 @@ export default function PanelVentaCuotas({ adelantoId, onClose, onChanged, inici
   // En una venta cerrada se puede registrar otro pago tomando parte del cobro al cerrar.
   const puedeAgregar = resumen && (resumen.estado === 'reservado'
     || (resumen.estado === 'vendido' && cierre?.editable && cents(cierre.monto) > 0));
+  const cerrando = form && (form.mode === 'close' || (form.mode === 'pay' && form.cerrar && cents(form.monto) === cents(resumen.falta)));
   const submit = (event) => {
     event.preventDefault();
     const monto = Number(form.monto);
     const original = resumen.pagos.find((pago) => pago.index === form.index);
     const max = (resumen.estado === 'vendido' ? cents(cierre?.monto) : cents(resumen.falta)) + (form.mode === 'edit' ? cents(original?.monto) : 0);
-    const closing = form.mode === 'close' || (form.mode === 'pay' && form.cerrar && cents(monto) === cents(resumen.falta));
+    const closing = cerrando;
     if (form.mode !== 'close' && (!Number.isFinite(monto) || monto <= 0 || Math.abs(cents(monto) / 100 - monto) > 0.000001)) {
       setError('Ingresa un monto mayor a cero con hasta dos decimales.'); return;
     }
@@ -101,12 +105,16 @@ export default function PanelVentaCuotas({ adelantoId, onClose, onChanged, inici
     if (closing && (!form.fechaVenta || !Number.isFinite(Number(form.tipoCambio)) || Number(form.tipoCambio) <= 0)) { setError('Indica la fecha de venta y un tipo de cambio mayor a cero.'); return; }
     if (form.mode !== 'close' && !form.fecha) { setError('Selecciona la fecha del pago.'); return; }
     const payload = { montoCuota: monto, fechaCuota: form.fecha, incomeBank: form.banco, incomePaymentType: form.tipoPago };
-    if (form.mode === 'close') return mutate(() => api.post(`/ventas/adelanto/${adelantoId}/completar`, { fechaVenta: form.fechaVenta, tipoCambio: Number(form.tipoCambio) }), 'Venta cerrada.');
+    const datosCierre = closing ? {
+      fechaVenta: form.fechaVenta, tipoCambio: Number(form.tipoCambio),
+      ...seleccionAccesoriosStock(resumen.accesoriosStock, accesoriosExcluidos),
+    } : null;
+    if (form.mode === 'close') return mutate(() => api.post(`/ventas/adelanto/${adelantoId}/completar`, datosCierre), 'Venta cerrada.');
     if (form.mode === 'edit' && form.index === -1) return mutate(() => api.patch(`/ventas/${resumen.ventaId}`, {
       precioVenta: (cents(resumen.precio) - cents(original.monto) + cents(monto)) / 100, fechaVenta: form.fecha,
       incomeBank: form.banco, incomeParts: [{ type: form.tipoPago, amount: monto }],
     }), 'Cobro al cerrar corregido.');
-    if (closing) payload.cerrarVenta = { fechaVenta: form.fechaVenta, tipoCambio: Number(form.tipoCambio) };
+    if (closing) payload.cerrarVenta = datosCierre;
     return mutate(() => form.mode === 'edit' ? api.patch(`/ventas/adelanto/${adelantoId}/cuotas/${form.index}`, payload) : api.post(`/ventas/adelanto/${adelantoId}/cuotas`, payload), form.mode === 'edit' ? 'Pago corregido.' : closing ? 'Pago registrado y venta cerrada.' : 'Pago registrado.');
   };
 
@@ -121,10 +129,12 @@ export default function PanelVentaCuotas({ adelantoId, onClose, onChanged, inici
       </div>
     </>}
     {form.mode === 'pay' && cents(form.monto) === cents(resumen.falta) && <Campo label="Cerrar la venta con este pago"><input name="cerrar" type="checkbox" className="h-5 w-5" checked={form.cerrar} onChange={(event) => change('cerrar', event.target.checked)} /></Campo>}
-    {(form.mode === 'close' || (form.mode === 'pay' && form.cerrar && cents(form.monto) === cents(resumen.falta))) && <div className="grid grid-cols-2 gap-3">
+    {cerrando && <div className="grid grid-cols-2 gap-3">
       <Campo label="Fecha de venta"><input name="fechaVenta" className={field} type="date" value={form.fechaVenta} onChange={(event) => change('fechaVenta', event.target.value)} /></Campo>
       <Campo label="Tipo de cambio"><input name="tipoCambio" autoComplete="off" className={field} type="number" step="0.0001" inputMode="decimal" value={form.tipoCambio} onChange={(event) => change('tipoCambio', event.target.value)} /></Campo>
     </div>}
+    {cerrando && <AccesoriosStockVenta stock={resumen.accesoriosStock} excluidos={accesoriosExcluidos}
+      setExcluidos={setAccesoriosExcluidos} disabled={busy} />}
     {error && <p id="cuotas-error" className="text-sm text-red-700" aria-live="polite">{error}</p>}
     <div className="flex flex-wrap justify-end gap-2">
       {form.mode === 'edit' && form.index >= 0 && <button type="button" className={`${button} mr-auto text-red-700`} onClick={() => setConfirmacion({ type: 'remove', pago: resumen.pagos.find((item) => item.index === form.index) })}>Quitar pago</button>}

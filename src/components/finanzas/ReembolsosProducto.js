@@ -22,6 +22,8 @@ export const MOTIVOS_RECLAMO = [
   'No llegó a Eshopex.',
   'Llegó algo distinto al producto comprado.',
 ];
+export const MOTIVO_EQUIPO_DANADO = 'Equipo dañado.';
+const esParcial = (r) => r?.tipoReclamo === 'dano_parcial';
 const cerrado = (r) =>
   ['recibido', 'rechazado', 'perdida_definitiva', 'anulado'].includes(r.estado);
 
@@ -71,12 +73,12 @@ function ReembolsoRecibido({ reclamo, producto, cuentas, onDone, onCancel }) {
         onSubmit={submit}
         className="w-full max-w-md space-y-3 rounded-xl bg-white p-5 shadow-xl"
       >
-        <h3 className="font-semibold">Registrar reembolso recibido</h3>
+        <h3 className="font-semibold">{esParcial(reclamo) ? 'Confirmar llegada del reembolso' : 'Registrar reembolso recibido'}</h3>
         <p className="text-sm">
           Compra · SKU {producto.codigoInventario || producto.id}
         </p>
         <p className="text-sm">
-          Importe original reclamado:{' '}
+          {esParcial(reclamo) ? 'Monto devuelto:' : 'Importe original reclamado:'}{' '}
           <strong>
             {reclamo.moneda} {Number(reclamo.montoReclamado).toFixed(2)}
           </strong>
@@ -86,7 +88,7 @@ function ReembolsoRecibido({ reclamo, producto, cuentas, onDone, onCancel }) {
             Pendiente: {reclamo.moneda} {pendiente.toFixed(2)}
           </p>
         )}
-        <Campo label="Fecha del reembolso">
+        <Campo label={esParcial(reclamo) ? 'Fecha en que llegó a la cuenta' : 'Fecha del reembolso'}>
           <input
             required
             type="date"
@@ -127,7 +129,7 @@ function ReembolsoRecibido({ reclamo, producto, cuentas, onDone, onCancel }) {
   );
 }
 
-export default function ReembolsosProducto({ producto, onChanged }) {
+export default function ReembolsosProducto({ producto, onChanged, clientePedido = '' }) {
   const [items, setItems] = useState([]),
     [cuentas, setCuentas] = useState([]);
   const [loading, setLoading] = useState(true),
@@ -141,6 +143,7 @@ export default function ReembolsosProducto({ producto, onChanged }) {
   const [anular, setAnular] = useState(null);
   const [editarFecha, setEditarFecha] = useState(null);
   const [reabiertoId, setReabiertoId] = useState(null);
+  const [danado, setDanado] = useState(null);
   const cargar = useCallback(async () => {
     try {
       const [lista, c] = await Promise.all([
@@ -163,6 +166,7 @@ export default function ReembolsosProducto({ producto, onChanged }) {
   const refrescar = async () => {
     setEvento(null);
     setNuevo(false);
+    setDanado(null);
     await cargar();
     notifySalesChanged({ action: 'reclamo', productoId: producto.id });
     onChanged?.();
@@ -173,6 +177,26 @@ export default function ReembolsosProducto({ producto, onChanged }) {
     setError('');
     try {
       await finanzasApi.crearReembolso({ productoId: producto.id, motivo, fechaIncidencia: diaReclamo });
+      await refrescar();
+    } catch (err) {
+      setError(limpiarError(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const crearDanado = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      await finanzasApi.crearReembolso({
+        productoId: producto.id,
+        tipoReclamo: 'dano_parcial',
+        motivo: MOTIVO_EQUIPO_DANADO,
+        fechaIncidencia: danado.fecha,
+        montoReclamado: Number(danado.monto),
+        ...(clientePedido && danado.saldo !== '' ? { saldoClientePen: Number(danado.saldo) } : {}),
+      });
       await refrescar();
     } catch (err) {
       setError(limpiarError(err));
@@ -233,19 +257,22 @@ export default function ReembolsosProducto({ producto, onChanged }) {
                 className={btnCls}
                 onClick={() => setEvento(r.id)}
               >
-                Registrar reembolso recibido
+                {esParcial(r) ? 'Confirmar llegada a la cuenta' : 'Registrar reembolso recibido'}
               </button>
             )}
           </div>
-          <p>{r.motivo}</p>
+          <p>{esParcial(r) ? 'Equipo dañado · devolución parcial' : r.motivo}</p>
+          {esParcial(r) && r.saldoClientePen != null && (
+            <p>Saldo a favor del cliente: S/ {Number(r.saldoClientePen).toFixed(2)}</p>
+          )}
           {!cerrado(r) && <div className="space-y-2">
             {editarFecha?.id === r.id ? <div>
-              <Campo label="Nueva fecha del reclamo"><input required type="date" className={inputCls} value={editarFecha.fecha} onChange={(e) => setEditarFecha({ id: r.id, fecha: e.target.value })} /></Campo>
+              <Campo label={esParcial(r) ? 'Nueva fecha de emisión' : 'Nueva fecha del reclamo'}><input required type="date" className={inputCls} value={editarFecha.fecha} onChange={(e) => setEditarFecha({ id: r.id, fecha: e.target.value })} /></Campo>
               <button type="button" className={btnCls} disabled={saving} onClick={() => setEditarFecha(null)}>Cancelar cambio de fecha</button>{' '}
               <button type="button" className={btnCls} disabled={saving || !editarFecha.fecha} onClick={guardarFecha}>Guardar fecha del reclamo</button>
             </div> : <button type="button" className={btnCls} onClick={() => setEditarFecha({ id: r.id, fecha: r.fechaIncidencia })}>Cambiar fecha del reclamo</button>}
             {anular === r.id ? <>
-              <p>Se retirará el saldo a favor generado por este reclamo y se restaurará el pedido. El historial se conserva.</p>
+              <p>{esParcial(r) ? 'Se retirará el saldo a favor generado por esta devolución. La venta no cambia. El historial se conserva.' : 'Se retirará el saldo a favor generado por este reclamo y se restaurará el pedido. El historial se conserva.'}</p>
               <button type="button" className={btnCls} disabled={saving} onClick={() => setAnular(null)}>Volver</button>{' '}
               <button type="button" className={btnCls} disabled={saving} onClick={() => confirmarAnulacion(r.id)}>Confirmar anulación</button>
             </> : <button type="button" className={btnCls} onClick={() => setAnular(r.id)}>Anular reclamo</button>}
@@ -256,19 +283,24 @@ export default function ReembolsosProducto({ producto, onChanged }) {
             <button type="button" className={btnCls} disabled={saving} onClick={() => confirmarAnulacion(r.id)}>Confirmar quitar reembolso</button>
           </div> : <button type="button" className={btnCls} onClick={() => setAnular(r.id)}>Quitar reembolso</button>)}
           <p>
-            Reclamado: {r.moneda} {Number(r.montoReclamado).toFixed(2)}
+            {esParcial(r) ? 'Monto devuelto' : 'Reclamado'}: {r.moneda} {Number(r.montoReclamado).toFixed(2)}
           </p>
-          <p className="text-slate-600">
+          {esParcial(r) && <p className="text-slate-600">
+            Baja el costo del equipo en {money(r.costoOriginal)}
+            {r.saldoClientePen != null ? ` y la devolución al cliente (${money(r.saldoClientePen)}) se resta del ingreso` : ''}
+            {r.reversionReclamo?.ajusteVenta ? ' · ya aplicado a la ganancia de la venta.' : ' · se aplicará a la ganancia cuando se venda.'}
+          </p>}
+          {!esParcial(r) && <p className="text-slate-600">
             Cargo original conservado · costo de compra {money(r.costoOriginal)}
-          </p>
+          </p>}
           <ul className="border-l pl-3 text-xs text-slate-600">
             {(r.eventos || []).map((e) => (
               <li key={e.id}>
                 {fecha(e.fecha)} ·{' '}
                 {e.tipo === 'recibido'
-                  ? 'Reembolso recibido'
+                  ? (esParcial(r) ? 'Reembolso llegó a la cuenta' : 'Reembolso recibido')
                   : e.tipo === 'incidencia'
-                    ? 'Reclamo pendiente'
+                    ? (esParcial(r) ? 'Reembolso emitido' : 'Reclamo pendiente')
                     : e.tipo === 'anulacion' ? 'Reclamo anulado' : e.tipo === 'fecha_reclamo' ? 'Fecha del reclamo corregida'
                       : e.tipo === 'recibido_anulado' ? 'Reembolso retirado' : e.tipo}
                 {e.monto
@@ -344,15 +376,58 @@ export default function ReembolsosProducto({ producto, onChanged }) {
             </button>
           </div>
         </form>
+      ) : danado ? (
+        <form
+          onSubmit={crearDanado}
+          className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
+          aria-label="Reclamo equipo dañado"
+        >
+          <p className="text-sm font-medium">Equipo dañado · devolución parcial</p>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <Campo label="Fecha de emisión del reembolso">
+              <input required type="date" className={inputCls} value={danado.fecha}
+                onChange={(e) => setDanado({ ...danado, fecha: e.target.value })} />
+            </Campo>
+            <Campo label="Monto devuelto (USD)">
+              <input required type="number" min="0.01" step="0.01" className={inputCls} value={danado.monto}
+                max={producto.valor?.monedaCompra === 'USD' ? Number(producto.valor.valorProducto) : undefined}
+                onChange={(e) => setDanado({ ...danado, monto: e.target.value })} />
+            </Campo>
+          </div>
+          {clientePedido && (
+            <Campo label={`Devolución a ${clientePedido} (S/)`}>
+              <input type="number" min="0.01" step="0.01" className={inputCls} value={danado.saldo}
+                onChange={(e) => setDanado({ ...danado, saldo: e.target.value })} />
+            </Campo>
+          )}
+          <p className="text-xs text-slate-600">
+            El producto y la venta no cambian.{clientePedido ? ` Lo indicado en soles pasa a saldo a favor de ${clientePedido} al registrar el reclamo, sin esperar a que llegue el reembolso.` : ''} Cuando el dinero llegue, confirma la fecha y la cuenta.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button type="button" className={btnCls} onClick={() => setDanado(null)}>Cancelar</button>
+            <button disabled={saving} className={btnPrimaryCls}>
+              {saving ? 'Guardando…' : 'Registrar reclamo'}
+            </button>
+          </div>
+        </form>
       ) : (
-        !items.some((r) => !cerrado(r) || r.estado === 'recibido') && (
-          <button
-            type="button"
-            className={btnCls}
-            onClick={() => setNuevo(true)}
-          >
-            Reclamo no llegó
-          </button>
+        !items.some((r) => !cerrado(r) || (r.estado === 'recibido' && !esParcial(r))) && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={btnCls}
+              onClick={() => setNuevo(true)}
+            >
+              Reclamo no llegó
+            </button>
+            <button
+              type="button"
+              className={btnCls}
+              onClick={() => setDanado({ fecha: hoy(), monto: '', saldo: '' })}
+            >
+              Reclamo equipo dañado
+            </button>
+          </div>
         )
       )}
       <ErrorBox error={error} />

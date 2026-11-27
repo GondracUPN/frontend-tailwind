@@ -14,7 +14,9 @@ import IncludedAccessories, { normalizeIncludedAccessories } from './IncludedAcc
 import { formatAppleWatchName } from '../utils/productName';
 import { calculateShippingWeight, describeAppleModelMatch } from '../utils/appleModelLookup';
 import FormProductoAirpods from './formParts/FormProductoAirpods';
-import { fetchAppleCatalog } from '../services/appleCatalog';
+import { catalogImportDetalle, fetchAppleCatalog } from '../services/appleCatalog';
+import { enqueueOperation } from '../services/backgroundOps';
+import { openDetachedModal } from '../services/detachedModals';
 
 const normalizeText = (val) =>
   String(val || '')
@@ -205,18 +207,20 @@ const inferRamFromTitle = (title) => {
   const m =
     t.match(/(\d+)\s*gb[^a-z0-9]{0,6}ram\b/i) ||
     t.match(/(\d+)\s*gb[^a-z0-9]{0,6}unified memory\b/i) ||
-    t.match(/(\d+)\s*gb\b/);
+    t.match(/\b(?:ram|unified memory)\s*[:=-]?\s*(\d+)\s*gb\b/i) ||
+    t.match(/\b(\d+)\s*gb\s*[/-]\s*\d+\s*(?:gb|tb)\b/i);
   return m ? m[1] : '';
 };
 
 const inferStorageFromTitle = (title) => {
   const t = normalizeText(title);
   const m =
+    t.match(/\b(\d+)\s*(tb|gb)[^a-z0-9]{0,8}(?:ssd|storage|rom)\b/i) ||
     t.match(/(\d+)\s*tb[^a-z0-9]{0,8}(ssd|storage|rom)?/i) ||
-    t.match(/(\d+)\s*gb[^a-z0-9]{0,8}(ssd|storage|rom)?/i);
+    t.match(/\b(64|128|256|512|1024|2048)\s*gb\b(?!\s*(?:ram|unified memory))/i);
   if (!m) return '';
   const val = m[1];
-  return t.includes('tb') ? `${val}TB` : val;
+  return /tb/i.test(m[0]) ? `${val}TB` : val;
 };
 
 const extractStorageValue = (val) => {
@@ -277,14 +281,17 @@ const repartirCantidadLote = (rows, total) => {
   );
 };
 
-export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch }) {
+// `draft`: estado capturado al enviar; permite reabrir el formulario tal cual
+// cuando el guardado en segundo plano falla (p. ej. validación del servidor).
+export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch, draft = null }) {
   const isEdit = Boolean(producto);
+  const draftRef = useRef(draft);
   const [saving, setSaving] = useState(false);
-  const [loteActivo, setLoteActivo] = useState(false);
-  const [vincularTodoLote, setVincularTodoLote] = useState(false);
-  const [loteExpenseOwner, setLoteExpenseOwner] = useState('gonzalo');
-  const [cantidadLote, setCantidadLote] = useState(2);
-  const [distribucionLote, setDistribucionLote] = useState([
+  const [loteActivo, setLoteActivo] = useState(draft?.loteActivo ?? false);
+  const [vincularTodoLote, setVincularTodoLote] = useState(draft?.vincularTodoLote ?? false);
+  const [loteExpenseOwner, setLoteExpenseOwner] = useState(draft?.loteExpenseOwner ?? 'gonzalo');
+  const [cantidadLote, setCantidadLote] = useState(draft?.cantidadLote ?? 2);
+  const [distribucionLote, setDistribucionLote] = useState(draft?.distribucionLote ?? [
     { vendedor: '', pedidoCliente: '', cantidad: 2, cantidadFija: false },
   ]);
   const mountedRef = useRef(true);
@@ -300,8 +307,8 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
   const [loadingLinker, setLoadingLinker] = useState(false);
   const [linkables, setLinkables] = useState([]);
   const [pendingLinkIds, setPendingLinkIds] = useState([]);
-  const [vincularConList, setVincularConList] = useState([]);
-  const [desvincularEnvio, setDesvincularEnvio] = useState(false);
+  const [vincularConList, setVincularConList] = useState(draft?.vincularConList ?? []);
+  const [desvincularEnvio, setDesvincularEnvio] = useState(draft?.desvincularEnvio ?? false);
   const [recentOpen, setRecentOpen] = useState(false);
   const [recentLoading, setRecentLoading] = useState(false);
   const [recentError, setRecentError] = useState('');
@@ -310,10 +317,10 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
   const [sellerCardsLoading, setSellerCardsLoading] = useState(false);
   const [sellerCardsError, setSellerCardsError] = useState('');
   const [sellerExpenseUserId, setSellerExpenseUserId] = useState(null);
-  const [paymentCard, setPaymentCard] = useState('');
+  const [paymentCard, setPaymentCard] = useState(draft?.paymentCard ?? '');
 
-  const [purchaseRate, setPurchaseRate] = useState('3.7');
-  const [form, setForm] = useState({
+  const [purchaseRate, setPurchaseRate] = useState(draft?.purchaseRate ?? '3.7');
+  const [form, setForm] = useState(() => draft?.form ?? {
     tipo: '',
     estado: '',
     vendedor: '',
@@ -356,6 +363,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
 
   useEffect(() => {
     if (!isEdit) return;
+    if (draftRef.current) { draftRef.current = null; return; } // se reabrió con lo que el usuario había escrito
     const detalle = { ...(producto.detalle || {}) };
     if (detalle.tamanio && !detalle.tamano) {
       detalle.tamano = detalle.tamanio;
@@ -674,7 +682,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
       const parsed = data?.titleParsed || {};
       const condition = String(data?.condition || '');
       // Identificación por Axxxx / código de pedido / identificador desde el catálogo del backend.
-      // Solo se aplica cuando es inequívoca; nunca rellena RAM/SSD mínimos de la familia.
+      // La identidad se aplica cuando es inequívoca; la configuración se ajusta al catálogo.
       const identified = await api.get(`/apple-catalog/identify?q=${encodeURIComponent(title)}`).catch(() => null);
       const candidates = Array.isArray(identified?.candidates) ? identified.candidates : [];
       const exact = identified?.status === 'exact' ? candidates[0] : null;
@@ -716,8 +724,12 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
       setEbayConditionRaw(condition || 'used');
       setEbayModelMatch(identifierMatch);
 
+      const catalog = await fetchAppleCatalog();
+
       setForm((f) => {
         const nextDetalle = { ...f.detalle };
+        // No arrastrar la configuración de una búsqueda anterior.
+        for (const field of ['tamano', 'ram', 'almacenamiento', 'conexion']) nextDetalle[field] = '';
         if (tipo === 'macbook') {
           nextDetalle.gama = gama || nextDetalle.gama;
           nextDetalle.procesador = proc || nextDetalle.procesador;
@@ -751,7 +763,7 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
           ...f,
           tipo: tipo || f.tipo,
           estado: mapEbayConditionToEstado(condition || 'used'),
-          detalle: nextDetalle,
+          detalle: tipo === 'otro' ? nextDetalle : catalogImportDetalle(catalog, tipo, nextDetalle),
           valor: {
             ...f.valor,
             valorProducto: Number.isFinite(total) && total > 0 ? String(total) : f.valor.valorProducto,
@@ -867,81 +879,100 @@ export default function ModalProducto({ producto, onClose, onSaved, onSavedBatch
       };
     }
 
-    try {
-      const res = await api[method](url, requestPayload);
-      const saved = res?.data ?? res;
+    // La operación sigue en la cola global: el modal se cierra sin esperar al servidor.
+    // `state` sobrevive a los reintentos para continuar desde el paso que falló.
+    const extras = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
+    const casillero = form.casillero;
+    const expenseBody = shouldCreateExpense ? {
+      concepto: 'inversion',
+      metodoPago: 'credito',
+      moneda: 'USD',
+      monto: productAmountUsd,
+      fecha: form.valor.fechaCompra,
+      tarjeta: paymentCard,
+    } : null;
+    const expenseUserId = sellerExpenseUserId;
+    const notifyProductos = (detail) => {
+      try { window.dispatchEvent(new CustomEvent('productos-updated', { detail })); } catch { /* ignore */ }
+    };
 
-      const registerPurchaseExpense = async (savedIds) => {
-        if (!shouldCreateExpense) return;
+    const run = async (state) => {
+      if (!state.saved) {
+        const res = await api[method](url, requestPayload);
+        const saved = res?.data ?? res;
+        if (isBatch && !(Array.isArray(saved) && saved.length)) throw new Error('El lote no devolvió productos');
+        state.saved = saved;
+      }
+      const saved = state.saved;
+      const savedItems = isBatch ? saved : [saved];
+      const savedIds = savedItems.map((item) => item?.id).filter(Boolean);
+
+      if (expenseBody && !state.expenseDone && savedIds.length) {
         try {
-          await createExpenseWithDuplicateCheck({
-            concepto: 'inversion',
-            metodoPago: 'credito',
-            moneda: 'USD',
-            monto: productAmountUsd,
-            fecha: form.valor.fechaCompra,
-            tarjeta: paymentCard,
-            notas: savedIds.map(String).join(','),
-          }, { userId: sellerExpenseUserId });
-          try {
-            localStorage.removeItem(`gastos-panel-cache:${sellerExpenseUserId}`);
-          } catch {}
+          await createExpenseWithDuplicateCheck({ ...expenseBody, notas: savedIds.map(String).join(',') }, { userId: expenseUserId });
+          try { localStorage.removeItem(`gastos-panel-cache:${expenseUserId}`); } catch { /* ignore */ }
         } catch (expenseError) {
           if (!(expenseError instanceof ExpenseDuplicateCancelledError)) {
-            console.error('Producto guardado, pero no se pudo crear el gasto:', expenseError);
-            alert('El producto se guardó, pero no se pudo registrar el gasto en la tarjeta. Agrégalo manualmente desde Gastos.');
+            const error = new Error(`Producto guardado (#${savedIds.join(', #')}), pero falló el gasto en la tarjeta: ${expenseError?.message || expenseError}. Reintentar solo registra el gasto.`);
+            throw error;
           }
         }
-      };
+        state.expenseDone = true;
+      }
 
-      if (isBatch) {
-        const savedItems = Array.isArray(saved) ? saved : [];
-        if (!savedItems.length) throw new Error('El lote no devolvió productos');
-        await registerPurchaseExpense(savedItems.map((item) => item.id).filter(Boolean));
-        const extras = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
-        if (savedItems[0]?.id && extras.length) {
-          await Promise.allSettled(extras.map((id) => api.patch(`/productos/${id}`, { vincularCon: savedItems[0].id })));
+      const baseId = savedItems[0]?.id;
+      if (baseId && extras.length && !state.linksDone) {
+        await Promise.allSettled(extras.map((id) => api.patch(`/productos/${id}`, { vincularCon: baseId })));
+        state.linksDone = true;
+      }
+
+      if (!isBatch && casillero && saved?.id && !state.trackingDone) {
+        try {
+          state.tracking = await api.put(`/tracking/producto/${saved.id}`, { casillero, estado: 'comprado_sin_tracking' });
+        } catch (err) {
+          console.error('Error al asignar casillero:', err);
         }
-        if (onSavedBatch) onSavedBatch(savedItems);
-        else savedItems.forEach((item) => onSaved(item));
-        onClose();
-        return;
+        state.trackingDone = true;
       }
+      return saved;
+    };
 
-      if (saved?.id) await registerPurchaseExpense([saved.id]);
-
-      if (String(saved?.tipo || '').toLowerCase() === 'accesorios'
-        && Number(saved?.codigoInventario || saved?.id) !== Number(saved?.id)) {
-        alert(`La compra #${saved.id} se creó por separado y comparte el código ACC-${saved.codigoInventario}.`);
-      }
-
-      const extras = Array.isArray(vincularConList) ? vincularConList.slice(1) : [];
-      if (saved?.id && extras.length) {
-        const ops = extras.map((id) => api.patch(`/productos/${id}`, { vincularCon: saved.id }).catch(() => {}));
-        await Promise.allSettled(ops);
-      }
-
-      if (form.casillero) {
-        const optimisticTracking = { casillero: form.casillero, estado: 'comprado_sin_tracking' };
-        onSaved(saved, optimisticTracking);
-        api.put(`/tracking/producto/${saved.id}`, {
-          casillero: form.casillero,
-          estado: 'comprado_sin_tracking',
-        }).then((trk) => {
-          if (trk) onSaved(saved, trk);
-        }).catch((err) => console.error('Error al asignar casillero:', err));
+    const onSuccess = (saved, state) => {
+      if (isBatch) {
+        if (onSavedBatch) onSavedBatch(saved);
+        else saved.forEach((item) => onSaved?.(item));
       } else {
-        onSaved(saved);
+        if (String(saved?.tipo || '').toLowerCase() === 'accesorios'
+          && Number(saved?.codigoInventario || saved?.id) !== Number(saved?.id)) {
+          alert(`La compra #${saved.id} se creó por separado y comparte el código ACC-${saved.codigoInventario}.`);
+        }
+        if (casillero) onSaved?.(saved, state.tracking || { casillero, estado: 'comprado_sin_tracking' });
+        else onSaved?.(saved);
       }
+      notifyProductos(isBatch ? { productos: saved, source: 'background-save' } : { producto: saved, source: 'background-save' });
+    };
 
-      if (isEdit) onClose();
-      if (!isEdit) onClose();
-    } catch (err) {
-      console.error('Error al guardar:', err);
-      alert('No se pudo guardar el producto.');
-    } finally {
-      if (mountedRef.current) setSaving(false);
-    }
+    const productLabel = isEdit
+      ? `Editar MS-${producto?.codigoInventario || producto?.id}`
+      : (isBatch ? `Crear lote de ${requestPayload.cantidad} productos` : `Crear ${form.tipo || 'producto'}`);
+    const draftSnapshot = {
+      form, loteActivo, vincularTodoLote, loteExpenseOwner, cantidadLote, distribucionLote,
+      vincularConList, desvincularEnvio, paymentCard, purchaseRate,
+    };
+    enqueueOperation({
+      label: productLabel,
+      // Reabrir el formulario solo si no se guardó nada todavía (si no, duplicaría).
+      onEdit: (state) => (state.saved ? null : () => openDetachedModal((close) => (
+        <ModalProducto producto={producto} draft={draftSnapshot} onClose={close} onSaved={onSaved} onSavedBatch={onSavedBatch} />
+      ))),
+      lockKey: isEdit ? `producto:${producto.id}` : '',
+      run,
+      onSuccess,
+      // POST /productos no tiene clave idempotente: si no hubo respuesta, avisar antes de reintentar.
+      uncertainOnNetworkError: (state) => !isEdit && !state.saved,
+    });
+    if (mountedRef.current) setSaving(false);
+    onClose();
   };
 
   const baseSellerOptions = [

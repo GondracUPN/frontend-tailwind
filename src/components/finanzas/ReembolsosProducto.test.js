@@ -142,3 +142,29 @@ test('un reembolso cerrado permite habilitar la venta conservando su historial',
   await waitFor(() => expect(finanzasApi.cerrarProducto).toHaveBeenCalledWith(476, 'reabrir'));
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Habilitar producto para vender' })).not.toBeInTheDocument());
 });
+
+test('equipo dañado pide fecha de emisión, monto devuelto y saldo en soles del cliente', async () => {
+  render(<ReembolsosProducto producto={producto} clientePedido="Jorge" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Reclamo equipo dañado' }));
+  fireEvent.change(screen.getByLabelText('Fecha de emisión del reembolso'), { target: { value: '2026-11-20' } });
+  fireEvent.change(screen.getByLabelText('Monto devuelto (USD)'), { target: { value: '40' } });
+  fireEvent.change(screen.getByLabelText('Devolución a Jorge (S/)'), { target: { value: '120' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Registrar reclamo' }));
+  await waitFor(() =>
+    expect(finanzasApi.crearReembolso).toHaveBeenCalledWith({
+      productoId: 476,
+      tipoReclamo: 'dano_parcial',
+      motivo: 'Equipo dañado.',
+      fechaIncidencia: '2026-11-20',
+      montoReclamado: 40,
+      saldoClientePen: 120,
+    }),
+  );
+});
+
+test('equipo dañado sin cliente de pedido no muestra la devolución en soles', async () => {
+  render(<ReembolsosProducto producto={producto} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Reclamo equipo dañado' }));
+  expect(screen.queryByLabelText(/Devolución a/)).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Monto devuelto (USD)')).toBeInTheDocument();
+});

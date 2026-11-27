@@ -70,9 +70,14 @@ const shareForSeller = (venta, seller) => {
 const getValorUsd = (venta) => Number(venta?.producto?.valor?.valorProducto ?? 0);
 const isAccessorySale = (venta) => String(venta?.producto?.tipo || '').trim().toLowerCase() === 'accesorios';
 const normalizeAccessorySale = (venta) => venta;
-const saleCost = (venta) => isAccessorySale(venta)
-  ? Number(venta?.costoVendido ?? (Number(venta?.precioVenta || 0) - Number(venta?.ganancia || 0)))
-  : Number(venta?.producto?.valor?.costoTotal ?? 0);
+const saleCost = (venta) => {
+  if (venta?.desgloseAccesorios?.length && !venta.costoPendiente) {
+    return venta.desgloseAccesorios.reduce((total, item) => total + Number(item.costo || 0), 0);
+  }
+  return isAccessorySale(venta)
+    ? Number(venta?.costoVendido ?? (Number(venta?.precioVenta || 0) - Number(venta?.ganancia || 0)))
+    : Number(venta?.producto?.valor?.costoTotal ?? 0);
+};
 const getEnvioSoles = (venta) =>
   Number(
     venta?.producto?.valor?.costoEnvioProrrateado ??
@@ -97,8 +102,13 @@ const splitMetrics = (venta, seller) => {
   const valorUsd = getValorUsd(venta);
   const envio = getEnvioSoles(venta);
   const tc = getTipoCambioSplit(venta, seller);
-  const ingreso = Number(venta?.precioVenta ?? 0) / 2;
-  const costo = (valorUsd / 2) * tc + (envio / 2);
+  const costoAccesorios = (venta?.desgloseAccesorios || [])
+    .filter((item) => item.nombre).reduce((total, item) => total + Number(item.costo || 0), 0);
+  const ingreso = (Number(venta?.precioVenta ?? 0) - (venta?.desgloseAccesorios?.length ? Number(venta?.precioDevuelto || 0) : 0)) / 2;
+  // Sin desglose: reembolso recibido baja el costo y lo devuelto al cliente lo sube (equipo dañado).
+  const ajusteDevolucion = venta?.desgloseAccesorios?.length ? 0
+    : Number(venta?.precioDevuelto || 0) - Number(venta?.costoDevuelto || 0);
+  const costo = (valorUsd / 2) * tc + (envio + costoAccesorios + ajusteDevolucion) / 2;
   const ganancia = ingreso - costo;
   const pct = costo > 0 ? (ganancia / costo) * 100 : 0;
   return { ingreso, costo, ganancia, pct };
@@ -686,8 +696,9 @@ function ColVendedor({
           producto={editingVenta?.producto || null}
           venta={editingVenta}
           onClose={() => setEditingVenta(null)}
-          onSaved={() => {
-            setEditingVenta(null);
+          onSaved={(updated) => {
+            // La edición termina en segundo plano: no cerrar otra venta abierta después.
+            setEditingVenta((current) => (current?.id === updated?.id ? null : current));
             reloadVentas({ silent: true });
           }}
         />
@@ -743,7 +754,8 @@ function ModalSunat({ seller, onClose, ventas }) {
       const ventaSoles = ventaSolesBase * share;
       const decSoles = valorDecUSD * tipoCambio;
       const accessorySale = isAccessorySale(v);
-      const costoBase = accessorySale ? saleCost(v) * share : decSoles + envioSoles;
+      const ajusteDevolucion = (Number(v.precioDevuelto || 0) - Number(v.costoDevuelto || 0)) * share;
+      const costoBase = accessorySale ? saleCost(v) * share : decSoles + envioSoles + ajusteDevolucion;
       const gananciaNeta = ventaSoles - costoBase;
 
       return {

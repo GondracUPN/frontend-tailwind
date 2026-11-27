@@ -10,6 +10,22 @@ const row = { key: 'ref:5:gonzalo', referenciaId: 5, referencia: reference, codi
   costoProximaUnidad: 10, precioPublicado: 25, precioMinimo: 20, producto: lot, lotes: [lot], ultimaVenta: { fechaVenta: '2026-10-21', precioUnitario: 24 } };
 beforeEach(() => { jest.resetAllMocks(); api.get.mockResolvedValue([row]); });
 
+test('incluye lotes sin referencia y los ordena con los demás por llegada o alta', async () => {
+  const anterior = { ...row, lotes: [{ ...lot, tracking: [{ fechaRecogido: '2026-09-02' }] }] };
+  const legado = { ...row, key: 'lot:435', referencia: null, referenciaId: null, codigo: 435, nombre: 'Cubo USB-C',
+    lotes: [{ id: 435, tracking: [{ createdAt: '2026-10-20' }] }] };
+  api.get.mockResolvedValue([anterior, legado]);
+  render(<AccessoryOperations />);
+  await screen.findByText('ACC-435');
+  const codigos = () => screen.getAllByText(/^ACC-/).map((element) => element.textContent);
+  expect(codigos()).toEqual(['ACC-435', 'ACC-7']);
+  fireEvent.change(screen.getByLabelText('Ordenar accesorios'), { target: { value: 'oldest' } });
+  expect(codigos()).toEqual(['ACC-7', 'ACC-435']);
+  fireEvent.change(screen.getByLabelText('Buscar accesorios'), { target: { value: 'ACC-435' } });
+  expect(codigos()).toEqual(['ACC-435']);
+  expect(screen.queryByRole('button', { name: 'Reponer' })).not.toBeInTheDocument();
+});
+
 test('busca por compatibilidad y código, filtra y ofrece vender, reponer y lotes', async () => {
   const sell = jest.fn(), replenish = jest.fn(), edit = jest.fn();
   render(<AccessoryOperations onSell={sell} onReplenish={replenish} onEditLot={edit} />);

@@ -19,6 +19,31 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+test('cotiza las unidades de un accesorio fusionado con un solo stock disponible', async () => {
+  api.post.mockImplementation(async (_, { cantidad }) => ({
+    cotizacionToken: 'a'.repeat(64), costoTotal: cantidad === 3 ? 36 : 10, disponible: 7,
+  }));
+  const lots = [
+    { id: 12, stockActual: 2, valor: { monedaCompra: 'PEN' } },
+    { id: 13, stockActual: 5, valor: { monedaCompra: 'PEN' } },
+  ];
+  render(<ModalCalculadora producto={{
+    id: 13, tipo: 'accesorios', fusionAccesorioId: 12, stockActual: 7, __lots: lots,
+    vendedor: 'Gonzalo', detalle: { modelo: 'Cable USB-C' },
+  }} />);
+
+  expect(screen.queryByLabelText('Lote de compra')).not.toBeInTheDocument();
+  expect(screen.getByText('7 unidades')).toBeVisible();
+  const cantidad = screen.getByLabelText('Unidades a vender');
+  expect(cantidad).toHaveAttribute('max', '7');
+  fireEvent.change(cantidad, { target: { value: '3' } });
+
+  await waitFor(() => expect(api.post).toHaveBeenLastCalledWith('/ventas/accesorios/cotizar', {
+    productoId: 13, cantidad: 3, comprador: 'Gonzalo',
+  }));
+  expect(screen.getByText('Costo unitario:').parentElement).toHaveTextContent('S/ 12.00');
+});
+
 test('editar y borrar el precio recalcula sin cargar, perder foco ni consultar de nuevo; respeta el TC manual', async () => {
   jest.useFakeTimers();
   try {

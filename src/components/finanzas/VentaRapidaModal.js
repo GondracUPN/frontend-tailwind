@@ -1,4 +1,5 @@
 import { accessorySalePrice } from '../../utils/accessoryPrice';
+import { accessoryPackaging } from '../../utils/accessoryInventory';
 import SaldoClienteVenta from './SaldoClienteVenta';
 import useAccessoryQuote from '../../hooks/useAccessoryQuote';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -20,7 +21,7 @@ function AccessoryRow({ row, accesorios, setFila, onQuote, onRemove, revision })
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       <Campo label="Accesorio" className="col-span-2"><select className={inputCls} value={row.productoId} onChange={(event) => setFila(row.key, 'productoId', event.target.value)}>
         <option value="">No está en inventario</option>
-        {accesorios.map((item) => <option key={item.productoId} value={item.productoId}>{item.codigo ? `ACC-${item.codigo} · ` : ''}{item.nombre} · {item.comprador || 'Sin comprador'} · {item.stock} en stock</option>)}
+        {accesorios.map((item) => <option key={item.productoId} value={item.productoId}>{item.codigo ? `ACC-${item.codigo} · ` : ''}{item.nombre}{accessoryPackaging[item.empaqueAccesorio] ? ` · ${accessoryPackaging[item.empaqueAccesorio]}` : ''} · {item.comprador || 'Sin comprador'} · {item.stock} en stock</option>)}
       </select>{!acc && <input className={inputCls} placeholder="Nombre (p. ej. Mica iPhone 15)" value={row.nombre} onChange={(event) => setFila(row.key, 'nombre', event.target.value)} />}</Campo>
       <Campo label="Cant."><input className={inputCls} inputMode="numeric" value={row.cantidad} onChange={(event) => setFila(row.key, 'cantidad', event.target.value)} /></Campo>
       <Campo label="Precio unit."><input className={inputCls} inputMode="decimal" value={row.precioUnitario} onChange={(event) => setFila(row.key, 'precioUnitario', event.target.value)} /></Campo>

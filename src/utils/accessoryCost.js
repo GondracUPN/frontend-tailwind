@@ -22,3 +22,19 @@ export function accessoryUnitCost(lot) {
     : value.costoTotalProrrateado ?? value.costoTotal ?? value.valorSoles;
   return total == null ? null : Number(total) / Math.max(1, Number(lot.stockInicial || 1));
 }
+
+export function accessoryPurchaseSummary(lots) {
+  const lines = lots.map((lot) => ({
+    quantity: Number(lot.stockInicial || 0), available: Number(lot.stockActual || 0), cost: accessoryUnitCost(lot),
+  }));
+  const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
+  const available = lines.reduce((sum, line) => sum + line.available, 0);
+  const total = lines.some((line) => line.cost == null) ? null : lines.reduce((sum, line) => sum + line.cost * line.quantity, 0);
+  const availableCost = lines.some((line) => line.available > 0 && line.cost == null) ? null
+    : lines.reduce((sum, line) => sum + (line.cost || 0) * line.available, 0);
+  return {
+    quantity, available, total,
+    average: total == null || !quantity ? null : total / quantity,
+    availableAverage: availableCost == null || !available ? null : availableCost / available,
+  };
+}

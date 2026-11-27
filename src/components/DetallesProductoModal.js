@@ -11,6 +11,8 @@ import { formatAppleWatchName } from '../utils/productName';
 import FormProductoOtro from './formParts/FormProductoOtro';
 import FormProductoAccessory from './formParts/FormProductoAccessory';
 import api from '../api';
+import { getProductos } from '../services/productosStore';
+import { enqueueOperation } from '../services/backgroundOps';
 import IncludedAccessories, { normalizeIncludedAccessories } from './IncludedAccessories';
 import PagosVenta from './finanzas/PagosVenta';
 import ReembolsosProducto from './finanzas/ReembolsosProducto';
@@ -93,7 +95,8 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
     setVinculados(base);
     // Si no tenemos otros datos y hay grupo, intentar refrescar
     if ((!base.length || base.length === 1) && producto.envioGrupoId) {
-      api.get('/productos').then((res) => {
+      // Usa la lista compartida (caché + petición en curso) en vez de otra descarga completa.
+      getProductos().then((res) => {
         const data = res?.data || res || [];
         if (Array.isArray(data)) {
           const newer = data.filter((p) => p.envioGrupoId && p.envioGrupoId === producto.envioGrupoId && p.id !== producto.id);
@@ -182,30 +185,32 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
     if (primaryLink) payload.vincularCon = Number(primaryLink);
     if (desvincularEnvio) payload.desvincularEnvio = true;
 
-    try {
-      const runExtraOps = async (baseId) => {
-        if (baseId && extraLinks.length) {
-          const ops = extraLinks.map((id) => api.patch(`/productos/${id}`, { vincularCon: baseId }).catch(() => {}));
-          await Promise.allSettled(ops);
-        }
-      };
-
-      if (onSaveOutside) {
-        onSaveOutside(producto.id, payload); // Guardado gestionado por el padre para cerrar rapido el modal
-        await runExtraOps(producto.id);
-        onClose?.();
-        return;
-      }
-    
-      const res = await api.patch('/productos/' + producto.id, payload);
-      const updated = res?.data ?? res;
-      await runExtraOps(updated?.id || producto.id);
-      onSaved(updated);
-      setIsEditing(false);
-    } catch (e) {
-      console.error('[DetallesProductoModal] Error al guardar:', e);
-      alert('No se pudo actualizar el producto.');
+    if (onSaveOutside) {
+      // El padre encola el guardado (PATCH + vínculos extra) y el modal se cierra al instante.
+      onSaveOutside(producto.id, payload, { extraLinks });
+      onClose?.();
+      return;
     }
+
+    const productoId = producto.id;
+    enqueueOperation({
+      label: `Editar MS-${producto.codigoInventario || productoId}`,
+      lockKey: `producto:${productoId}`,
+      run: async (state) => {
+        if (!state.updated) {
+          const res = await api.patch('/productos/' + productoId, payload);
+          state.updated = res?.data ?? res;
+        }
+        const baseId = state.updated?.id || productoId;
+        if (extraLinks.length) await Promise.allSettled(extraLinks.map((id) => api.patch(`/productos/${id}`, { vincularCon: baseId })));
+        return state.updated;
+      },
+      onSuccess: (updated) => {
+        onSaved?.(updated);
+        window.dispatchEvent(new CustomEvent('productos-updated', { detail: { producto: updated, source: 'background-save' } }));
+      },
+    });
+    setIsEditing(false);
   };
 
   // ----- 5. Renderizado -----
@@ -338,8 +343,9 @@ export default function DetallesProductoModal({ producto, venta, productosAll = 
                   </details>
                 )}
                 <details className="rounded-xl border border-slate-200 p-3" open={Boolean(producto.cierreMotivo)}>
-                  <summary className="cursor-pointer text-sm font-semibold text-slate-900">Reclamo no llegó</summary>
-                  <div className="mt-3"><ReembolsosProducto producto={producto} /></div>
+                  <summary className="cursor-pointer text-sm font-semibold text-slate-900">Reclamos</summary>
+                  <div className="mt-3"><ReembolsosProducto producto={producto}
+                    clientePedido={venta?.id ? (pedidoClientFromSeller(venta?.vendedor) || pedidoClientFromSeller(producto.vendedor)) : ''} /></div>
                 </details>
               </div>
             )}
