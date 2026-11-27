@@ -3,20 +3,42 @@ import { FiPlus, FiX } from 'react-icons/fi';
 import { accessoryLotAvailable } from '../utils/accessorySales';
 import { accessoryInventoryDates, accessoryPackaging, compareAccessoryDates, matchesAccessoryQuery } from '../utils/accessoryInventory';
 
+// Los lotes fusionados se muestran como una sola opción: stock sumado, código del lote principal
+// y, al elegirla, se usa el lote más antiguo con stock (FIFO).
+export function groupFusedLots(options) {
+  const groups = new Map();
+  const result = [];
+  options.forEach((option) => {
+    if (!option.fusionId) { result.push(option); return; }
+    const current = groups.get(option.fusionId);
+    if (!current) { const group = { ...option }; groups.set(option.fusionId, group); result.push(group); return; }
+    current.stock += option.stock;
+    current.lots = [...current.lots, ...option.lots];
+    if (compareAccessoryDates(option.fecha.date, current.fecha.date, true) < 0) current.fecha = option.fecha;
+  });
+  return result.map((option) => {
+    if (!option.fusionId) return option;
+    const ordered = [...option.lots].sort((a, b) => a.id - b.id);
+    const principal = option.lots.find((lot) => lot.id === option.fusionId) || ordered[0];
+    const pick = ordered.find((lot) => Number(lot.stockActual || 0) > 0) || ordered[0];
+    return { ...option, id: pick.id, code: principal.codigoInventario || principal.id };
+  });
+}
+
 export default function AccesoriosStockInventario({ stock, entries, buildNombre, onChange, saving }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const items = stock?.accesorios || [];
   const ids = items.map((item) => item.productoId);
-  const options = open ? entries.flatMap((entry) => {
+  const options = open ? groupFusedLots(entries.flatMap((entry) => {
     const lot = entry.producto;
     if (lot.tipo !== 'accesorios' || lot.archivadoAt || lot.cierreMotivo || !accessoryLotAvailable(lot) || ids.includes(lot.id)) return [];
     const label = buildNombre(lot);
     const empaque = accessoryPackaging[lot.empaqueAccesorio];
-    if (!matchesAccessoryQuery(query, [lot], `${label} ${lot.vendedor || ''} ${empaque || ''}`)) return [];
-    return [{ id: lot.id, label, code: lot.codigoInventario || lot.id, seller: lot.vendedor,
-      stock: lot.stockActual, empaque, fecha: accessoryInventoryDates(entry) }];
-  }).sort((a, b) => compareAccessoryDates(a.fecha.date, b.fecha.date) || b.id - a.id) : [];
+    return [{ id: lot.id, fusionId: lot.fusionAccesorioId || null, label, code: lot.codigoInventario || lot.id, seller: lot.vendedor,
+      stock: Number(lot.stockActual || 0), empaque, fecha: accessoryInventoryDates(entry), lots: [lot] }];
+  })).filter((option) => matchesAccessoryQuery(query, option.lots, `${option.label} ${option.seller || ''} ${option.empaque || ''}`))
+    .sort((a, b) => compareAccessoryDates(a.fecha.date, b.fecha.date) || b.id - a.id) : [];
 
   return (
     <div className="mt-4 space-y-2 rounded-xl border border-slate-200 p-3">
@@ -38,7 +60,7 @@ export default function AccesoriosStockInventario({ stock, entries, buildNombre,
           placeholder="Buscar por nombre o código" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" />
         <div className="max-h-52 overflow-auto">
           {options.map((lot) => (
-            <button type="button" key={lot.id} disabled={saving}
+            <button type="button" key={lot.fusionId ? `fusion-${lot.fusionId}` : lot.id} disabled={saving}
               onClick={async () => { if (await onChange([...ids, lot.id])) { setOpen(false); setQuery(''); } }}
               className="flex w-full items-center justify-between gap-3 rounded-lg p-2 text-left text-sm hover:bg-indigo-50 disabled:opacity-50">
               <span>{lot.label}<span className="block text-xs text-slate-500">
